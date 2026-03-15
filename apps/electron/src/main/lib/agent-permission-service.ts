@@ -79,6 +79,8 @@ export interface CanUseToolOptions {
 interface PendingPermission {
   resolve: (result: PermissionResult) => void
   request: PermissionRequest
+  timeoutId: ReturnType<typeof setTimeout>
+  notifyResolved?: (behavior: 'allow' | 'deny') => void
 }
 
 /** 会话级白名单 */
@@ -95,6 +97,8 @@ interface SessionWhitelist {
  * 单例模式，管理所有会话的权限状态。
  */
 export class AgentPermissionService {
+  private static readonly REQUEST_TIMEOUT_MS = 5 * 60 * 1000
+
   /** 待处理的权限请求 Map（requestId → PendingPermission） */
   private pendingPermissions = new Map<string, PendingPermission>()
 
@@ -110,13 +114,27 @@ export class AgentPermissionService {
     sessionId: string,
     mode: PromaPermissionMode,
     sendToRenderer: (request: PermissionRequest) => void,
-    askUserHandler?: (sessionId: string, input: Record<string, unknown>, signal: AbortSignal, sendToRenderer: (request: AskUserRequest) => void) => Promise<PermissionResult>,
+    askUserHandler?: (
+      sessionId: string,
+      input: Record<string, unknown>,
+      signal: AbortSignal,
+      sendToRenderer: (request: AskUserRequest) => void,
+      notifyResolved?: (requestId: string) => void,
+    ) => Promise<PermissionResult>,
     sendAskUserToRenderer?: (request: AskUserRequest) => void,
+    notifyResolved?: (requestId: string, behavior: 'allow' | 'deny') => void,
+    notifyAskUserResolved?: (requestId: string) => void,
   ): (toolName: string, input: Record<string, unknown>, options: CanUseToolOptions) => Promise<PermissionResult> {
     return async (toolName, input, options) => {
       // AskUserQuestion 拦截：委托给交互式问答服务
       if (toolName === 'AskUserQuestion' && askUserHandler && sendAskUserToRenderer) {
-        return askUserHandler(sessionId, input, options.signal, sendAskUserToRenderer)
+        return askUserHandler(
+          sessionId,
+          input,
+          options.signal,
+          sendAskUserToRenderer,
+          notifyAskUserResolved,
+        )
       }
 
       const allow = (): PermissionResult => ({ behavior: 'allow' as const, updatedInput: input })
@@ -146,14 +164,34 @@ export class AgentPermissionService {
       sendToRenderer(request)
 
       return new Promise<PermissionResult>((resolve) => {
-        this.pendingPermissions.set(request.requestId, { resolve, request })
+        const timeoutId = setTimeout(() => {
+          const pending = this.pendingPermissions.get(request.requestId)
+          if (!pending) return
+
+          this.pendingPermissions.delete(request.requestId)
+          pending.notifyResolved?.('deny')
+          pending.resolve({
+            behavior: 'deny' as const,
+            message: '权限请求超时，已自动拒绝',
+          })
+        }, AgentPermissionService.REQUEST_TIMEOUT_MS)
+
+        this.pendingPermissions.set(request.requestId, {
+          resolve,
+          request,
+          timeoutId,
+          notifyResolved: (behavior) => notifyResolved?.(request.requestId, behavior),
+        })
 
         // 如果 signal 被中止，自动拒绝
         options.signal.addEventListener('abort', () => {
-          if (this.pendingPermissions.has(request.requestId)) {
-            this.pendingPermissions.delete(request.requestId)
-            resolve({ behavior: 'deny' as const, message: '操作已中止' })
-          }
+          const pending = this.pendingPermissions.get(request.requestId)
+          if (!pending) return
+
+          clearTimeout(pending.timeoutId)
+          this.pendingPermissions.delete(request.requestId)
+          pending.notifyResolved?.('deny')
+          resolve({ behavior: 'deny' as const, message: '操作已中止' })
         }, { once: true })
       })
     }
@@ -169,6 +207,7 @@ export class AgentPermissionService {
     if (!pending) return null
 
     const sessionId = pending.request.sessionId
+    clearTimeout(pending.timeoutId)
 
     // "总是允许"选项：加入会话白名单
     if (alwaysAllow && behavior === 'allow') {
@@ -180,6 +219,7 @@ export class AgentPermissionService {
         ? { behavior: 'allow' as const, updatedInput: pending.request.toolInput }
         : { behavior: 'deny' as const, message: '用户拒绝了此操作' }
     )
+    pending.notifyResolved?.(behavior)
     this.pendingPermissions.delete(requestId)
     return sessionId
   }
@@ -190,6 +230,8 @@ export class AgentPermissionService {
   clearSessionPending(sessionId: string): void {
     for (const [requestId, pending] of this.pendingPermissions) {
       if (pending.request.sessionId === sessionId) {
+        clearTimeout(pending.timeoutId)
+        pending.notifyResolved?.('deny')
         pending.resolve({ behavior: 'deny' as const, message: '会话已结束' })
         this.pendingPermissions.delete(requestId)
       }

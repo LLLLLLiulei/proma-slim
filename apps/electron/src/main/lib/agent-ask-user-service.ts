@@ -30,6 +30,8 @@ type PermissionResult = {
 interface PendingAskUser {
   resolve: (result: PermissionResult) => void
   request: AskUserRequest
+  timeoutId: ReturnType<typeof setTimeout>
+  notifyResolved?: (requestId: string) => void
 }
 
 /**
@@ -38,6 +40,8 @@ interface PendingAskUser {
  * 单例模式，管理所有会话的 AskUser 请求。
  */
 export class AgentAskUserService {
+  private static readonly REQUEST_TIMEOUT_MS = 5 * 60 * 1000
+
   /** 待处理的 AskUser 请求 Map（requestId → PendingAskUser） */
   private pendingRequests = new Map<string, PendingAskUser>()
 
@@ -52,6 +56,7 @@ export class AgentAskUserService {
     input: Record<string, unknown>,
     signal: AbortSignal,
     sendToRenderer: (request: AskUserRequest) => void,
+    notifyResolved?: (requestId: string) => void,
   ): Promise<PermissionResult> {
     const questions = this.parseQuestions(input)
 
@@ -65,13 +70,30 @@ export class AgentAskUserService {
     sendToRenderer(request)
 
     return new Promise<PermissionResult>((resolve) => {
-      this.pendingRequests.set(request.requestId, { resolve, request })
+      const timeoutId = setTimeout(() => {
+        const pending = this.pendingRequests.get(request.requestId)
+        if (!pending) return
+
+        this.pendingRequests.delete(request.requestId)
+        pending.notifyResolved?.(request.requestId)
+        pending.resolve({ behavior: 'deny', message: 'AskUser 请求超时，已自动结束' })
+      }, AgentAskUserService.REQUEST_TIMEOUT_MS)
+
+      this.pendingRequests.set(request.requestId, {
+        resolve,
+        request,
+        timeoutId,
+        notifyResolved,
+      })
 
       signal.addEventListener('abort', () => {
-        if (this.pendingRequests.has(request.requestId)) {
-          this.pendingRequests.delete(request.requestId)
-          resolve({ behavior: 'deny', message: '操作已中止' })
-        }
+        const pending = this.pendingRequests.get(request.requestId)
+        if (!pending) return
+
+        clearTimeout(pending.timeoutId)
+        this.pendingRequests.delete(request.requestId)
+        pending.notifyResolved?.(request.requestId)
+        resolve({ behavior: 'deny', message: '操作已中止' })
       }, { once: true })
     })
   }
@@ -86,6 +108,7 @@ export class AgentAskUserService {
     if (!pending) return null
 
     const sessionId = pending.request.sessionId
+    clearTimeout(pending.timeoutId)
 
     // 构建 updatedInput：保留原始输入 + 注入 answers
     const updatedInput: Record<string, unknown> = {
@@ -97,6 +120,7 @@ export class AgentAskUserService {
       behavior: 'allow' as const,
       updatedInput,
     })
+    pending.notifyResolved?.(requestId)
     this.pendingRequests.delete(requestId)
     return sessionId
   }
@@ -107,6 +131,8 @@ export class AgentAskUserService {
   clearSessionPending(sessionId: string): void {
     for (const [requestId, pending] of this.pendingRequests) {
       if (pending.request.sessionId === sessionId) {
+        clearTimeout(pending.timeoutId)
+        pending.notifyResolved?.(requestId)
         pending.resolve({ behavior: 'deny', message: '会话已结束' })
         this.pendingRequests.delete(requestId)
       }

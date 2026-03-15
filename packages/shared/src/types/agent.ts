@@ -854,6 +854,8 @@ export const AGENT_IPC_CHANNELS = {
   SAVE_FILES_TO_WORKSPACE: 'agent:save-files-to-workspace',
   /** 获取工作区文件目录路径 */
   GET_WORKSPACE_FILES_PATH: 'agent:get-workspace-files-path',
+  /** 打开文件选择对话框 */
+  OPEN_FILE_DIALOG: 'agent:open-file-dialog',
   /** 打开文件夹选择对话框 */
   OPEN_FOLDER_DIALOG: 'agent:open-folder-dialog',
   /** 附加外部目录到 Agent 会话 */

@@ -5,6 +5,7 @@
  * 所有用户配置存储在 ~/.proma/ 目录下。
  */
 
+import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import { mkdirSync, existsSync, cpSync, readdirSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -348,10 +349,10 @@ export function getDefaultSkillsDir(): string {
  * 开发模式下从源码 default-skills/ 目录复制。
  */
 export function seedDefaultSkills(): void {
-  const { app } = require('electron')
-  const bundledDir = app.isPackaged
-    ? join(process.resourcesPath, 'default-skills')
-    : join(__dirname, '../../default-skills')
+  const configuredDir = process.env.PROMA_DEFAULT_SKILLS_DIR?.trim()
+  const bundledDir = configuredDir
+    ? configuredDir
+    : fileURLToPath(new URL('../../default-skills', import.meta.url))
 
   if (!existsSync(bundledDir)) {
     console.log('[配置] 未找到内置 default-skills 目录，跳过')

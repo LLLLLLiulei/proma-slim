@@ -9,9 +9,9 @@ export default defineConfig({
     __APP_VERSION__: JSON.stringify(pkg.version),
   },
   root: resolve(__dirname, 'src/renderer'),
-  base: './',
+  base: '/',
   build: {
-    outDir: resolve(__dirname, 'dist/renderer'),
+    outDir: resolve(__dirname, 'dist'),
     emptyOutDir: true,
   },
   resolve: {
@@ -21,7 +21,13 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    strictPort: true, // 确保使用指定端口，如被占用则报错
+    strictPort: true,
     open: false,
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:3000',
+        changeOrigin: true,
+      },
+    },
   },
 })

@@ -1,102 +1,74 @@
 import * as React from 'react'
-import { useSetAtom } from 'jotai'
-import { useStore } from 'jotai'
-import { AppShell } from './components/app-shell/AppShell'
-import { OnboardingView } from './components/onboarding/OnboardingView'
-import { TutorialBanner } from './components/tutorial/TutorialBanner'
 import { TooltipProvider } from './components/ui/tooltip'
-import { environmentCheckResultAtom } from './atoms/environment'
-import { conversationsAtom } from './atoms/chat-atoms'
-import { tabsAtom, splitLayoutAtom, openTab } from './atoms/tab-atoms'
-import type { AppShellContextType } from './contexts/AppShellContext'
+import { AppShell } from './components/app-shell/AppShell'
+import { api, type AppStatus } from './lib/api'
+
+function getStatusMessage(status: AppStatus | null, error: string | null): string | null {
+  if (error) return `无法连接后端服务: ${error}`
+  if (!status) return null
+  if (status.ok) return null
+  if (!status.apiKeyConfigured) return '未检测到 ANTHROPIC_API_KEY，发送消息前请先配置环境变量。'
+  if (!status.sdkCliAvailable) return '未检测到 Claude Agent SDK CLI。请先执行 bun install 安装依赖，并确认 Claude Code CLI 可用后重启服务。'
+  return '后端服务尚未就绪。'
+}
 
 export default function App(): React.ReactElement {
-  const setEnvironmentResult = useSetAtom(environmentCheckResultAtom)
-  const store = useStore()
+  const [status, setStatus] = React.useState<AppStatus | null>(null)
+  const [error, setError] = React.useState<string | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
-  const [showOnboarding, setShowOnboarding] = React.useState(false)
 
-  // 初始化：检查 onboarding 状态和环境
   React.useEffect(() => {
-    const initialize = async () => {
+    let cancelled = false
+
+    async function initialize(): Promise<void> {
       try {
-        // 1. 获取设置，检查是否需要 onboarding
-        const settings = await window.electronAPI.getSettings()
-
-        // 2. 执行环境检测（无论是否完成 onboarding）
-        const envResult = await window.electronAPI.checkEnvironment()
-        setEnvironmentResult(envResult)
-
-        // 3. 判断是否显示 onboarding
-        if (!settings.onboardingCompleted) {
-          setShowOnboarding(true)
+        const nextStatus = await api.getStatus()
+        if (!cancelled) {
+          setStatus(nextStatus)
+          setError(null)
         }
-      } catch (error) {
-        console.error('[App] 初始化失败:', error)
+      } catch (nextError) {
+        if (!cancelled) {
+          setError(nextError instanceof Error ? nextError.message : '未知错误')
+        }
       } finally {
-        setIsLoading(false)
+        if (!cancelled) {
+          setIsLoading(false)
+        }
       }
     }
 
-    initialize()
-  }, [setEnvironmentResult])
-
-  // 完成 onboarding 回调：创建欢迎对话
-  const handleOnboardingComplete = async () => {
-    setShowOnboarding(false)
-
-    try {
-      const meta = await window.electronAPI.createWelcomeConversation()
-      if (meta) {
-        // 添加到对话列表
-        const conversations = store.get(conversationsAtom)
-        store.set(conversationsAtom, [meta, ...conversations])
-
-        // 打开对话标签页
-        const tabs = store.get(tabsAtom)
-        const layout = store.get(splitLayoutAtom)
-        const result = openTab(tabs, layout, {
-          type: 'chat',
-          sessionId: meta.id,
-          title: meta.title,
-        })
-        store.set(tabsAtom, result.tabs)
-        store.set(splitLayoutAtom, result.layout)
-      }
-    } catch (error) {
-      console.error('[App] 创建欢迎对话失败:', error)
+    void initialize()
+    return () => {
+      cancelled = true
     }
-  }
+  }, [])
 
-  // 加载中状态
   if (isLoading) {
     return (
       <div className="flex h-screen items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
           <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-          <p className="text-sm text-muted-foreground">正在初始化...</p>
+          <p className="text-sm text-muted-foreground">正在连接 Proma 服务...</p>
         </div>
       </div>
     )
   }
 
-  // 显示 onboarding 界面
-  if (showOnboarding) {
-    return (
-      <TooltipProvider delayDuration={200}>
-        <OnboardingView onComplete={handleOnboardingComplete} />
-      </TooltipProvider>
-    )
-  }
+  const statusMessage = getStatusMessage(status, error)
 
-  // Placeholder context value
-  const contextValue: AppShellContextType = {}
-
-  // 显示主界面
   return (
     <TooltipProvider delayDuration={200}>
-      <AppShell contextValue={contextValue} />
-      <TutorialBanner />
+      <div className="proma-app-background flex h-screen min-h-0 flex-col overflow-hidden">
+        {statusMessage && (
+          <div className="border-b border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-100">
+            {statusMessage}
+          </div>
+        )}
+        <div className="min-h-0 flex-1">
+          <AppShell />
+        </div>
+      </div>
     </TooltipProvider>
   )
 }

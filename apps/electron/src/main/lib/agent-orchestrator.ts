@@ -15,43 +15,64 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { homedir } from 'node:os'
 import { join, dirname } from 'node:path'
-import { existsSync, mkdirSync, symlinkSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { createRequire } from 'node:module'
-import { app } from 'electron'
 import type { AgentSendInput, AgentEvent, AgentMessage, AgentGenerateTitleInput, AgentProviderAdapter, TypedError, RetryAttempt } from '@proma/shared'
 import { SAFE_TOOLS } from '@proma/shared'
 import type { PermissionRequest, PromaPermissionMode, AskUserRequest } from '@proma/shared'
 import type { ClaudeAgentQueryOptions } from './adapters/claude-agent-adapter'
 import { isPromptTooLongError } from './adapters/claude-agent-adapter'
 import { AgentEventBus } from './agent-event-bus'
-import { decryptApiKey, getChannelById, listChannels } from './channel-manager'
-import { getAdapter, fetchTitle, normalizeAnthropicBaseUrlForSdk } from '@proma/core'
 import { getFetchFn } from './proxy-fetch'
 import { getEffectiveProxyUrl } from './proxy-settings-service'
 import { appendAgentMessage, updateAgentSessionMeta, getAgentSessionMeta, getAgentSessionMessages } from './agent-session-manager'
-import { getAgentWorkspace, getWorkspaceMcpConfig, ensurePluginManifest, getWorkspacePermissionMode } from './agent-workspace-manager'
-import { getAgentWorkspacePath, getAgentSessionWorkspacePath, getSdkConfigDir, getWorkspaceFilesDir } from './config-paths'
-import { getWorkspaceAttachedDirectories } from './agent-workspace-manager'
+import { getSdkConfigDir } from './config-paths'
 import { getRuntimeStatus } from './runtime-init'
 import { getSettings } from './settings-service'
 import { buildSystemPromptAppend, buildDynamicContext } from './agent-prompt-builder'
 import { permissionService } from './agent-permission-service'
 import { askUserService } from './agent-ask-user-service'
-import { getMemoryConfig } from './memory-service'
-import { searchMemory, addMemory, formatSearchResult } from './memos-client'
-import {
-  findTeamLeadInboxPath,
-  pollInboxWithRetry,
-  markInboxAsRead,
-  formatInboxPrompt,
-  formatSummaryFallbackPrompt,
-  areAllWorkersIdle,
-  INBOX_RETRY_CONFIG,
-  type TaskNotificationSummary,
-} from './agent-team-reader'
+
+interface TaskNotificationSummary {
+  taskId?: string
+  status?: 'completed' | 'failed' | 'stopped'
+  summary?: string
+  outputFile?: string
+}
+
+async function findTeamLeadInboxPath(_sdkSessionId: string): Promise<{ inboxPath: string; teamName?: string } | null> {
+  return null
+}
+
+async function pollInboxWithRetry(
+  _inboxPath: string,
+  _config: { maxRetries: number; intervalMs: number; timeoutMs: number },
+  _shouldContinue?: () => boolean,
+): Promise<string[]> {
+  return []
+}
+
+async function markInboxAsRead(_inboxPath: string): Promise<void> {}
+
+function formatInboxPrompt(messages: string[]): string {
+  return messages.join('\n')
+}
+
+function formatSummaryFallbackPrompt(summaries: TaskNotificationSummary[]): string {
+  return summaries.map((s) => s.summary).filter(Boolean).join('\n')
+}
+
+async function areAllWorkersIdle(_sdkSessionId: string, _workerCount: number): Promise<boolean> {
+  return true
+}
+
+const INBOX_RETRY_CONFIG = {
+  maxRetries: 0,
+  intervalMs: 0,
+  timeoutMs: 0,
+}
 
 // ===== 类型定义 =====
 
@@ -121,6 +142,14 @@ function extractApiError(stderr: string): { statusCode: number; message: string 
   return null
 }
 
+function normalizeAnthropicBaseUrlForSdk(baseUrl: string): string {
+  return baseUrl
+    .trim()
+    .replace(/\/+$/, '')
+    .replace(/\/v\d+\/messages$/, '')
+    .replace(/\/v\d+$/, '')
+}
+
 // ===== 自动重试工具函数 =====
 
 /** 可自动重试的 TypedError 错误码 */
@@ -187,7 +216,7 @@ function resolveSDKCliPath(): string {
 
   // 策略 1：createRequire（标准 ESM/CJS 互操作）
   try {
-    const cjsRequire = createRequire(__filename)
+    const cjsRequire = createRequire(import.meta.url)
     const sdkEntryPath = cjsRequire.resolve('@anthropic-ai/claude-agent-sdk')
     cliPath = join(dirname(sdkEntryPath), 'cli.js')
     console.log(`[Agent 编排] SDK CLI 路径 (createRequire): ${cliPath}`)
@@ -195,28 +224,10 @@ function resolveSDKCliPath(): string {
     console.warn('[Agent 编排] createRequire 解析 SDK 路径失败:', e)
   }
 
-  // 策略 2：全局 require（esbuild CJS bundle 可能保留）
-  if (!cliPath) {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const sdkEntryPath = require.resolve('@anthropic-ai/claude-agent-sdk')
-      cliPath = join(dirname(sdkEntryPath), 'cli.js')
-      console.log(`[Agent 编排] SDK CLI 路径 (require.resolve): ${cliPath}`)
-    } catch (e) {
-      console.warn('[Agent 编排] require.resolve 解析 SDK 路径失败:', e)
-    }
-  }
-
-  // 策略 3：从项目根目录手动查找
+  // 策略 2：从项目根目录手动查找
   if (!cliPath) {
     cliPath = join(process.cwd(), 'node_modules', '@anthropic-ai', 'claude-agent-sdk', 'cli.js')
     console.log(`[Agent 编排] SDK CLI 路径 (手动): ${cliPath}`)
-  }
-
-  // 打包环境：将 .asar/ 路径转换为 .asar.unpacked/
-  if (app.isPackaged && cliPath.includes('.asar')) {
-    cliPath = cliPath.replace(/\.asar([/\\])/, '.asar.unpacked$1')
-    console.log(`[Agent 编排] 转换为 asar.unpacked 路径: ${cliPath}`)
   }
 
   return cliPath
@@ -265,28 +276,7 @@ function getAgentExecutable(): { type: 'node' | 'bun'; path: string } {
  * 通过 symlink 桥接 extraResources → SDK 的 vendor 目录。
  */
 function ensureRipgrepAvailable(cliPath: string): void {
-  if (!app.isPackaged) return
-
-  try {
-    const sdkDir = dirname(cliPath)
-    const arch = process.arch
-    const platform = process.platform
-    const expectedDir = join(sdkDir, 'vendor', 'ripgrep', `${arch}-${platform}`)
-    const resourcesRipgrep = join(process.resourcesPath, 'vendor', 'ripgrep')
-
-    if (existsSync(expectedDir)) return
-
-    if (!existsSync(resourcesRipgrep)) {
-      console.warn(`[Agent 编排] ripgrep 资源不存在: ${resourcesRipgrep}`)
-      return
-    }
-
-    mkdirSync(join(sdkDir, 'vendor', 'ripgrep'), { recursive: true })
-    symlinkSync(resourcesRipgrep, expectedDir, 'junction')
-    console.log(`[Agent 编排] ripgrep symlink 创建成功: ${expectedDir} → ${resourcesRipgrep}`)
-  } catch (error) {
-    console.warn('[Agent 编排] ripgrep symlink 创建失败:', error)
-  }
+  void cliPath
 }
 
 /** 最大回填消息条数 */
@@ -350,9 +340,6 @@ function buildContextPrompt(sessionId: string, currentUserMessage: string): stri
 
   return `<conversation_history>\n${lines.join('\n')}\n</conversation_history>\n\n${currentUserMessage}`
 }
-
-/** 标题生成 Prompt */
-const TITLE_PROMPT = '根据用户的第一条消息，生成一个简短的对话标题（10字以内）。只输出标题，不要有任何其他内容、标点符号或引号。\n\n用户消息：'
 
 /** 标题最大长度 */
 const MAX_TITLE_LENGTH = 20
@@ -446,147 +433,20 @@ export class AgentOrchestrator {
   }
 
   /**
-   * 构建工作区 MCP 服务器配置
-   */
-  private buildMcpServers(workspaceSlug: string | undefined): Record<string, Record<string, unknown>> {
-    const mcpServers: Record<string, Record<string, unknown>> = {}
-    if (!workspaceSlug) return mcpServers
-
-    const mcpConfig = getWorkspaceMcpConfig(workspaceSlug)
-    for (const [name, entry] of Object.entries(mcpConfig.servers ?? {})) {
-      if (!entry.enabled) continue
-      if (name === 'memos-cloud') continue
-
-      if (entry.type === 'stdio' && entry.command) {
-        const mergedEnv: Record<string, string> = {
-          ...(process.env.PATH && { PATH: process.env.PATH }),
-          ...entry.env,
-        }
-        mcpServers[name] = {
-          type: 'stdio',
-          command: entry.command,
-          ...(entry.args && entry.args.length > 0 && { args: entry.args }),
-          ...(Object.keys(mergedEnv).length > 0 && { env: mergedEnv }),
-          required: false,
-          startup_timeout_sec: entry.timeout ?? 30,
-        }
-      } else if ((entry.type === 'http' || entry.type === 'sse') && entry.url) {
-        mcpServers[name] = {
-          type: entry.type,
-          url: entry.url,
-          ...(entry.headers && Object.keys(entry.headers).length > 0 && { headers: entry.headers }),
-          required: false,
-        }
-      }
-    }
-
-    if (Object.keys(mcpServers).length > 0) {
-      console.log(`[Agent 编排] 已加载 ${Object.keys(mcpServers).length} 个 MCP 服务器`)
-    }
-
-    return mcpServers
-  }
-
-  /**
-   * 注入 SDK 内置记忆工具（全局，不依赖工作区）
-   */
-  private async injectMemoryTools(
-    sdk: typeof import('@anthropic-ai/claude-agent-sdk'),
-    mcpServers: Record<string, Record<string, unknown>>,
-  ): Promise<void> {
-    const memoryConfig = getMemoryConfig()
-    const memUserId = memoryConfig.userId?.trim() || 'proma-user'
-    if (!memoryConfig.enabled || !memoryConfig.apiKey) return
-
-    try {
-      const { z } = await import('zod')
-      const memosServer = sdk.createSdkMcpServer({
-        name: 'mem',
-        version: '1.0.0',
-        tools: [
-          sdk.tool(
-            'recall_memory',
-            'Search user memories (facts and preferences) from MemOS Cloud. Use this to recall relevant context about the user.',
-            { query: z.string().describe('Search query for memory retrieval'), limit: z.number().optional().describe('Max results (default 6)') },
-            async (args) => {
-              const result = await searchMemory(
-                { apiKey: memoryConfig.apiKey, userId: memUserId, baseUrl: memoryConfig.baseUrl },
-                args.query,
-                args.limit,
-              )
-              return { content: [{ type: 'text' as const, text: formatSearchResult(result) }] }
-            },
-            { annotations: { readOnlyHint: true } },
-          ),
-          sdk.tool(
-            'add_memory',
-            'Store a conversation message pair into MemOS Cloud for long-term memory. Call this after meaningful exchanges worth remembering.',
-            {
-              userMessage: z.string().describe('The user message to store'),
-              assistantMessage: z.string().optional().describe('The assistant response to store'),
-              conversationId: z.string().optional().describe('Conversation ID for grouping'),
-              tags: z.array(z.string()).optional().describe('Tags for categorization'),
-            },
-            async (args) => {
-              await addMemory(
-                { apiKey: memoryConfig.apiKey, userId: memUserId, baseUrl: memoryConfig.baseUrl },
-                args,
-              )
-              return { content: [{ type: 'text' as const, text: 'Memory stored successfully.' }] }
-            },
-          ),
-        ],
-      })
-      mcpServers['mem'] = memosServer as unknown as Record<string, unknown>
-      console.log(`[Agent 编排] 已注入内置记忆工具 (mem)`)
-    } catch (err) {
-      console.error(`[Agent 编排] 注入记忆工具失败:`, err)
-    }
-  }
-
-  /**
    * 生成 Agent 会话标题
    *
-   * 使用 Provider 适配器系统，支持所有渠道。任何错误返回 null。
+   * 简化实现：直接从首条用户消息裁剪标题，避免额外 Provider 调用。
    */
   async generateTitle(input: AgentGenerateTitleInput): Promise<string | null> {
-    const { userMessage, channelId, modelId } = input
-    console.log('[Agent 标题生成] 开始生成标题:', { channelId, modelId, userMessage: userMessage.slice(0, 50) })
+    const normalized = input.userMessage
+      .replace(/\s+/g, ' ')
+      .replace(/^["'""''「《]+|["'""''」》]+$/g, '')
+      .trim()
+    if (!normalized) return null
 
-    try {
-      const channels = listChannels()
-      const channel = channels.find((c) => c.id === channelId)
-      if (!channel) {
-        console.warn('[Agent 标题生成] 渠道不存在:', channelId)
-        return null
-      }
-
-      const apiKey = decryptApiKey(channelId)
-      const providerAdapter = getAdapter(channel.provider)
-      const request = providerAdapter.buildTitleRequest({
-        baseUrl: channel.baseUrl,
-        apiKey,
-        modelId,
-        prompt: TITLE_PROMPT + userMessage,
-      })
-
-      const proxyUrl = await getEffectiveProxyUrl()
-      const fetchFn = getFetchFn(proxyUrl)
-      const title = await fetchTitle(request, providerAdapter, fetchFn)
-      if (!title) {
-        console.warn('[Agent 标题生成] API 返回空标题')
-        return null
-      }
-
-      const cleaned = title.trim().replace(/^["'""''「《]+|["'""''」》]+$/g, '').trim()
-      const result = cleaned.slice(0, MAX_TITLE_LENGTH) || null
-
-      console.log(`[Agent 标题生成] 生成标题成功: "${result}"`)
-      return result
-    } catch (error) {
-      console.warn('[Agent 标题生成] 生成失败:', error)
-      return null
-    }
+    const title = normalized.slice(0, MAX_TITLE_LENGTH)
+    console.log('[Agent 标题生成] 使用首条消息生成标题:', { title })
+    return title
   }
 
   /**
@@ -597,15 +457,17 @@ export class AgentOrchestrator {
   private async autoGenerateTitle(
     sessionId: string,
     userMessage: string,
-    channelId: string,
-    modelId: string,
     callbacks: SessionCallbacks,
   ): Promise<void> {
     try {
       const meta = getAgentSessionMeta(sessionId)
       if (!meta || meta.title !== DEFAULT_SESSION_TITLE) return
 
-      const title = await this.generateTitle({ userMessage, channelId, modelId })
+      const title = await this.generateTitle({
+        userMessage,
+        channelId: '',
+        modelId: '',
+      })
       if (!title) return
 
       updateAgentSessionMeta(sessionId, { title })
@@ -645,7 +507,10 @@ export class AgentOrchestrator {
    * 通过 EventBus 分发 AgentEvent，通过 callbacks 发送控制信号。
    */
   async sendMessage(input: AgentSendInput, callbacks: SessionCallbacks): Promise<void> {
-    const { sessionId, userMessage, channelId, modelId, workspaceId, additionalDirectories, customMcpServers, permissionModeOverride, mentionedSkills, mentionedMcpServers } = input
+    const {
+      sessionId,
+      userMessage,
+    } = input
     const stderrChunks: string[] = []
 
     // 0. 并发保护
@@ -678,20 +543,13 @@ export class AgentOrchestrator {
       }
     }
 
-    // 2. 获取渠道信息并解密 API Key
-    const channel = getChannelById(channelId)
-    if (!channel) {
-      callbacks.onError('渠道不存在')
+    // 2. 直接从环境变量读取 API Key（不再依赖渠道系统）
+    const apiKey = process.env.ANTHROPIC_API_KEY?.trim()
+    if (!apiKey) {
+      callbacks.onError('未检测到 ANTHROPIC_API_KEY 环境变量，请先在终端配置后再发送消息')
       return
     }
-
-    let apiKey: string
-    try {
-      apiKey = decryptApiKey(channelId)
-    } catch {
-      callbacks.onError('解密 API Key 失败')
-      return
-    }
+    const baseUrl = process.env.ANTHROPIC_BASE_URL?.trim()
 
     // 3. 构建环境变量
     // 同步凭证到 process.env（SDK in-process 代码可能直接读取 process.env）
@@ -701,11 +559,11 @@ export class AgentOrchestrator {
     delete process.env.ANTHROPIC_BASE_URL
     process.env.ANTHROPIC_API_KEY = apiKey
     // 使用与 buildSdkEnv 相同的规范化逻辑，确保 process.env 和 sdkEnv 中的 URL 一致
-    if (channel.baseUrl && channel.baseUrl !== 'https://api.anthropic.com') {
-      process.env.ANTHROPIC_BASE_URL = normalizeAnthropicBaseUrlForSdk(channel.baseUrl)
+    if (baseUrl && baseUrl !== 'https://api.anthropic.com') {
+      process.env.ANTHROPIC_BASE_URL = normalizeAnthropicBaseUrlForSdk(baseUrl)
     }
 
-    const sdkEnv = await this.buildSdkEnv(apiKey, channel.baseUrl)
+    const sdkEnv = await this.buildSdkEnv(apiKey, baseUrl)
 
     // 4. 读取已有的 SDK session ID（用于 resume）
     const sessionMeta = getAgentSessionMeta(sessionId)
@@ -727,11 +585,9 @@ export class AgentOrchestrator {
     // 7. 状态初始化
     let accumulatedText = ''
     const accumulatedEvents: AgentEvent[] = []
-    let resolvedModel = modelId || DEFAULT_MODEL_ID
+    let resolvedModel = DEFAULT_MODEL_ID
     let agentExec: { type: 'node' | 'bun'; path: string } | undefined
     let agentCwd: string | undefined
-    let workspaceSlug: string | undefined
-    let workspace: import('@proma/shared').AgentWorkspace | undefined
 
     try {
       // 8. 动态导入 SDK
@@ -751,32 +607,18 @@ export class AgentOrchestrator {
       ensureRipgrepAvailable(cliPath)
 
       console.log(
-        `[Agent 编排] 启动 SDK — CLI: ${cliPath}, 运行时: ${agentExec.type} (${agentExec.path}), 模型: ${modelId || DEFAULT_MODEL_ID}, resume: ${existingSdkSessionId ?? '无'}`,
+        `[Agent 编排] 启动 SDK — CLI: ${cliPath}, 运行时: ${agentExec.type} (${agentExec.path}), resume: ${existingSdkSessionId ?? '无'}`,
       )
 
       const nullDevice = process.platform === 'win32' ? 'NUL' : '/dev/null'
       const executableArgs = agentExec.type === 'bun' ? [`--env-file=${nullDevice}`] : []
 
-      // 确定 Agent 工作目录
-      agentCwd = homedir()
-      workspaceSlug = undefined
-      workspace = undefined
-      if (workspaceId) {
-        const ws = getAgentWorkspace(workspaceId)
-        if (ws) {
-          agentCwd = getAgentSessionWorkspacePath(ws.slug, sessionId)
-          workspaceSlug = ws.slug
-          workspace = ws
-          console.log(`[Agent 编排] 使用 session 级别 cwd: ${agentCwd} (${ws.name}/${sessionId})`)
-
-          ensurePluginManifest(ws.slug, ws.name)
-
-          if (existingSdkSessionId) {
-            console.log(`[Agent 编排] 将尝试 resume: ${existingSdkSessionId}`)
-          } else {
-            console.log(`[Agent 编排] 无 sdkSessionId，将作为新会话启动（回填历史上下文）`)
-          }
-        }
+      // 确定 Agent 工作目录（简化模式固定为进程启动目录）
+      agentCwd = process.cwd()
+      if (existingSdkSessionId) {
+        console.log(`[Agent 编排] 将尝试 resume: ${existingSdkSessionId}`)
+      } else {
+        console.log(`[Agent 编排] 无 sdkSessionId，将作为新会话启动（回填历史上下文）`)
       }
 
       // 9.5 验证 sdkSessionId 是否仍然有效（SDK 0.2.53 listSessions）
@@ -798,41 +640,9 @@ export class AgentOrchestrator {
         }
       }
 
-      // 10. 构建 MCP 服务器配置 + 记忆工具 + 自定义工具
-      const mcpServers = this.buildMcpServers(workspaceSlug)
-      await this.injectMemoryTools(sdk, mcpServers)
-
-      // 合并外部注入的自定义 MCP 服务器（如飞书群聊工具）
-      if (customMcpServers) {
-        Object.assign(mcpServers, customMcpServers)
-        console.log(`[Agent 编排] 已合并 ${Object.keys(customMcpServers).length} 个自定义 MCP 服务器`)
-      }
-
-      // 11. 构建动态上下文和最终 prompt
-      const dynamicCtx = buildDynamicContext({
-        workspaceName: workspace?.name,
-        workspaceSlug,
-        agentCwd,
-      })
-
-      // 11.5 注入 mention 引用指令（Skill/MCP）— 仅影响 prompt，不影响持久化
-      let enrichedMessage = userMessage
-      if (mentionedSkills?.length || mentionedMcpServers?.length) {
-        const toolLines: string[] = ['用户在消息中明确引用了以下工具，请在本次回复中主动调用：']
-        for (const slug of mentionedSkills ?? []) {
-          const qualifiedName = workspaceSlug
-            ? `proma-workspace-${workspaceSlug}:${slug}`
-            : slug
-          toolLines.push(`- Skill: ${qualifiedName}（请立即调用此 Skill）`)
-        }
-        for (const name of mentionedMcpServers ?? []) {
-          toolLines.push(`- MCP 服务器: ${name}（请使用此 MCP 服务器的工具来完成任务）`)
-        }
-        enrichedMessage = `<mentioned_tools>\n${toolLines.join('\n')}\n</mentioned_tools>\n\n${userMessage}`
-        console.log(`[Agent 编排] 注入 mentioned_tools: ${mentionedSkills?.length ?? 0} skills, ${mentionedMcpServers?.length ?? 0} MCP`)
-      }
-
-      const contextualMessage = `${dynamicCtx}\n\n${enrichedMessage}`
+      // 10. 构建动态上下文和最终 prompt
+      const dynamicCtx = buildDynamicContext({ agentCwd })
+      const contextualMessage = `${dynamicCtx}\n\n${userMessage}`
 
       const isCompactCommand = userMessage.trim() === '/compact'
       const finalPrompt = isCompactCommand
@@ -849,11 +659,8 @@ export class AgentOrchestrator {
 
       // 12. 读取应用设置 + 获取权限模式
       const appSettings = getSettings()
-      const permissionMode: PromaPermissionMode = permissionModeOverride
-        ?? (workspaceSlug
-          ? getWorkspacePermissionMode(workspaceSlug)
-          : (appSettings.agentPermissionMode ?? 'smart'))
-      console.log(`[Agent 编排] 权限模式: ${permissionMode}${permissionModeOverride ? '（外部覆盖）' : ''}`)
+      const permissionMode: PromaPermissionMode = appSettings.agentPermissionMode ?? 'smart'
+      console.log(`[Agent 编排] 权限模式: ${permissionMode}`)
 
       const canUseTool = permissionMode !== 'auto'
         ? permissionService.createCanUseTool(
@@ -863,10 +670,17 @@ export class AgentOrchestrator {
               const event: AgentEvent = { type: 'permission_request', request }
               this.eventBus.emit(sessionId, event)
             },
-            (sid, toolInput, signal, sendAskUser) => askUserService.handleAskUserQuestion(sid, toolInput, signal, sendAskUser),
+            (sid, toolInput, signal, sendAskUser, notifyResolved) =>
+              askUserService.handleAskUserQuestion(sid, toolInput, signal, sendAskUser, notifyResolved),
             (request: AskUserRequest) => {
               const event: AgentEvent = { type: 'ask_user_request', request }
               this.eventBus.emit(sessionId, event)
+            },
+            (requestId, behavior) => {
+              this.eventBus.emit(sessionId, { type: 'permission_resolved', requestId, behavior })
+            },
+            (requestId) => {
+              this.eventBus.emit(sessionId, { type: 'ask_user_resolved', requestId })
             },
           )
         : undefined
@@ -878,7 +692,6 @@ export class AgentOrchestrator {
       const queryOptions: ClaudeAgentQueryOptions = {
         sessionId,
         prompt: finalPrompt,
-        model: modelId || DEFAULT_MODEL_ID,
         cwd: agentCwd,
         sdkCliPath: cliPath,
         executable: agentExec,
@@ -895,32 +708,11 @@ export class AgentOrchestrator {
           type: 'preset',
           preset: 'claude_code',
           append: buildSystemPromptAppend({
-            workspaceName: workspace?.name,
-            workspaceSlug,
             sessionId,
             permissionMode,
           }),
         },
         resumeSessionId: existingSdkSessionId,
-        ...(Object.keys(mcpServers).length > 0 && { mcpServers }),
-        ...(workspaceSlug && { plugins: [{ type: 'local' as const, path: getAgentWorkspacePath(workspaceSlug) }] }),
-        // 合并用户附加目录 + 工作区附加目录 + 工作区文件目录
-        ...(() => {
-          const allDirs = [...(additionalDirectories || [])]
-          if (workspaceSlug) {
-            // 工作区级附加目录
-            const workspaceDirs = getWorkspaceAttachedDirectories(workspaceSlug)
-            for (const dir of workspaceDirs) {
-              if (!allDirs.includes(dir)) allDirs.push(dir)
-            }
-            // 工作区文件目录
-            const wsFilesDir = getWorkspaceFilesDir(workspaceSlug)
-            if (!allDirs.includes(wsFilesDir)) {
-              allDirs.push(wsFilesDir)
-            }
-          }
-          return allDirs.length > 0 ? { additionalDirectories: allDirs } : {}
-        })(),
         // SDK 0.2.52+ 新增选项（从 settings 读取）
         ...(appSettings.agentThinking && { thinking: appSettings.agentThinking }),
         ...(appSettings.agentEffort && { effort: appSettings.agentEffort }),
@@ -1277,12 +1069,8 @@ export class AgentOrchestrator {
             this.eventBus.emit(sessionId, deferredCompleteEvent)
           }
 
-          // 发送完成信号
+          await this.autoGenerateTitle(sessionId, userMessage, callbacks)
           callbacks.onComplete(getAgentSessionMessages(sessionId))
-
-          // 异步生成标题
-          this.autoGenerateTitle(sessionId, userMessage, channelId, resolvedModel, callbacks)
-            .catch((err) => console.error('[Agent 编排] 标题生成未捕获异常:', err))
 
           break  // 成功完成，退出重试循环
 

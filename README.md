@@ -1,143 +1,140 @@
 # Proma
 
-> **📖 新手？从这里开始 →** [**Proma 使用教程系列(点击此处)**](./tutorial/tutorial.md) — 从零开始配置环境、连接大模型，3-5 分钟即可上手。
+Proma is a browser-based minimal Claude Code chat app.
 
-下一代集成通用 Agent 的 AI 桌面应用，支持对话、Agent、Agent Teams **等能力**，本地优先、多供应商支持、完全开源。支持远程通过飞书机器人与 Agent 对话和交互，甚至把 Proma Agent 拉进群组替你完成工作，跟同事实现 Agent 协作，让你用手机也可以处理很多必要的工作。
+The app keeps a simple two-pane workflow: a session list on the left and a streaming chat view on the right. The frontend runs in the browser, the backend runs on Bun, and the two communicate over REST plus SSE for live agent output.
 
-[English version README.md](./README.en.md)
+## What It Is
 
-### ✦ 核心能力
+- Minimal Claude Code chat UI in the browser
+- Bun backend + Vite frontend under `apps/electron`
+- Streaming assistant responses over SSE
+- Persistent local sessions stored under `~/.proma/`
+- Local-first runtime with no separate database
 
-> **Chat** · 多模型对话 &nbsp;│&nbsp; **Agent** · 自主通用 Agent &nbsp;│&nbsp; **Agent Teams** · 多 Agent 协同 &nbsp;│&nbsp; **Skills & MCP** · 可扩展工具链
->
-> **飞书远程** · 手机也能用 Agent &nbsp;│&nbsp; **记忆** · 跨会话理解你 &nbsp;│&nbsp; **多供应商** · Anthropic / OpenAI / Google / DeepSeek / MiniMax / Kimi / 智谱 &nbsp;│&nbsp; **本地优先** · 数据全在你手里
+## Architecture
 
-![Proma 海报](https://img.erlich.fun/personal-blog/uPic/pb.png)
+The simplified app lives in `apps/electron`:
 
-### 并行运行的商业版本
-同时 Proma 也支持商业的版本，如果你需要未来更多的**云端功能**｜**稳定靠谱的 API** ｜**更划算省心的订阅包**｜**简单的使用体验**，也欢迎支持 Proma 的商业版本：https://proma.cool/download 即可下载使用，订阅包低至官方价 4 折。
+- `apps/electron/src/main` contains the Bun HTTP server and API routes
+- `apps/electron/src/renderer` contains the Vite + React frontend
+- Development mode uses Vite for the browser UI and a Bun server for `/api`
+- Production mode serves the built frontend from `apps/electron/dist` through the Bun server
 
-Proma 的核心意义不在于替代任何一款软件，目前只实现了 Proma 的基础设施部分，接下来 Proma 将继续实现多 Agents 协同工作（个人与他人）、Agents 与外部的链接、Tools 和 Skills 固化，以及利用对用户的理解和记忆实现主动提供软件和建议的能力等，Proma 正在借助 VibeCoding 工具在飞速进化，欢迎大家 PR。
+At a high level:
 
-## Proma 截图
+- Browser UI: React + Vite
+- Backend: Bun HTTP server
+- Transport: REST for session actions, SSE for streaming output
+- Agent runtime: `@anthropic-ai/claude-agent-sdk`
 
-### Chat 模式
-Proma 的聊天模式，支持多模型切换，支持附加文件对话。
+## Requirements
 
-![Proma Chat Mode](https://img.erlich.fun/personal-blog/uPic/tBXRKI.png)
+- Bun
+- `ANTHROPIC_API_KEY` set in the shell before starting the app
 
-### Agent 模式
-Proma Agent 模式，通用 Agent 能力，支持 Cladue 全系列、Minimax M2.1、Kimi K2.5、智谱 GLM 等模型，支持第三方渠道。优雅、简洁、丝滑、确信的流式输出。
+Example:
 
-![Proma Agent Mode](https://img.erlich.fun/personal-blog/uPic/3ZHWyA.png)
+```bash
+export ANTHROPIC_API_KEY="your-key-here"
+```
 
-### Agent Teams
-Agent Teams 或者 Agent 蜂群将会是 2026 年 Agent 主要的发展方向之一，Proma 也已经支持 Agent Teams 能力，并且可以自动根据用户的任务复杂度自动组件 Agent Teams，实际测试可以将复杂任务的处理能力和效果提高至少 5% - 20%。当运行 Agent Teams 时你将在右侧看到具体的 Agent 的工作状态。（也可以通过自然语言主动要求使用 Agent Teams，并为每个 Agent 指定它的工作或研究范围）
-![Proma Agent Teams](https://img.erlich.fun/personal-blog/uPic/vNVpRu.png)
+Without `ANTHROPIC_API_KEY`, the backend status check will report the app as unavailable for sending messages.
 
-### Skill & MCP
-Proma Skills 和 MCP，默认内置 Brainstorming 和办公软件 Skill，支持通过对话就能自动帮助你寻找和安装 Skills。
+## Getting Started
 
-![Proma Default Skills and Mcp](https://img.erlich.fun/personal-blog/uPic/PNBOSt.png)
+Install dependencies from the repository root:
 
-### 通过飞书远程使用 Proma / 支持私聊和群组
-Proma 支持通过使用飞书机器人的方式来远程使用 Proma Agent 能力，支持切换工作区（/workspace 命令），支持创建新会话（/new 命令），这样就可以实现类似截图中的效果，可以为不同的工作区先配置上（或直接通过 Proma Agent 来帮你配置）对应的 Skills / MCP 以及文件附录等资源，即可远程也能让 Proma Agent 帮你完成工作。譬如远程帮你进行调研，并将调研文件通过邮件或其他方式发送到同事的邮箱、远程合并 PR 或者修复紧急的 Bug 并推送上线等。
+```bash
+bun install
+```
 
-也支持将 Proma Agent 拉进你的飞书群组，可以跟同事共享你积攒下来的 Skills 和 MCP 能力，利用本地的文件和飞书文档一起完成更智能的 Agent 协作，甚至可以直接用 Proma Agent 来完成对外部用户的服务。
+Run the app from the repository root:
 
-![Proma Lark Demo](https://img.erlich.fun/personal-blog/uPic/nNu4wA.png)
+```bash
+bun run dev
+```
 
-实际的配置过程很简单，但我也知道这对于任何新手来说认知压力会比较大，但请相信我克服这种恐惧，3 分钟足够。
+This root command delegates to the `@proma/electron` workspace and starts:
 
-![Proma Lark Config](https://img.erlich.fun/personal-blog/uPic/wTQisd.png)
+- the Vite dev server for the browser UI
+- the Bun backend server for API and streaming routes
 
-![Proma Lark Command](https://img.erlich.fun/personal-blog/uPic/tvzfZp.png)
+By default in development:
 
-### 记忆能力
-Proma 记忆功能，Chat 和 Agent 共享记忆，让 AI 真正了解你、记住你的偏好和习惯。
-![Proma memory settings](https://img.erlich.fun/personal-blog/uPic/94B0LN.png)
+- Vite runs on `http://localhost:5173`
+- the Bun backend listens on port `3000`
+- Vite proxies `/api` requests to the Bun backend, so the frontend can call `/api/*` without cross-origin setup
 
-![Proma memory dmeo](https://img.erlich.fun/personal-blog/uPic/Wi8QfB.png)
+## Build
 
+Build the frontend from the repository root:
 
-### Proma 渠道配置功能
+```bash
+bun run build
+```
 
-Proma 全协议大模型渠道支持，支持国内外所有渠道模型，通过 Base URL + API KEY 配置。
+This runs the `@proma/electron` build script and outputs the frontend bundle to:
 
-![Proma Mutili Provider Support](https://img.erlich.fun/personal-blog/uPic/uPPazd.png)
+```text
+apps/electron/dist
+```
 
-## 特性
+## Production Start
 
-- **多供应商支持** — Anthropic、OpenAI、Google、DeepSeek、MiniMax、Kimi、智谱 GLM，以及任何 OpenAI 兼容端点
-- **AI Agent 模式** — 基于 Claude Agent SDK 的自主通用 Agent
-- **远程全天候使用 Proma** - 基于飞书/Lark 的机器人能力，实现远程使用 Proma Agent，搭配工作区的 Skill 和 MCP 等可以实现更好的远程工作
-- **流式输出 & 思考模式** — 实时流式响应，可视化扩展思考过程
-- **丰富渲染** — Mermaid 图表、语法高亮代码块、Markdown
-- **附件 & 文档解析** — 上传图片，解析 PDF/Office/文本文件内容到对话中
-- **记忆功能** — Chat 和 Agent 共享记忆，AI 记住你的偏好、习惯和上下文，跨会话持续理解你
-- **本地优先** — 所有数据存储在 `~/.proma/`，无数据库，完全可移植
-- **主题切换** — 亮色/暗色模式，跟随系统偏好
+Start the production server from the repository root:
 
-## 快速开始
+```bash
+bun run start
+```
 
-下载适合你平台的最新版本：
+In production, the Bun server serves:
 
-**[下载 Proma](https://github.com/ErlichLiu/Proma/releases)**
+- `/api/*` for REST and SSE endpoints
+- the compiled frontend from `apps/electron/dist` for browser requests
 
-## 配置指南
+That means the frontend and backend are served from the same app process in production.
 
-### 添加渠道
+## Session Persistence
 
-进入 **设置 > 渠道管理**，点击 **添加渠道**，选择供应商并输入 API Key。Proma 会自动填充正确的 API 地址。点击 **测试连接** 验证，然后 **获取模型** 加载可用模型列表。
+Proma persists session data locally under `~/.proma/`.
 
-### Agent 模式（仅限 Anthropic）
+Important paths:
 
-Agent 模式需要一个 **Anthropic** 渠道。添加后，进入 **设置 > Agent** 选择你的 Anthropic 渠道和模型（推荐 Claude Sonnet 4 / Opus 4）。底层使用 [Claude Agent SDK](https://github.com/anthropics/claude-agent-sdk)。
+- `~/.proma/agent-sessions/` — per-session message history and session files
+- `~/.proma/agent-sessions.json` — session metadata index
 
-### 特殊供应商端点
+This allows conversations to survive restarts without requiring an external database.
 
-MiniMax、Kimi（Moonshot）和智谱 GLM 使用专用 API 端点 — 选择供应商时会自动配置。三者均支持**编程会员**套餐的 API 访问：
+## API Behavior
 
-| 供应商 | Chat 模式 | Agent 模式 | 备注 |
-|--------|----------|-----------|------|
-| MiniMax | `https://api.minimaxi.com/v1` | `https://api.minimaxi.com/anthropic` | 支持 MiniMax Pro 会员 |
-| Kimi | `https://api.moonshot.cn/v1` | `https://api.moonshot.cn/anthropic` | 支持 Moonshot 开发者套餐 |
-| 智谱 GLM | `https://open.bigmodel.cn/api/paas/v4` | `https://open.bigmodel.cn/api/anthropic` | 支持智谱开发者套餐 |
+The simplified app uses:
 
-## 技术栈
+- REST endpoints for session creation, listing, deletion, title updates, settings, and user profile updates
+- SSE for streaming message output from the backend to the browser
 
-- **运行时** — Bun
-- **框架** — Electron + React 18
-- **状态管理** — Jotai
-- **样式** — Tailwind CSS + shadcn/ui
-- **构建** — Vite（渲染进程）+ esbuild（主进程/预加载）
-- **语言** — TypeScript
+In development, `/api` is proxied by Vite.
+In production, the Bun server handles both static asset delivery and `/api` requests directly.
 
-## 致谢
+## Root Commands
 
-Proma 的诞生离不开这些优秀的开源项目：
+All of the following commands are intended to be run from the repository root:
 
-- [Shiki](https://shiki.style/) — 语法高亮
-- [Beautiful Mermaid](https://github.com/lukilabs/beautiful-mermaid) — 图表渲染
-- [Cherry Studio](https://github.com/CherryHQ/cherry-studio) — 多供应商桌面 AI 的灵感来源
-- [Lobe Icons](https://github.com/lobehub/lobe-icons) — AI/LLM 品牌图标集
-- [Craft Agents OSS](https://github.com/lukilabs/craft-agents-oss) — Agent SDK 集成模式参考
-- [MemOS](https://memos.openmem.net) - Proma 的记忆功能实现
+```bash
+bun run dev
+bun run build
+bun run start
+```
 
-## 参与贡献
+## Repository Notes
 
-欢迎大家参与 Proma 的开发！无论是修复 Bug、新增功能还是改进文档，我们都非常欢迎你的贡献。
+Although the runnable web app is under `apps/electron`, the root workspace scripts are the supported entry points for development and production.
 
-**PR 赠金活动** — Proma 目前设有 PR 赠金计划，对合并的 PR 自动给予慷慨的赠金，支持在 Claude Code 等产品中使用，帮助大家更好地进行 AI 辅助开发。提交 PR 时请在描述中留下你的邮箱信息即可。
+If you need to inspect the package-level scripts directly, see:
 
-![Proma Given](https://img.erlich.fun/personal-blog/uPic/PR%20%E8%B5%A0%E9%87%91%201.png)
+- `package.json`
+- `apps/electron/package.json`
 
-
-## 赞助支持（招募中）
-AI 时代最能玩梗，但又一语中的炒作组织，惊叹于对这个 AI 时代的精准嘲讽，点透疯癫。微信公众号搜索：**葬 AI**
-
-![葬 AI](https://img.erlich.fun/personal-blog/uPic/zang-ai.png)
-
-## 开源许可
+## License
 
 [MIT](./LICENSE)

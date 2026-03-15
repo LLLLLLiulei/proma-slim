@@ -1,145 +1,121 @@
-/**
- * GeneralSettings - 通用设置页
- *
- * 顶部：用户档案编辑（头像 + 用户名）
- * 下方：语言等通用设置
- */
-
 import * as React from 'react'
 import { useAtom } from 'jotai'
 import { Camera, ImagePlus } from 'lucide-react'
+import { toast } from 'sonner'
 import Picker from '@emoji-mart/react'
 import data from '@emoji-mart/data'
-import {
-  SettingsSection,
-  SettingsCard,
-  SettingsRow,
-  SettingsToggle,
-} from './primitives'
-import { Popover, PopoverTrigger, PopoverContent } from '../ui/popover'
-import { UserAvatar } from '../chat/UserAvatar'
+import { UserAvatar } from '@/components/common/UserAvatar'
+import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover'
 import { userProfileAtom } from '@/atoms/user-profile'
-import {
-  notificationsEnabledAtom,
-  updateNotificationsEnabled,
-} from '@/atoms/notifications'
 import { cn } from '@/lib/utils'
+import { api } from '@/lib/api'
+import { SettingsCard, SettingsRow, SettingsSection } from './primitives'
 
-/** emoji-mart 选择回调的 emoji 对象类型 */
 interface EmojiMartEmoji {
-  id: string
-  name: string
   native: string
-  unified: string
-  keywords: string[]
-  shortcodes: string
 }
 
 export function GeneralSettings(): React.ReactElement {
   const [userProfile, setUserProfile] = useAtom(userProfileAtom)
-  const [notificationsEnabled, setNotificationsEnabled] = useAtom(notificationsEnabledAtom)
   const [isEditingName, setIsEditingName] = React.useState(false)
   const [nameInput, setNameInput] = React.useState(userProfile.userName)
   const [showEmojiPicker, setShowEmojiPicker] = React.useState(false)
   const fileInputRef = React.useRef<HTMLInputElement>(null)
 
-  /** 更新头像 */
+  React.useEffect(() => {
+    let cancelled = false
+
+    void api.getUserProfile().then((profile) => {
+      if (!cancelled) {
+        setUserProfile(profile)
+        setNameInput(profile.userName)
+      }
+    }).catch((error) => {
+      console.error('[GeneralSettings] 读取用户档案失败:', error)
+      toast.error(error instanceof Error ? error.message : '读取用户档案失败')
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [setUserProfile])
+
   const handleAvatarChange = async (avatar: string): Promise<void> => {
     try {
-      const updated = await window.electronAPI.updateUserProfile({ avatar })
+      const updated = await api.updateUserProfile({ avatar })
       setUserProfile(updated)
       setShowEmojiPicker(false)
     } catch (error) {
-      console.error('[通用设置] 更新头像失败:', error)
+      console.error('[GeneralSettings] 更新头像失败:', error)
+      toast.error(error instanceof Error ? error.message : '更新头像失败')
     }
   }
 
-  /** 上传图片作为头像 */
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>): Promise<void> => {
-    const file = e.target.files?.[0]
+  const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>): Promise<void> => {
+    const file = event.target.files?.[0]
     if (!file) return
 
     const reader = new FileReader()
     reader.onload = async () => {
-      const dataUrl = reader.result as string
-      await handleAvatarChange(dataUrl)
+      const result = reader.result
+      if (typeof result !== 'string') return
+      await handleAvatarChange(result)
     }
     reader.readAsDataURL(file)
-    e.target.value = ''
+    event.target.value = ''
   }
 
-  /** 保存用户名 */
   const handleSaveName = async (): Promise<void> => {
     const trimmed = nameInput.trim()
-    if (!trimmed) return
-
-    try {
-      const updated = await window.electronAPI.updateUserProfile({ userName: trimmed })
-      setUserProfile(updated)
-      setIsEditingName(false)
-    } catch (error) {
-      console.error('[通用设置] 更新用户名失败:', error)
-    }
-  }
-
-  /** 用户名编辑键盘事件 */
-  const handleNameKeyDown = (e: React.KeyboardEvent): void => {
-    if (e.key === 'Enter') {
-      handleSaveName()
-    } else if (e.key === 'Escape') {
+    if (!trimmed) {
       setNameInput(userProfile.userName)
       setIsEditingName(false)
+      return
+    }
+
+    try {
+      const updated = await api.updateUserProfile({ userName: trimmed })
+      setUserProfile(updated)
+      setNameInput(updated.userName)
+      setIsEditingName(false)
+    } catch (error) {
+      console.error('[GeneralSettings] 更新用户名失败:', error)
+      toast.error(error instanceof Error ? error.message : '更新用户名失败')
     }
   }
 
   return (
     <div className="space-y-6">
-      {/* 用户档案区域 */}
-      <SettingsSection
-        title="用户档案"
-        description="设置你的头像和显示名称"
-      >
+      <SettingsSection title="用户档案" description="设置你的显示名称和头像。">
         <SettingsCard>
           <div className="flex items-center gap-5 px-4 py-4">
-            {/* 头像 + Popover emoji 选择器 */}
             <Popover open={showEmojiPicker} onOpenChange={setShowEmojiPicker}>
               <PopoverTrigger asChild>
-                <div className="relative group/avatar cursor-pointer">
+                <div className="group/avatar relative cursor-pointer">
                   <UserAvatar avatar={userProfile.avatar} size={64} />
-                  {/* 编辑覆盖层 */}
-                  <div
-                    className={cn(
-                      'absolute inset-0 rounded-[20%] flex items-center justify-center',
-                      'bg-black/40 opacity-0 group-hover/avatar:opacity-100 transition-opacity'
-                    )}
-                  >
+                  <div className={cn(
+                    'absolute inset-0 flex items-center justify-center rounded-[20%] bg-black/40 opacity-0 transition-opacity',
+                    'group-hover/avatar:opacity-100',
+                  )}>
                     <Camera className="size-5 text-white" />
                   </div>
                 </div>
               </PopoverTrigger>
-              <PopoverContent
-                side="right"
-                align="start"
-                sideOffset={12}
-                className="w-auto p-0 border-none shadow-xl"
-              >
+              <PopoverContent side="right" align="start" sideOffset={12} className="w-auto border-none p-0 shadow-xl">
                 <Picker
                   data={data}
-                  onEmojiSelect={(emoji: EmojiMartEmoji) => handleAvatarChange(emoji.native)}
+                  onEmojiSelect={(emoji: EmojiMartEmoji) => { void handleAvatarChange(emoji.native) }}
                   locale="zh"
                   theme="auto"
                   previewPosition="none"
                   skinTonePosition="search"
                   perLine={8}
                 />
-                {/* 上传自定义图片 */}
-                <div className="px-3 p-2">
+                <div className="p-2 px-3">
                   <button
+                    type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    className={cn(
-                      'w-full flex items-center justify-center gap-1.5 py-2 rounded-lg text-[13px]',
-                      'text-foreground/60 hover:text-foreground hover:bg-foreground/[0.06] transition-colors'
-                    )}
+                    className="flex w-full items-center justify-center gap-1.5 rounded-lg py-2 text-[13px] text-foreground/60 transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
                   >
                     <ImagePlus className="size-4" />
                     上传自定义图片
@@ -149,67 +125,56 @@ export function GeneralSettings(): React.ReactElement {
                     type="file"
                     accept="image/png,image/jpeg,image/gif,image/webp"
                     className="hidden"
-                    onChange={handleImageUpload}
+                    onChange={(event) => { void handleImageUpload(event) }}
                   />
                 </div>
               </PopoverContent>
             </Popover>
 
-            {/* 用户名 */}
-            <div className="flex-1 min-w-0">
+            <div className="min-w-0 flex-1">
               {isEditingName ? (
                 <input
+                  autoFocus
                   type="text"
                   value={nameInput}
-                  onChange={(e) => setNameInput(e.target.value)}
-                  onBlur={handleSaveName}
-                  onKeyDown={handleNameKeyDown}
                   maxLength={30}
-                  autoFocus
-                  className={cn(
-                    'text-lg font-semibold text-foreground bg-transparent border-b-2 border-primary',
-                    'outline-none w-full max-w-[200px] pb-0.5'
-                  )}
+                  onChange={(event) => setNameInput(event.target.value)}
+                  onBlur={() => { void handleSaveName() }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault()
+                      void handleSaveName()
+                    }
+                    if (event.key === 'Escape') {
+                      setNameInput(userProfile.userName)
+                      setIsEditingName(false)
+                    }
+                  }}
+                  className="w-full max-w-[220px] border-b-2 border-primary bg-transparent pb-0.5 text-lg font-semibold text-foreground outline-none"
                 />
               ) : (
                 <button
+                  type="button"
                   onClick={() => {
                     setNameInput(userProfile.userName)
                     setIsEditingName(true)
                   }}
-                  className="text-lg font-semibold text-foreground hover:text-primary transition-colors text-left"
+                  className="text-left text-lg font-semibold text-foreground transition-colors hover:text-primary"
                 >
                   {userProfile.userName}
                 </button>
               )}
-              <p className="text-[12px] text-foreground/40 mt-0.5">
-                点击头像更换，点击名字编辑
-              </p>
+              <p className="mt-1 text-[12px] text-foreground/45">点击头像更换，点击名字编辑。</p>
             </div>
           </div>
         </SettingsCard>
       </SettingsSection>
 
-      {/* 通用设置 */}
-      <SettingsSection
-        title="通用设置"
-        description="应用的基本配置"
-      >
+      <SettingsSection title="说明" description="当前设置页只保留最常用的两个区域。">
         <SettingsCard>
           <SettingsRow
-            label="语言"
-            description="更多语言支持即将推出"
-          >
-            <span className="text-[13px] text-foreground/40">简体中文</span>
-          </SettingsRow>
-          <SettingsToggle
-            label="桌面通知"
-            description="Agent 完成任务或需要操作时发送通知"
-            checked={notificationsEnabled}
-            onCheckedChange={(checked) => {
-              setNotificationsEnabled(checked)
-              updateNotificationsEnabled(checked)
-            }}
+            label="最小化界面"
+            description="渠道、代理、更新和工具设置已从当前版本界面中移除。"
           />
         </SettingsCard>
       </SettingsSection>

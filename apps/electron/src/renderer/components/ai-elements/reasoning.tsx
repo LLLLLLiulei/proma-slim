@@ -223,12 +223,8 @@ export const ReasoningContent = React.memo(
                 <a
                   {...linkProps}
                   href={href}
-                  onClick={(e) => {
-                    e.preventDefault()
-                    if (href && (href.startsWith('http://') || href.startsWith('https://'))) {
-                      window.electronAPI.openExternal(href)
-                    }
-                  }}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   title={href}
                 >
                   {linkChildren}

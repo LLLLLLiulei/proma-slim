@@ -20,8 +20,8 @@
  */
 
 import * as React from 'react'
-import { highlightCode, highlightToTokens } from '@proma/core'
-import type { HighlightToken, HighlightTokensResult } from '@proma/core'
+import { highlightCode, highlightToTokens } from './highlight-service.ts'
+import type { HighlightToken, HighlightTokensResult } from './highlight-service.ts'
 
 /** react-markdown 传入的 <code> 元素 props */
 interface CodeElementProps {

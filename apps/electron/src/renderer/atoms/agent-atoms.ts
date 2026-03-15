@@ -7,7 +7,7 @@
 
 import { atom } from 'jotai'
 import { atomFamily } from 'jotai/utils'
-import type { AgentSessionMeta, AgentMessage, AgentEvent, AgentWorkspace, AgentPendingFile, RetryAttempt, PromaPermissionMode, PermissionRequest, AskUserRequest, ThinkingConfig, AgentEffort, TaskUsage, AgentTeamData } from '@proma/shared'
+import type { AgentSessionMeta, AgentMessage, AgentEvent, AgentPendingFile, RetryAttempt, PromaPermissionMode, PermissionRequest, AskUserRequest, ThinkingConfig, AgentEffort, TaskUsage } from '@proma/shared'
 
 /** 活动状态 */
 export type ActivityStatus = 'pending' | 'running' | 'completed' | 'error' | 'backgrounded'
@@ -535,9 +535,7 @@ export interface AgentPendingPrompt {
 // ===== Atoms =====
 
 export const agentSessionsAtom = atom<AgentSessionMeta[]>([])
-export const agentWorkspacesAtom = atom<AgentWorkspace[]>([])
-export const currentAgentWorkspaceIdAtom = atom<string | null>(null)
-export const agentChannelIdAtom = atom<string | null>(null)
+export const agentChannelIdAtom = atom<string | null>('default')
 export const agentModelIdAtom = atom<string | null>(null)
 export const currentAgentSessionIdAtom = atom<string | null>(null)
 export const currentAgentMessagesAtom = atom<AgentMessage[]>([])
@@ -547,12 +545,6 @@ export const agentPendingPromptAtom = atom<AgentPendingPrompt | null>(null)
 /** Agent 待发送文件列表 */
 export const agentPendingFilesAtom = atom<AgentPendingFile[]>([])
 
-/** 工作区能力版本号 — 每次修改 MCP/Skills 后自增，触发侧边栏重新获取 */
-export const workspaceCapabilitiesVersionAtom = atom(0)
-
-/** 工作区文件版本号 — 文件变化时自增，触发文件浏览器重新加载 */
-export const workspaceFilesVersionAtom = atom(0)
-
 // ===== 侧面板 Atoms =====
 
 /** 侧面板是否打开（per-session Map） */
@@ -560,119 +552,6 @@ export const agentSidePanelOpenMapAtom = atom<Map<string, boolean>>(new Map())
 
 /** 侧面板当前活跃 Tab（per-session Map） */
 export const agentSidePanelTabMapAtom = atom<Map<string, SidePanelTab>>(new Map())
-
-/**
- * Team 活动缓存 — 以 sessionId 为 key
- *
- * 流式完成后 agentStreamingStatesAtom 会被清除，
- * 此缓存在清除前保存 Team 活动数据，确保面板内容不丢失。
- */
-export const cachedTeamActivitiesAtom = atom<Map<string, SubAgentEntry[]>>(new Map())
-
-/**
- * Teammate 状态缓存 — 以 sessionId 为 key
- *
- * 流式完成后保存 teammates 快照，确保切换会话后面板数据不丢失。
- */
-export const cachedTeammateStatesAtom = atom<Map<string, TeammateState[]>>(new Map())
-
-/**
- * TeamOverview 缓存 — 以 sessionId 为 key
- *
- * 流式完成后保存 TeamOverview 快照，确保切换 tab 后团队全景数据不丢失。
- */
-export const cachedTeamOverviewsAtom = atom<Map<string, TeamOverview>>(new Map())
-
-/**
- * 轮询数据缓存 — 以 sessionId 为 key
- *
- * 缓存文件系统轮询得到的 AgentTeamData（tasks + inboxes），
- * 防止组件卸载后通信时间线等数据丢失。
- */
-export const cachedPolledTeamDataAtom = atom<Map<string, AgentTeamData>>(new Map())
-
-/**
- * 已关闭 Team 面板的 sessionId 集合
- *
- * 用户主动关闭 Team 活动面板后，阻止 derived atoms 返回数据。
- * 当新一轮流式请求开始时自动清除（允许新 Team 数据显示）。
- */
-export const dismissedTeamSessionIdsAtom = atom<Set<string>>(new Set<string>())
-
-/** 当前会话是否有 Team/Task 活动（派生只读原子，同时检查流式状态和缓存） */
-export const hasTeamActivityAtom = atom<boolean>((get) => {
-  const currentId = get(currentAgentSessionIdAtom)
-  if (!currentId) return false
-  if (get(dismissedTeamSessionIdsAtom).has(currentId)) return false
-  // 优先检查流式状态
-  const state = get(agentStreamingStatesAtom).get(currentId)
-  if (state) {
-    const hasActivity = state.toolActivities.some(
-      (a) => a.toolName === 'Task' || a.toolName === 'Agent'
-    )
-    if (hasActivity) return true
-  }
-  // 回退到缓存（流式状态无 Team 活动或不存在时）
-  const cached = get(cachedTeamActivitiesAtom).get(currentId)
-  return cached !== undefined && cached.length > 0
-})
-
-/** 当前会话的 Team 活动数据（派生只读原子，同时读取流式状态和缓存） */
-export const teamActivityEntriesAtom = atom<SubAgentEntry[]>((get) => {
-  const currentId = get(currentAgentSessionIdAtom)
-  if (!currentId) return []
-  if (get(dismissedTeamSessionIdsAtom).has(currentId)) return []
-  // 优先使用流式状态
-  const state = get(agentStreamingStatesAtom).get(currentId)
-  if (state && state.toolActivities.length > 0) {
-    const entries = buildTeamActivityEntries(state.toolActivities)
-    if (entries.length > 0) return entries
-  }
-  // 回退到缓存
-  return get(cachedTeamActivitiesAtom).get(currentId) ?? []
-})
-
-/** 运行中的子代理数量（用于 badge 指示器） */
-export const teamActivityCountAtom = atom<number>((get) => {
-  const entries = get(teamActivityEntriesAtom)
-  return entries.filter((e) => e.status === 'running' || e.status === 'backgrounded').length
-})
-
-/** 当前会话的 teammate 状态列表（派生只读原子，优先流式状态，回退缓存） */
-export const teammateStatesAtom = atom<TeammateState[]>((get) => {
-  const currentId = get(currentAgentSessionIdAtom)
-  if (!currentId) return []
-  if (get(dismissedTeamSessionIdsAtom).has(currentId)) return []
-  // 优先使用流式状态中的 teammates
-  const state = get(agentStreamingStatesAtom).get(currentId)
-  if (state && state.teammates.length > 0) return state.teammates
-  // 回退到缓存
-  return get(cachedTeammateStatesAtom).get(currentId) ?? []
-})
-
-/** 是否有 teammate 活动（综合检查流式状态和缓存） */
-export const hasTeammatesAtom = atom<boolean>((get) => {
-  return get(teammateStatesAtom).length > 0
-})
-
-/** 运行中的 teammate 数量 */
-export const runningTeammateCountAtom = atom<number>((get) => {
-  return get(teammateStatesAtom).filter((t) => t.status === 'running').length
-})
-
-/** 团队全景信息（派生只读原子，从 toolActivities + teammates 提取，回退到缓存） */
-export const teamOverviewAtom = atom<TeamOverview | null>((get) => {
-  const currentId = get(currentAgentSessionIdAtom)
-  if (!currentId) return null
-  if (get(dismissedTeamSessionIdsAtom).has(currentId)) return null
-  const state = get(agentStreamingStatesAtom).get(currentId)
-  if (state) {
-    const overview = extractTeamOverview(state.toolActivities, state.teammates)
-    if (overview) return overview
-  }
-  // 回退到缓存（流式状态无 Team 数据或不存在时）
-  return get(cachedTeamOverviewsAtom).get(currentId) ?? null
-})
 
 // ===== 权限系统 Atoms =====
 
@@ -1168,13 +1047,6 @@ export const agentSessionDraftsAtom = atom<Map<string, string>>(new Map())
  * 这些路径作为 SDK additionalDirectories 参数传递。
  */
 export const agentAttachedDirectoriesMapAtom = atom<Map<string, string[]>>(new Map())
-
-/**
- * 工作区级附加目录列表（按 workspaceId 存储）
- *
- * 工作区内所有会话共享这些附加目录。
- */
-export const workspaceAttachedDirectoriesMapAtom = atom<Map<string, string[]>>(new Map())
 
 /** 当前 Agent 会话的草稿内容（派生读写原子） */
 export const currentAgentSessionDraftAtom = atom(

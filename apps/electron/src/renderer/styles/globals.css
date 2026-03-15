@@ -49,11 +49,19 @@
 }
 
 @layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
   * {
     @apply border-border;
   }
+
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground overflow-hidden;
+    overscroll-behavior: none;
   }
 }
 
@@ -66,6 +74,147 @@
 .titlebar-no-drag {
   -webkit-app-region: no-drag;
   app-region: no-drag;
+}
+
+.proma-app-background {
+  background:
+    radial-gradient(circle at top left, rgb(245 158 11 / 0.18), transparent 28%),
+    radial-gradient(circle at 82% 14%, rgb(14 165 233 / 0.14), transparent 24%),
+    radial-gradient(circle at 50% 100%, rgb(15 23 42 / 0.06), transparent 35%),
+    linear-gradient(180deg, hsl(var(--background)) 0%, hsl(var(--muted) / 0.72) 100%);
+}
+
+.dark .proma-app-background {
+  background:
+    radial-gradient(circle at top left, rgb(245 158 11 / 0.12), transparent 26%),
+    radial-gradient(circle at 82% 18%, rgb(56 189 248 / 0.12), transparent 24%),
+    radial-gradient(circle at 50% 100%, rgb(15 23 42 / 0.3), transparent 38%),
+    linear-gradient(180deg, hsl(var(--background)) 0%, hsl(var(--muted) / 0.85) 100%);
+}
+
+.proma-shell-frame {
+  position: relative;
+  border: 1px solid hsl(var(--border) / 0.55);
+  background: linear-gradient(180deg, hsl(var(--background) / 0.78), hsl(var(--background) / 0.62));
+  box-shadow:
+    0 28px 60px -34px rgb(15 23 42 / 0.45),
+    0 10px 24px -18px rgb(15 23 42 / 0.2),
+    inset 0 1px 0 rgb(255 255 255 / 0.42);
+  backdrop-filter: blur(30px);
+}
+
+.proma-shell-frame::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 72px;
+  border-radius: inherit;
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.42), transparent);
+  pointer-events: none;
+}
+
+.dark .proma-shell-frame {
+  border-color: rgb(255 255 255 / 0.08);
+  background: linear-gradient(180deg, hsl(var(--background) / 0.82), hsl(var(--muted) / 0.72));
+  box-shadow:
+    0 28px 60px -34px rgb(0 0 0 / 0.75),
+    0 10px 24px -18px rgb(0 0 0 / 0.45),
+    inset 0 1px 0 rgb(255 255 255 / 0.08);
+}
+
+.dark .proma-shell-frame::before {
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.05), transparent);
+}
+
+.proma-main-panel {
+  position: relative;
+  border: 1px solid hsl(var(--border) / 0.72);
+  background: linear-gradient(180deg, hsl(var(--background) / 0.97), hsl(var(--background) / 0.9));
+  box-shadow:
+    0 24px 40px -32px rgb(15 23 42 / 0.28),
+    inset 0 1px 0 rgb(255 255 255 / 0.5);
+  backdrop-filter: blur(18px);
+}
+
+.dark .proma-main-panel {
+  background: linear-gradient(180deg, hsl(var(--background) / 0.96), hsl(var(--muted) / 0.78));
+  box-shadow:
+    0 24px 40px -32px rgb(0 0 0 / 0.7),
+    inset 0 1px 0 rgb(255 255 255 / 0.08);
+}
+
+.proma-tab-strip {
+  background:
+    linear-gradient(180deg, hsl(var(--background) / 0.96), hsl(var(--background) / 0.9)),
+    linear-gradient(180deg, hsl(var(--muted) / 0.35), transparent);
+  border-bottom: 1px solid hsl(var(--border) / 0.72);
+}
+
+.dark .proma-tab-strip {
+  background:
+    linear-gradient(180deg, hsl(var(--background) / 0.95), hsl(var(--muted) / 0.78)),
+    linear-gradient(180deg, rgb(255 255 255 / 0.03), transparent);
+}
+
+.proma-tab-item {
+  position: relative;
+  border-radius: 10px 10px 0 0;
+  border-top: 1px solid transparent;
+  border-left: 1px solid transparent;
+  border-right: 1px solid transparent;
+  color: hsl(var(--muted-foreground));
+  transition:
+    color 160ms ease,
+    background-color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.proma-tab-item:hover {
+  background: hsl(var(--muted) / 0.55);
+  color: hsl(var(--foreground));
+}
+
+.proma-tab-item.is-active,
+.proma-tab-item[data-active='true'] {
+  margin-bottom: -1px;
+  border-color: hsl(var(--border) / 0.72);
+  border-bottom-color: hsl(var(--background));
+  background:
+    linear-gradient(180deg, hsl(var(--background) / 1), hsl(var(--background) / 0.96));
+  color: hsl(var(--foreground));
+  box-shadow:
+    0 8px 16px -14px rgb(15 23 42 / 0.35),
+    inset 0 1px 0 rgb(255 255 255 / 0.6);
+}
+
+.dark .proma-tab-item.is-active,
+.dark .proma-tab-item[data-active='true'] {
+  border-bottom-color: hsl(var(--background));
+  background:
+    linear-gradient(180deg, hsl(var(--background) / 0.98), hsl(var(--muted) / 0.88));
+  box-shadow:
+    0 10px 18px -16px rgb(0 0 0 / 0.78),
+    inset 0 1px 0 rgb(255 255 255 / 0.08);
+}
+
+.proma-tab-close {
+  opacity: 0;
+  transition:
+    opacity 160ms ease,
+    background-color 160ms ease,
+    color 160ms ease;
+}
+
+.proma-tab-item:hover .proma-tab-close,
+.proma-tab-item.is-active .proma-tab-close,
+.proma-tab-item[data-active='true'] .proma-tab-close {
+  opacity: 1;
+}
+
+.proma-tab-close:hover {
+  background: hsl(var(--muted) / 0.75);
+  color: hsl(var(--foreground));
 }
 
 /* 细腻卡片阴影 */

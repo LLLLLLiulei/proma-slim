@@ -13,20 +13,17 @@
  * - 自动扩高
  */
 
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
 import Underline from '@tiptap/extension-underline'
 import Link from '@tiptap/extension-link'
 import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
-import Mention from '@tiptap/extension-mention'
 import { common, createLowlight } from 'lowlight'
 import { ChevronsDownUp, ChevronsUpDown } from 'lucide-react'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
-import { createFileMentionSuggestion } from '@/components/file-browser/file-mention-suggestion'
-import { createSkillMentionSuggestion, createMcpMentionSuggestion } from '@/components/agent/mention-suggestions'
 
 // 创建 lowlight 实例，使用常见语言
 const lowlight = createLowlight(common)
@@ -227,38 +224,6 @@ export function RichTextInput({
   // 保持 onPasteFiles 引用最新
   const onPasteFilesRef = useRef(onPasteFiles)
   onPasteFilesRef.current = onPasteFiles
-  // Mention 活跃状态（阻止 Enter 发送消息）
-  const mentionActiveRef = useRef(false)
-  // 工作区路径引用（给 Suggestion 使用）
-  const workspacePathRef = useRef<string | null>(workspacePath ?? null)
-  workspacePathRef.current = workspacePath ?? null
-  // 附加目录路径引用（给 Suggestion 使用）
-  const attachedDirsRef = useRef<string[]>(attachedDirs)
-  attachedDirsRef.current = attachedDirs
-  // 工作区 slug 引用（给 Skill/MCP Suggestion 使用）
-  const workspaceSlugRef = useRef<string | null>(workspaceSlug ?? null)
-  workspaceSlugRef.current = workspaceSlug ?? null
-
-  // 是否启用 Mention 功能（需要工作区路径或 slug）
-  const hasMentionSupport = !!(workspacePath || workspaceSlug)
-
-  // Mention Suggestion 配置（稳定引用，不随 workspacePath 变化重建）
-  const mentionSuggestion = useMemo(
-    () => createFileMentionSuggestion(workspacePathRef, mentionActiveRef, attachedDirsRef),
-    [],
-  )
-
-  // Skill Suggestion 配置（/ 触发）
-  const skillSuggestion = useMemo(
-    () => createSkillMentionSuggestion(workspaceSlugRef, mentionActiveRef),
-    [],
-  )
-
-  // MCP Suggestion 配置（# 触发）
-  const mcpSuggestion = useMemo(
-    () => createMcpMentionSuggestion(workspaceSlugRef, mentionActiveRef),
-    [],
-  )
 
   const editor = useEditor({
     extensions: [
@@ -286,49 +251,6 @@ export function RichTextInput({
         placeholder,
         emptyEditorClass: 'is-editor-empty',
       }),
-      // Mention 扩展：仅在 Agent 模式（有工作区）时启用
-      // @ 引用文件、/ 触发 Skill、# 触发 MCP
-      ...(hasMentionSupport ? [
-        Mention.extend({
-          addAttributes() {
-            return {
-              ...this.parent?.(),
-              mentionSuggestionChar: {
-                default: '@',
-                parseHTML: (el: HTMLElement) => el.getAttribute('data-mention-suggestion-char') || '@',
-                renderHTML: (attrs: Record<string, string>) => ({
-                  'data-mention-suggestion-char': attrs.mentionSuggestionChar,
-                }),
-              },
-            }
-          },
-        }).configure({
-          HTMLAttributes: {},
-          renderHTML({ node, suggestion }) {
-            const char = suggestion?.char ?? node.attrs.mentionSuggestionChar ?? '@'
-            const label = node.attrs.label ?? node.attrs.id
-            let chipClass = 'mention-chip'
-            if (char === '/') chipClass = 'skill-mention-chip'
-            else if (char === '#') chipClass = 'mcp-mention-chip'
-            return [
-              'span',
-              {
-                'data-type': 'mention',
-                'data-id': node.attrs.id,
-                'data-label': node.attrs.label,
-                'data-mention-suggestion-char': char,
-                class: chipClass,
-              },
-              `${char === '@' ? '@' : ''}${label}`,
-            ]
-          },
-          suggestions: [
-            mentionSuggestion,
-            skillSuggestion,
-            mcpSuggestion,
-          ],
-        }),
-      ] : []),
     ],
     content: value || '',
     editable: !disabled,
@@ -377,11 +299,6 @@ export function RichTextInput({
 
           // 检查是否正在输入中文（IME 组合输入）
           if (isComposingRef.current || event.isComposing) {
-            return false
-          }
-
-          // Mention 列表打开时，让 TipTap Mention 处理 Enter
-          if (mentionActiveRef.current) {
             return false
           }
 

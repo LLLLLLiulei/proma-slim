@@ -26,14 +26,12 @@ import {
 import { ScrollMinimap } from '@/components/ai-elements/scroll-minimap'
 import type { MinimapItem } from '@/components/ai-elements/scroll-minimap'
 import { useSmoothStream } from '@proma/ui'
-import { UserAvatar } from '@/components/chat/UserAvatar'
-import { CopyButton } from '@/components/chat/CopyButton'
-import { formatMessageTime } from '@/components/chat/ChatMessageItem'
+import { UserAvatar } from '@/components/common/UserAvatar'
+import { CopyButton } from '@/components/common/CopyButton'
+import { formatMessageTime } from '@/lib/message-time'
 import { Button } from '@/components/ui/button'
 import { getModelLogo } from '@/lib/model-logo'
 import { ToolActivityList } from './ToolActivityItem'
-import { BackgroundTasksPanel } from './BackgroundTasksPanel'
-import { useBackgroundTasks } from '@/hooks/useBackgroundTasks'
 import { userProfileAtom } from '@/atoms/user-profile'
 import { cn } from '@/lib/utils'
 import type { AgentMessage, RetryAttempt } from '@proma/shared'
@@ -48,6 +46,33 @@ interface AgentMessagesProps {
   onRetry?: () => void
   onRetryInNewSession?: () => void
   onCompact?: () => void
+}
+
+function normalizeAssistantContent(content: string): string {
+  return content.trim()
+}
+
+export function shouldRenderTransientAssistantMessage({
+  messages,
+  streaming,
+  smoothContent,
+  toolActivities,
+  retrying,
+}: {
+  messages: AgentMessage[]
+  streaming: boolean
+  smoothContent: string
+  toolActivities: ToolActivity[]
+  retrying: AgentStreamState['retrying']
+}): boolean {
+  const hasTransientState = streaming || Boolean(smoothContent) || toolActivities.length > 0 || Boolean(retrying)
+  if (!hasTransientState) return false
+  if (streaming) return true
+
+  const lastAssistantMessage = [...messages].reverse().find((message) => message.role === 'assistant')
+  if (!lastAssistantMessage || !smoothContent) return true
+
+  return normalizeAssistantContent(lastAssistantMessage.content) !== normalizeAssistantContent(smoothContent)
 }
 
 function EmptyState(): React.ReactElement {
@@ -510,12 +535,17 @@ export function AgentMessages({ sessionId, messages, streaming, streamState, onR
   const retrying = streamState?.retrying
   const startedAt = streamState?.startedAt
 
-  // 获取后台任务列表
-  const { tasks: backgroundTasks } = useBackgroundTasks(sessionId)
-
   const { displayedContent: smoothContent } = useSmoothStream({
     content: streamingContent,
     isStreaming: streaming,
+  })
+
+  const shouldShowTransientAssistant = shouldRenderTransientAssistantMessage({
+    messages,
+    streaming,
+    smoothContent,
+    toolActivities,
+    retrying,
   })
 
   // 迷你地图数据
@@ -548,7 +578,7 @@ export function AgentMessages({ sessionId, messages, streaming, streamState, onR
               </div>
             ))}
 
-            {(streaming || smoothContent || toolActivities.length > 0 || retrying) && (
+            {shouldShowTransientAssistant && (
               <Message from="assistant">
                 <MessageHeader
                   model={agentStreamingModel}
@@ -560,8 +590,6 @@ export function AgentMessages({ sessionId, messages, streaming, streamState, onR
                   {toolActivities.length > 0 && (
                     <div className="mb-3">
                       <ToolActivityList activities={toolActivities} animate />
-                      {/* 后台任务面板 — 显示在工具活动下方 */}
-                      <BackgroundTasksPanel tasks={backgroundTasks} />
                     </div>
                   )}
                   {smoothContent ? (

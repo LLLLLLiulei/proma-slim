@@ -8,19 +8,14 @@
  * 照搬 conversation-manager.ts 的模式。
  */
 
-import { readFileSync, writeFileSync, appendFileSync, existsSync, unlinkSync, rmSync, renameSync, readdirSync } from 'node:fs'
+import { readFileSync, writeFileSync, appendFileSync, existsSync, unlinkSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
-import { join } from 'node:path'
 import {
   getAgentSessionsIndexPath,
   getAgentSessionsDir,
   getAgentSessionMessagesPath,
-  getAgentSessionWorkspacePath,
-  getAgentWorkspacePath,
 } from './config-paths'
-import { getAgentWorkspace } from './agent-workspace-manager'
 import type { AgentSessionMeta, AgentMessage } from '@proma/shared'
-import { getConversationMessages } from './conversation-manager'
 
 /**
  * 会话索引文件格式
@@ -109,14 +104,6 @@ export function createAgentSession(
 
   // 确保消息目录存在
   getAgentSessionsDir()
-
-  // 若有工作区，创建 session 级别子文件夹
-  if (workspaceId) {
-    const ws = getAgentWorkspace(workspaceId)
-    if (ws) {
-      getAgentSessionWorkspacePath(ws.slug, meta.id)
-    }
-  }
 
   console.log(`[Agent 会话] 已创建会话: ${meta.title} (${meta.id})`)
   return meta
@@ -209,22 +196,6 @@ export function deleteAgentSession(id: string): void {
     }
   }
 
-  // 清理 session 工作目录
-  if (removed.workspaceId) {
-    const ws = getAgentWorkspace(removed.workspaceId)
-    if (ws) {
-      try {
-        const sessionDir = getAgentSessionWorkspacePath(ws.slug, id)
-        if (existsSync(sessionDir)) {
-          rmSync(sessionDir, { recursive: true, force: true })
-          console.log(`[Agent 会话] 已清理 session 工作目录: ${sessionDir}`)
-        }
-      } catch (error) {
-        console.warn(`[Agent 会话] 清理 session 工作目录失败 (${id}):`, error)
-      }
-    }
-  }
-
   console.log(`[Agent 会话] 已删除会话: ${removed.title} (${removed.id})`)
 }
 
@@ -247,46 +218,6 @@ export function moveSessionToWorkspace(sessionId: string, targetWorkspaceId: str
 
   const session = index.sessions[idx]!
 
-  // 源 == 目标 → 直接返回
-  if (session.workspaceId === targetWorkspaceId) return session
-
-  const targetWs = getAgentWorkspace(targetWorkspaceId)
-  if (!targetWs) {
-    throw new Error(`目标工作区不存在: ${targetWorkspaceId}`)
-  }
-
-  // 移动工作目录（如果源工作区存在）
-  if (session.workspaceId) {
-    const sourceWs = getAgentWorkspace(session.workspaceId)
-    if (sourceWs) {
-      const srcDir = join(getAgentWorkspacePath(sourceWs.slug), sessionId)
-      if (existsSync(srcDir)) {
-        const destDir = join(getAgentWorkspacePath(targetWs.slug), sessionId)
-        // 清理已存在的空目标目录，防止 renameSync 抛出 ENOTEMPTY/EEXIST
-        if (existsSync(destDir)) {
-          try {
-            const contents = readdirSync(destDir)
-            if (contents.length === 0) {
-              rmSync(destDir, { recursive: true })
-              console.log(`[Agent 会话] 已清理空目标目录: ${destDir}`)
-            } else {
-              // 目标目录非空，合并：先移除目标，再移动源
-              rmSync(destDir, { recursive: true })
-              console.log(`[Agent 会话] 已清理非空目标目录（以源目录为准）: ${destDir}`)
-            }
-          } catch (cleanupError) {
-            console.warn(`[Agent 会话] 清理目标目录失败，跳过目录迁移:`, cleanupError)
-          }
-        }
-        renameSync(srcDir, destDir)
-        console.log(`[Agent 会话] 已移动工作目录: ${srcDir} → ${destDir}`)
-      }
-    }
-  }
-
-  // 确保目标工作区下有 session 目录
-  getAgentSessionWorkspacePath(targetWs.slug, sessionId)
-
   // 更新元数据
   const updated: AgentSessionMeta = {
     ...session,
@@ -297,44 +228,6 @@ export function moveSessionToWorkspace(sessionId: string, targetWorkspaceId: str
   index.sessions[idx] = updated
   writeIndex(index)
 
-  console.log(`[Agent 会话] 已迁移会话到工作区: ${updated.title} → ${targetWs.name}`)
+  console.log(`[Agent 会话] 已迁移会话（仅更新元数据）: ${updated.title}`)
   return updated
-}
-
-/**
- * 迁移 Chat 对话记录到 Agent 会话
- *
- * 读取 Chat 对话的消息，转换为 AgentMessage 格式，
- * 追加到目标 Agent 会话的 JSONL 文件中。
- *
- * 仅迁移 user 和 assistant 角色的消息文本内容，
- * 工具活动、推理、附件等 Chat 特有字段不迁移。
- */
-export function migrateChatToAgentSession(conversationId: string, agentSessionId: string): void {
-  const chatMessages = getConversationMessages(conversationId)
-
-  if (chatMessages.length === 0) {
-    console.log(`[Agent 会话] Chat 对话无消息，跳过迁移 (${conversationId})`)
-    return
-  }
-
-  let count = 0
-  for (const cm of chatMessages) {
-    // 仅迁移 user 和 assistant 消息
-    if (cm.role !== 'user' && cm.role !== 'assistant') continue
-    if (!cm.content.trim()) continue
-
-    const agentMsg: AgentMessage = {
-      id: randomUUID(),
-      role: cm.role,
-      content: cm.content,
-      createdAt: cm.createdAt,
-      model: cm.role === 'assistant' ? cm.model : undefined,
-    }
-
-    appendAgentMessage(agentSessionId, agentMsg)
-    count++
-  }
-
-  console.log(`[Agent 会话] 已迁移 ${count} 条消息到 Agent 会话 (${conversationId} → ${agentSessionId})`)
 }

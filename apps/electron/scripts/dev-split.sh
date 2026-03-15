@@ -16,7 +16,7 @@ if [ -n "$TMUX" ]; then
 
   # 右侧运行 Electron
   tmux select-pane -R
-  tmux send-keys "cd $(pwd) && bun run dev:electron" C-m
+  tmux send-keys "cd $(pwd) && bun run dev:server" C-m
 
 elif command -v tmux &> /dev/null; then
   echo "启动 tmux 会话..."
@@ -25,7 +25,7 @@ elif command -v tmux &> /dev/null; then
   tmux new-session -d -s proma-dev "cd $(pwd) && bun run dev:vite"
 
   # 创建左右分屏并运行 Electron
-  tmux split-window -h -t proma-dev "cd $(pwd) && bun run dev:electron"
+  tmux split-window -h -t proma-dev "cd $(pwd) && bun run dev:server"
 
   # 选择左侧窗格（Vite）
   tmux select-pane -t proma-dev:0.0
@@ -48,7 +48,7 @@ tell application "iTerm"
 
       -- 在新分屏（右侧）中运行 Electron
       tell newSession
-        write text "cd $(pwd) && bun run dev:electron"
+        write text "cd $(pwd) && bun run dev:server"
       end tell
 
       -- 在当前分屏（左侧）中运行 Vite
@@ -75,7 +75,7 @@ tell application "Terminal"
     keystroke "t" using command down
   end tell
   delay 0.5
-  do script "cd $(pwd) && bun run dev:electron" in front window
+  do script "cd $(pwd) && bun run dev:server" in front window
 end tell
 EOF
   fi
@@ -84,6 +84,6 @@ else
   echo "不支持的平台或未安装 tmux"
   echo "请手动在两个终端中运行："
   echo "  终端 1: bun run dev:vite"
-  echo "  终端 2: bun run dev:electron"
+  echo "  终端 2: bun run dev:server"
   exit 1
 fi

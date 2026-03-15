@@ -41,3 +41,8 @@ what_are_humans_thinking
 
 # vendor binaries
 vendor
+
+.codex/
+.claude/
+openspec/
+node_modules*

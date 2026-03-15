@@ -116,8 +116,6 @@ export interface ClaudeAgentQueryOptions extends AgentQueryInput {
   systemPrompt: { type: 'preset'; preset: 'claude_code'; append: string }
   /** SDK session ID（用于 resume） */
   resumeSessionId?: string
-  /** MCP 服务器配置 */
-  mcpServers?: Record<string, unknown>
   /** 插件配置 */
   plugins?: Array<{ type: 'local'; path: string }>
   /** stderr 回调 */
@@ -157,8 +155,6 @@ export interface ClaudeAgentQueryOptions extends AgentQueryInput {
   forkSession?: boolean
   /** 指定 SDK 会话 ID（替代自动生成，与 AgentQueryInput.sessionId 区分） */
   sdkSessionId?: string
-  /** 附加的外部目录（SDK additionalDirectories） */
-  additionalDirectories?: string[]
 }
 
 // ============================================================================
@@ -690,7 +686,6 @@ export class ClaudeAgentAdapter implements AgentProviderAdapter {
         pathToClaudeCodeExecutable: options.sdkCliPath,
         executable: options.executable.type,
         executableArgs: options.executableArgs,
-        model: options.model || 'claude-sonnet-4-5-20250929',
         ...(options.maxTurns != null && { maxTurns: options.maxTurns }),
         permissionMode: options.sdkPermissionMode,
         allowDangerouslySkipPermissions: options.allowDangerouslySkipPermissions,
@@ -709,9 +704,6 @@ export class ClaudeAgentAdapter implements AgentProviderAdapter {
         ...(options.canUseTool && { canUseTool: options.canUseTool }),
         ...(options.allowedTools && { allowedTools: options.allowedTools }),
         ...(options.resumeSessionId ? { resume: options.resumeSessionId } : {}),
-        ...(options.mcpServers && Object.keys(options.mcpServers).length > 0 && {
-          mcpServers: options.mcpServers as Record<string, import('@anthropic-ai/claude-agent-sdk').McpServerConfig>,
-        }),
         ...(options.plugins && { plugins: options.plugins }),
         ...(options.onStderr && { stderr: options.onStderr }),
 
@@ -729,9 +721,6 @@ export class ClaudeAgentAdapter implements AgentProviderAdapter {
         ...(options.persistSession != null && { persistSession: options.persistSession }),
         ...(options.forkSession != null && { forkSession: options.forkSession }),
         ...(options.sdkSessionId && { sessionId: options.sdkSessionId }),
-        ...(options.additionalDirectories && options.additionalDirectories.length > 0 && {
-          additionalDirectories: options.additionalDirectories,
-        }),
       } as import('@anthropic-ai/claude-agent-sdk').Options
 
       const queryIterator = sdk.query({
