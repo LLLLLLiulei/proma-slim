@@ -44,5 +44,7 @@ vendor
 
 .codex/
 .claude/
-openspec/
 node_modules*
+
+.serena/
+.tmp/
