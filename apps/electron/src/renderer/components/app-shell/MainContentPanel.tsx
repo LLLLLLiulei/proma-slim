@@ -8,6 +8,14 @@ import { AgentView } from '@/components/agent'
 import { SettingsPanel } from '@/components/settings'
 import { cn } from '@/lib/utils'
 
+export function resolveRenderableSessionId(
+  activeTabSessionId: string | null,
+  sessions: Array<{ id: string }>,
+): string | null {
+  if (!activeTabSessionId) return null
+  return sessions.some((session) => session.id === activeTabSessionId) ? activeTabSessionId : null
+}
+
 function EmptyState(): React.ReactElement {
   return (
     <div className="flex h-full items-center justify-center p-8">
@@ -127,6 +135,7 @@ export function MainContentPanel(): React.ReactElement {
   const [activeSessionTabId, setActiveSessionTabId] = useAtom(activeSessionTabIdAtom)
   const activeSessionTab = sessionTabs.find((item) => item.id === activeSessionTabId) ?? null
   const activeTabSessionId = activeSessionTab?.sessionId ?? null
+  const renderSessionId = resolveRenderableSessionId(activeTabSessionId, sessions)
 
   React.useEffect(() => {
     const next = reconcileSessionTabs(sessionTabs, activeSessionTabId, sessions)
@@ -177,8 +186,8 @@ export function MainContentPanel(): React.ReactElement {
         <div className="min-h-0 flex-1 overflow-hidden bg-background/35">
           {activeView === 'settings'
             ? <SettingsPanel />
-            : activeTabSessionId
-              ? <AgentView sessionId={activeTabSessionId} />
+            : renderSessionId
+              ? <AgentView sessionId={renderSessionId} />
               : <EmptyState />}
         </div>
       </div>

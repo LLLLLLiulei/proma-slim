@@ -2,9 +2,13 @@ import type {
   AgentMessage,
   AgentSendInput,
   AgentSessionMeta,
+  AgentWorkspace,
   AskUserResponse,
+  FileSearchResult,
   PermissionResponse,
   RuntimeStatus,
+  WorkspaceCapabilities,
+  WorkspaceDirectoryContext,
 } from '@proma/shared'
 import type { UserProfile } from '../../types'
 
@@ -102,10 +106,66 @@ export const api = {
     return request<AgentSessionMeta[]>('/api/sessions')
   },
 
-  createSession(title?: string): Promise<AgentSessionMeta> {
+  listWorkspaces(): Promise<AgentWorkspace[]> {
+    return request<AgentWorkspace[]>('/api/workspaces')
+  },
+
+  createWorkspace(name: string): Promise<AgentWorkspace> {
+    return request<AgentWorkspace>('/api/workspaces', {
+      method: 'POST',
+      body: { name },
+    })
+  },
+
+  updateWorkspace(
+    workspaceId: string,
+    updates: Partial<Pick<AgentWorkspace, 'name'>>,
+  ): Promise<AgentWorkspace> {
+    return request<AgentWorkspace>(`/api/workspaces/${encodeURIComponent(workspaceId)}`, {
+      method: 'PATCH',
+      body: updates,
+    })
+  },
+
+  deleteWorkspace(workspaceId: string): Promise<void> {
+    return request<void>(`/api/workspaces/${encodeURIComponent(workspaceId)}`, {
+      method: 'DELETE',
+    })
+  },
+
+  getWorkspaceCapabilities(workspaceId: string): Promise<WorkspaceCapabilities> {
+    return request<WorkspaceCapabilities>(`/api/workspaces/${encodeURIComponent(workspaceId)}/capabilities`)
+  },
+
+  getWorkspaceContext(workspaceId: string): Promise<WorkspaceDirectoryContext> {
+    return request<WorkspaceDirectoryContext>(`/api/workspaces/${encodeURIComponent(workspaceId)}/directory-context`)
+  },
+
+  searchWorkspaceFiles(
+    workspaceId: string,
+    query: string,
+    limit = 8,
+    extraDirectories: string[] = [],
+  ): Promise<FileSearchResult> {
+    const params = new URLSearchParams({
+      q: query,
+      limit: String(limit),
+    })
+    for (const directory of extraDirectories) {
+      params.append('dir', directory)
+    }
+    return request<FileSearchResult>(`/api/workspaces/${encodeURIComponent(workspaceId)}/file-search?${params.toString()}`)
+  },
+
+  createSession(title?: string, workspaceId?: string): Promise<AgentSessionMeta> {
+    const body = {
+      ...(title ? { title } : {}),
+      ...(workspaceId ? { workspaceId } : {}),
+    }
+
     return request<AgentSessionMeta>('/api/sessions', {
       method: 'POST',
-      body: title ? { title } : {},
+      body,
     })
   },
 
@@ -119,6 +179,13 @@ export const api = {
     return request<AgentSessionMeta>(`/api/sessions/${encodeURIComponent(sessionId)}`, {
       method: 'PATCH',
       body: { title },
+    })
+  },
+
+  moveSessionToWorkspace(sessionId: string, workspaceId: string): Promise<AgentSessionMeta> {
+    return request<AgentSessionMeta>(`/api/sessions/${encodeURIComponent(sessionId)}/move-workspace`, {
+      method: 'POST',
+      body: { workspaceId },
     })
   },
 

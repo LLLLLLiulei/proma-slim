@@ -437,6 +437,18 @@ export interface WorkspaceCapabilities {
   skills: SkillMeta[]
 }
 
+/** 工作区目录上下文 */
+export interface WorkspaceDirectoryContext {
+  workspaceId: string
+  workspaceName: string
+  workspaceSlug: string
+  workspacePath: string
+  workspaceFilesPath: string
+  skillsPath: string
+  mcpConfigPath: string
+  attachedDirectories: string[]
+}
+
 // ===== Agent 发送输入 =====
 
 /**

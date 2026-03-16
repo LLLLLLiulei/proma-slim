@@ -50,6 +50,8 @@ export function buildSystemPromptAppend(ctx: SystemPromptContext): string {
 
 interface DynamicContext {
   agentCwd?: string
+  workspaceName?: string
+  workspaceSlug?: string
 }
 
 export function buildDynamicContext(ctx: DynamicContext): string {
@@ -69,6 +71,14 @@ export function buildDynamicContext(ctx: DynamicContext): string {
 
   if (ctx.agentCwd) {
     sections.push(`<working_directory>${ctx.agentCwd}</working_directory>`)
+  }
+
+  if (ctx.workspaceName) {
+    sections.push(`<workspace_name>${ctx.workspaceName}</workspace_name>`)
+  }
+
+  if (ctx.workspaceSlug) {
+    sections.push(`<workspace_slug>${ctx.workspaceSlug}</workspace_slug>`)
   }
 
   return sections.join('\n')

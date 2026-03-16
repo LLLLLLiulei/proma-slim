@@ -27,7 +27,14 @@ import {
 } from '@/components/ui/alert-dialog'
 import { activeViewAtom } from '@/atoms/active-view'
 import { settingsTabAtom } from '@/atoms/settings-tab'
-import { agentRunningSessionIdsAtom, agentSessionsAtom, currentAgentSessionIdAtom } from '@/atoms/agent-atoms'
+import {
+  agentRunningSessionIdsAtom,
+  agentSessionsAtom,
+  agentWorkspacesAtom,
+  currentAgentSessionIdAtom,
+  currentAgentWorkspaceIdAtom,
+  workspaceCapabilitiesMapAtom,
+} from '@/atoms/agent-atoms'
 import {
   activeSessionTabIdAtom,
   closeSessionTab,
@@ -37,6 +44,10 @@ import {
 } from '@/atoms/session-tabs'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import {
+  resolveWorkspaceSelectionFallback,
+  WorkspaceSidebarSection,
+} from './WorkspaceSidebarSection'
 import type { AgentSessionMeta } from '@proma/shared'
 
 type DateGroupLabel = '今天' | '昨天' | '更早'
@@ -91,6 +102,28 @@ function formatSessionTime(timestamp: number): string {
   })
 }
 
+export function resolveInitialWorkspaceId(
+  workspaces: Array<{ id: string }>,
+  preferredWorkspaceId: string | null,
+): string | null {
+  if (workspaces.length === 0) {
+    return null
+  }
+
+  return workspaces.find((workspace) => workspace.id === preferredWorkspaceId)?.id ?? workspaces[0]!.id
+}
+
+export function getVisibleSessionsForWorkspace(
+  sessions: AgentSessionMeta[],
+  workspaceId: string | null,
+): AgentSessionMeta[] {
+  if (!workspaceId) {
+    return []
+  }
+
+  return sessions.filter((session) => session.workspaceId === workspaceId)
+}
+
 function SectionHeader({
   label,
   collapsible = false,
@@ -104,7 +137,7 @@ function SectionHeader({
 }): React.ReactElement {
   const content = (
     <>
-      <span className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground/80">{label}</span>
+      <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/80">{label}</span>
       {collapsible && (
         expanded
           ? <ChevronDown className="size-3.5 text-muted-foreground" />
@@ -114,14 +147,14 @@ function SectionHeader({
   )
 
   if (!collapsible) {
-    return <div className="mb-2 flex items-center justify-between px-2">{content}</div>
+    return <div className="mb-1 flex items-center justify-between px-2">{content}</div>
   }
 
   return (
     <button
       type="button"
       onClick={onToggle}
-      className="mb-2 flex w-full items-center justify-between rounded-md px-2 py-1 text-left transition-colors hover:bg-muted/50"
+      className="mb-1 flex w-full items-center justify-between rounded-md px-2 py-1 text-left transition-colors hover:bg-foreground/[0.03]"
     >
       {content}
     </button>
@@ -236,7 +269,10 @@ function SessionRow({
 export function LeftSidebar(): React.ReactElement {
   const [activeView, setActiveView] = useAtom(activeViewAtom)
   const [sessions, setSessions] = useAtom(agentSessionsAtom)
+  const [workspaces, setWorkspaces] = useAtom(agentWorkspacesAtom)
   const [currentSessionId, setCurrentSessionId] = useAtom(currentAgentSessionIdAtom)
+  const [currentWorkspaceId, setCurrentWorkspaceId] = useAtom(currentAgentWorkspaceIdAtom)
+  const [workspaceCapabilitiesMap, setWorkspaceCapabilitiesMap] = useAtom(workspaceCapabilitiesMapAtom)
   const sessionTabs = useAtomValue(sessionTabsAtom)
   const activeSessionTabId = useAtomValue(activeSessionTabIdAtom)
   const runningSessionIds = useAtomValue(agentRunningSessionIdsAtom)
@@ -247,9 +283,18 @@ export function LeftSidebar(): React.ReactElement {
   const [editingId, setEditingId] = React.useState<string | null>(null)
   const [draftTitle, setDraftTitle] = React.useState('')
   const [pendingDeleteId, setPendingDeleteId] = React.useState<string | null>(null)
+  const [editingWorkspaceId, setEditingWorkspaceId] = React.useState<string | null>(null)
+  const [editingWorkspaceName, setEditingWorkspaceName] = React.useState('')
+  const [pendingWorkspaceDeleteId, setPendingWorkspaceDeleteId] = React.useState<string | null>(null)
   const [isCreating, setIsCreating] = React.useState(false)
+  const [isCreatingWorkspace, setIsCreatingWorkspace] = React.useState(false)
+  const [newWorkspaceName, setNewWorkspaceName] = React.useState('')
   const [pinnedExpanded, setPinnedExpanded] = React.useState(true)
   const [pinOverrides, setPinOverrides] = React.useState<Record<string, boolean>>(() => readPinOverrides())
+  const workspaceInputRef = React.useRef<HTMLInputElement>(null)
+  const workspaceEditInputRef = React.useRef<HTMLInputElement>(null)
+  const currentWorkspaceIdRef = React.useRef<string | null>(currentWorkspaceId)
+  currentWorkspaceIdRef.current = currentWorkspaceId
 
   React.useEffect(() => {
     if (typeof window === 'undefined') return
@@ -267,10 +312,13 @@ export function LeftSidebar(): React.ReactElement {
   React.useEffect(() => {
     let cancelled = false
 
-    void api.listSessions().then((nextSessions) => {
+    void Promise.all([api.listSessions(), api.listWorkspaces()]).then(([nextSessions, nextWorkspaces]) => {
       if (cancelled) return
 
       setSessions(nextSessions)
+      setWorkspaces(nextWorkspaces)
+
+      setCurrentWorkspaceId(resolveInitialWorkspaceId(nextWorkspaces, currentWorkspaceIdRef.current))
 
       const initialized = initializeSessionTabs(currentSessionId, nextSessions, sessionTabs, activeSessionTabId)
       setCurrentSessionId(initialized.currentSessionId)
@@ -278,7 +326,7 @@ export function LeftSidebar(): React.ReactElement {
       setActiveSessionTabId(initialized.activeTabId)
     }).catch((error) => {
       console.error('[LeftSidebar] 加载会话失败:', error)
-      toast.error(error instanceof Error ? error.message : '加载会话失败')
+      toast.error(error instanceof Error ? error.message : '加载工作区或会话失败')
     })
 
     return () => {
@@ -287,6 +335,51 @@ export function LeftSidebar(): React.ReactElement {
     // 只在挂载时初始化，后续由本地状态同步驱动，避免异步刷新覆盖 tab 状态。
   }, [])
 
+  React.useEffect(() => {
+    if (!isCreatingWorkspace) return
+
+    const timer = window.setTimeout(() => {
+      workspaceInputRef.current?.focus()
+      workspaceInputRef.current?.select()
+    }, 0)
+
+    return () => window.clearTimeout(timer)
+  }, [isCreatingWorkspace])
+
+  React.useEffect(() => {
+    if (!editingWorkspaceId) return
+
+    const timer = window.setTimeout(() => {
+      workspaceEditInputRef.current?.focus()
+      workspaceEditInputRef.current?.select()
+    }, 0)
+
+    return () => window.clearTimeout(timer)
+  }, [editingWorkspaceId])
+
+  React.useEffect(() => {
+    if (!currentWorkspaceId) return
+    if (!workspaces.some((workspace) => workspace.id === currentWorkspaceId)) return
+
+    let cancelled = false
+
+    void api.getWorkspaceCapabilities(currentWorkspaceId).then((capabilities) => {
+      if (cancelled) return
+
+      setWorkspaceCapabilitiesMap((prev) => {
+        const next = new Map(prev)
+        next.set(currentWorkspaceId, capabilities)
+        return next
+      })
+    }).catch((error) => {
+      console.error('[LeftSidebar] 加载工作区能力失败:', error)
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [currentWorkspaceId, setWorkspaceCapabilitiesMap])
+
   const isPinned = React.useCallback((session: AgentSessionMeta): boolean => {
     if (Object.prototype.hasOwnProperty.call(pinOverrides, session.id)) {
       return Boolean(pinOverrides[session.id])
@@ -294,9 +387,14 @@ export function LeftSidebar(): React.ReactElement {
     return Boolean(session.pinned)
   }, [pinOverrides])
 
+  const visibleSessions = React.useMemo(
+    () => getVisibleSessionsForWorkspace(sessions, currentWorkspaceId),
+    [currentWorkspaceId, sessions],
+  )
+
   const sortedSessions = React.useMemo(
-    () => [...sessions].sort((a, b) => b.updatedAt - a.updatedAt),
-    [sessions]
+    () => [...visibleSessions].sort((a, b) => b.updatedAt - a.updatedAt),
+    [visibleSessions]
   )
 
   const pinnedSessions = React.useMemo(
@@ -309,12 +407,30 @@ export function LeftSidebar(): React.ReactElement {
     [isPinned, sortedSessions]
   )
 
+  const currentWorkspace = React.useMemo(
+    () => workspaces.find((workspace) => workspace.id === currentWorkspaceId) ?? null,
+    [currentWorkspaceId, workspaces],
+  )
+
+  const workspaceSessionCounts = React.useMemo(() => {
+    const next = new Map<string, number>()
+    for (const session of sessions) {
+      if (!session.workspaceId) continue
+      next.set(session.workspaceId, (next.get(session.workspaceId) ?? 0) + 1)
+    }
+    return next
+  }, [sessions])
+
+  const currentWorkspaceCapabilities = currentWorkspaceId
+    ? workspaceCapabilitiesMap.get(currentWorkspaceId) ?? null
+    : null
+
   const handleCreate = async (): Promise<void> => {
     if (isCreating) return
     setIsCreating(true)
 
     try {
-      const session = await api.createSession()
+      const session = await api.createSession(undefined, currentWorkspaceId ?? undefined)
       setSessions((prev) => [session, ...prev])
       activateSession(session)
     } catch (error) {
@@ -322,6 +438,110 @@ export function LeftSidebar(): React.ReactElement {
       toast.error(error instanceof Error ? error.message : '创建会话失败')
     } finally {
       setIsCreating(false)
+    }
+  }
+
+  const handleCreateWorkspace = async (): Promise<void> => {
+    const trimmedName = newWorkspaceName.trim()
+    if (!trimmedName) {
+      setIsCreatingWorkspace(false)
+      setNewWorkspaceName('')
+      return
+    }
+
+    try {
+      const workspace = await api.createWorkspace(trimmedName)
+      setWorkspaces((prev) => [workspace, ...prev])
+      setCurrentWorkspaceId(workspace.id)
+      setEditingWorkspaceId(null)
+      setEditingWorkspaceName('')
+      setIsCreatingWorkspace(false)
+      setNewWorkspaceName('')
+    } catch (error) {
+      console.error('[LeftSidebar] 创建工作区失败:', error)
+      toast.error(error instanceof Error ? error.message : '创建工作区失败')
+    }
+  }
+
+  const startCreateWorkspace = (): void => {
+    setEditingWorkspaceId(null)
+    setEditingWorkspaceName('')
+    setIsCreatingWorkspace(true)
+    setNewWorkspaceName('')
+  }
+
+  const cancelCreateWorkspace = (): void => {
+    setIsCreatingWorkspace(false)
+    setNewWorkspaceName('')
+  }
+
+  const startRenameWorkspace = (workspace: { id: string; name: string }): void => {
+    setIsCreatingWorkspace(false)
+    setNewWorkspaceName('')
+    setEditingWorkspaceId(workspace.id)
+    setEditingWorkspaceName(workspace.name)
+  }
+
+  const commitRenameWorkspace = async (): Promise<void> => {
+    if (!editingWorkspaceId) return
+
+    const trimmedName = editingWorkspaceName.trim()
+    const targetWorkspace = workspaces.find((workspace) => workspace.id === editingWorkspaceId)
+    if (!targetWorkspace) {
+      setEditingWorkspaceId(null)
+      setEditingWorkspaceName('')
+      return
+    }
+
+    if (!trimmedName || trimmedName === targetWorkspace.name) {
+      setEditingWorkspaceId(null)
+      setEditingWorkspaceName('')
+      return
+    }
+
+    try {
+      const updated = await api.updateWorkspace(editingWorkspaceId, { name: trimmedName })
+      setWorkspaces((prev) => prev.map((workspace) => workspace.id === updated.id ? updated : workspace))
+    } catch (error) {
+      console.error('[LeftSidebar] 重命名工作区失败:', error)
+      toast.error(error instanceof Error ? error.message : '重命名工作区失败')
+    } finally {
+      setEditingWorkspaceId(null)
+      setEditingWorkspaceName('')
+    }
+  }
+
+  const cancelRenameWorkspace = (): void => {
+    setEditingWorkspaceId(null)
+    setEditingWorkspaceName('')
+  }
+
+  const requestDeleteWorkspace = (workspace: { id: string }): void => {
+    setPendingWorkspaceDeleteId(workspace.id)
+  }
+
+  const confirmDeleteWorkspace = async (): Promise<void> => {
+    if (!pendingWorkspaceDeleteId) return
+
+    try {
+      await api.deleteWorkspace(pendingWorkspaceDeleteId)
+
+      const nextWorkspaces = workspaces.filter((workspace) => workspace.id !== pendingWorkspaceDeleteId)
+      setWorkspaces(nextWorkspaces)
+      setWorkspaceCapabilitiesMap((prev) => {
+        const next = new Map(prev)
+        next.delete(pendingWorkspaceDeleteId)
+        return next
+      })
+
+      if (currentWorkspaceId === pendingWorkspaceDeleteId || !nextWorkspaces.some((workspace) => workspace.id === currentWorkspaceId)) {
+        setCurrentWorkspaceId(resolveWorkspaceSelectionFallback(nextWorkspaces))
+      }
+    } catch (error) {
+      console.error('[LeftSidebar] 删除工作区失败:', error)
+      toast.error(error instanceof Error ? error.message : '删除工作区失败')
+    } finally {
+      setPendingWorkspaceDeleteId(null)
     }
   }
 
@@ -411,25 +631,47 @@ export function LeftSidebar(): React.ReactElement {
 
   return (
     <aside className="flex h-full min-h-0 w-[280px] shrink-0 flex-col border-r border-border/40 bg-transparent">
-      <div className="border-b border-border/40 px-3 pb-3 pt-4">
+      <div className="px-3 pt-4">
+        <WorkspaceSidebarSection
+          workspaces={workspaces}
+          currentWorkspaceId={currentWorkspaceId}
+          workspaceSessionCounts={workspaceSessionCounts}
+          isCreatingWorkspace={isCreatingWorkspace}
+          newWorkspaceName={newWorkspaceName}
+          editingWorkspaceId={editingWorkspaceId}
+          editingWorkspaceName={editingWorkspaceName}
+          workspaceInputRef={workspaceInputRef}
+          workspaceEditInputRef={workspaceEditInputRef}
+          onSelectWorkspace={(workspace) => setCurrentWorkspaceId(workspace.id)}
+          onStartCreateWorkspace={startCreateWorkspace}
+          onChangeNewWorkspaceName={setNewWorkspaceName}
+          onSubmitCreateWorkspace={() => { void handleCreateWorkspace() }}
+          onCancelCreateWorkspace={cancelCreateWorkspace}
+          onStartRenameWorkspace={startRenameWorkspace}
+          onChangeEditWorkspaceName={setEditingWorkspaceName}
+          onSubmitRenameWorkspace={() => { void commitRenameWorkspace() }}
+          onCancelRenameWorkspace={cancelRenameWorkspace}
+          onRequestDeleteWorkspace={requestDeleteWorkspace}
+          onBlockedDeleteWorkspace={(message) => toast.error(message)}
+        />
         <button
           type="button"
           onClick={() => { void handleCreate() }}
           disabled={isCreating}
-          className="flex w-full items-center gap-2 rounded-[10px] border border-dashed border-foreground/10 bg-foreground/[0.04] px-3 py-2 text-[13px] font-medium text-foreground/70 transition-colors hover:border-foreground/20 hover:bg-foreground/[0.08] hover:text-foreground disabled:opacity-50"
+          className="mt-2 flex w-full items-center gap-2 rounded-[10px] border border-dashed border-foreground/10 bg-foreground/[0.03] px-3 py-2 text-[13px] font-medium text-foreground/70 transition-colors hover:border-foreground/20 hover:bg-foreground/[0.06] hover:text-foreground disabled:opacity-50"
         >
           {isCreating ? <LoaderCircle className="size-4 animate-spin" /> : <Plus className="size-4" />}
           <span>新会话</span>
         </button>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 scrollbar-none">
-        {sessions.length === 0 ? (
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-2 pt-3 scrollbar-none">
+        {visibleSessions.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-border/60 bg-muted/20 px-4 py-6 text-sm leading-6 text-muted-foreground">
             还没有会话。点击上方的“新会话”开始。
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-3">
             <div>
               <SectionHeader
                 label="置顶会话"
@@ -437,9 +679,8 @@ export function LeftSidebar(): React.ReactElement {
                 expanded={pinnedExpanded}
                 onToggle={() => setPinnedExpanded((prev) => !prev)}
               />
-              {pinnedExpanded && (
-                pinnedSessions.length > 0 ? (
-                  <div className="ml-3 space-y-1 border-l-2 border-primary/20 pl-2">
+              {pinnedExpanded && pinnedSessions.length > 0 && (
+                <div className="ml-2 space-y-1 border-l-2 border-primary/20 pl-1">
                     {pinnedSessions.map((session) => (
                       <SessionRow
                         key={`pinned-${session.id}`}
@@ -461,10 +702,7 @@ export function LeftSidebar(): React.ReactElement {
                         onTogglePin={() => togglePin(session)}
                       />
                     ))}
-                  </div>
-                ) : (
-                  <div className="px-2 text-xs text-muted-foreground">暂无置顶会话</div>
-                )
+                </div>
               )}
             </div>
 
@@ -500,18 +738,24 @@ export function LeftSidebar(): React.ReactElement {
         )}
       </div>
 
-      <div className="border-t border-border/40 px-3 pb-3 pt-3">
-        <div className="mb-3 flex items-center gap-4 px-2 text-xs text-muted-foreground">
-          <div className="flex items-center gap-1.5">
-            <Plug className="size-3.5" />
-            <span>0 MCP</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <Zap className="size-3.5" />
-            <span>0 Skills</span>
-          </div>
-        </div>
-
+      <div className="px-3 pb-3 pt-2">
+        <button
+          type="button"
+          onClick={() => {
+            setSettingsTab('general')
+            setActiveView('settings')
+          }}
+          className="mb-1 flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-[12px] text-muted-foreground transition-colors hover:bg-foreground/[0.04] hover:text-foreground/80"
+        >
+          <Plug className="size-3.5" />
+          <span>{currentWorkspaceCapabilities?.mcpServers.length ?? 0} MCP</span>
+          <span className="text-foreground/20">·</span>
+          <Zap className="size-3.5" />
+          <span>{currentWorkspaceCapabilities?.skills.length ?? 0} Skills</span>
+          {currentWorkspace && (
+            <span className="ml-auto truncate text-[11px] text-muted-foreground/80">{currentWorkspace.name}</span>
+          )}
+        </button>
         <button
           type="button"
           onClick={() => {
@@ -519,7 +763,7 @@ export function LeftSidebar(): React.ReactElement {
             setActiveView('settings')
           }}
           className={cn(
-            'flex w-full items-center gap-3 rounded-[10px] px-3 py-2.5 text-left text-sm transition-colors',
+            'flex w-full items-center gap-3 rounded-[10px] px-2.5 py-2.5 text-left text-sm transition-colors',
             activeView === 'settings'
               ? 'bg-foreground/[0.08] text-foreground shadow-[0_1px_2px_0_rgba(0,0,0,0.05)]'
               : 'text-foreground/70 hover:bg-foreground/[0.04] hover:text-foreground'
@@ -549,6 +793,28 @@ export function LeftSidebar(): React.ReactElement {
             <AlertDialogCancel>取消</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => { void confirmDelete() }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              删除
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={pendingWorkspaceDeleteId !== null} onOpenChange={(open) => {
+        if (!open) setPendingWorkspaceDeleteId(null)
+      }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>删除工作区</AlertDialogTitle>
+            <AlertDialogDescription>
+              仅会移除工作区元数据，已有目录文件会保留。请确认该工作区下已经没有会话。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => { void confirmDeleteWorkspace() }}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               删除

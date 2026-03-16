@@ -7,7 +7,17 @@
 
 import { atom } from 'jotai'
 import { atomWithStorage } from 'jotai/utils'
-import type { AgentSessionMeta, AgentEvent, RetryAttempt, PermissionRequest, AskUserRequest, TaskUsage } from '@proma/shared'
+import type {
+  AgentEvent,
+  AgentSessionMeta,
+  AgentWorkspace,
+  AskUserRequest,
+  PermissionRequest,
+  RetryAttempt,
+  TaskUsage,
+  WorkspaceCapabilities,
+  WorkspaceDirectoryContext,
+} from '@proma/shared'
 
 /** 活动状态 */
 export type ActivityStatus = 'pending' | 'running' | 'completed' | 'error' | 'backgrounded'
@@ -197,8 +207,12 @@ export function isActivityGroup(item: ActivityGroup | ToolActivity): item is Act
 // ===== Atoms =====
 
 export const agentSessionsAtom = atom<AgentSessionMeta[]>([])
+export const agentWorkspacesAtom = atom<AgentWorkspace[]>([])
 export const currentAgentSessionIdAtom = atomWithStorage<string | null>('proma-current-agent-session-id', null)
+export const currentAgentWorkspaceIdAtom = atomWithStorage<string | null>('proma-current-agent-workspace-id', null)
 export const agentStreamingStatesAtom = atom<Map<string, AgentStreamState>>(new Map())
+export const workspaceCapabilitiesMapAtom = atom<Map<string, WorkspaceCapabilities>>(new Map())
+export const workspaceDirectoryContextMapAtom = atom<Map<string, WorkspaceDirectoryContext>>(new Map())
 
 /** 待处理的权限请求 Map — 以 sessionId 为 key，切换会话时保留状态 */
 export const allPendingPermissionRequestsAtom = atom<Map<string, readonly PermissionRequest[]>>(new Map())
