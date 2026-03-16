@@ -2,30 +2,10 @@
  * Shared type definitions for proma
  */
 
-// Placeholder types - will be expanded as needed
-export interface Workspace {
-  id: string
-  name: string
-  path: string
-}
-
-// 运行时相关类型
 export * from './runtime'
-
-// 渠道（AI 供应商）相关类型
 export * from './channel'
-
-// 代理配置相关类型
 export * from './proxy'
-
-// Chat 相关类型
 export * from './chat'
-
-// Agent 相关类型
 export * from './agent'
-
-// Agent Provider 适配器接口
 export * from './agent-provider'
-
-// 环境检测相关类型
 export * from './environment'

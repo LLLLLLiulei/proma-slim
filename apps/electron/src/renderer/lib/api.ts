@@ -3,11 +3,10 @@ import type {
   AgentSendInput,
   AgentSessionMeta,
   AskUserResponse,
-  EnvironmentCheckResult,
   PermissionResponse,
   RuntimeStatus,
 } from '@proma/shared'
-import type { AppSettings, UserProfile } from '../../types'
+import type { UserProfile } from '../../types'
 
 export interface AppStatus {
   ok: boolean
@@ -86,25 +85,6 @@ async function requestStream(url: string, options: RequestOptions = {}): Promise
 export const api = {
   getStatus(): Promise<AppStatus> {
     return request<AppStatus>('/api/status')
-  },
-
-  checkEnvironment(): Promise<EnvironmentCheckResult> {
-    return request<EnvironmentCheckResult>('/api/environment-check')
-  },
-
-  getRuntimeStatus(): Promise<RuntimeStatus | null> {
-    return request<RuntimeStatus | null>('/api/runtime-status')
-  },
-
-  getSettings(): Promise<AppSettings> {
-    return request<AppSettings>('/api/settings')
-  },
-
-  updateSettings(updates: Partial<AppSettings>): Promise<AppSettings> {
-    return request<AppSettings>('/api/settings', {
-      method: 'PATCH',
-      body: updates,
-    })
   },
 
   getUserProfile(): Promise<UserProfile> {

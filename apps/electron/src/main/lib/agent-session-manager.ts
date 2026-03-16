@@ -198,36 +198,3 @@ export function deleteAgentSession(id: string): void {
 
   console.log(`[Agent 会话] 已删除会话: ${removed.title} (${removed.id})`)
 }
-
-/**
- * 迁移 Agent 会话到另一个工作区
- *
- * 操作步骤：
- * 1. 验证会话和目标工作区存在
- * 2. 源 == 目标 → no-op
- * 3. 移动会话工作目录到目标工作区
- * 4. 更新元数据（workspaceId + 清空 sdkSessionId）
- * 5. JSONL 消息文件保持原位（全局目录）
- */
-export function moveSessionToWorkspace(sessionId: string, targetWorkspaceId: string): AgentSessionMeta {
-  const index = readIndex()
-  const idx = index.sessions.findIndex((s) => s.id === sessionId)
-  if (idx === -1) {
-    throw new Error(`Agent 会话不存在: ${sessionId}`)
-  }
-
-  const session = index.sessions[idx]!
-
-  // 更新元数据
-  const updated: AgentSessionMeta = {
-    ...session,
-    workspaceId: targetWorkspaceId,
-    sdkSessionId: undefined, // SDK 上下文与工作区 cwd 绑定，必须清空
-    updatedAt: Date.now(),
-  }
-  index.sessions[idx] = updated
-  writeIndex(index)
-
-  console.log(`[Agent 会话] 已迁移会话（仅更新元数据）: ${updated.title}`)
-  return updated
-}

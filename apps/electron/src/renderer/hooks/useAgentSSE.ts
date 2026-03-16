@@ -10,7 +10,6 @@ import type {
 } from '@proma/shared'
 import {
   agentMessageRefreshAtom,
-  agentPromptSuggestionsAtom,
   agentSessionsAtom,
   agentStreamErrorsAtom,
   agentStreamingStatesAtom,
@@ -143,13 +142,6 @@ export function applyStreamFrame(store: JotaiStore, frame: ParsedFrame): void {
   })
 
   switch (event.type) {
-    case 'prompt_suggestion':
-      store.set(agentPromptSuggestionsAtom, (prev: Map<string, string>) => {
-        const map = new Map(prev)
-        map.set(sessionId, event.suggestion)
-        return map
-      })
-      break
     case 'permission_request':
       store.set(allPendingPermissionRequestsAtom, (prev: Map<string, readonly PermissionRequest[]>) => {
         const map = new Map(prev)

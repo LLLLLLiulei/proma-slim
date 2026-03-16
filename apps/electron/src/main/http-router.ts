@@ -5,13 +5,10 @@ import type {
   AgentSendInput,
   AskUserResponse,
   PermissionResponse,
-  ProxyConfig,
 } from '@proma/shared'
 import { askUserService } from './lib/agent-ask-user-service'
-import { checkEnvironment } from './lib/environment-checker'
 import { agentEventBus, generateAgentTitle, isAgentSessionActive, runAgent, stopAgent } from './lib/agent-service'
 import { permissionService } from './lib/agent-permission-service'
-import { detectSystemProxy } from './lib/system-proxy-detector'
 import {
   createAgentSession,
   deleteAgentSession,
@@ -20,7 +17,6 @@ import {
   listAgentSessions,
   updateAgentSessionMeta,
 } from './lib/agent-session-manager'
-import { getProxySettings, saveProxySettings } from './lib/proxy-settings-service'
 import { getRuntimeStatus } from './lib/runtime-init'
 import { getSettings, updateSettings } from './lib/settings-service'
 import { getUserProfile, updateUserProfile } from './lib/user-profile-service'
@@ -150,14 +146,6 @@ export function createHttpRouter(options: HttpRouterOptions) {
       return json(createStatusPayload())
     }
 
-    if (pathname === '/api/runtime-status' && method === 'GET') {
-      return json(getRuntimeStatus())
-    }
-
-    if (pathname === '/api/environment-check' && method === 'GET') {
-      return json(await checkEnvironment())
-    }
-
     if (pathname === '/api/settings' && method === 'GET') {
       return json(getSettings())
     }
@@ -174,20 +162,6 @@ export function createHttpRouter(options: HttpRouterOptions) {
     if (pathname === '/api/user-profile' && method === 'PATCH') {
       const updates = await readJsonBody<Record<string, unknown>>(request)
       return json(updateUserProfile(updates))
-    }
-
-    if (pathname === '/api/proxy-settings' && method === 'GET') {
-      return json(await getProxySettings())
-    }
-
-    if (pathname === '/api/proxy-settings' && (method === 'PUT' || method === 'PATCH')) {
-      const config = await readJsonBody<ProxyConfig>(request)
-      await saveProxySettings(config)
-      return json(config)
-    }
-
-    if (pathname === '/api/proxy-settings/detect' && method === 'POST') {
-      return json(await detectSystemProxy())
     }
 
     if (pathname === '/api/sessions' && method === 'GET') {
@@ -229,16 +203,6 @@ export function createHttpRouter(options: HttpRouterOptions) {
 
     if (action === 'messages' && method === 'GET') {
       return json(getAgentSessionMessages(sessionId))
-    }
-
-    if (action === 'generate-title' && method === 'POST') {
-      const body = await readJsonBody<{ userMessage: string }>(request)
-      const title = await generateAgentTitle({
-        userMessage: body.userMessage,
-        channelId: '',
-        modelId: '',
-      })
-      return json({ title })
     }
 
     if (action === 'stop' && method === 'POST') {
