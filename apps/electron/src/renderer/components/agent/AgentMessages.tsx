@@ -52,6 +52,25 @@ function normalizeAssistantContent(content: string): string {
   return content.trim()
 }
 
+function normalizeToolActivitiesForComparison(activities: ToolActivity[]): string {
+  return JSON.stringify(
+    activities.map((activity) => ({
+      toolUseId: activity.toolUseId,
+      toolName: activity.toolName,
+      input: activity.input,
+      intent: activity.intent ?? null,
+      displayName: activity.displayName ?? null,
+      result: activity.result ?? null,
+      isError: Boolean(activity.isError),
+      done: activity.done,
+      parentToolUseId: activity.parentToolUseId ?? null,
+      taskId: activity.taskId ?? null,
+      shellId: activity.shellId ?? null,
+      isBackground: Boolean(activity.isBackground),
+    })),
+  )
+}
+
 export function shouldRenderTransientAssistantMessage({
   messages,
   streaming,
@@ -72,6 +91,28 @@ export function shouldRenderTransientAssistantMessage({
   if (!lastAssistantMessage || !smoothContent) return true
 
   return normalizeAssistantContent(lastAssistantMessage.content) !== normalizeAssistantContent(smoothContent)
+}
+
+export function shouldRenderTransientToolActivities({
+  messages,
+  streaming,
+  toolActivities,
+}: {
+  messages: AgentMessage[]
+  streaming: boolean
+  toolActivities: ToolActivity[]
+}): boolean {
+  if (toolActivities.length === 0) return false
+  if (streaming) return true
+
+  const lastAssistantMessage = [...messages].reverse().find((message) => message.role === 'assistant')
+  if (!lastAssistantMessage) return true
+
+  const persistedToolActivities = extractToolActivities(lastAssistantMessage.events)
+  if (persistedToolActivities.length === 0) return true
+
+  return normalizeToolActivitiesForComparison(persistedToolActivities)
+    !== normalizeToolActivitiesForComparison(toolActivities)
 }
 
 function EmptyState(): React.ReactElement {
@@ -545,7 +586,12 @@ export function AgentMessages({ sessionId, messages, streaming, streamState, onR
     streamingContent,
     smoothContent,
   })
-  const shouldShowTransientShell = streaming || toolActivities.length > 0 || Boolean(retrying) || shouldShowTransientAssistant
+  const shouldShowTransientToolBlock = shouldRenderTransientToolActivities({
+    messages,
+    streaming,
+    toolActivities,
+  })
+  const shouldShowTransientShell = streaming || shouldShowTransientToolBlock || Boolean(retrying) || shouldShowTransientAssistant
 
   // 迷你地图数据
   const minimapItems: MinimapItem[] = React.useMemo(
@@ -586,7 +632,7 @@ export function AgentMessages({ sessionId, messages, streaming, streamState, onR
                 />
                 <MessageContent>
                   {retrying && <RetryingNotice retrying={retrying} />}
-                  {toolActivities.length > 0 && (
+                  {shouldShowTransientToolBlock && (
                     <div className="mb-3">
                       <ToolActivityList activities={toolActivities} animate />
                     </div>
