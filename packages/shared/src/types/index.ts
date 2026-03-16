@@ -29,15 +29,3 @@ export * from './agent-provider'
 
 // 环境检测相关类型
 export * from './environment'
-
-// GitHub Release 相关类型
-export * from './github'
-
-// 系统提示词相关类型
-export * from './system-prompt'
-
-// Chat 工具（function calling）相关类型
-export * from './chat-tool'
-
-// 飞书集成相关类型
-export * from './feishu'

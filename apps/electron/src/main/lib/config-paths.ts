@@ -30,15 +30,6 @@ export function getConfigDir(): string {
 }
 
 /**
- * 获取渠道配置文件路径
- *
- * @returns ~/.proma/channels.json
- */
-export function getChannelsPath(): string {
-  return join(getConfigDir(), 'channels.json')
-}
-
-/**
  * 获取对话索引文件路径
  *
  * @returns ~/.proma/conversations.json
@@ -146,33 +137,6 @@ export function getUserProfilePath(): string {
  */
 export function getProxySettingsPath(): string {
   return join(getConfigDir(), 'proxy-settings.json')
-}
-
-/**
- * 获取系统提示词配置文件路径
- *
- * @returns ~/.proma/system-prompts.json
- */
-export function getSystemPromptsPath(): string {
-  return join(getConfigDir(), 'system-prompts.json')
-}
-
-/**
- * 获取记忆配置文件路径
- *
- * @returns ~/.proma/memory.json
- */
-export function getMemoryConfigPath(): string {
-  return join(getConfigDir(), 'memory.json')
-}
-
-/**
- * 获取 Chat 工具配置文件路径
- *
- * @returns ~/.proma/chat-tools.json
- */
-export function getChatToolsConfigPath(): string {
-  return join(getConfigDir(), 'chat-tools.json')
 }
 
 /**
@@ -375,24 +339,6 @@ export function seedDefaultSkills(): void {
   } catch (err) {
     console.warn('[配置] 同步默认 Skills 失败:', err)
   }
-}
-
-/**
- * 获取飞书配置文件路径
- *
- * @returns ~/.proma/feishu.json
- */
-export function getFeishuConfigPath(): string {
-  return join(getConfigDir(), 'feishu.json')
-}
-
-/**
- * 获取飞书聊天绑定持久化路径
- *
- * @returns ~/.proma/feishu-bindings.json
- */
-export function getFeishuBindingsPath(): string {
-  return join(getConfigDir(), 'feishu-bindings.json')
 }
 
 /**

@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import { AgentHeader } from './AgentHeader'
 import { AgentMessages } from './AgentMessages'
 import { AskUserBanner } from './AskUserBanner'
+import { loadSessionMessagesWithCatchup } from './message-catchup'
 import { PermissionBanner } from './PermissionBanner'
 import { RichTextInput } from '@/components/ai-elements/rich-text-input'
 import { Button } from '@/components/ui/button'
@@ -92,7 +93,9 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
   React.useEffect(() => {
     let cancelled = false
 
-    void api.getSessionMessages(sessionId).then((nextMessages) => {
+    void loadSessionMessagesWithCatchup(
+      () => api.getSessionMessages(sessionId),
+    ).then((nextMessages) => {
       if (!cancelled) {
         setMessages(nextMessages)
       }

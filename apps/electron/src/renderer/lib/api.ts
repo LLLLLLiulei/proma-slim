@@ -5,7 +5,6 @@ import type {
   AskUserResponse,
   EnvironmentCheckResult,
   PermissionResponse,
-  ProxyConfig,
   RuntimeStatus,
 } from '@proma/shared'
 import type { AppSettings, UserProfile } from '../../types'
@@ -116,23 +115,6 @@ export const api = {
     return request<UserProfile>('/api/user-profile', {
       method: 'PATCH',
       body: updates,
-    })
-  },
-
-  getProxySettings(): Promise<ProxyConfig> {
-    return request<ProxyConfig>('/api/proxy-settings')
-  },
-
-  updateProxySettings(config: ProxyConfig): Promise<ProxyConfig> {
-    return request<ProxyConfig>('/api/proxy-settings', {
-      method: 'PATCH',
-      body: config,
-    })
-  },
-
-  detectSystemProxy(): Promise<{ success: boolean; message: string; proxyUrl?: string }> {
-    return request<{ success: boolean; message: string; proxyUrl?: string }>('/api/proxy-settings/detect', {
-      method: 'POST',
     })
   },
 

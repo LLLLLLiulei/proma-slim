@@ -1,8 +1,16 @@
-import { describe, expect, test } from 'bun:test'
-import { createAgentStreamCallbacks } from './http-router'
+import { afterEach, describe, expect, test } from 'bun:test'
+import { rmSync } from 'node:fs'
+import { join } from 'node:path'
+import { homedir } from 'node:os'
+import { createAgentSession, getAgentSessionMeta } from './lib/agent-session-manager'
+import { createAgentStreamCallbacks, persistGeneratedSessionTitle } from './http-router'
 import { sseManager } from './sse-manager'
 
 const decoder = new TextDecoder()
+
+afterEach(() => {
+  rmSync(join(homedir(), '.proma'), { recursive: true, force: true })
+})
 
 describe('createAgentStreamCallbacks', () => {
   test('onError emits an error event and closes the SSE stream', async () => {
@@ -28,5 +36,23 @@ describe('createAgentStreamCallbacks', () => {
 
     const closedChunk = await reader!.read()
     expect(closedChunk.done).toBe(true)
+  })
+})
+
+describe('persistGeneratedSessionTitle', () => {
+  test('persists a generated title for default-titled sessions before streaming starts', async () => {
+    const session = createAgentSession()
+
+    await persistGeneratedSessionTitle(session.id, '只回复 TITLE_123456')
+
+    expect(getAgentSessionMeta(session.id)?.title).toBe('只回复 TITLE_123456')
+  })
+
+  test('does not overwrite a customized session title', async () => {
+    const session = createAgentSession('手动命名的会话')
+
+    await persistGeneratedSessionTitle(session.id, '只回复 TITLE_654321')
+
+    expect(getAgentSessionMeta(session.id)?.title).toBe('手动命名的会话')
   })
 })

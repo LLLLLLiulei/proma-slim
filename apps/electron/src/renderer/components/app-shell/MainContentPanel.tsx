@@ -140,6 +140,7 @@ export function MainContentPanel(): React.ReactElement {
 
   React.useEffect(() => {
     if (activeView === 'settings') return
+    if (!activeTabSessionId) return
     if (currentSessionId === activeTabSessionId) return
     setCurrentSessionId(activeTabSessionId)
   }, [activeTabSessionId, activeView, currentSessionId, setCurrentSessionId])

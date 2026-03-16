@@ -30,6 +30,8 @@ const JSON_HEADERS = {
   'content-type': 'application/json; charset=utf-8',
 } as const
 
+const DEFAULT_AGENT_SESSION_TITLE = '新 Agent 会话'
+
 class HttpError extends Error {
   status: number
 
@@ -118,6 +120,24 @@ export function createAgentStreamCallbacks(sessionId: string) {
     onTitleUpdated: (title: string) => {
       sseManager.emitTitleUpdated(sessionId, title)
     },
+  }
+}
+
+export async function persistGeneratedSessionTitle(sessionId: string, userMessage: string): Promise<void> {
+  try {
+    const meta = getAgentSessionMeta(sessionId)
+    if (!meta || meta.title !== DEFAULT_AGENT_SESSION_TITLE) return
+
+    const title = await generateAgentTitle({
+      userMessage,
+      channelId: '',
+      modelId: '',
+    })
+    if (!title) return
+
+    updateAgentSessionMeta(sessionId, { title })
+  } catch (error) {
+    console.warn(`[HTTP] 会话 ${sessionId} 预写入标题失败:`, error)
   }
 }
 
@@ -263,6 +283,8 @@ export function createHttpRouter(options: HttpRouterOptions) {
       if (!body.userMessage || !body.userMessage.trim()) {
         throw new HttpError(400, '消息内容不能为空')
       }
+
+      await persistGeneratedSessionTitle(sessionId, body.userMessage)
 
       const input: AgentSendInput = {
         sessionId,

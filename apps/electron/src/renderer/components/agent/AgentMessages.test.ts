@@ -16,6 +16,7 @@ describe('AgentMessages transient assistant rendering', () => {
     expect(shouldRenderTransientAssistantMessage({
       messages,
       streaming: false,
+      streamingContent: '',
       smoothContent: '如果你在生气，可以直接说要我改什么。',
       toolActivities: [],
       retrying: undefined,
@@ -35,9 +36,30 @@ describe('AgentMessages transient assistant rendering', () => {
     expect(shouldRenderTransientAssistantMessage({
       messages,
       streaming: true,
+      streamingContent: '如果你在生气，可以直接说要我改什么。',
       smoothContent: '如果你在生气，可以直接说要我改什么。',
       toolActivities: [],
       retrying: undefined,
     })).toBe(true)
+  })
+
+  test('does not reuse stale smooth content when a new stream has started but no new text arrived yet', () => {
+    const messages: AgentMessage[] = [
+      {
+        id: 'assistant-1',
+        role: 'assistant',
+        content: '上一轮回复',
+        createdAt: Date.now(),
+      },
+    ]
+
+    expect(shouldRenderTransientAssistantMessage({
+      messages,
+      streaming: true,
+      streamingContent: '',
+      smoothContent: '上一轮回复',
+      toolActivities: [],
+      retrying: undefined,
+    })).toBe(false)
   })
 })

@@ -31,8 +31,8 @@ import { agentRunningSessionIdsAtom, agentSessionsAtom, currentAgentSessionIdAto
 import {
   activeSessionTabIdAtom,
   closeSessionTab,
+  initializeSessionTabs,
   openSessionTab,
-  reconcileSessionTabs,
   sessionTabsAtom,
 } from '@/atoms/session-tabs'
 import { api } from '@/lib/api'
@@ -272,25 +272,10 @@ export function LeftSidebar(): React.ReactElement {
 
       setSessions(nextSessions)
 
-      const reconciled = reconcileSessionTabs(sessionTabs, activeSessionTabId, nextSessions)
-      let nextTabs = reconciled.tabs
-      let nextActiveTabId = reconciled.activeTabId
-      const currentStillExists = currentSessionId
-        ? nextSessions.some((session) => session.id === currentSessionId)
-        : false
-
-      if ((!currentSessionId || !currentStillExists) && nextSessions.length > 0) {
-        const fallbackSession = nextSessions[0]!
-        const opened = openSessionTab(nextTabs, fallbackSession)
-        nextTabs = opened.tabs
-        nextActiveTabId = opened.activeTabId
-        setCurrentSessionId(fallbackSession.id)
-      } else if (nextSessions.length === 0) {
-        setCurrentSessionId(null)
-      }
-
-      setSessionTabs(nextTabs)
-      setActiveSessionTabId(nextActiveTabId)
+      const initialized = initializeSessionTabs(currentSessionId, nextSessions, sessionTabs, activeSessionTabId)
+      setCurrentSessionId(initialized.currentSessionId)
+      setSessionTabs(initialized.tabs)
+      setActiveSessionTabId(initialized.activeTabId)
     }).catch((error) => {
       console.error('[LeftSidebar] 加载会话失败:', error)
       toast.error(error instanceof Error ? error.message : '加载会话失败')

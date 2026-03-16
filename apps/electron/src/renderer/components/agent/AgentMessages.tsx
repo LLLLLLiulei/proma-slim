@@ -55,19 +55,18 @@ function normalizeAssistantContent(content: string): string {
 export function shouldRenderTransientAssistantMessage({
   messages,
   streaming,
+  streamingContent,
   smoothContent,
-  toolActivities,
-  retrying,
 }: {
   messages: AgentMessage[]
   streaming: boolean
+  streamingContent: string
   smoothContent: string
-  toolActivities: ToolActivity[]
-  retrying: AgentStreamState['retrying']
+  toolActivities?: ToolActivity[]
+  retrying?: AgentStreamState['retrying']
 }): boolean {
-  const hasTransientState = streaming || Boolean(smoothContent) || toolActivities.length > 0 || Boolean(retrying)
-  if (!hasTransientState) return false
-  if (streaming) return true
+  if (streaming) return Boolean(streamingContent)
+  if (!smoothContent) return false
 
   const lastAssistantMessage = [...messages].reverse().find((message) => message.role === 'assistant')
   if (!lastAssistantMessage || !smoothContent) return true
@@ -543,10 +542,10 @@ export function AgentMessages({ sessionId, messages, streaming, streamState, onR
   const shouldShowTransientAssistant = shouldRenderTransientAssistantMessage({
     messages,
     streaming,
+    streamingContent,
     smoothContent,
-    toolActivities,
-    retrying,
   })
+  const shouldShowTransientShell = streaming || toolActivities.length > 0 || Boolean(retrying) || shouldShowTransientAssistant
 
   // 迷你地图数据
   const minimapItems: MinimapItem[] = React.useMemo(
@@ -578,7 +577,7 @@ export function AgentMessages({ sessionId, messages, streaming, streamState, onR
               </div>
             ))}
 
-            {shouldShowTransientAssistant && (
+            {shouldShowTransientShell && (
               <Message from="assistant">
                 <MessageHeader
                   model={agentStreamingModel}
@@ -592,7 +591,7 @@ export function AgentMessages({ sessionId, messages, streaming, streamState, onR
                       <ToolActivityList activities={toolActivities} animate />
                     </div>
                   )}
-                  {smoothContent ? (
+                  {shouldShowTransientAssistant ? (
                     <>
                       <MessageResponse>{smoothContent}</MessageResponse>
                       {streaming && <StreamingIndicator />}

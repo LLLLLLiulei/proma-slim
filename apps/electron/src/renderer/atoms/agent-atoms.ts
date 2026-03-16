@@ -6,7 +6,7 @@
  */
 
 import { atom } from 'jotai'
-import { atomFamily } from 'jotai/utils'
+import { atomFamily, atomWithStorage } from 'jotai/utils'
 import type { AgentSessionMeta, AgentMessage, AgentEvent, AgentPendingFile, RetryAttempt, PromaPermissionMode, PermissionRequest, AskUserRequest, ThinkingConfig, AgentEffort, TaskUsage } from '@proma/shared'
 
 /** 活动状态 */
@@ -90,9 +90,6 @@ export interface TeammateState {
 
 /** 工具历史最大记录数 */
 const MAX_TOOL_HISTORY = 20
-
-/** 侧面板活跃 Tab */
-export type SidePanelTab = 'team' | 'files'
 
 /** Agent 会话的流式状态 */
 export interface AgentStreamState {
@@ -537,21 +534,13 @@ export interface AgentPendingPrompt {
 export const agentSessionsAtom = atom<AgentSessionMeta[]>([])
 export const agentChannelIdAtom = atom<string | null>('default')
 export const agentModelIdAtom = atom<string | null>(null)
-export const currentAgentSessionIdAtom = atom<string | null>(null)
+export const currentAgentSessionIdAtom = atomWithStorage<string | null>('proma-current-agent-session-id', null)
 export const currentAgentMessagesAtom = atom<AgentMessage[]>([])
 export const agentStreamingStatesAtom = atom<Map<string, AgentStreamState>>(new Map())
 export const agentPendingPromptAtom = atom<AgentPendingPrompt | null>(null)
 
 /** Agent 待发送文件列表 */
 export const agentPendingFilesAtom = atom<AgentPendingFile[]>([])
-
-// ===== 侧面板 Atoms =====
-
-/** 侧面板是否打开（per-session Map） */
-export const agentSidePanelOpenMapAtom = atom<Map<string, boolean>>(new Map())
-
-/** 侧面板当前活跃 Tab（per-session Map） */
-export const agentSidePanelTabMapAtom = atom<Map<string, SidePanelTab>>(new Map())
 
 // ===== 权限系统 Atoms =====
 

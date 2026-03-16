@@ -1,4 +1,4 @@
-import { atom } from 'jotai'
+import { atomWithStorage } from 'jotai/utils'
 import type { AgentSessionMeta } from '@proma/shared'
 
 export interface SessionTab {
@@ -9,8 +9,15 @@ export interface SessionTab {
 
 type SessionTabSource = Pick<AgentSessionMeta, 'id' | 'title'>
 
-export const sessionTabsAtom = atom<SessionTab[]>([])
-export const activeSessionTabIdAtom = atom<string | null>(null)
+const STORAGE_OPTIONS = { getOnInit: true } as const
+
+export const sessionTabsAtom = atomWithStorage<SessionTab[]>('proma-session-tabs', [], undefined, STORAGE_OPTIONS)
+export const activeSessionTabIdAtom = atomWithStorage<string | null>(
+  'proma-active-session-tab-id',
+  null,
+  undefined,
+  STORAGE_OPTIONS,
+)
 
 function toSessionTab(session: SessionTabSource): SessionTab {
   return {
@@ -33,6 +40,55 @@ export function openSessionTab(
   return {
     tabs: [...tabs, nextTab],
     activeTabId: nextTab.id,
+  }
+}
+
+export function initializeSessionTabs(
+  currentSessionId: string | null,
+  sessions: SessionTabSource[],
+  persistedTabs: SessionTab[] = [],
+  persistedActiveTabId: string | null = null,
+): { tabs: SessionTab[]; activeTabId: string | null; currentSessionId: string | null } {
+  if (sessions.length === 0) {
+    return {
+      tabs: [],
+      activeTabId: null,
+      currentSessionId: null,
+    }
+  }
+
+  const restored = reconcileSessionTabs(persistedTabs, persistedActiveTabId, sessions)
+  if (restored.tabs.length > 0) {
+    const preferredSession = currentSessionId
+      ? sessions.find((session) => session.id === currentSessionId) ?? null
+      : null
+
+    if (preferredSession) {
+      const reopened = openSessionTab(restored.tabs, preferredSession)
+      return {
+        tabs: reopened.tabs,
+        activeTabId: reopened.activeTabId,
+        currentSessionId: preferredSession.id,
+      }
+    }
+
+    const restoredActiveTab = restored.tabs.find((tab) => tab.id === restored.activeTabId) ?? restored.tabs[0] ?? null
+    return {
+      tabs: restored.tabs,
+      activeTabId: restoredActiveTab?.id ?? null,
+      currentSessionId: restoredActiveTab?.sessionId ?? null,
+    }
+  }
+
+  const targetSession = currentSessionId
+    ? sessions.find((session) => session.id === currentSessionId) ?? sessions[0]!
+    : sessions[0]!
+
+  const opened = openSessionTab([], targetSession)
+  return {
+    tabs: opened.tabs,
+    activeTabId: opened.activeTabId,
+    currentSessionId: targetSession.id,
   }
 }
 
