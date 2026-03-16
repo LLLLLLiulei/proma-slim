@@ -8,14 +8,20 @@
  * 照搬 conversation-manager.ts 的模式。
  */
 
-import { readFileSync, writeFileSync, appendFileSync, existsSync, unlinkSync } from 'node:fs'
+import { readFileSync, writeFileSync, appendFileSync, existsSync, rmSync, unlinkSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import {
+  getAgentSessionWorkspacePath,
   getAgentSessionsIndexPath,
   getAgentSessionsDir,
   getAgentSessionMessagesPath,
 } from './config-paths'
 import type { AgentSessionMeta, AgentMessage } from '@proma/shared'
+import {
+  ensureDefaultWorkspace,
+  getAgentWorkspace,
+  moveWorkspaceSessionDirectory,
+} from './workspace-service'
 
 /**
  * 会话索引文件格式
@@ -42,7 +48,27 @@ function readIndex(): AgentSessionsIndex {
 
   try {
     const raw = readFileSync(indexPath, 'utf-8')
-    return JSON.parse(raw) as AgentSessionsIndex
+    const index = JSON.parse(raw) as AgentSessionsIndex
+    let mutated = false
+    const defaultWorkspace = ensureDefaultWorkspace()
+
+    index.sessions = index.sessions.map((session) => {
+      if (session.workspaceId) return session
+
+      mutated = true
+      const updated: AgentSessionMeta = {
+        ...session,
+        workspaceId: defaultWorkspace.id,
+      }
+      getAgentSessionWorkspacePath(defaultWorkspace.slug, session.id)
+      return updated
+    })
+
+    if (mutated) {
+      writeIndex(index)
+    }
+
+    return index
   } catch (error) {
     console.error('[Agent 会话] 读取索引文件失败:', error)
     return { version: INDEX_VERSION, sessions: [] }
@@ -89,12 +115,13 @@ export function createAgentSession(
 ): AgentSessionMeta {
   const index = readIndex()
   const now = Date.now()
+  const resolvedWorkspaceId = workspaceId ?? ensureDefaultWorkspace().id
 
   const meta: AgentSessionMeta = {
     id: randomUUID(),
     title: title || '新 Agent 会话',
     channelId,
-    workspaceId,
+    workspaceId: resolvedWorkspaceId,
     createdAt: now,
     updatedAt: now,
   }
@@ -104,6 +131,10 @@ export function createAgentSession(
 
   // 确保消息目录存在
   getAgentSessionsDir()
+  const workspace = getAgentWorkspace(resolvedWorkspaceId)
+  if (workspace) {
+    getAgentSessionWorkspacePath(workspace.slug, meta.id)
+  }
 
   console.log(`[Agent 会话] 已创建会话: ${meta.title} (${meta.id})`)
   return meta
@@ -196,5 +227,51 @@ export function deleteAgentSession(id: string): void {
     }
   }
 
+  if (removed.workspaceId) {
+    const workspace = getAgentWorkspace(removed.workspaceId)
+    if (workspace) {
+      const sessionDir = getAgentSessionWorkspacePath(workspace.slug, id)
+      rmSync(sessionDir, { recursive: true, force: true })
+    }
+  }
+
   console.log(`[Agent 会话] 已删除会话: ${removed.title} (${removed.id})`)
+}
+
+/**
+ * 迁移 Agent 会话到另一个工作区
+ */
+export function moveSessionToWorkspace(sessionId: string, targetWorkspaceId: string): AgentSessionMeta {
+  const index = readIndex()
+  const idx = index.sessions.findIndex((session) => session.id === sessionId)
+
+  if (idx === -1) {
+    throw new Error(`Agent 会话不存在: ${sessionId}`)
+  }
+
+  const session = index.sessions[idx]!
+  if (session.workspaceId === targetWorkspaceId) {
+    return session
+  }
+
+  const targetWorkspace = getAgentWorkspace(targetWorkspaceId)
+  if (!targetWorkspace) {
+    throw new Error(`目标工作区不存在: ${targetWorkspaceId}`)
+  }
+
+  const sourceWorkspace = session.workspaceId ? getAgentWorkspace(session.workspaceId) : null
+  moveWorkspaceSessionDirectory(sessionId, sourceWorkspace?.slug ?? null, targetWorkspace.slug)
+
+  const updated: AgentSessionMeta = {
+    ...session,
+    workspaceId: targetWorkspaceId,
+    sdkSessionId: undefined,
+    updatedAt: Date.now(),
+  }
+
+  index.sessions[idx] = updated
+  writeIndex(index)
+
+  console.log(`[Agent 会话] 已迁移会话到工作区: ${sessionId} -> ${targetWorkspace.slug}`)
+  return updated
 }

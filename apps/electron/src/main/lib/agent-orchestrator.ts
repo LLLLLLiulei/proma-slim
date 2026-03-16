@@ -28,12 +28,23 @@ import { AgentEventBus } from './agent-event-bus'
 import { getFetchFn } from './proxy-fetch'
 import { getEffectiveProxyUrl } from './proxy-settings-service'
 import { appendAgentMessage, updateAgentSessionMeta, getAgentSessionMeta, getAgentSessionMessages } from './agent-session-manager'
-import { getSdkConfigDir } from './config-paths'
+import {
+  getAgentSessionWorkspacePath,
+  getAgentWorkspacePath,
+  getSdkConfigDir,
+  getWorkspaceFilesDir,
+} from './config-paths'
 import { getRuntimeStatus } from './runtime-init'
 import { getSettings } from './settings-service'
 import { buildSystemPromptAppend, buildDynamicContext } from './agent-prompt-builder'
 import { permissionService } from './agent-permission-service'
 import { askUserService } from './agent-ask-user-service'
+import {
+  ensureDefaultWorkspace,
+  getAgentWorkspace,
+  getWorkspaceAttachedDirectories,
+  getWorkspaceMcpConfig,
+} from './workspace-service'
 
 interface TaskNotificationSummary {
   taskId?: string
@@ -72,6 +83,74 @@ const INBOX_RETRY_CONFIG = {
   maxRetries: 0,
   intervalMs: 0,
   timeoutMs: 0,
+}
+
+interface ResolvedWorkspaceRuntime {
+  workspace: import('@proma/shared').AgentWorkspace
+  agentCwd: string
+  pluginPath: string
+  additionalDirectories: string[]
+  mcpServers: Record<string, Record<string, unknown>>
+}
+
+function buildWorkspaceMcpServers(workspaceSlug: string): Record<string, Record<string, unknown>> {
+  const mcpServers: Record<string, Record<string, unknown>> = {}
+  const mcpConfig = getWorkspaceMcpConfig(workspaceSlug)
+
+  for (const [name, entry] of Object.entries(mcpConfig.servers ?? {})) {
+    if (!entry.enabled) continue
+
+    if (entry.type === 'stdio' && entry.command) {
+      mcpServers[name] = {
+        type: 'stdio',
+        command: entry.command,
+        ...(entry.args && entry.args.length > 0 && { args: entry.args }),
+        ...(entry.env && Object.keys(entry.env).length > 0 && { env: entry.env }),
+      }
+      continue
+    }
+
+    if ((entry.type === 'http' || entry.type === 'sse') && entry.url) {
+      mcpServers[name] = {
+        type: entry.type,
+        url: entry.url,
+        ...(entry.headers && Object.keys(entry.headers).length > 0 && { headers: entry.headers }),
+      }
+    }
+  }
+
+  return mcpServers
+}
+
+export function resolveWorkspaceRuntimeContext(
+  sessionId: string,
+  overrides?: Pick<AgentSendInput, 'workspaceId' | 'additionalDirectories'>,
+): ResolvedWorkspaceRuntime {
+  const sessionMeta = getAgentSessionMeta(sessionId)
+  const fallbackWorkspace = ensureDefaultWorkspace()
+  const resolvedWorkspaceId = overrides?.workspaceId ?? sessionMeta?.workspaceId ?? fallbackWorkspace.id
+  const workspace = getAgentWorkspace(resolvedWorkspaceId) ?? fallbackWorkspace
+  const agentCwd = getAgentSessionWorkspacePath(workspace.slug, sessionId)
+  const mergedDirectories = [...(overrides?.additionalDirectories ?? [])]
+
+  for (const directory of getWorkspaceAttachedDirectories(workspace.slug)) {
+    if (!mergedDirectories.includes(directory)) {
+      mergedDirectories.push(directory)
+    }
+  }
+
+  const workspaceFilesDir = getWorkspaceFilesDir(workspace.slug)
+  if (!mergedDirectories.includes(workspaceFilesDir)) {
+    mergedDirectories.push(workspaceFilesDir)
+  }
+
+  return {
+    workspace,
+    agentCwd,
+    pluginPath: getAgentWorkspacePath(workspace.slug),
+    additionalDirectories: mergedDirectories,
+    mcpServers: buildWorkspaceMcpServers(workspace.slug),
+  }
 }
 
 // ===== 类型定义 =====
@@ -510,6 +589,11 @@ export class AgentOrchestrator {
     const {
       sessionId,
       userMessage,
+      workspaceId,
+      additionalDirectories,
+      customMcpServers,
+      mentionedSkills,
+      mentionedMcpServers,
     } = input
     const stderrChunks: string[] = []
 
@@ -588,6 +672,9 @@ export class AgentOrchestrator {
     let resolvedModel = DEFAULT_MODEL_ID
     let agentExec: { type: 'node' | 'bun'; path: string } | undefined
     let agentCwd: string | undefined
+    let pluginPath: string | undefined
+    let resolvedAdditionalDirectories: string[] = []
+    let resolvedMcpServers: Record<string, Record<string, unknown>> = {}
 
     try {
       // 8. 动态导入 SDK
@@ -613,8 +700,20 @@ export class AgentOrchestrator {
       const nullDevice = process.platform === 'win32' ? 'NUL' : '/dev/null'
       const executableArgs = agentExec.type === 'bun' ? [`--env-file=${nullDevice}`] : []
 
-      // 确定 Agent 工作目录（简化模式固定为进程启动目录）
-      agentCwd = process.cwd()
+      const workspaceRuntime = resolveWorkspaceRuntimeContext(sessionId, {
+        workspaceId,
+        additionalDirectories,
+      })
+      agentCwd = workspaceRuntime.agentCwd
+      pluginPath = workspaceRuntime.pluginPath
+      resolvedAdditionalDirectories = workspaceRuntime.additionalDirectories
+      resolvedMcpServers = workspaceRuntime.mcpServers
+      const workspaceSlug = workspaceRuntime.workspace.slug
+
+      if (customMcpServers) {
+        Object.assign(resolvedMcpServers, customMcpServers)
+      }
+
       if (existingSdkSessionId) {
         console.log(`[Agent 编排] 将尝试 resume: ${existingSdkSessionId}`)
       } else {
@@ -641,8 +740,32 @@ export class AgentOrchestrator {
       }
 
       // 10. 构建动态上下文和最终 prompt
-      const dynamicCtx = buildDynamicContext({ agentCwd })
-      const contextualMessage = `${dynamicCtx}\n\n${userMessage}`
+      const dynamicCtx = buildDynamicContext({
+        agentCwd,
+        workspaceName: workspaceRuntime.workspace.name,
+        workspaceSlug,
+      })
+
+      let enrichedMessage = userMessage
+      if (mentionedSkills?.length || mentionedMcpServers?.length) {
+        const toolLines: string[] = ['用户在消息中明确引用了以下工具，请在本次回复中主动调用：']
+
+        for (const slug of mentionedSkills ?? []) {
+          const qualifiedName = workspaceSlug
+            ? `proma-workspace-${workspaceSlug}:${slug}`
+            : slug
+          toolLines.push(`- Skill: ${qualifiedName}（请立即调用此 Skill）`)
+        }
+
+        for (const name of mentionedMcpServers ?? []) {
+          toolLines.push(`- MCP 服务器: ${name}（请使用此 MCP 服务器的工具来完成任务）`)
+        }
+
+        enrichedMessage = `<mentioned_tools>\n${toolLines.join('\n')}\n</mentioned_tools>\n\n${userMessage}`
+        console.log(`[Agent 编排] 注入 mentioned_tools: ${mentionedSkills?.length ?? 0} skills, ${mentionedMcpServers?.length ?? 0} MCP`)
+      }
+
+      const contextualMessage = `${dynamicCtx}\n\n${enrichedMessage}`
 
       const isCompactCommand = userMessage.trim() === '/compact'
       const finalPrompt = isCompactCommand
@@ -713,6 +836,9 @@ export class AgentOrchestrator {
           }),
         },
         resumeSessionId: existingSdkSessionId,
+        ...(resolvedAdditionalDirectories.length > 0 && { additionalDirectories: resolvedAdditionalDirectories }),
+        ...(Object.keys(resolvedMcpServers).length > 0 && { mcpServers: resolvedMcpServers }),
+        ...(pluginPath && { plugins: [{ type: 'local' as const, path: pluginPath }] }),
         // SDK 0.2.52+ 新增选项（从 settings 读取）
         ...(appSettings.agentThinking && { thinking: appSettings.agentThinking }),
         ...(appSettings.agentEffort && { effort: appSettings.agentEffort }),

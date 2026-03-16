@@ -15,11 +15,23 @@ import {
   getAgentSessionMessages,
   getAgentSessionMeta,
   listAgentSessions,
+  moveSessionToWorkspace,
   updateAgentSessionMeta,
 } from './lib/agent-session-manager'
 import { getRuntimeStatus } from './lib/runtime-init'
 import { getSettings, updateSettings } from './lib/settings-service'
 import { getUserProfile, updateUserProfile } from './lib/user-profile-service'
+import {
+  DEFAULT_WORKSPACE_SLUG,
+  createAgentWorkspace,
+  deleteAgentWorkspace,
+  getAgentWorkspace,
+  getWorkspaceCapabilities,
+  getWorkspaceDirectoryContext,
+  listAgentWorkspaces,
+  searchWorkspaceFiles,
+  updateAgentWorkspace,
+} from './lib/workspace-service'
 import { sseManager } from './sse-manager'
 
 const JSON_HEADERS = {
@@ -169,8 +181,71 @@ export function createHttpRouter(options: HttpRouterOptions) {
     }
 
     if (pathname === '/api/sessions' && method === 'POST') {
-      const body = await readJsonBody<{ title?: string }>(request)
-      return json(createAgentSession(body.title), 201)
+      const body = await readJsonBody<{ title?: string; workspaceId?: string }>(request)
+      return json(createAgentSession(body.title, undefined, body.workspaceId), 201)
+    }
+
+    if (pathname === '/api/workspaces' && method === 'GET') {
+      return json(listAgentWorkspaces())
+    }
+
+    if (pathname === '/api/workspaces' && method === 'POST') {
+      const body = await readJsonBody<{ name?: string }>(request)
+      if (!body.name || !body.name.trim()) {
+        throw new HttpError(400, '工作区名称不能为空')
+      }
+      return json(createAgentWorkspace(body.name.trim()), 201)
+    }
+
+    const workspaceMatch = pathname.match(/^\/api\/workspaces\/([^/]+)(?:\/([^/]+))?$/)
+    if (workspaceMatch) {
+      const workspaceId = decodeURIComponent(workspaceMatch[1]!)
+      const action = workspaceMatch[2]
+      const workspace = getAgentWorkspace(workspaceId)
+
+      if (!workspace) {
+        throw new HttpError(404, `工作区不存在: ${workspaceId}`)
+      }
+
+      if (!action && method === 'PATCH') {
+        const body = await readJsonBody<{ name?: string }>(request)
+        if (!body.name || !body.name.trim()) {
+          throw new HttpError(400, '工作区名称不能为空')
+        }
+        return json(updateAgentWorkspace(workspaceId, { name: body.name.trim() }))
+      }
+
+      if (!action && method === 'DELETE') {
+        if (workspace.slug === DEFAULT_WORKSPACE_SLUG) {
+          throw new HttpError(409, '默认工作区不可删除')
+        }
+
+        const workspaceSessions = listAgentSessions().filter((session) => session.workspaceId === workspaceId)
+        if (workspaceSessions.length > 0) {
+          throw new HttpError(409, '请先迁移或删除该工作区下的会话后再删除工作区')
+        }
+
+        deleteAgentWorkspace(workspaceId)
+        return noContent()
+      }
+
+      if (action === 'capabilities' && method === 'GET') {
+        return json(getWorkspaceCapabilities(workspace.slug))
+      }
+
+      if (action === 'directory-context' && method === 'GET') {
+        return json(getWorkspaceDirectoryContext(workspaceId))
+      }
+
+      if (action === 'file-search' && method === 'GET') {
+        const query = url.searchParams.get('q') ?? ''
+        const limitParam = url.searchParams.get('limit')
+        const limit = limitParam ? Math.max(1, Number.parseInt(limitParam, 10) || 20) : 20
+        const extraDirectories = url.searchParams.getAll('dir').filter(Boolean)
+        return json(searchWorkspaceFiles(workspaceId, query, limit, extraDirectories))
+      }
+
+      throw new HttpError(404, '接口不存在')
     }
 
     const sessionMatch = pathname.match(/^\/api\/sessions\/([^/]+)(?:\/([^/]+))?$/)
@@ -203,6 +278,15 @@ export function createHttpRouter(options: HttpRouterOptions) {
 
     if (action === 'messages' && method === 'GET') {
       return json(getAgentSessionMessages(sessionId))
+    }
+
+    if (action === 'move-workspace' && method === 'POST') {
+      const body = await readJsonBody<{ workspaceId?: string; targetWorkspaceId?: string }>(request)
+      const targetWorkspaceId = body.workspaceId ?? body.targetWorkspaceId
+      if (!targetWorkspaceId) {
+        throw new HttpError(400, '目标工作区不能为空')
+      }
+      return json(moveSessionToWorkspace(sessionId, targetWorkspaceId))
     }
 
     if (action === 'stop' && method === 'POST') {
@@ -243,7 +327,7 @@ export function createHttpRouter(options: HttpRouterOptions) {
         )
       }
 
-      const body = await readJsonBody<Pick<AgentSendInput, 'userMessage'>> (request)
+      const body = await readJsonBody<Pick<AgentSendInput, 'userMessage'> & Partial<AgentSendInput>>(request)
       if (!body.userMessage || !body.userMessage.trim()) {
         throw new HttpError(400, '消息内容不能为空')
       }
@@ -254,6 +338,12 @@ export function createHttpRouter(options: HttpRouterOptions) {
         sessionId,
         userMessage: body.userMessage,
         channelId: '',
+        ...(body.workspaceId && { workspaceId: body.workspaceId }),
+        ...(body.additionalDirectories && { additionalDirectories: body.additionalDirectories }),
+        ...(body.customMcpServers && { customMcpServers: body.customMcpServers }),
+        ...(body.permissionModeOverride && { permissionModeOverride: body.permissionModeOverride }),
+        ...(body.mentionedSkills && { mentionedSkills: body.mentionedSkills }),
+        ...(body.mentionedMcpServers && { mentionedMcpServers: body.mentionedMcpServers }),
       }
 
       const response = sseManager.createResponse(sessionId, () => {

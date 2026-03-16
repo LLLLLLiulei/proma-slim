@@ -13,24 +13,23 @@
  * - 自动扩高
  */
 
-import { useState, useEffect, useRef } from 'react'
-import { useEditor, EditorContent } from '@tiptap/react'
-import StarterKit from '@tiptap/starter-kit'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
+import Link from '@tiptap/extension-link'
+import Mention from '@tiptap/extension-mention'
 import Placeholder from '@tiptap/extension-placeholder'
 import Underline from '@tiptap/extension-underline'
-import Link from '@tiptap/extension-link'
-import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
-import { common, createLowlight } from 'lowlight'
+import { EditorContent, useEditor } from '@tiptap/react'
+import StarterKit from '@tiptap/starter-kit'
 import { ChevronsDownUp, ChevronsUpDown } from 'lucide-react'
-import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
+import { common, createLowlight } from 'lowlight'
+import { createFileMentionSuggestion } from '@/components/file-browser/file-mention-suggestion'
+import { createMcpMentionSuggestion, createSkillMentionSuggestion } from '@/components/agent/mention-suggestions'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 
-// 创建 lowlight 实例，使用常见语言
 const lowlight = createLowlight(common)
 
-// ===== HTML → Markdown 转换 =====
-
-/** 将 TipTap 输出的 HTML 转换为 Markdown 格式 */
 function htmlToMarkdown(html: string): string {
   if (!html || html === '<p></p>') return ''
 
@@ -68,13 +67,11 @@ function htmlToMarkdown(html: string): string {
       case 'del':
         return `~~${children}~~`
       case 'code':
-        // 检查是否在 pre 内（代码块）
         if (el.parentElement?.tagName.toLowerCase() === 'pre') {
           return children
         }
         return `\`${children}\``
       case 'pre': {
-        // 代码块 - 获取语言类型
         const codeEl = el.querySelector('code')
         const langClass = codeEl?.className || ''
         const langMatch = langClass.match(/language-(\w+)/)
@@ -92,7 +89,7 @@ function htmlToMarkdown(html: string): string {
           .join('\n') + '\n\n'
       case 'ol':
         return Array.from(el.children)
-          .map((li, i) => `${i + 1}. ${processNode(li).trim()}`)
+          .map((li, index) => `${index + 1}. ${processNode(li).trim()}`)
           .join('\n') + '\n\n'
       case 'li':
         return children
@@ -109,7 +106,6 @@ function htmlToMarkdown(html: string): string {
       case 'h6': return `###### ${children}\n\n`
       case 'hr': return '---\n\n'
       case 'span': {
-        // Mention 节点：根据 data-mention-suggestion-char 区分类型
         const dataType = el.getAttribute('data-type')
         const dataId = el.getAttribute('data-id') || ''
         const suggestionChar = el.getAttribute('data-mention-suggestion-char') || '@'
@@ -120,16 +116,14 @@ function htmlToMarkdown(html: string): string {
         }
         return children
       }
-      default: return children
+      default:
+        return children
     }
   }
 
   return processNode(div).trim()
 }
 
-// ===== 行数计算 =====
-
-/** 计算编辑器内容的行数 */
 function countEditorLines(editor: ReturnType<typeof useEditor>): number {
   if (!editor) return 0
 
@@ -142,7 +136,6 @@ function countEditorLines(editor: ReturnType<typeof useEditor>): number {
       if (!text) {
         lineCount += 1
       } else {
-        // 粗略估算：假设每行约50个字符
         lineCount += Math.max(1, Math.ceil(text.length / 50))
       }
     } else if (node.type.name === 'codeBlock') {
@@ -160,42 +153,23 @@ function countEditorLines(editor: ReturnType<typeof useEditor>): number {
   return lineCount
 }
 
-// ===== 组件接口 =====
-
 interface RichTextInputProps {
-  /** 当前值（Markdown） */
   value: string
-  /** 值变更回调 */
   onChange: (markdown: string) => void
-  /** 提交回调（Enter 键） */
   onSubmit: () => void
-  /** 粘贴文件回调（拦截粘贴的文件） */
   onPasteFiles?: (files: File[]) => void
-  /** 占位文字 */
   placeholder?: string
-  /** 是否显示建议样式（斜体占位符） */
   suggestionActive?: boolean
-  /** 是否禁用 */
   disabled?: boolean
-  /** 自动聚焦触发器（当此值变化时自动聚焦，通常传入对话 ID） */
   autoFocusTrigger?: string | null
-  /** 是否支持手动折叠（内容较长时显示折叠按钮） */
   collapsible?: boolean
-  /** 工作区根路径（启用 @ 引用文件功能时需要） */
+  workspaceId?: string | null
   workspacePath?: string | null
-  /** 工作区 slug（启用 / Skill 和 # MCP 功能时需要） */
   workspaceSlug?: string | null
-  /** 附加目录路径列表（@ 引用时一并搜索） */
   attachedDirs?: string[]
   className?: string
 }
 
-/**
- * 富文本输入组件
- * - 基于 TipTap 的 WYSIWYG 编辑器
- * - 支持 Markdown 快捷输入
- * - 无工具栏，纯净输入体验
- */
 export function RichTextInput({
   value,
   onChange,
@@ -207,30 +181,48 @@ export function RichTextInput({
   disabled = false,
   autoFocusTrigger,
   collapsible = false,
+  workspaceId,
   workspacePath,
   workspaceSlug,
   attachedDirs = [],
 }: RichTextInputProps): React.ReactElement {
   const [isExpanded, setIsExpanded] = useState(false)
-  // 手动折叠状态：用户主动折叠输入框
   const [isManuallyCollapsed, setIsManuallyCollapsed] = useState(false)
-  // 跟踪编辑器自己设置的值，用于区分外部设置和内部更新
   const lastEditorValueRef = useRef<string>('')
-  // 跟踪 IME 输入状态（中文输入法等）
   const isComposingRef = useRef(false)
-  // 保持 onSubmit 引用最新
   const onSubmitRef = useRef(onSubmit)
   onSubmitRef.current = onSubmit
-  // 保持 onPasteFiles 引用最新
   const onPasteFilesRef = useRef(onPasteFiles)
   onPasteFilesRef.current = onPasteFiles
+  const mentionActiveRef = useRef(false)
+  const workspaceIdRef = useRef<string | null>(workspaceId ?? null)
+  workspaceIdRef.current = workspaceId ?? null
+  const workspacePathRef = useRef<string | null>(workspacePath ?? null)
+  workspacePathRef.current = workspacePath ?? null
+  const attachedDirsRef = useRef<string[]>(attachedDirs)
+  attachedDirsRef.current = attachedDirs
+  const workspaceSlugRef = useRef<string | null>(workspaceSlug ?? null)
+  workspaceSlugRef.current = workspaceSlug ?? null
+
+  const hasMentionSupport = Boolean(workspaceId && (workspacePath || workspaceSlug))
+
+  const mentionSuggestion = useMemo(
+    () => createFileMentionSuggestion(workspaceIdRef, workspacePathRef, mentionActiveRef, attachedDirsRef),
+    [],
+  )
+  const skillSuggestion = useMemo(
+    () => createSkillMentionSuggestion(workspaceIdRef, mentionActiveRef),
+    [],
+  )
+  const mcpSuggestion = useMemo(
+    () => createMcpMentionSuggestion(workspaceIdRef, mentionActiveRef),
+    [],
+  )
 
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
-        codeBlock: false, // 使用 CodeBlockLowlight 替代
-        // TipTap v3 StarterKit 默认包含 Link 和 Underline
-        // 禁用内置版本，使用下面单独配置的版本
+        codeBlock: false,
         link: false,
         underline: false,
       }),
@@ -251,6 +243,44 @@ export function RichTextInput({
         placeholder,
         emptyEditorClass: 'is-editor-empty',
       }),
+      ...(hasMentionSupport ? [
+        Mention.extend({
+          addAttributes() {
+            return {
+              ...this.parent?.(),
+              mentionSuggestionChar: {
+                default: '@',
+                parseHTML: (element: HTMLElement) => element.getAttribute('data-mention-suggestion-char') || '@',
+                renderHTML: (attrs: Record<string, string>) => ({
+                  'data-mention-suggestion-char': attrs.mentionSuggestionChar,
+                }),
+              },
+            }
+          },
+        }).configure({
+          HTMLAttributes: {},
+          renderHTML({ node, suggestion }) {
+            const char = suggestion?.char ?? node.attrs.mentionSuggestionChar ?? '@'
+            const label = node.attrs.label ?? node.attrs.id
+            let chipClass = 'mention-chip'
+            if (char === '/') chipClass = 'skill-mention-chip'
+            else if (char === '#') chipClass = 'mcp-mention-chip'
+
+            return [
+              'span',
+              {
+                'data-type': 'mention',
+                'data-id': node.attrs.id,
+                'data-label': node.attrs.label,
+                'data-mention-suggestion-char': char,
+                class: chipClass,
+              },
+              `${char === '@' ? '@' : ''}${label}`,
+            ]
+          },
+          suggestions: [mentionSuggestion, skillSuggestion, mcpSuggestion],
+        }),
+      ] : []),
     ],
     content: value || '',
     editable: !disabled,
@@ -260,12 +290,11 @@ export function RichTextInput({
           'prose dark:prose-invert max-w-none focus:outline-none',
           'min-h-[60px] w-full text-[14px] leading-[1.6]',
           '[&>*:first-child]:mt-0 [&>*:last-child]:mb-0',
-          '[&_pre]:bg-muted [&_pre]:rounded-md [&_pre]:p-3',
-          '[&_code]:bg-muted [&_code]:rounded [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-sm',
-          '[&_pre_code]:bg-transparent [&_pre_code]:p-0'
+          '[&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3',
+          '[&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-sm',
+          '[&_pre_code]:bg-transparent [&_pre_code]:p-0',
         ),
       },
-      // 监听 IME 输入状态
       handleDOMEvents: {
         compositionstart: () => {
           isComposingRef.current = true
@@ -276,8 +305,7 @@ export function RichTextInput({
           return false
         },
       },
-      handlePaste: (view, event) => {
-        // 拦截粘贴的文件（图片等）
+      handlePaste: (_view, event) => {
         const clipboardItems = event.clipboardData?.files
         if (clipboardItems && clipboardItems.length > 0 && onPasteFilesRef.current) {
           event.preventDefault()
@@ -287,18 +315,19 @@ export function RichTextInput({
         return false
       },
       handleKeyDown: (view, event) => {
-        // Enter 提交，Shift+Enter 换行
         if (event.key === 'Enter' && !event.shiftKey) {
-          // 如果在代码块中，允许正常换行
           const { state } = view
           const { $from } = state.selection
           const parent = $from.parent
           if (parent.type.name === 'codeBlock') {
-            return false // 让 TipTap 处理
+            return false
           }
 
-          // 检查是否正在输入中文（IME 组合输入）
           if (isComposingRef.current || event.isComposing) {
+            return false
+          }
+
+          if (mentionActiveRef.current) {
             return false
           }
 
@@ -310,8 +339,8 @@ export function RichTextInput({
         return false
       },
     },
-    onUpdate: ({ editor: ed }) => {
-      const html = ed.getHTML()
+    onUpdate: ({ editor: currentEditor }) => {
+      const html = currentEditor.getHTML()
       if (html === '<p></p>') {
         lastEditorValueRef.current = ''
         onChange('')
@@ -322,59 +351,51 @@ export function RichTextInput({
         lastEditorValueRef.current = markdown
         onChange(markdown)
 
-        // 检查行数，超过5行时展开输入框
-        const lineCount = countEditorLines(ed)
+        const lineCount = countEditorLines(currentEditor)
         setIsExpanded(lineCount > 5)
       }
     },
   })
 
-  // 同步外部 value 变化（清空时）
   useEffect(() => {
-    if (editor) {
-      const controllerValue = value
-      // 如果值是编辑器自己设置的，跳过同步
-      if (controllerValue === lastEditorValueRef.current) {
-        return
-      }
+    if (!editor) return
 
-      if (controllerValue === '') {
-        editor.commands.clearContent()
-        lastEditorValueRef.current = ''
-        setIsExpanded(false)
-        setIsManuallyCollapsed(false)
-      } else {
-        const html = controllerValue
-          .split(/\n\n+/)
-          .map(para => `<p>${para.replace(/\n/g, '<br>')}</p>`)
-          .join('')
-        editor.commands.setContent(html)
-        lastEditorValueRef.current = controllerValue
-      }
+    const controllerValue = value
+    if (controllerValue === lastEditorValueRef.current) {
+      return
     }
+
+    if (controllerValue === '') {
+      editor.commands.clearContent()
+      lastEditorValueRef.current = ''
+      setIsExpanded(false)
+      setIsManuallyCollapsed(false)
+      return
+    }
+
+    const html = controllerValue
+      .split(/\n\n+/)
+      .map((paragraph) => `<p>${paragraph.replace(/\n/g, '<br>')}</p>`)
+      .join('')
+    editor.commands.setContent(html)
+    lastEditorValueRef.current = controllerValue
   }, [editor, value])
 
-  // 同步 disabled 状态
   useEffect(() => {
     if (editor) {
       editor.setEditable(!disabled)
     }
   }, [editor, disabled])
 
-  // 动态更新 placeholder 文本
   useEffect(() => {
     if (!editor) return
-    const placeholderExt = editor.extensionManager.extensions.find(
-      (ext) => ext.name === 'placeholder'
-    )
+    const placeholderExt = editor.extensionManager.extensions.find((extension) => extension.name === 'placeholder')
     if (placeholderExt) {
       placeholderExt.options.placeholder = placeholder
-      // 触发 TipTap 重新渲染 placeholder
       editor.view.dispatch(editor.state.tr)
     }
   }, [editor, placeholder])
 
-  // 自动聚焦：组件挂载时 + autoFocusTrigger 变化时
   useEffect(() => {
     if (editor && !disabled) {
       const timer = setTimeout(() => {
@@ -384,35 +405,27 @@ export function RichTextInput({
     }
   }, [editor, disabled, autoFocusTrigger])
 
-  // 是否显示折叠按钮：启用 collapsible 且内容已自动扩展
   const showCollapseToggle = collapsible && isExpanded
 
   return (
     <div
       className={cn(
         'relative w-full overflow-y-auto transition-[max-height] duration-200 ease-in-out',
-        isManuallyCollapsed
-          ? 'max-h-[60px]'
-          : isExpanded ? 'max-h-[500px]' : 'max-h-[200px]',
-        disabled && 'opacity-50 cursor-not-allowed',
-        className
+        isManuallyCollapsed ? 'max-h-[60px]' : isExpanded ? 'max-h-[500px]' : 'max-h-[200px]',
+        disabled && 'cursor-not-allowed opacity-50',
+        className,
       )}
     >
       <EditorContent editor={editor} className="w-full" />
-      {/* 折叠/展开切换按钮 — sticky 悬浮在滚动区域内 */}
       {showCollapseToggle && (
         <Tooltip>
           <TooltipTrigger asChild>
             <button
               type="button"
-              className="sticky bottom-1 float-right mr-2 z-10 p-0.5 rounded hover:bg-muted/80 text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+              className="sticky bottom-1 float-right z-10 mr-2 rounded p-0.5 text-muted-foreground/50 transition-colors hover:bg-muted/80 hover:text-muted-foreground"
               onClick={() => setIsManuallyCollapsed((prev) => !prev)}
             >
-              {isManuallyCollapsed ? (
-                <ChevronsUpDown className="size-3.5" />
-              ) : (
-                <ChevronsDownUp className="size-3.5" />
-              )}
+              {isManuallyCollapsed ? <ChevronsUpDown className="size-3.5" /> : <ChevronsDownUp className="size-3.5" />}
             </button>
           </TooltipTrigger>
           <TooltipContent side="top">

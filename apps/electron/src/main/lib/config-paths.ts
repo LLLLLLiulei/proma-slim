@@ -19,7 +19,8 @@ const CONFIG_DIR_NAME = '.proma'
  * 返回 ~/.proma/，如果目录不存在则自动创建。
  */
 export function getConfigDir(): string {
-  const configDir = join(homedir(), CONFIG_DIR_NAME)
+  const configuredDir = process.env.PROMA_CONFIG_DIR?.trim()
+  const configDir = configuredDir || join(homedir(), CONFIG_DIR_NAME)
 
   if (!existsSync(configDir)) {
     mkdirSync(configDir, { recursive: true })
@@ -174,6 +175,128 @@ export function getAgentSessionsDir(): string {
  */
 export function getAgentSessionMessagesPath(id: string): string {
   return join(getAgentSessionsDir(), `${id}.jsonl`)
+}
+
+/**
+ * 获取 Agent 工作区索引文件路径
+ *
+ * @returns ~/.proma/agent-workspaces.json
+ */
+export function getAgentWorkspacesIndexPath(): string {
+  return join(getConfigDir(), 'agent-workspaces.json')
+}
+
+/**
+ * 获取 Agent 工作区根目录路径
+ *
+ * 如果目录不存在则自动创建。
+ *
+ * @returns ~/.proma/agent-workspaces/
+ */
+export function getAgentWorkspacesDir(): string {
+  const dir = join(getConfigDir(), 'agent-workspaces')
+
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true })
+    console.log(`[配置] 已创建 Agent 工作区目录: ${dir}`)
+  }
+
+  return dir
+}
+
+/**
+ * 获取指定 Agent 工作区的目录路径
+ *
+ * 如果目录不存在则自动创建。
+ *
+ * @param slug 工作区 slug
+ * @returns ~/.proma/agent-workspaces/{slug}/
+ */
+export function getAgentWorkspacePath(slug: string): string {
+  const dir = join(getAgentWorkspacesDir(), slug)
+
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true })
+    console.log(`[配置] 已创建 Agent 工作区: ${dir}`)
+  }
+
+  return dir
+}
+
+/**
+ * 获取指定工作区的 MCP 配置文件路径
+ *
+ * @param slug 工作区 slug
+ * @returns ~/.proma/agent-workspaces/{slug}/mcp.json
+ */
+export function getWorkspaceMcpPath(slug: string): string {
+  return join(getAgentWorkspacePath(slug), 'mcp.json')
+}
+
+/**
+ * 获取指定工作区的 Skills 目录路径
+ *
+ * @param slug 工作区 slug
+ * @returns ~/.proma/agent-workspaces/{slug}/skills/
+ */
+export function getWorkspaceSkillsDir(slug: string): string {
+  const dir = join(getAgentWorkspacePath(slug), 'skills')
+
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true })
+  }
+
+  return dir
+}
+
+/**
+ * 获取工作区不活跃 Skills 目录路径
+ *
+ * @param slug 工作区 slug
+ * @returns ~/.proma/agent-workspaces/{slug}/skills-inactive/
+ */
+export function getInactiveSkillsDir(slug: string): string {
+  const dir = join(getAgentWorkspacePath(slug), 'skills-inactive')
+
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true })
+  }
+
+  return dir
+}
+
+/**
+ * 获取工作区文件目录路径
+ *
+ * @param slug 工作区 slug
+ * @returns ~/.proma/agent-workspaces/{slug}/workspace-files/
+ */
+export function getWorkspaceFilesDir(slug: string): string {
+  const dir = join(getAgentWorkspacePath(slug), 'workspace-files')
+
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true })
+  }
+
+  return dir
+}
+
+/**
+ * 获取指定 Agent 会话的工作路径
+ *
+ * @param workspaceSlug 工作区 slug
+ * @param sessionId 会话 ID
+ * @returns ~/.proma/agent-workspaces/{slug}/{sessionId}/
+ */
+export function getAgentSessionWorkspacePath(workspaceSlug: string, sessionId: string): string {
+  const dir = join(getAgentWorkspacePath(workspaceSlug), sessionId)
+
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true })
+    console.log(`[配置] 已创建 Agent 会话工作目录: ${dir}`)
+  }
+
+  return dir
 }
 
 /**

@@ -15,11 +15,42 @@ import {
   agentSessionDraftsAtom,
   agentStreamErrorsAtom,
   agentStreamingStatesAtom,
+  agentWorkspacesAtom,
+  workspaceDirectoryContextMapAtom,
 } from '@/atoms/agent-atoms'
 import { api, type AppStatus } from '@/lib/api'
 import { useGlobalAgentListeners } from '@/hooks/useGlobalAgentListeners'
 import { cn } from '@/lib/utils'
 import type { AgentMessage } from '@proma/shared'
+
+export function getMessagesForSession(
+  messagesBySession: Map<string, AgentMessage[]>,
+  sessionId: string,
+): AgentMessage[] {
+  return messagesBySession.get(sessionId) ?? []
+}
+
+export function replaceMessagesForSession(
+  messagesBySession: Map<string, AgentMessage[]>,
+  sessionId: string,
+  messages: AgentMessage[],
+): Map<string, AgentMessage[]> {
+  const next = new Map(messagesBySession)
+  next.set(sessionId, messages)
+  return next
+}
+
+export function appendMessageForSession(
+  messagesBySession: Map<string, AgentMessage[]>,
+  sessionId: string,
+  message: AgentMessage,
+): Map<string, AgentMessage[]> {
+  return replaceMessagesForSession(
+    messagesBySession,
+    sessionId,
+    [...getMessagesForSession(messagesBySession, sessionId), message],
+  )
+}
 
 function StatusNotice({ status }: { status: AppStatus }): React.ReactElement | null {
   if (status.ok) return null
@@ -39,24 +70,43 @@ function StatusNotice({ status }: { status: AppStatus }): React.ReactElement | n
 }
 
 export function AgentView({ sessionId }: { sessionId: string }): React.ReactElement {
-  const [messages, setMessages] = React.useState<AgentMessage[]>([])
+  const [messagesBySession, setMessagesBySession] = React.useState<Map<string, AgentMessage[]>>(() => new Map())
   const [status, setStatus] = React.useState<AppStatus | null>(null)
   const streamingState = useAtomValue(agentStreamingStatesAtom).get(sessionId)
   const streamError = useAtomValue(agentStreamErrorsAtom).get(sessionId) ?? null
   const refreshVersion = useAtomValue(agentMessageRefreshAtom).get(sessionId) ?? 0
   const sessions = useAtomValue(agentSessionsAtom)
+  const workspaces = useAtomValue(agentWorkspacesAtom)
   const setSessions = useSetAtom(agentSessionsAtom)
   const setStreamErrors = useSetAtom(agentStreamErrorsAtom)
+  const setWorkspaceDirectoryContextMap = useSetAtom(workspaceDirectoryContextMapAtom)
   const draftsMap = useAtomValue(agentSessionDraftsAtom)
+  const workspaceDirectoryContextMap = useAtomValue(workspaceDirectoryContextMapAtom)
   const setDraftsMap = useSetAtom(agentSessionDraftsAtom)
   const { sendMessage, stopSession } = useGlobalAgentListeners()
+  const messages = React.useMemo(
+    () => getMessagesForSession(messagesBySession, sessionId),
+    [messagesBySession, sessionId],
+  )
 
   const inputValue = draftsMap.get(sessionId) ?? ''
   const streaming = streamingState?.running ?? false
   const session = sessions.find((item) => item.id === sessionId) ?? null
+  const sessionWorkspaceId = session?.workspaceId ?? null
+  const sessionWorkspace = workspaces.find((item) => item.id === sessionWorkspaceId) ?? null
+  const workspaceContext = sessionWorkspaceId
+    ? workspaceDirectoryContextMap.get(sessionWorkspaceId) ?? null
+    : null
   const latestAssistantModel = React.useMemo(
     () => [...messages].reverse().find((message) => message.role === 'assistant')?.model ?? null,
     [messages],
+  )
+  const attachedDirectories = React.useMemo(
+    () => Array.from(new Set([
+      ...(workspaceContext?.attachedDirectories ?? []),
+      ...(session?.attachedDirectories ?? []),
+    ])),
+    [session?.attachedDirectories, workspaceContext?.attachedDirectories],
   )
 
   const setInputValue = React.useCallback((value: string) => {
@@ -97,7 +147,7 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
       () => api.getSessionMessages(sessionId),
     ).then((nextMessages) => {
       if (!cancelled) {
-        setMessages(nextMessages)
+        setMessagesBySession((prev) => replaceMessagesForSession(prev, sessionId, nextMessages))
       }
     }).catch((error) => {
       console.error('[AgentView] 读取消息失败:', error)
@@ -107,6 +157,28 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
       cancelled = true
     }
   }, [sessionId, refreshVersion])
+
+  React.useEffect(() => {
+    if (!sessionWorkspaceId) return
+
+    let cancelled = false
+
+    void api.getWorkspaceContext(sessionWorkspaceId).then((context) => {
+      if (cancelled) return
+
+      setWorkspaceDirectoryContextMap((prev) => {
+        const next = new Map(prev)
+        next.set(sessionWorkspaceId, context)
+        return next
+      })
+    }).catch((error) => {
+      console.error('[AgentView] 读取工作区上下文失败:', error)
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [sessionWorkspaceId, setWorkspaceDirectoryContextMap])
 
   const handleSend = React.useCallback(async (): Promise<void> => {
     const userMessage = inputValue.trim()
@@ -124,7 +196,7 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
       createdAt: Date.now(),
     }
 
-    setMessages((prev) => [...prev, optimisticMessage])
+    setMessagesBySession((prev) => appendMessageForSession(prev, sessionId, optimisticMessage))
     setInputValue('')
     setStreamErrors((prev) => {
       const map = new Map(prev)
@@ -140,14 +212,35 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
     }
 
     try {
-      await sendMessage(sessionId, { userMessage })
+      const mentionedSkills = [...userMessage.matchAll(/\/skill:(\S+)/g)].map((match) => match[1]).filter(Boolean) as string[]
+      const mentionedMcpServers = [...userMessage.matchAll(/#mcp:(\S+)/g)].map((match) => match[1]).filter(Boolean) as string[]
+
+      await sendMessage(sessionId, {
+        userMessage,
+        ...(sessionWorkspaceId && { workspaceId: sessionWorkspaceId }),
+        ...(attachedDirectories.length > 0 && { additionalDirectories: attachedDirectories }),
+        ...(mentionedSkills.length > 0 && { mentionedSkills }),
+        ...(mentionedMcpServers.length > 0 && { mentionedMcpServers }),
+      })
     } catch (error) {
       console.error('[AgentView] 发送消息失败:', error)
       toast.error(error instanceof Error ? error.message : '发送消息失败')
       const nextMessages = await api.getSessionMessages(sessionId)
-      setMessages(nextMessages)
+      setMessagesBySession((prev) => replaceMessagesForSession(prev, sessionId, nextMessages))
     }
-  }, [inputValue, sendMessage, session, sessionId, setInputValue, setSessions, setStreamErrors, status, streaming])
+  }, [
+    attachedDirectories,
+    inputValue,
+    sendMessage,
+    session,
+    sessionId,
+    sessionWorkspaceId,
+    setInputValue,
+    setSessions,
+    setStreamErrors,
+    status,
+    streaming,
+  ])
 
   const handleStop = React.useCallback(async (): Promise<void> => {
     try {
@@ -191,6 +284,10 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
             disabled={streaming || Boolean(status && !status.ok)}
             autoFocusTrigger={sessionId}
             placeholder={status && !status.ok ? '请先修复后端状态，再发送消息' : '输入消息...'}
+            workspaceId={sessionWorkspaceId}
+            workspacePath={workspaceContext?.workspacePath ?? null}
+            workspaceSlug={workspaceContext?.workspaceSlug ?? sessionWorkspace?.slug ?? null}
+            attachedDirs={attachedDirectories}
           />
 
           <div className="flex h-[40px] items-center justify-between gap-4 px-2 py-[5px]">
@@ -198,6 +295,11 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
               <span className="rounded-full bg-muted px-2.5 py-1 text-[11px] font-medium text-foreground/75">
                 Agent
               </span>
+              {(workspaceContext?.workspaceName || sessionWorkspace?.name) && (
+                <span className="rounded-full bg-muted px-2.5 py-1 text-[11px] font-medium text-foreground/75">
+                  {workspaceContext?.workspaceName ?? sessionWorkspace?.name}
+                </span>
+              )}
               {latestAssistantModel && (
                 <span className="truncate text-[11px] text-muted-foreground/80">
                   {latestAssistantModel}

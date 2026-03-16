@@ -118,6 +118,10 @@ export interface ClaudeAgentQueryOptions extends AgentQueryInput {
   resumeSessionId?: string
   /** 插件配置 */
   plugins?: Array<{ type: 'local'; path: string }>
+  /** Agent 可访问的额外目录 */
+  additionalDirectories?: string[]
+  /** 工作区级 MCP 服务配置 */
+  mcpServers?: Record<string, Record<string, unknown>>
   /** stderr 回调 */
   onStderr?: (data: string) => void
   /** SDK session ID 捕获回调 */
@@ -705,6 +709,8 @@ export class ClaudeAgentAdapter implements AgentProviderAdapter {
         ...(options.allowedTools && { allowedTools: options.allowedTools }),
         ...(options.resumeSessionId ? { resume: options.resumeSessionId } : {}),
         ...(options.plugins && { plugins: options.plugins }),
+        ...(options.additionalDirectories && { additionalDirectories: options.additionalDirectories }),
+        ...(options.mcpServers && { mcpServers: options.mcpServers }),
         ...(options.onStderr && { stderr: options.onStderr }),
 
         // ===== SDK 0.2.52+ 新增选项透传 =====

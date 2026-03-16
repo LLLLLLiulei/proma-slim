@@ -80,4 +80,184 @@ describe('renderer api wrappers', () => {
     expect(response.body).not.toBeNull()
     expect(response.headers.get('content-type')).toContain('text/event-stream')
   })
+
+  test('listWorkspaces requests /api/workspaces', async () => {
+    const fetchMock = mock(async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe('/api/workspaces')
+      return jsonResponse([{ id: 'workspace-1', name: '默认工作区', slug: 'default', createdAt: 1, updatedAt: 1 }])
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const { api } = await import('./api')
+    const workspaces = await api.listWorkspaces()
+
+    expect(workspaces).toHaveLength(1)
+    expect(workspaces[0]?.slug).toBe('default')
+  })
+
+  test('createWorkspace posts the workspace name', async () => {
+    const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe('/api/workspaces')
+      expect(init?.method).toBe('POST')
+      expect(JSON.parse(String(init?.body))).toEqual({ name: 'Proma Docs' })
+      return jsonResponse({ id: 'workspace-1', name: 'Proma Docs', slug: 'proma-docs', createdAt: 1, updatedAt: 2 })
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const { api } = await import('./api')
+    const workspace = await api.createWorkspace('Proma Docs')
+
+    expect(workspace.slug).toBe('proma-docs')
+  })
+
+  test('updateWorkspace PATCHes the workspace endpoint', async () => {
+    const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe('/api/workspaces/workspace-1')
+      expect(init?.method).toBe('PATCH')
+      expect(JSON.parse(String(init?.body))).toEqual({ name: 'Renamed Workspace' })
+      return jsonResponse({ id: 'workspace-1', name: 'Renamed Workspace', slug: 'default', createdAt: 1, updatedAt: 2 })
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const { api } = await import('./api')
+    const workspace = await api.updateWorkspace('workspace-1', { name: 'Renamed Workspace' })
+
+    expect(workspace.name).toBe('Renamed Workspace')
+  })
+
+  test('deleteWorkspace sends DELETE to the workspace endpoint', async () => {
+    const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe('/api/workspaces/workspace-1')
+      expect(init?.method).toBe('DELETE')
+      return new Response(null, { status: 204 })
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const { api } = await import('./api')
+    await api.deleteWorkspace('workspace-1')
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  test('getWorkspaceCapabilities requests the capabilities endpoint', async () => {
+    const fetchMock = mock(async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe('/api/workspaces/workspace-1/capabilities')
+      return jsonResponse({ skills: [{ slug: 'docs', name: 'Docs', enabled: true }], mcpServers: [] })
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const { api } = await import('./api')
+    const capabilities = await api.getWorkspaceCapabilities('workspace-1')
+
+    expect(capabilities.skills[0]?.slug).toBe('docs')
+  })
+
+  test('getWorkspaceContext requests the directory-context endpoint', async () => {
+    const fetchMock = mock(async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe('/api/workspaces/workspace-1/directory-context')
+      return jsonResponse({
+        workspaceId: 'workspace-1',
+        workspaceName: 'Proma Docs',
+        workspaceSlug: 'proma-docs',
+        workspacePath: '/tmp/proma-docs',
+        workspaceFilesPath: '/tmp/proma-docs/workspace-files',
+        skillsPath: '/tmp/proma-docs/skills',
+        mcpConfigPath: '/tmp/proma-docs/mcp.json',
+        attachedDirectories: ['/tmp/external-docs'],
+      })
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const { api } = await import('./api')
+    const context = await api.getWorkspaceContext('workspace-1')
+
+    expect(context.workspaceSlug).toBe('proma-docs')
+    expect(context.attachedDirectories).toEqual(['/tmp/external-docs'])
+  })
+
+  test('searchWorkspaceFiles requests the workspace file-search endpoint with query params', async () => {
+    const fetchMock = mock(async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe('/api/workspaces/workspace-1/file-search?q=claude&limit=6')
+      return jsonResponse({
+        entries: [{ name: 'claude.md', path: 'docs/claude.md', type: 'file' }],
+        total: 1,
+      })
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const { api } = await import('./api')
+    const result = await api.searchWorkspaceFiles('workspace-1', 'claude', 6)
+
+    expect(result.entries[0]?.path).toBe('docs/claude.md')
+    expect(result.total).toBe(1)
+  })
+
+  test('searchWorkspaceFiles appends extra directory filters when provided', async () => {
+    const fetchMock = mock(async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe(
+        '/api/workspaces/workspace-1/file-search?q=guide&limit=4&dir=%2Ftmp%2Fworkspace-files&dir=%2Ftmp%2Fexternal-docs',
+      )
+      return jsonResponse({
+        entries: [{ name: 'guide.md', path: 'guide.md', type: 'file' }],
+        total: 1,
+      })
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const { api } = await import('./api')
+    const result = await api.searchWorkspaceFiles(
+      'workspace-1',
+      'guide',
+      4,
+      ['/tmp/workspace-files', '/tmp/external-docs'],
+    )
+
+    expect(result.entries[0]?.path).toBe('guide.md')
+    expect(result.total).toBe(1)
+  })
+
+  test('createSession sends workspaceId in the request body when provided', async () => {
+    const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe('/api/sessions')
+      expect(init?.method).toBe('POST')
+      expect(JSON.parse(String(init?.body))).toEqual({
+        title: 'Workspace session',
+        workspaceId: 'workspace-1',
+      })
+      return jsonResponse({
+        id: 'session-1',
+        title: 'Workspace session',
+        workspaceId: 'workspace-1',
+        createdAt: 1,
+        updatedAt: 2,
+      })
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const { api } = await import('./api')
+    const session = await api.createSession('Workspace session', 'workspace-1')
+
+    expect(session.workspaceId).toBe('workspace-1')
+  })
+
+  test('moveSessionToWorkspace posts to the move-workspace endpoint', async () => {
+    const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe('/api/sessions/session-1/move-workspace')
+      expect(init?.method).toBe('POST')
+      expect(JSON.parse(String(init?.body))).toEqual({ workspaceId: 'workspace-2' })
+      return jsonResponse({
+        id: 'session-1',
+        title: 'Moved session',
+        workspaceId: 'workspace-2',
+        createdAt: 1,
+        updatedAt: 2,
+      })
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const { api } = await import('./api')
+    const session = await api.moveSessionToWorkspace('session-1', 'workspace-2')
+
+    expect(session.workspaceId).toBe('workspace-2')
+  })
 })

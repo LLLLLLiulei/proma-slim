@@ -119,16 +119,16 @@
 
 ## Risks / Trade-offs
 
-- **[旧会话兼容迁移]** 历史会话没有 `workspaceId`，恢复后若处理不一致会导致执行目录漂移。
+- **[旧会话兼容迁移]** 历史会话没有 `workspaceId`，恢复后若处理不一致会导致执行目录漂移。  
   → Mitigation: 统一把无归属历史会话补齐到默认工作区，并在首次访问时创建缺失的 session 目录。
 
-- **[SDK resume 与 cwd 绑定]** 工作区切换或迁移后继续复用旧 `sdkSessionId` 会把上下文绑定到错误目录。
+- **[SDK resume 与 cwd 绑定]** 工作区切换或迁移后继续复用旧 `sdkSessionId` 会把上下文绑定到错误目录。  
   → Mitigation: 将“工作区变化必须清空 `sdkSessionId`”写入 spec，并在迁移实现中强制执行。
 
-- **[能力面恢复范围过大]** 若一次性恢复 watcher、文件浏览器、旧版各种面板，change 会变成大规模 UI 回滚。
+- **[能力面恢复范围过大]** 若一次性恢复 watcher、文件浏览器、旧版各种面板，change 会变成大规模 UI 回滚。  
   → Mitigation: 第一轮只恢复运行时必需能力和最小工作区选择 UI，把完整文件浏览器增强留作后续变更。
 
-- **[旧版 Electron 设计直接搬运]** 旧实现大量依赖 BrowserWindow 与 IPC，直接复用会污染当前 Bun Web 架构。
+- **[旧版 Electron 设计直接搬运]** 旧实现大量依赖 BrowserWindow 与 IPC，直接复用会污染当前 Bun Web 架构。  
   → Mitigation: 复用旧目录模型和工作区职责，不复用旧入口形式；统一改为 HTTP API。
 
 ## Migration Plan
