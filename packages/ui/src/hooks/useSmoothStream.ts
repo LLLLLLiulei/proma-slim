@@ -8,7 +8,7 @@
  * 1. 新增 delta 通过 Intl.Segmenter 拆分为字符粒度后入队
  * 2. requestAnimationFrame 驱动渲染循环
  * 3. 每帧动态计算渲染字符数（队列长时加速追赶，短时放慢）
- * 4. 流结束时一次性输出剩余内容
+ * 4. 流结束后加速但渐进排空队列（不一次性 dump，避免跳动）
  *
  * 参考 Cherry Studio 的 useSmoothStream 实现。
  */
@@ -29,6 +29,45 @@ interface UseSmoothStreamReturn {
   displayedContent: string
 }
 
+type SmoothStreamContentChangeMode = 'noop' | 'append' | 'reset'
+
+interface SmoothStreamContentChangeInput {
+  previousContent: string
+  nextContent: string
+  queuedChars: string[]
+}
+
+interface SmoothStreamContentChangeResult {
+  mode: SmoothStreamContentChangeMode
+  displayedContent?: string
+  queuedChars: string[]
+}
+
+interface SmoothStreamFrameInput {
+  displayedContent: string
+  queuedChars: string[]
+  targetContent: string
+  streamDone: boolean
+}
+
+interface SmoothStreamFrameResult {
+  displayedContent: string
+  queuedChars: string[]
+  isComplete: boolean
+}
+
+interface CompletedSmoothStreamStateInput {
+  displayedContent: string
+  queuedChars: string[]
+  targetContent: string
+  hasActiveAnimation: boolean
+}
+
+interface CompletedSmoothStreamStateResult {
+  displayedContent: string
+  queuedChars: string[]
+}
+
 /** 多语言字符分割器（正确处理中文、日文等多字节字符） */
 const segmenter = new Intl.Segmenter(
   ['en-US', 'zh-CN', 'zh-TW', 'ja-JP', 'ko-KR', 'de-DE', 'fr-FR', 'es-ES', 'pt-PT', 'ru-RU'],
@@ -37,6 +76,88 @@ const segmenter = new Intl.Segmenter(
 /** 用 Intl.Segmenter 将文本拆分为字符数组 */
 function segmentText(text: string): string[] {
   return Array.from(segmenter.segment(text)).map((s) => s.segment)
+}
+
+export function deriveSmoothStreamContentChange({
+  previousContent,
+  nextContent,
+  queuedChars,
+}: SmoothStreamContentChangeInput): SmoothStreamContentChangeResult {
+  if (nextContent === previousContent) {
+    return { mode: 'noop', queuedChars }
+  }
+
+  if (nextContent.startsWith(previousContent)) {
+    const delta = nextContent.slice(previousContent.length)
+    if (!delta) {
+      return { mode: 'noop', queuedChars }
+    }
+
+    return {
+      mode: 'append',
+      queuedChars: [...queuedChars, ...segmentText(delta)],
+    }
+  }
+
+  return {
+    mode: 'reset',
+    displayedContent: nextContent,
+    queuedChars: [],
+  }
+}
+
+function getSmoothStreamFrameSize(queueLength: number, streamDone: boolean): number {
+  const divisor = streamDone ? 4 : 8
+  return Math.max(1, Math.floor(queueLength / divisor))
+}
+
+export function advanceSmoothStreamFrame({
+  displayedContent,
+  queuedChars,
+  targetContent,
+  streamDone,
+}: SmoothStreamFrameInput): SmoothStreamFrameResult {
+  if (queuedChars.length === 0) {
+    return {
+      displayedContent: streamDone ? targetContent : displayedContent,
+      queuedChars,
+      isComplete: streamDone,
+    }
+  }
+
+  const count = getSmoothStreamFrameSize(queuedChars.length, streamDone)
+  const emittedChars = queuedChars.slice(0, count)
+  const remainingChars = queuedChars.slice(count)
+  const nextDisplayedBase = `${displayedContent}${emittedChars.join('')}`
+  const nextDisplayedContent = streamDone && remainingChars.length === 0
+    ? targetContent
+    : nextDisplayedBase
+
+  return {
+    displayedContent: nextDisplayedContent,
+    queuedChars: remainingChars,
+    isComplete: streamDone && remainingChars.length === 0,
+  }
+}
+
+export function syncCompletedSmoothStreamState({
+  displayedContent,
+  queuedChars,
+  targetContent,
+  hasActiveAnimation,
+}: CompletedSmoothStreamStateInput): CompletedSmoothStreamStateResult {
+  if (hasActiveAnimation) {
+    return { displayedContent, queuedChars }
+  }
+
+  if (queuedChars.length === 0 && displayedContent === targetContent) {
+    return { displayedContent, queuedChars }
+  }
+
+  return {
+    displayedContent: targetContent,
+    queuedChars: [],
+  }
 }
 
 /**
@@ -80,86 +201,72 @@ export function useSmoothStream({
 
   // 检测内容变化，计算 delta 并入队
   useEffect(() => {
-    const prevContent = prevContentRef.current
-    const newContent = content
+    const contentChange = deriveSmoothStreamContentChange({
+      previousContent: prevContentRef.current,
+      nextContent: content,
+      queuedChars: chunkQueueRef.current,
+    })
 
-    if (newContent === prevContent) return
+    if (contentChange.mode === 'noop') return
 
-    // 检测是否为追加（正常流式）
-    const isAppend = newContent.startsWith(prevContent)
+    chunkQueueRef.current = contentChange.queuedChars
 
-    if (isAppend) {
-      // 增量部分拆分为字符后入队
-      const delta = newContent.slice(prevContent.length)
-      if (delta) {
-        const chars = segmentText(delta)
-        chunkQueueRef.current.push(...chars)
-      }
-    } else {
-      // 内容重置（用户重新发送等场景）
-      chunkQueueRef.current = []
-      displayedRef.current = newContent
-      setDisplayedContent(newContent)
+    if (contentChange.mode === 'reset') {
+      displayedRef.current = contentChange.displayedContent ?? content
+      setDisplayedContent(displayedRef.current)
     }
 
-    prevContentRef.current = newContent
+    prevContentRef.current = content
   }, [content])
 
-  // 非流式状态时，直接显示完整内容（历史消息、编辑后的消息等）
+  // 非流式状态时，确保最终内容一致（若动画仍在排空队列，则交给 rAF 自然完成）
   useEffect(() => {
     if (!isStreaming) {
-      // 如果队列还有剩余，一次性输出
-      if (chunkQueueRef.current.length > 0) {
-        displayedRef.current += chunkQueueRef.current.join('')
-        chunkQueueRef.current = []
+      const completedState = syncCompletedSmoothStreamState({
+        displayedContent: displayedRef.current,
+        queuedChars: chunkQueueRef.current,
+        targetContent: content,
+        hasActiveAnimation: rafRef.current !== null,
+      })
+
+      chunkQueueRef.current = completedState.queuedChars
+      if (completedState.displayedContent !== displayedRef.current) {
+        displayedRef.current = completedState.displayedContent
         setDisplayedContent(displayedRef.current)
-      }
-      // 确保显示内容与实际内容一致
-      if (displayedRef.current !== content) {
-        displayedRef.current = content
-        setDisplayedContent(content)
       }
     }
   }, [isStreaming, content])
 
   // 渲染循环
   const renderLoop = useCallback((currentTime: number) => {
-    const queue = chunkQueueRef.current
+    if (chunkQueueRef.current.length === 0 && !streamDoneRef.current) {
+      rafRef.current = requestAnimationFrame(renderLoop)
+      return
+    }
 
-    // 队列为空
-    if (queue.length === 0) {
-      if (streamDoneRef.current) {
-        // 流结束 + 队列空 → 停止循环
-        rafRef.current = null
+    if (chunkQueueRef.current.length > 0) {
+      if (currentTime - lastRenderTimeRef.current < minDelay) {
+        rafRef.current = requestAnimationFrame(renderLoop)
         return
       }
-      // 流未结束但队列空 → 等下一帧
-      rafRef.current = requestAnimationFrame(renderLoop)
-      return
+      lastRenderTimeRef.current = currentTime
     }
 
-    // 最小延迟控制
-    if (currentTime - lastRenderTimeRef.current < minDelay) {
-      rafRef.current = requestAnimationFrame(renderLoop)
-      return
+    const nextFrame = advanceSmoothStreamFrame({
+      displayedContent: displayedRef.current,
+      queuedChars: chunkQueueRef.current,
+      targetContent: prevContentRef.current,
+      streamDone: streamDoneRef.current,
+    })
+
+    chunkQueueRef.current = nextFrame.queuedChars
+
+    if (nextFrame.displayedContent !== displayedRef.current) {
+      displayedRef.current = nextFrame.displayedContent
+      setDisplayedContent(displayedRef.current)
     }
-    lastRenderTimeRef.current = currentTime
 
-    // 动态计算本帧渲染字符数：队列越长越快（追赶），最少 1 个
-    let count = Math.max(1, Math.floor(queue.length / 5))
-
-    // 流结束时一次性输出所有剩余
-    if (streamDoneRef.current) {
-      count = queue.length
-    }
-
-    // 取出字符并更新
-    const chars = queue.splice(0, count)
-    displayedRef.current += chars.join('')
-    setDisplayedContent(displayedRef.current)
-
-    // 还有内容 → 继续下一帧
-    if (queue.length > 0 || !streamDoneRef.current) {
+    if (!nextFrame.isComplete) {
       rafRef.current = requestAnimationFrame(renderLoop)
     } else {
       rafRef.current = null
@@ -168,7 +275,7 @@ export function useSmoothStream({
 
   // 启动/重启渲染循环
   useEffect(() => {
-    if (isStreaming && !rafRef.current) {
+    if ((isStreaming || chunkQueueRef.current.length > 0) && !rafRef.current) {
       rafRef.current = requestAnimationFrame(renderLoop)
     }
 

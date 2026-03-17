@@ -39,6 +39,7 @@ import { getSettings } from './settings-service'
 import { buildSystemPromptAppend, buildDynamicContext } from './agent-prompt-builder'
 import { permissionService } from './agent-permission-service'
 import { askUserService } from './agent-ask-user-service'
+import { mapAgentFriendlyError } from './agent-friendly-error'
 import {
   ensureDefaultWorkspace,
   getAgentWorkspace,
@@ -1253,9 +1254,9 @@ export class AgentOrchestrator {
 
           let userFacingError: string
           if (apiError) {
-            userFacingError = `API 错误 (${apiError.statusCode}):\n${apiError.message}`
+            userFacingError = mapAgentFriendlyError(`API 错误 (${apiError.statusCode}):\n${apiError.message}`).userMessage
           } else {
-            userFacingError = errorMessage
+            userFacingError = mapAgentFriendlyError(errorMessage).userMessage
           }
 
           // 保存错误消息到 JSONL

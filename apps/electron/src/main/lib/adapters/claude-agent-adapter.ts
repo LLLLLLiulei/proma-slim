@@ -26,6 +26,7 @@ import {
   type ContentBlock,
 } from '@proma/shared'
 import type { CanUseToolOptions, PermissionResult } from '../agent-permission-service'
+import { mapAgentFriendlyError } from '../agent-friendly-error'
 
 interface SDKAssistantMessage {
   type: 'assistant'
@@ -296,7 +297,11 @@ export class ClaudeAgentAdapter implements AgentProviderAdapter {
           if (isPromptTooLongError(detailedMessage, originalError)) {
             errorCode = 'prompt_too_long'
           }
-          const typedError = mapSDKErrorToTypedError(errorCode, detailedMessage, originalError)
+          const typedError = mapSDKErrorToTypedError(
+            errorCode,
+            mapAgentFriendlyError(detailedMessage).userMessage,
+            originalError,
+          )
           events.push({ type: 'typed_error', error: typedError })
           break
         }
@@ -546,7 +551,7 @@ export class ClaudeAgentAdapter implements AgentProviderAdapter {
     if (msg.subtype === 'success') {
       events.push({ type: 'complete', usage })
     } else {
-      const errorMsg = msg.errors ? msg.errors.join(', ') : 'Agent 查询失败'
+      const errorMsg = mapAgentFriendlyError(msg.errors ? msg.errors.join(', ') : 'Agent 查询失败').userMessage
       events.push({ type: 'error', message: errorMsg })
       events.push({ type: 'complete', usage })
     }

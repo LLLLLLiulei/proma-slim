@@ -203,6 +203,62 @@ interface MessageResponseProps {
   className?: string
 }
 
+const REMARK_PLUGINS = [remarkGfm, remarkMath]
+const REHYPE_PLUGINS = [rehypeKatex]
+
+const MarkdownLink = React.memo(function MarkdownLink({
+  href,
+  children: linkChildren,
+  ...linkProps
+}: React.AnchorHTMLAttributes<HTMLAnchorElement>): React.ReactElement {
+  return (
+    <a
+      {...linkProps}
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={href}
+    >
+      {linkChildren}
+    </a>
+  )
+})
+
+function extractMarkdownText(node: React.ReactNode): string {
+  if (typeof node === 'string') return node
+  if (typeof node === 'number') return String(node)
+  if (!node) return ''
+  if (Array.isArray(node)) return node.map(extractMarkdownText).join('')
+  if (React.isValidElement(node)) {
+    return extractMarkdownText((node.props as { children?: React.ReactNode }).children)
+  }
+  return ''
+}
+
+const MarkdownPre = React.memo(function MarkdownPre({
+  children: preChildren,
+}: { children?: React.ReactNode }): React.ReactElement {
+  const codeChild = React.Children.toArray(preChildren).find(
+    (child): child is React.ReactElement =>
+      React.isValidElement(child) && (child as React.ReactElement).type === 'code'
+  ) as React.ReactElement | undefined
+
+  if (codeChild) {
+    const codeProps = codeChild.props as { className?: string; children?: React.ReactNode }
+    if (codeProps.className?.includes('language-mermaid')) {
+      const mermaidCode = extractMarkdownText(codeProps.children).replace(/\n$/, '')
+      return <MermaidBlock code={mermaidCode} />
+    }
+  }
+
+  return <CodeBlock>{preChildren}</CodeBlock>
+})
+
+const MARKDOWN_COMPONENTS = {
+  a: MarkdownLink,
+  pre: MarkdownPre,
+}
+
 /** 使用 react-markdown 渲染 assistant 消息内容，代码块使用 Shiki 语法高亮 */
 export const MessageResponse = React.memo(
   function MessageResponse({ children, className }: MessageResponseProps): React.ReactElement {
@@ -217,49 +273,9 @@ export const MessageResponse = React.memo(
         )}
       >
         <Markdown
-          remarkPlugins={[remarkGfm, remarkMath]}
-          rehypePlugins={[rehypeKatex]}
-          components={{
-            a: ({ href, children: linkChildren, ...linkProps }) => (
-              <a
-                {...linkProps}
-                href={href}
-                target="_blank"
-                rel="noopener noreferrer"
-                title={href}
-              >
-                {linkChildren}
-              </a>
-            ),
-            pre: ({ children: preChildren }) => {
-              // 检测子 <code> 元素的 className 是否包含 language-mermaid
-              const codeChild = React.Children.toArray(preChildren).find(
-                (child): child is React.ReactElement =>
-                  React.isValidElement(child) && (child as React.ReactElement).type === 'code'
-              ) as React.ReactElement | undefined
-
-              if (codeChild) {
-                const codeProps = codeChild.props as { className?: string; children?: React.ReactNode }
-                if (codeProps.className?.includes('language-mermaid')) {
-                  // 递归提取纯文本（children 可能是字符串数组）
-                  const extractText = (node: React.ReactNode): string => {
-                    if (typeof node === 'string') return node
-                    if (typeof node === 'number') return String(node)
-                    if (!node) return ''
-                    if (Array.isArray(node)) return node.map(extractText).join('')
-                    if (React.isValidElement(node)) {
-                      return extractText((node.props as { children?: React.ReactNode }).children)
-                    }
-                    return ''
-                  }
-                  const mermaidCode = extractText(codeProps.children).replace(/\n$/, '')
-                  return <MermaidBlock code={mermaidCode} />
-                }
-              }
-
-              return <CodeBlock>{preChildren}</CodeBlock>
-            },
-          }}
+          remarkPlugins={REMARK_PLUGINS}
+          rehypePlugins={REHYPE_PLUGINS}
+          components={MARKDOWN_COMPONENTS}
         >
           {children}
         </Markdown>
