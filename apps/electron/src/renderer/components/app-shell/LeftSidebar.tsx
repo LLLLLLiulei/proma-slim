@@ -11,8 +11,6 @@ import {
   Plus,
   Settings,
   Trash2,
-  Plug,
-  Zap,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import {
@@ -33,7 +31,6 @@ import {
   agentWorkspacesAtom,
   currentAgentSessionIdAtom,
   currentAgentWorkspaceIdAtom,
-  workspaceCapabilitiesMapAtom,
 } from '@/atoms/agent-atoms'
 import {
   activeSessionTabIdAtom,
@@ -272,7 +269,6 @@ export function LeftSidebar(): React.ReactElement {
   const [workspaces, setWorkspaces] = useAtom(agentWorkspacesAtom)
   const [currentSessionId, setCurrentSessionId] = useAtom(currentAgentSessionIdAtom)
   const [currentWorkspaceId, setCurrentWorkspaceId] = useAtom(currentAgentWorkspaceIdAtom)
-  const [workspaceCapabilitiesMap, setWorkspaceCapabilitiesMap] = useAtom(workspaceCapabilitiesMapAtom)
   const sessionTabs = useAtomValue(sessionTabsAtom)
   const activeSessionTabId = useAtomValue(activeSessionTabIdAtom)
   const runningSessionIds = useAtomValue(agentRunningSessionIdsAtom)
@@ -357,29 +353,6 @@ export function LeftSidebar(): React.ReactElement {
     return () => window.clearTimeout(timer)
   }, [editingWorkspaceId])
 
-  React.useEffect(() => {
-    if (!currentWorkspaceId) return
-    if (!workspaces.some((workspace) => workspace.id === currentWorkspaceId)) return
-
-    let cancelled = false
-
-    void api.getWorkspaceCapabilities(currentWorkspaceId).then((capabilities) => {
-      if (cancelled) return
-
-      setWorkspaceCapabilitiesMap((prev) => {
-        const next = new Map(prev)
-        next.set(currentWorkspaceId, capabilities)
-        return next
-      })
-    }).catch((error) => {
-      console.error('[LeftSidebar] 加载工作区能力失败:', error)
-    })
-
-    return () => {
-      cancelled = true
-    }
-  }, [currentWorkspaceId, setWorkspaceCapabilitiesMap])
-
   const isPinned = React.useCallback((session: AgentSessionMeta): boolean => {
     if (Object.prototype.hasOwnProperty.call(pinOverrides, session.id)) {
       return Boolean(pinOverrides[session.id])
@@ -407,11 +380,6 @@ export function LeftSidebar(): React.ReactElement {
     [isPinned, sortedSessions]
   )
 
-  const currentWorkspace = React.useMemo(
-    () => workspaces.find((workspace) => workspace.id === currentWorkspaceId) ?? null,
-    [currentWorkspaceId, workspaces],
-  )
-
   const workspaceSessionCounts = React.useMemo(() => {
     const next = new Map<string, number>()
     for (const session of sessions) {
@@ -420,10 +388,6 @@ export function LeftSidebar(): React.ReactElement {
     }
     return next
   }, [sessions])
-
-  const currentWorkspaceCapabilities = currentWorkspaceId
-    ? workspaceCapabilitiesMap.get(currentWorkspaceId) ?? null
-    : null
 
   const handleCreate = async (): Promise<void> => {
     if (isCreating) return
@@ -528,11 +492,6 @@ export function LeftSidebar(): React.ReactElement {
 
       const nextWorkspaces = workspaces.filter((workspace) => workspace.id !== pendingWorkspaceDeleteId)
       setWorkspaces(nextWorkspaces)
-      setWorkspaceCapabilitiesMap((prev) => {
-        const next = new Map(prev)
-        next.delete(pendingWorkspaceDeleteId)
-        return next
-      })
 
       if (currentWorkspaceId === pendingWorkspaceDeleteId || !nextWorkspaces.some((workspace) => workspace.id === currentWorkspaceId)) {
         setCurrentWorkspaceId(resolveWorkspaceSelectionFallback(nextWorkspaces))
@@ -739,23 +698,6 @@ export function LeftSidebar(): React.ReactElement {
       </div>
 
       <div className="px-3 pb-3 pt-2">
-        <button
-          type="button"
-          onClick={() => {
-            setSettingsTab('general')
-            setActiveView('settings')
-          }}
-          className="mb-1 flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-[12px] text-muted-foreground transition-colors hover:bg-foreground/[0.04] hover:text-foreground/80"
-        >
-          <Plug className="size-3.5" />
-          <span>{currentWorkspaceCapabilities?.mcpServers.length ?? 0} MCP</span>
-          <span className="text-foreground/20">·</span>
-          <Zap className="size-3.5" />
-          <span>{currentWorkspaceCapabilities?.skills.length ?? 0} Skills</span>
-          {currentWorkspace && (
-            <span className="ml-auto truncate text-[11px] text-muted-foreground/80">{currentWorkspace.name}</span>
-          )}
-        </button>
         <button
           type="button"
           onClick={() => {

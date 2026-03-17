@@ -15,7 +15,6 @@ import type {
   PermissionRequest,
   RetryAttempt,
   TaskUsage,
-  WorkspaceCapabilities,
   WorkspaceDirectoryContext,
 } from '@proma/shared'
 
@@ -211,7 +210,6 @@ export const agentWorkspacesAtom = atom<AgentWorkspace[]>([])
 export const currentAgentSessionIdAtom = atomWithStorage<string | null>('proma-current-agent-session-id', null)
 export const currentAgentWorkspaceIdAtom = atomWithStorage<string | null>('proma-current-agent-workspace-id', null)
 export const agentStreamingStatesAtom = atom<Map<string, AgentStreamState>>(new Map())
-export const workspaceCapabilitiesMapAtom = atom<Map<string, WorkspaceCapabilities>>(new Map())
 export const workspaceDirectoryContextMapAtom = atom<Map<string, WorkspaceDirectoryContext>>(new Map())
 
 /** 待处理的权限请求 Map — 以 sessionId 为 key，切换会话时保留状态 */

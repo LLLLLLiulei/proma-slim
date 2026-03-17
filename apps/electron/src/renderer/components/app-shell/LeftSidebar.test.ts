@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'bun:test'
+import React from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import type { AgentSessionMeta } from '@proma/shared'
 import {
+  LeftSidebar,
   getVisibleSessionsForWorkspace,
   resolveInitialWorkspaceId,
 } from './LeftSidebar'
@@ -61,5 +64,15 @@ describe('LeftSidebar workspace session visibility', () => {
       ],
       null,
     )).toEqual([])
+  })
+})
+
+describe('LeftSidebar footer actions', () => {
+  test('does not render the workspace capability summary button', () => {
+    const markup = renderToStaticMarkup(React.createElement(LeftSidebar))
+
+    expect(markup).not.toContain('0 MCP')
+    expect(markup).not.toContain('0 Skills')
+    expect(markup).toContain('>设置<')
   })
 })
