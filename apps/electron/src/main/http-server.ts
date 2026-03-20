@@ -1,5 +1,5 @@
 import { fileURLToPath } from 'node:url'
-import { createHttpRouter } from './http-router'
+import { createHttpApp } from './http/app'
 
 const DEFAULT_PORT = 3000
 
@@ -20,7 +20,7 @@ function getDistDir(): string {
 }
 
 export function createHttpServer() {
-  const router = createHttpRouter({
+  const app = createHttpApp({
     distDir: getDistDir(),
     isDev: process.env.NODE_ENV !== 'production',
   })
@@ -29,7 +29,7 @@ export function createHttpServer() {
     port: getPort(),
     idleTimeout: 255,
     fetch(request) {
-      return router.handle(request)
+      return app.fetch(request)
     },
     error(error) {
       console.error('[HTTP] 未处理的服务错误:', error)

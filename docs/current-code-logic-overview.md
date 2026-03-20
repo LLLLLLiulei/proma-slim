@@ -1,790 +1,808 @@
 # Proma Current Code Logic Overview
 
-编辑时间：2026-03-14
+更新时间：2026-03-17
 
-## 文档目的
+## 文档范围
 
-本文档基于当前仓库代码，对 Proma 工程的整体结构、主要运行链路、关键模块职责，以及核心实现原理进行系统梳理。重点不是逐文件罗列，而是把系统如何启动、如何存储、如何通信、如何执行 Chat 和 Agent 任务串成完整链路。
+本文档基于当前仓库实现，对 Proma 的架构设计、核心实现原理和端到端工作流程做系统梳理。
 
-## 1. 工程整体结构
+这里描述的是当前代码实际运行形态，不是历史版本，也不是旧的 Electron IPC 桌面架构。当前项目的真实主干是：
 
-当前仓库是一个 Bun workspace monorepo，主体由 Electron 应用和 3 个公共包组成：
+- 浏览器前端：React + Vite + Jotai
+- 本地后端：Bun HTTP Server
+- 实时通信：REST + SSE
+- Agent 运行时：`@anthropic-ai/claude-agent-sdk`
+- 本地持久化：`~/.proma/` 文件系统
+
+## 1. 核心结论
+
+当前 Proma 本质上是一个本地优先的 Claude Code Web 客户端。
+
+它的几个最重要的架构判断如下：
+
+- 仓库是 Bun workspace 单仓，但真正可运行应用集中在 `apps/electron`
+- `apps/electron` 这个名字是历史遗留；当前实现并不是典型 Electron IPC 应用，而是一个浏览器访问的本地 Web 应用
+- 后端通过 Bun 提供 REST 和 SSE，前端不直接碰主进程内部逻辑
+- Agent 主链路采用 `HTTP Router -> Agent Service -> Agent Orchestrator -> Claude Agent Adapter -> Claude Agent SDK` 分层
+- 会话、工作区、设置、技能目录、MCP 配置和会话工作目录都直接落在 `~/.proma/`
+- 工作区不只是 UI 分组，而是实际影响 Agent `cwd`、附加目录和 MCP/Skill 可见范围的运行时实体
+- 前端采用“持久化消息 + 流式瞬时态”双通道渲染，避免流式竞态导致的消息混乱
+
+## 2. 仓库结构
+
+项目顶层工作区定义在 `package.json`，核心目录如下：
 
 - `apps/electron`
-  - Electron 桌面应用本体
-  - `src/main` 负责主进程、系统能力、数据服务、IPC、Chat/Agent 编排、飞书、更新等
-  - `src/preload` 负责将安全的 API 暴露给渲染进程
-  - `src/renderer` 负责 React 界面、Jotai 状态管理和交互逻辑
+  - 当前唯一的可运行应用
+  - `src/main` 是 Bun HTTP 服务和 Agent 运行链路
+  - `src/renderer` 是 React 前端
+  - `default-skills/` 是内置默认 skills 模板来源
 - `packages/shared`
-  - 全工程统一的类型定义、IPC 通道常量、权限规则和一些共享工具
-- `packages/core`
-  - 与 Electron 解耦的纯逻辑核心，主要是多供应商模型适配、SSE 解析、标题生成、代码高亮
+  - 共享类型、事件协议、运行时类型、权限规则、能力差异比较工具
 - `packages/ui`
-  - 共享 UI 组件，聚焦消息渲染，如代码块、Mermaid 图和流式平滑显示
+  - 共享 UI 能力，当前主要包括代码块、Mermaid 和平滑流式渲染 hook
+- `openspec/specs`
+  - 当前产品规格文档
+- `docs`
+  - 说明性文档
 
-虽然根目录存在 `index.ts`，但它只是一个 Bun 占位文件，不参与主应用运行。真正的入口在 `apps/electron/src/main/index.ts` 和 `apps/electron/src/renderer/main.tsx`。
+当前顶层脚本见根目录 `package.json`：
 
-## 2. 启动流程总览
+- `bun run dev`
+- `bun run build`
+- `bun run start`
+- `bun run typecheck`
+- `bun test`
 
-Proma 的启动链路可以概括为：
+这些顶层脚本最终都转发到 `@proma/electron` 这个 workspace。
+
+## 3. 总体架构图
 
 ```text
-Electron main -> runtime init -> menu/tray/window/ipc/watchers
--> preload expose electronAPI
--> renderer bootstrap
--> App startup checks
--> AppShell / tabs / chat / agent
+Browser UI
+React + Jotai + Vite
+    |
+    | REST / SSE
+    v
+Bun HTTP Server
+http-server.ts + http-router.ts
+    |
+    +--> settings / user-profile / sessions / workspaces API
+    |
+    +--> Agent Service Facade
+            |
+            v
+      Agent Orchestrator
+            |
+            +--> Session persistence
+            +--> Workspace runtime resolution
+            +--> Prompt assembly
+            +--> Permission / AskUser interaction
+            +--> Retry / Stop / Resume / Friendly error mapping
+            |
+            v
+      Claude Agent Adapter
+            |
+            v
+   @anthropic-ai/claude-agent-sdk
+            |
+            v
+      Claude Code runtime
+
+Local persistence
+~/.proma/
+  agent-sessions.json
+  agent-sessions/*.jsonl
+  agent-workspaces.json
+  agent-workspaces/<slug>/
+  settings.json
+  user-profile.json
+  sdk-config/
 ```
 
-### 2.1 主进程启动
+## 4. 启动与运行流程
 
-`apps/electron/src/main/index.ts` 是 Electron 主进程入口。它的职责包括：
+### 4.1 顶层运行模式
 
-1. 清理本地 `ANTHROPIC_*` 环境变量，防止系统环境干扰应用自己的渠道配置。
-2. 调用 `initializeRuntime()` 初始化运行环境。
-3. 将内置的默认 Skills 同步到用户本地目录。
-4. 注册应用菜单、系统托盘和 IPC。
-5. 创建主窗口并加载 renderer。
-6. 启动工作区监听、Chat 工具配置监听、自动更新和飞书 Bridge。
-7. 在退出时清理 Agent、Chat 流、watcher、updater 和 tray。
+开发模式：
 
-### 2.2 运行时初始化
+1. 从仓库根目录执行 `bun run dev`
+2. 顶层脚本转发到 `apps/electron/package.json`
+3. `concurrently` 同时启动：
+4. `vite dev`
+5. `bun --watch src/main/index.ts`
+6. 开发态下 Vite 默认跑在 `5173`
+7. `/api` 由 Vite 代理到 Bun 后端
 
-`apps/electron/src/main/lib/runtime-init.ts` 用来检测并缓存：
+生产模式：
 
-- Shell 环境
-- Node.js
-- Bun
-- Git
-- Windows 下的 Git Bash / WSL
+1. 执行 `bun run build`
+2. 只构建 renderer，输出到 `apps/electron/dist`
+3. 执行 `bun run start`
+4. Bun 服务同时提供：
+5. `/api/*` REST 和 SSE
+6. `dist` 静态资源
 
-这一步不是 UI 初始化，而是为了保证后续 Agent 执行、Shell 命令、Bun/Git 检测等能力有可用运行环境。
+这意味着当前生产形态不是前后端分离部署，而是 Bun 单进程同时托管 API 和前端静态包。
 
-### 2.3 Preload 桥接
+### 4.2 后端启动流程
 
-`apps/electron/src/preload/index.ts` 通过 `contextBridge.exposeInMainWorld('electronAPI', ...)` 暴露统一 API。渲染进程不能直接调用 Node/Electron，而是统一通过 `window.electronAPI` 与主进程交互。
+主入口在 `apps/electron/src/main/index.ts`。
 
-这层的意义是：
+启动时按如下顺序执行：
 
-- 限制渲染进程能力边界
-- 保持安全的上下文隔离
-- 让主进程对外能力拥有稳定、类型化的接口
+1. 调用 `initializeRuntime()`
+2. 同步内置 `default-skills` 到用户目录
+3. 创建 HTTP server
+4. 注册 `SIGINT` / `SIGTERM` 清理逻辑
+5. 退出时中止全部活跃 Agent 会话
 
-### 2.4 Renderer 启动
+运行时初始化在 `apps/electron/src/main/lib/runtime-init.ts`，其职责是：
 
-`apps/electron/src/renderer/main.tsx` 是前端入口，主要做 4 件事：
+- 加载 shell 环境
+- 检测 Node
+- 检测 Bun
+- 检测 Git
+- Windows 下检测 Git Bash / WSL
 
-1. 初始化主题和系统深浅色同步
-2. 初始化 Agent 相关设置
-3. 初始化通知和更新状态监听
-4. 挂载全局 Chat / Agent 监听器
+这层是运行前置条件探测，不负责业务。
 
-`apps/electron/src/renderer/App.tsx` 进一步完成：
+## 5. 后端架构设计
 
-- onboarding 状态判断
-- 环境检测
-- 首次欢迎对话创建
-- 进入主界面 `AppShell`
-
-## 3. 本地优先的数据存储模型
-
-Proma 当前的核心设计之一是本地优先。它不依赖数据库，而是把所有配置和消息落在 `~/.proma/` 下，由 `apps/electron/src/main/lib/config-paths.ts` 统一管理路径。
-
-### 3.1 核心目录和文件
-
-常见的数据文件包括：
-
-- `channels.json`
-  - 渠道配置
-- `settings.json`
-  - 应用级设置
-- `user-profile.json`
-  - 用户资料
-- `proxy-settings.json`
-  - 代理配置
-- `system-prompts.json`
-  - Chat 系统提示词配置
-- `memory.json`
-  - MemOS 记忆配置
-- `chat-tools.json`
-  - Chat 工具状态、凭据、自定义工具
-- `feishu.json`
-  - 飞书配置
-- `feishu-bindings.json`
-  - 飞书聊天绑定
-
-会话类数据分成索引和正文两层：
-
-- Chat
-  - `conversations.json`
-  - `conversations/{id}.jsonl`
-- Agent
-  - `agent-sessions.json`
-  - `agent-sessions/{id}.jsonl`
-
-工作区数据在：
-
-- `agent-workspaces/{slug}/mcp.json`
-- `agent-workspaces/{slug}/skills/`
-- `agent-workspaces/{slug}/skills-inactive/`
-- `agent-workspaces/{slug}/workspace-files/`
-- `agent-workspaces/{slug}/config.json`
-- `agent-workspaces/{slug}/{sessionId}/`
-
-### 3.2 为什么索引和消息正文分离
-
-Chat 和 Agent 的消息都采用：
-
-- 索引用 JSON 保存轻量元信息
-- 消息正文用 JSONL 逐行追加
-
-这样做的好处是：
-
-- 对话列表加载快
-- 新消息写入不需要读取和重写整个文件
-- 比本地数据库更简单透明，便于迁移和调试
-
-### 3.3 API Key 存储
-
-渠道配置在 `apps/electron/src/main/lib/channel-manager.ts` 中读写。其 `apiKey` 使用 Electron `safeStorage` 加密：
-
-- macOS 走 Keychain
-- Windows 走 DPAPI
-- Linux 走 Secret Service
-
-如果平台不支持 `safeStorage`，才会退化为明文存储。
-
-## 4. IPC 架构与进程边界
-
-`apps/electron/src/main/ipc.ts` 是主进程的统一 API 网关。这里注册了运行时、渠道、Chat、Agent、设置、附件、工作区、记忆、系统提示词、飞书、更新等全部 IPC handler。
-
-它的工作方式是：
-
-1. 主进程的 service 负责真正业务逻辑。
-2. `ipc.ts` 把 service 注册为 IPC handler。
-3. `preload/index.ts` 把 handler 包装成 `electronAPI`。
-4. 渲染层通过 `window.electronAPI.xxx()` 使用这些能力。
-
-这里最关键的基础设施不是某个 service，而是 `packages/shared`：
-
-- 所有 IPC 通道名称都在 shared 中定义
-- 所有输入输出类型也在 shared 中定义
-
-因此 `main / preload / renderer` 三端实际上共享同一套协议。
-
-## 5. Renderer 层的视图与状态组织
-
-Proma 的渲染层不是单页面单会话模型，而是：
-
-- 左侧导航
-- 多标签页
-- 分屏布局
-- 每个会话参数化渲染
-- 全局流式状态管理
-
-### 5.1 主界面结构
-
-`apps/electron/src/renderer/components/app-shell/AppShell.tsx` 是主壳。
-
-页面大致结构是：
-
-- `LeftSidebar`
-  - 模式切换
-  - Chat / Agent 会话列表
-  - 置顶区
-  - 设置入口
-- `MainArea`
-  - `TabBar`
-  - `SplitContainer`
-  - 或设置页覆盖
-
-### 5.2 多标签与分屏
-
-`apps/electron/src/renderer/atoms/tab-atoms.ts` 负责：
-
-- 打开标签
-- 关闭标签
-- 聚焦标签
-- 重排标签
-- 切换分屏模式
-
-它支持：
-
-- 单面板
-- 横向双栏
-- 纵向双栏
-- 四宫格
-
-标签页里承载的不是抽象页面，而是具体的 `Chat conversationId` 或 `Agent sessionId`。
-
-### 5.3 状态管理模式
-
-Jotai atoms 主要按领域拆分：
-
-- `chat-atoms.ts`
-- `agent-atoms.ts`
-- `tab-atoms.ts`
-- 主题、通知、设置、代理、飞书等领域 atom
-
-其中最关键的设计是“按会话 ID 存储流式状态的 Map”：
-
-- Chat 用 `Map<conversationId, ConversationStreamState>`
-- Agent 用 `Map<sessionId, AgentStreamState>`
-
-这使得同一时刻多个会话可以同时流式输出，而不会被单一全局状态覆盖。
-
-### 5.4 全局事件监听 + 局部视图
-
-Proma 使用了一种很稳定的模式：
-
-- 全局监听器负责接收 IPC 事件并更新 atom
-- 具体 `ChatView / AgentView` 再根据自己的 `conversationId / sessionId` 读对应状态
+### 5.1 HTTP 层
 
 核心文件：
 
-- `useGlobalChatListeners.ts`
-- `useGlobalAgentListeners.ts`
+- `apps/electron/src/main/http-server.ts`
+- `apps/electron/src/main/http-router.ts`
+- `apps/electron/src/main/sse-manager.ts`
 
-这样带来的好处是：
+设计特点：
 
-- 切换标签不丢流式内容
-- 分屏显示互不干扰
-- 后台会话也能继续跑
+- 不依赖 Express/Hono 一类框架，直接使用 Bun 的 `serve`
+- `http-router.ts` 手写路由分发、请求体解析和错误返回
+- SSE 由单独的 `SSEManager` 管理，每个 session 维护自己的连接集合
 
-## 6. Chat 模式实现逻辑
+HTTP 层主要承担：
 
-Chat 的完整链路如下：
+- `/api/status`
+- `/api/settings`
+- `/api/user-profile`
+- `/api/sessions`
+- `/api/workspaces`
+- `/api/sessions/:id/send`
+- `/api/sessions/:id/stop`
+- `/api/sessions/:id/messages`
+- `/api/sessions/:id/move-workspace`
+- `/api/sessions/:id/permission-respond`
+- `/api/sessions/:id/ask-user-respond`
+- `/api/workspaces/:id/capabilities`
+- `/api/workspaces/:id/directory-context`
+- `/api/workspaces/:id/file-search`
 
-```text
-ChatView
--> electronAPI.sendMessage
--> main/ipc.ts
--> main/lib/chat-service.ts
--> @proma/core ProviderAdapter + SSE reader
--> IPC stream events
--> useGlobalChatListeners
--> ChatMessages / ChatView
-```
+### 5.2 Agent 服务分层
 
-### 6.1 前端发送消息
+Agent 主链路相关文件：
 
-`apps/electron/src/renderer/components/chat/ChatView.tsx` 负责：
+- `apps/electron/src/main/lib/agent-service.ts`
+- `apps/electron/src/main/lib/agent-orchestrator.ts`
+- `apps/electron/src/main/lib/agent-event-bus.ts`
+- `apps/electron/src/main/lib/adapters/claude-agent-adapter.ts`
 
-- 加载最近消息
-- 管理附件待发送状态
-- 发送消息
-- 停止生成
-- 删除消息
-- 从某条消息起截断历史
-- 首轮消息后自动注册待生成标题
+分层职责如下：
 
-这里有两个重要点：
+- `http-router`
+  - 负责协议边界、输入校验、创建 SSE 响应
+- `agent-service`
+  - 负责实例化 orchestrator、adapter、event bus，并将 event bus 事件桥接到 SSE
+- `AgentOrchestrator`
+  - 负责核心业务状态机
+- `ClaudeAgentAdapter`
+  - 负责把 Claude SDK 的原始消息翻译成 Proma 的统一 `AgentEvent`
 
-- 前端会做乐观更新，先把用户消息插入本地 UI。
-- 真实历史消息并不依赖前端传递，而是由主进程重新从磁盘读取。
+这种分层的价值在于：
 
-### 6.2 主进程 Chat 编排
+- HTTP 层不需要理解 SDK 细节
+- SDK 升级时主要影响 adapter
+- 产品规则变更主要影响 orchestrator
 
-真正的 Chat 核心在 `apps/electron/src/main/lib/chat-service.ts`。
+## 6. Agent 执行主链路
 
-其主要工作包括：
+### 6.1 发送消息的端到端链路
 
-1. 根据 `channelId` 找到渠道，并解密 API Key。
-2. 从 `conversation-manager` 读取完整历史消息。
-3. 先把用户消息追加到 JSONL。
-4. 根据 `contextDividers` 和 `contextLength` 裁剪上下文。
-5. 提取文档附件内容并拼到 prompt 中。
-6. 读取图片附件，交给 provider 做多模态消息构造。
-7. 从 Chat 工具注册表中取当前启用工具。
-8. 调用 `@proma/core` 的 provider 适配器构建请求。
-9. 通过统一的 SSE 读取器流式接收模型输出。
-10. 如果出现工具调用，进入多轮 function calling continuation 循环。
-11. 持久化最终 assistant 消息，并通知前端完成。
-
-### 6.3 上下文裁剪机制
-
-Chat 的上下文不是简单“最近 N 条消息”。它有 3 层过滤：
-
-1. 过滤空 assistant 消息
-2. 如果设置了 context divider，只保留最后一个 divider 之后的消息
-3. 如果设置了 contextLength，则按轮数从后向前截断
-
-这套逻辑在 `chat-service.ts` 的 `filterHistory()` 中。
-
-### 6.4 附件处理机制
-
-Chat 附件分两类：
-
-- 图片
-  - 走多模态输入
-  - 由 Electron 层读取 base64，再注入 provider
-- 文档
-  - 走文本提取
-  - 被转换成类似 `<file name="...">...</file>` 的结构化内容并注入上下文
-
-文档提取能力来自：
-
-- `attachment-service.ts`
-- `document-parser.ts`
-
-### 6.5 Chat 工具系统
-
-Chat 的工具系统由以下模块组成：
-
-- `chat-tool-registry.ts`
-- `chat-tool-executor.ts`
-- `chat-tools/*.ts`
-
-当前内置能力包括：
-
-- `memory`
-  - MemOS 记忆搜索和写入
-- `web-search`
-  - Tavily 实时联网搜索
-- `agent-mode-recommend`
-  - 给 Chat 用户推荐切换到 Agent 模式
-- 自定义 HTTP 工具
-  - 用户配置 URL、headers、body 模板后，模型可通过 tool call 发起 HTTP 请求
-
-### 6.6 前端流式接收
-
-`useGlobalChatListeners.ts` 会处理：
-
-- `STREAM_CHUNK`
-- `STREAM_REASONING`
-- `STREAM_COMPLETE`
-- `STREAM_ERROR`
-- `STREAM_TOOL_ACTIVITY`
-
-并把它们写入 `chat-atoms.ts` 中的状态 Map。`ChatView` 再在消息重新加载完成后清理过渡中的流式气泡，避免闪烁。
-
-## 7. Agent 模式实现逻辑
-
-Agent 模式和 Chat 最大的差异在于：它不是用统一 provider 适配层做推理，而是直接围绕 Claude Agent SDK 编排。
-
-链路如下：
+用户发送一条消息时，完整链路如下：
 
 ```text
-AgentView
--> electronAPI.sendAgentMessage
--> main/ipc.ts
--> main/lib/agent-service.ts
--> AgentOrchestrator
--> Claude Agent SDK
--> ClaudeAgentAdapter translate to AgentEvent
--> AgentEventBus / IPC
--> useGlobalAgentListeners
--> AgentView / SidePanel / Team UI
+AgentView.handleSend
+  -> api.sendMessage(sessionId, payload)
+  -> POST /api/sessions/:id/send
+  -> http-router 创建 SSE Response
+  -> runAgent(...)
+  -> AgentOrchestrator.sendMessage(...)
+  -> ClaudeAgentAdapter.query(...)
+  -> claude-agent-sdk.query(...)
+  -> SDK 原始消息流
+  -> adapter 翻译为 AgentEvent
+  -> orchestrator 消费并补充业务语义
+  -> eventBus.emit
+  -> sseManager.emitAgentEvent
+  -> 浏览器 SSE reader
+  -> Jotai store 更新流式状态
+  -> AgentMessages 增量渲染
 ```
 
-### 7.1 Agent 会话与工作区
+### 6.2 Orchestrator 的核心职责
 
-Agent 的元数据与消息持久化由：
+`apps/electron/src/main/lib/agent-orchestrator.ts` 是当前最核心的业务编排器。
 
-- `agent-session-manager.ts`
-- `agent-workspace-manager.ts`
+它负责：
 
-负责。
+- 同一 session 的并发发送保护
+- 从环境变量读取 `ANTHROPIC_API_KEY` 和可选 `ANTHROPIC_BASE_URL`
+- 清理并重建 SDK 所需环境变量
+- 注入代理配置
+- 基于 session 和 workspace 解析 Agent 运行目录
+- 构建 prompt 和动态上下文
+- 写入用户消息和助手消息
+- 管理 `sdkSessionId` 并决定是否 resume
+- 处理自动重试
+- 处理中止
+- 处理 Agent Teams 相关等待和 auto-resume
+- 统一处理友好错误映射
+- 生成会话标题
 
-这里的模型是：
+当前它既是系统最强的主干，也是最重的模块。
 
-- 会话是逻辑对话单元
-- 工作区是执行环境单元
+### 6.3 SDK 适配层
 
-一个会话可以属于一个工作区。工作区为该会话提供：
+`apps/electron/src/main/lib/adapters/claude-agent-adapter.ts` 的职责是：
 
-- cwd
-- MCP 配置
-- Skills
-- workspace files
-- 权限模式
-- 附加目录
+- 动态导入 `@anthropic-ai/claude-agent-sdk`
+- 构造 SDK options
+- 管理 `AbortController`
+- 维护 session 对应的中止控制器
+- 将 SDK 的原始消息翻译为统一 `AgentEvent`
 
-### 7.2 Agent 编排核心
+Proma 自己的事件协议定义在 `packages/shared/src/types/agent.ts`。
 
-`apps/electron/src/main/lib/agent-orchestrator.ts` 是 Agent 的大脑。它负责：
-
-1. 会话级并发保护
-2. 渠道解析和 API Key 解密
-3. 注入 Agent SDK 所需环境变量
-4. 决定 cwd 和工作区上下文
-5. 决定是否 resume 旧的 SDK session
-6. 构建动态上下文 prompt
-7. 注入 MCP server、记忆工具、附加目录
-8. 执行 Claude Agent SDK
-9. 处理自动重试和错误恢复
-10. 支持 Agent Teams 的 auto-resume
-11. 持久化 user / assistant / status 消息
-12. 完成后自动生成标题
-
-### 7.3 Resume 与历史回填
-
-Agent 会话元数据中会保存 `sdkSessionId`。如果它仍有效，则下次继续使用 SDK resume。
-
-如果 `sdkSessionId` 已失效，则会回退到另一种机制：
-
-- 从 Proma 自己持久化的历史消息里提取最近若干条
-- 生成 `<conversation_history>` prompt
-- 让新 SDK 会话带着历史上下文继续工作
-
-这保证了即使 SDK session 不可用，Proma 仍然可以尽量维持上下文连续性。
-
-### 7.4 动态上下文和静态提示词
-
-`agent-prompt-builder.ts` 把 Agent 的 prompt 拆成两部分：
-
-- 静态 system prompt append
-- 动态 per-message context
-
-静态部分包含：
-
-- Proma Agent 角色定义
-- Skill 调用规则
-- 用户信息
-- 工作区目录说明
-- 权限模式说明
-- 交互规范
-
-动态部分包含：
-
-- 当前时间
-- 当前工作区 MCP / Skills 的实时状态
-- 记忆工具使用说明
-- 当前工作目录
-
-这么做的目的是：
-
-- 静态部分更利于 prompt caching
-- 动态部分每次都能反映最新工作区状态
-
-### 7.5 权限系统
-
-Agent 权限由 `agent-permission-service.ts` 实现，支持：
-
-- `auto`
-- `smart`
-- `supervised`
-
-其核心逻辑是：
-
-- `SAFE_TOOLS` 里的工具直接放行
-- 安全 Bash 模式放行
-- 危险命令和带重定向、管道、子 shell、`find -exec` 等结构需要人工确认
-- 可以建立会话级白名单
-
-权限请求会通过事件发给渲染层，等待用户批准或拒绝。
-
-### 7.6 AskUserQuestion 交互
-
-Agent 不是只能通过文本追问用户。`AskUserQuestion` 会被单独拦截到 `agent-ask-user-service.ts`：
-
-- 解析问题列表
-- 推送给前端显示成交互式问题 UI
-- 等待用户选择答案
-- 再通过 `updatedInput.answers` 回传给 SDK
-
-这使得 Agent 可以进行更结构化的交互式澄清。
-
-### 7.7 AgentEvent 翻译层
-
-Claude Agent SDK 的原始输出不会直接给前端。中间会经过：
-
-- `adapters/claude-agent-adapter.ts`
-- `packages/shared/src/agent/tool-matching.ts`
-
-它们的职责是把 SDK 的 assistant、user、stream_event、tool_progress、result 等消息翻译成 Proma 自己定义的 `AgentEvent`，例如：
+当前主要事件包括：
 
 - `text_delta`
+- `text_complete`
 - `tool_start`
 - `tool_result`
 - `task_started`
 - `task_progress`
 - `task_notification`
+- `complete`
+- `error`
 - `typed_error`
+- `permission_request`
+- `ask_user_request`
 - `retrying`
+- `retry_attempt`
+- `retry_cleared`
+- `retry_failed`
+- `model_resolved`
 - `waiting_resume`
+- `resume_start`
 
-前端只消费 `AgentEvent`，不需要关心 Claude SDK 的底层消息结构。
+这使前端只面向 Proma 的稳定事件模型，而不直接依赖 Claude SDK 原始消息格式。
 
-### 7.8 Agent Teams 与 auto-resume
+## 7. 本地优先持久化模型
 
-Proma 对 Agent Teams 做了额外编排：
+### 7.1 总体原则
 
-- 追踪所有 `Task` 或 `Agent` 子任务
-- 使用 watchdog 检测所有 worker 已 idle 但主线程仍卡住的情况
-- 在适当时机自动触发 resume
-- 优先从 inbox 聚合 worker 输出，失败时退化为 task summary 拼接
+当前项目不依赖数据库，所有配置和业务数据都落在 `~/.proma/` 下。
 
-这样可以减少多代理协作中主线程“等不到子任务结果”的问题。
+路径定义集中在 `apps/electron/src/main/lib/config-paths.ts`。
 
-### 7.9 前端 Agent 视图
+### 7.2 关键目录结构
 
-`AgentView.tsx` 负责：
-
-- 加载会话消息
-- 显示流式文本
-- 展示上下文使用量
-- 展示权限请求、AskUser 请求
-- 处理附件上传
-- 附加目录
-- 侧边 Team 活动面板
-- 错误展示和停止执行
-
-而真正的流式事件分发由 `useGlobalAgentListeners.ts` 统一处理。
-
-## 8. Workspace / MCP / Skills 的实现方式
-
-工作区是 Proma Agent 扩展性的核心承载单元。
-
-### 8.1 工作区创建
-
-`agent-workspace-manager.ts` 在创建工作区时会：
-
-1. 生成 slug
-2. 创建工作区目录
-3. 生成 `.claude-plugin/plugin.json`
-4. 复制默认 Skills
-
-默认工作区会在首次使用时自动创建。
-
-### 8.2 MCP 配置
-
-每个工作区有独立的 `mcp.json`，格式顶层必须是：
-
-```json
-{
-  "servers": {}
-}
+```text
+~/.proma/
+  settings.json
+  user-profile.json
+  proxy-settings.json
+  sdk-config/
+  default-skills/
+  agent-sessions.json
+  agent-sessions/
+    <sessionId>.jsonl
+  agent-workspaces.json
+  agent-workspaces/
+    default/
+      config.json
+      mcp.json
+      skills/
+      skills-inactive/
+      workspace-files/
+      <sessionId>/
+    <workspace-slug>/
+      ...
 ```
 
-Proma 读取时会把启用的 MCP server 注入 Agent SDK。支持：
+### 7.3 会话存储模型
 
-- `stdio`
-- `http`
-- `sse`
+会话相关逻辑集中在 `apps/electron/src/main/lib/agent-session-manager.ts`。
 
-### 8.3 Skills 管理
+设计是“两层结构”：
 
-Skill 的本质是 `skills/{slug}/SKILL.md` 目录结构。Proma 通过扫描 `SKILL.md` 的 frontmatter 获取：
+- `agent-sessions.json`
+  - 保存轻量 session 元信息
+- `agent-sessions/<id>.jsonl`
+  - 逐行追加消息历史
 
-- name
-- description
-- icon
+这样做的原因：
 
-启用和禁用不是改配置，而是直接在：
+- 会话列表加载快
+- 新消息写入成本低
+- 出问题时可直接查看 JSONL
+- 不需要数据库和 migration
 
-- `skills/`
-- `skills-inactive/`
+### 7.4 工作区模型
 
-之间移动目录。
+工作区逻辑集中在 `apps/electron/src/main/lib/workspace-service.ts`。
 
-### 8.4 能力变化监听
+工作区不只是 UI 组织单元，而是运行时实体。它实际决定：
 
-`workspace-watcher.ts` 会递归监听：
+- session 归属
+- session 的工作目录
+- workspace files 目录
+- attached directories
+- skills 目录
+- MCP 配置
+- Agent 插件目录
 
-- 工作区目录
-- 附加目录
+关键规则：
 
-并根据文件变化类型推送：
+- 默认工作区始终存在
+- 每个工作区有稳定 slug
+- 新工作区会自动拷贝默认 skills
+- 会话迁移工作区时，会迁移对应目录并清空 `sdkSessionId`
+- 迁移后后续调用会按新工作区重新解析上下文
 
-- `CAPABILITIES_CHANGED`
-- `WORKSPACE_FILES_CHANGED`
+## 8. 工作区与 Agent 运行时绑定
 
-前端收到能力变化后会重新读取 `WorkspaceCapabilities`，并用 `capabilities-diff` 做变更提示。
+这是当前项目区别于“纯聊天页面”的关键设计。
 
-## 9. 三个公共包的职责边界
+在 `AgentOrchestrator.sendMessage()` 中，会通过 `resolveWorkspaceRuntimeContext()` 解析：
 
-### 9.1 @proma/shared
+- 当前 workspace
+- agent `cwd`
+- plugin path
+- `additionalDirectories`
+- `mcpServers`
 
-`packages/shared` 是跨进程的协议层，负责：
+实际运行逻辑是：
 
-- 渠道、Chat、Agent、环境、飞书、代理等类型定义
-- IPC 通道常量
-- 权限规则
-- 工具匹配辅助
+1. 先根据 session 找到所属 workspace
+2. 生成该 session 在该 workspace 下的工作目录
+3. 把 workspace attached directories 合并进 `additionalDirectories`
+4. 把 `workspace-files/` 自动加入可访问目录
+5. 从该 workspace 的 `mcp.json` 构造启用中的 MCP server 集合
+6. 如果本次发送有额外 `customMcpServers`，再按请求级覆盖
 
-这个包的作用不是“工具函数大杂烩”，而是统一语言，让主进程、预加载层和前端说同一种协议。
+因此，工作区切换并不是表面展示，而是会影响 Agent 实际可访问的文件系统和工具配置。
 
-### 9.2 @proma/core
+这套设计与 `openspec/specs/workspace-scoped-agent-runtime/spec.md` 对应。
 
-`packages/core` 是纯逻辑核心，主要包括：
+## 9. 前端架构设计
 
-- ProviderAdapter 抽象
-- OpenAI / Anthropic / Google 适配器
-- SSE 流式读取器
-- URL 规范化工具
-- 标题生成
-- Shiki 代码高亮
+### 9.1 入口与外层结构
 
-这个包不直接碰：
+前端入口：
 
-- Electron
-- 文件系统
-- 代理配置文件
-- 浏览器 DOM
+- `apps/electron/src/renderer/main.tsx`
+- `apps/electron/src/renderer/App.tsx`
 
-它依赖上层注入 fetch、附件读取器等平台能力，因此比较容易测试，也更容易复用。
+最外层布局：
 
-### 9.3 @proma/ui
+- `apps/electron/src/renderer/components/app-shell/AppShell.tsx`
 
-`packages/ui` 当前刻意保持很小，主要提供：
+结构是典型双栏：
 
-- `CodeBlock`
-- `MermaidBlock`
-- `useSmoothStream`
+```text
+App
+  -> AppShell
+      -> LeftSidebar
+      -> MainContentPanel
+```
 
-它不是整个应用的通用组件库，而是消息渲染相关的公共组件库。
+### 9.2 主内容区结构
 
-## 10. 设置、工具、记忆、飞书、代理与更新
+主内容区在 `apps/electron/src/renderer/components/app-shell/MainContentPanel.tsx`。
 
-### 10.1 设置页
+其职责是：
 
-`renderer/components/settings/SettingsPanel.tsx` 提供统一设置入口，当前主要包含：
+- 渲染顶部会话 tab strip
+- 在 settings 和 conversations 视图间切换
+- 根据当前 active tab 决定渲染哪个 session
+- 处理 tab reconciliation，避免已删除 session 的脏 tab 残留
 
-- 通用设置
-- 渠道设置
-- 系统提示词
-- 代理设置
-- Agent 设置
-- 工具设置
-- 飞书设置
-- 外观
-- 关于
-- 教程
+### 9.3 侧边栏结构
 
-### 10.2 记忆系统
+左侧栏在 `apps/electron/src/renderer/components/app-shell/LeftSidebar.tsx`。
 
-记忆配置由 `memory-service.ts` 读写，真实接口调用在 `memos-client.ts`。
+其职责是：
 
-Proma 的记忆在当前实现中有两种用法：
+- 初始化加载 sessions 和 workspaces
+- 维护当前 workspace 选择
+- 只展示当前 workspace 下的 session 列表
+- 创建、重命名、删除 session
+- 创建、重命名、删除 workspace
+- 管理 pinned session 展示
+- 打开和聚焦 tab
+- 切换到 settings 视图
 
-- Chat 模式通过 Chat tools 调用
-- Agent 模式通过内置 MCP 风格工具注入到 SDK
+工作区列表的 UI 子块在 `WorkspaceSidebarSection.tsx`。
 
-它们都共享同一套 `memory.json`。
+## 10. 前端状态模型
 
-### 10.3 Chat 工具配置
+状态管理使用 Jotai。
 
-`chat-tool-config.ts` 维护：
+核心原子定义在：
 
-- 工具启用状态
-- 工具凭据
-- 自定义工具定义
+- `apps/electron/src/renderer/atoms/agent-atoms.ts`
+- `apps/electron/src/renderer/atoms/session-tabs.ts`
+- `apps/electron/src/renderer/atoms/active-view.ts`
+- `apps/electron/src/renderer/atoms/theme.ts`
 
-`chat-tools-watcher.ts` 监听 `chat-tools.json` 变化。当 Agent 或外部流程修改了工具配置时，前端会自动刷新工具列表。
+### 10.1 持久对象态
 
-### 10.4 飞书远程桥接
+代表后端权威数据：
 
-`feishu-bridge.ts` 是一个很重的集成模块，核心职责包括：
+- `agentSessionsAtom`
+- `agentWorkspacesAtom`
+- `currentAgentSessionIdAtom`
+- `currentAgentWorkspaceIdAtom`
 
-- 通过飞书长连接接收消息
-- 过滤群聊中的非 @Bot 消息
-- 管理 `chatId <-> sessionId` 绑定
-- 下载图片和文件附件到 session 工作目录
-- 调用 `runAgentHeadless()` 在本地执行 Agent
-- 监听 `AgentEventBus`，把结果格式化回飞书卡片消息
+### 10.2 UI 扩展态
 
-这个模块实际上把 Proma 扩展成了“本地 Agent + 飞书远程终端”的形态。
+- `sessionTabsAtom`
+- `activeSessionTabIdAtom`
+- `activeViewAtom`
+- `themeModeAtom`
 
-### 10.5 在场检测
+### 10.3 流式瞬时态
 
-`feishu-presence.ts` 结合：
+代表会话执行中的实时状态：
 
-- 当前查看的 session
-- 窗口焦点
-- 系统空闲时间
+- `agentStreamingStatesAtom`
+- `agentStreamErrorsAtom`
+- `allPendingPermissionRequestsAtom`
+- `allPendingAskUserRequestsAtom`
+- `workspaceDirectoryContextMapAtom`
+- `agentMessageRefreshAtom`
 
-来判断用户是否“正在看这个会话”。只有用户不在场时，才需要发送飞书通知。
+这种拆分的好处是：
 
-### 10.6 代理配置
+- 持久消息和流式消息不会混为一体
+- 多个会话可同时保持各自流式状态
+- 会话切换时不容易互相污染
 
-`proxy-settings-service.ts` 管理全局代理：
+## 11. 会话页签与工作区列表的交互逻辑
 
-- 关闭
-- 系统代理
-- 手动代理
+会话 tab 逻辑在 `apps/electron/src/renderer/atoms/session-tabs.ts`。
 
-最终代理 URL 会同时影响：
+关键规则：
 
-- Chat 模式的 HTTP 请求
-- Agent SDK 的环境变量
+- 打开相同 session 不会重复建 tab
+- 关闭 active tab 时自动聚焦相邻 tab
+- 刷新后尝试恢复历史 tab 集合
+- 如果 session 已删除，`reconcileSessionTabs()` 会自动清理脏 tab
 
-### 10.7 自动更新
+当前产品的实际心智模型是：
 
-`updater/auto-updater.ts` 使用 `electron-updater` 检测更新，但当前策略是：
+- 工作区是一级上下文
+- session 属于某个 workspace
+- tab 是“已打开视图”，不是持久化实体
 
-- 自动检查
-- 不自动下载
-- 不自动安装
+左侧列表只展示当前 workspace 下的 session，但顶部 tab 可以保留已打开 session 视图。
 
-用户需要手动前往 GitHub Releases 获取新版本。
+## 12. SSE 与流式渲染原理
 
-## 11. 当前工程的核心设计思想
+### 12.1 SSE 消费
 
-基于以上代码，可以把当前工程的设计思路总结为以下几点：
+核心在 `apps/electron/src/renderer/hooks/useAgentSSE.ts`。
 
-### 11.1 主进程即本地后端
+这层负责：
 
-Proma 虽然是桌面应用，但结构上更接近“本地服务端 + 前端客户端”：
+- 发起流式 `fetch`
+- 读取 `ReadableStream`
+- 解析 SSE frame
+- 将事件应用到 Jotai store
+- 处理中止和错误
+- 在流结束后触发消息刷新
 
-- 主进程负责真实业务和系统能力
-- 渲染层负责 UI 和交互
-- preload 负责安全桥接
+### 12.2 前端事件应用
 
-### 11.2 本地优先
+`applyStreamFrame()` 会把后端事件按类型写入不同 atom：
 
-无数据库、透明配置文件、JSONL 消息存储、工作区目录直接可见，说明这个项目非常强调数据可迁移性和可控性。
+- 流式文本和工具活动写入 `agentStreamingStatesAtom`
+- 权限请求写入 `allPendingPermissionRequestsAtom`
+- AskUser 请求写入 `allPendingAskUserRequestsAtom`
+- 错误写入 `agentStreamErrorsAtom`
 
-### 11.3 Chat 和 Agent 双执行架构
+`applyAgentEvent()` 负责把单个 `AgentEvent` 作用到某个 session 的 `AgentStreamState`。
 
-系统内部并不是一套模型执行链，而是两套：
+### 12.3 双通道渲染模型
 
-- Chat：多供应商统一 provider adapter 架构
-- Agent：Claude Agent SDK 编排架构
+前端不是只靠 SSE 直接渲染最终消息，而是同时维护两套来源：
 
-这让它同时兼顾：
+- 持久化历史消息
+- 流式瞬时态
 
-- 通用多模型对话
-- 高能力自主执行
+工作方式是：
 
-### 11.4 工作区是扩展能力核心
+1. 用户发送消息时，本地先插入 optimistic user message
+2. assistant 输出先显示为 transient streaming content
+3. 流结束后触发重新请求持久化历史
+4. 用已落盘的权威消息替换该 session 的历史数组
 
-MCP、Skills、workspace-files、attached directories、permission mode 都是围绕工作区组织的。工作区不是简单分类标签，而是 Agent 的执行环境容器。
+这套机制用于避免：
 
-### 11.5 全局流式监听 + 参数化视图
+- 流中切会话导致状态串线
+- 持久化与流结束之间的时间窗口出现重复或缺失
+- transient 内容和最终消息双重回显
 
-前端通过全局事件监听和按 ID 索引状态的方式，天然支持：
+### 12.4 历史追平机制
 
-- 多标签
-- 分屏
-- 后台流式执行
-- 切换视图不丢状态
+`apps/electron/src/renderer/components/agent/message-catchup.ts` 提供 `loadSessionMessagesWithCatchup()`。
 
-这比传统“当前页面单例状态”更适合 Agent 产品。
+它会在必要时对历史消息做短轮询：
 
-## 12. 最终结论
+- 如果最后一条仍是 user message
+- 说明 assistant 可能还没完全落盘
+- 会延迟后再拉一轮
 
-从当前代码看，Proma 已经不是单纯的聊天 UI，而是一套“本地 AI 工作台基础设施”。它当前具备如下技术特征：
+这是一种针对后端“已结束但未完全写盘”窗口的兜底机制。
 
-- Electron 主进程承载完整本地业务后端
-- Renderer 使用 React + Jotai 做参数化、多会话、多面板 UI
-- 数据本地优先，落盘结构清晰
-- Chat 和 Agent 两条主链路各自独立但共享配置体系
-- 工作区承载 Skills、MCP、文件、权限和会话环境
-- 具备飞书远程控制、记忆、代理、自动更新、环境检测等外围能力
+## 13. 消息渲染层
 
-如果后续继续演进，这套架构很适合继续向以下方向扩展：
+### 13.1 Agent 视图
 
-- 更复杂的多 Agent 协作
-- 更强的工作区自动化配置
-- 更丰富的工具系统
-- 更深的远程协同和通知能力
-- 更主动的基于记忆与工作区能力的 Agent 行为
+主视图在 `apps/electron/src/renderer/components/agent/AgentView.tsx`。
 
-从工程设计角度看，目前最清晰、最值得肯定的部分是：
+它负责：
 
-- 进程边界明确
-- shared/core/ui 分层清晰
-- 本地存储模型稳定
-- Agent 工作区体系完整
-- 全局事件流与前端会话状态模型匹配良好
+- 加载当前 session 历史消息
+- 加载 workspace directory context
+- 读取当前 streaming state
+- 调用 `sendMessage()` / `stopSession()`
+- 渲染 header、messages、permission banner、ask-user banner、输入框
+
+### 13.2 消息列表
+
+消息列表在 `apps/electron/src/renderer/components/agent/AgentMessages.tsx`。
+
+它负责：
+
+- 组合持久化消息和 transient assistant 状态
+- 渲染 tool activities
+- 显示 retrying 状态
+- 使用 `useSmoothStream()` 平滑输出文本
+- 通过 `Conversation` 容器控制滚动
+
+### 13.3 Markdown 和内容渲染
+
+消息原语在 `apps/electron/src/renderer/components/ai-elements/message.tsx`。
+
+当前能力包括：
+
+- `react-markdown`
+- `remark-gfm`
+- `remark-math`
+- `rehype-katex`
+- 代码块走 `CodeBlock`
+- `language-mermaid` 走 `MermaidBlock`
+- 用户消息长文本折叠
+- mention 文本特殊样式
+- 附件块解析
+
+## 14. 平滑流式输出原理
+
+`packages/ui/src/hooks/useSmoothStream.ts` 是当前阅读体验的重要组成部分。
+
+它解决的问题是：
+
+- 后端 chunk 到达节奏不均匀
+- 直接渲染会造成大段跳字
+
+实现方式：
+
+1. 将新增文本与上次文本比较
+2. 把 delta 切分为字符队列
+3. 通过 `requestAnimationFrame` 渐进排空
+4. 流结束后继续平滑排空剩余字符
+
+设计细节：
+
+- 使用 `Intl.Segmenter` 处理多语言字符切分
+- 队列越长，每帧排出的字符越多
+- 若新一轮流开始但内容重置，会立刻清空旧轮次的 transient 状态
+
+这部分直接对应 `openspec/specs/agent-conversation/spec.md` 中关于平滑流式输出的要求。
+
+## 15. 权限审批与 AskUser 交互
+
+后端相关服务：
+
+- `apps/electron/src/main/lib/agent-permission-service.ts`
+- `apps/electron/src/main/lib/agent-ask-user-service.ts`
+
+### 15.1 权限审批流程
+
+1. SDK 尝试调用某个工具
+2. orchestrator 提供 `canUseTool` 回调
+3. 如果工具只读、安全或已白名单，则直接允许
+4. 如果需要人工确认，后端发出 `permission_request`
+5. 前端展示审批 UI
+6. 用户提交 `/permission-respond`
+7. 后端 resolve 对应 pending Promise
+
+### 15.2 AskUser 流程
+
+1. SDK 触发 `AskUserQuestion`
+2. 后端把问题列表包装成 `ask_user_request`
+3. 前端渲染交互式问题卡片
+4. 用户回答后回传 `/ask-user-respond`
+5. 后端把 `answers` 注回工具输入，再继续执行
+
+这两套机制本质上都是“后端阻塞等待 -> 前端交互 -> HTTP 回调 -> Promise resolve”的模式。
+
+## 16. 设置、主题与用户资料
+
+相关文件：
+
+- 前端 API 封装：`apps/electron/src/renderer/lib/api.ts`
+- 主题状态：`apps/electron/src/renderer/atoms/theme.ts`
+- 设置面板：`apps/electron/src/renderer/components/settings/SettingsPanel.tsx`
+- 后端设置服务：`apps/electron/src/main/lib/settings-service.ts`
+- 用户资料服务：`apps/electron/src/main/lib/user-profile-service.ts`
+
+设计原则与主业务一致：
+
+- 前端只通过 API 读写
+- 后端直接读写本地 JSON
+- 不引入数据库
+
+## 17. 共享包职责
+
+### 17.1 `packages/shared`
+
+当前主要负责：
+
+- Agent 类型和事件协议
+- 工作区、会话、消息、运行时状态类型
+- 权限规则常量
+- `diffCapabilities()` 之类的共享工具
+
+这个包是前后端共享契约层。
+
+### 17.2 `packages/ui`
+
+当前主要负责：
+
+- 代码块渲染
+- Mermaid 渲染
+- 平滑流式文本 hook
+
+这个包是共享 UI 能力层，不承载业务状态。
+
+## 18. 测试体系
+
+当前测试分布比较完整，覆盖了主链路里的关键状态点。
+
+主要测试类型包括：
+
+- HTTP router 测试
+- orchestrator 错误和 workspace 迁移测试
+- adapter SDK 透传与错误翻译测试
+- session / workspace service 测试
+- renderer tab 与 sidebar 行为测试
+- `useAgentSSE` 测试
+- `AgentView` / `AgentMessages` 测试
+- `useSmoothStream` 测试
+- shared 工具测试
+
+这说明当前项目的质量策略不是单纯依赖人工回归，而是用单测守住竞态和状态一致性。
+
+## 19. OpenSpec 与实现的关系
+
+当前 `openspec list --json` 为空，说明没有进行中的变更。
+
+当前主规格包括：
+
+- `openspec/specs/agent-conversation/spec.md`
+- `openspec/specs/session-management/spec.md`
+- `openspec/specs/ui-layout/spec.md`
+- `openspec/specs/web-server/spec.md`
+- `openspec/specs/workspace-scoped-agent-runtime/spec.md`
+- `openspec/specs/workspace-capability-surface/spec.md`
+- `openspec/specs/permission-interaction/spec.md`
+- `openspec/specs/tool-activity-display/spec.md`
+- 以及若干代码清理与运行表面收口相关规格
+
+规格与当前实现的对应关系：
+
+- `agent-conversation`
+  - 流式对话、Markdown、错误友好提示、环境变量 API Key 模式
+- `session-management`
+  - session CRUD、页签、标题、工作区迁移
+- `ui-layout`
+  - 双栏布局、工作区区块、顶部 tab strip、主题行为
+- `web-server`
+  - Bun HTTP 服务、REST API、SSE
+- `workspace-scoped-agent-runtime`
+  - workspace 作为运行时实体、session cwd 解析、迁移后重绑定
+- `workspace-capability-surface`
+  - skills、MCP、attached directories 对 Agent 可见性
+- `permission-interaction`
+  - 权限审批和 AskUser
+- `tool-activity-display`
+  - 工具调用和后台任务状态展示
+
+## 20. 端到端工作流程
+
+### 20.1 用户视角
+
+1. 启动服务
+2. 前端先请求 `/api/status`
+3. 左侧栏并行加载 sessions 和 workspaces
+4. 若无工作区，后端自动确保默认工作区存在
+5. 用户在某个 workspace 下创建 session
+6. session 被持久化，同时创建该 session 的工作目录
+7. 用户打开 session，顶部 tab strip 聚焦该视图
+8. `AgentView` 读取消息历史和 workspace context
+9. 用户输入消息并提交
+10. 前端先插入 optimistic user message
+11. 后端调用 SDK，并通过 SSE 推送流式事件
+12. 前端实时展示 assistant 文本、工具活动、权限请求或 AskUser
+13. 流结束后，后端把最终消息写入 JSONL
+14. 前端重新拉历史消息，追平持久化状态
+15. 用户可继续多轮对话，或把 session 迁移到另一个 workspace
+16. 迁移后后续运行目录、可访问目录和 MCP/Skill 范围随 workspace 重新绑定
+
+### 20.2 开发者视角
+
+1. 使用 Bun workspace 管理依赖
+2. 开发期同时运行 Vite 与 Bun backend
+3. renderer 只通过 `/api` 与后端通信
+4. 主进程状态集中在 service/orchestrator 层
+5. 规格通过 OpenSpec 管理
+6. 核心竞态通过单测和浏览器回归测试验证
+
+## 21. 当前架构的优点
+
+- 分层清晰：前端、HTTP、编排层、SDK 适配层边界明确
+- 本地优先：无数据库依赖，部署和调试成本低
+- 可测试：关键竞态点已经有对应单测
+- 可观测：所有核心数据都能在 `~/.proma/` 直接查看
+- 可扩展：workspace、skills、MCP、additionalDirectories 已有明确落点
+- SDK 隔离较好：Claude SDK 细节主要集中在 adapter
+
+## 22. 当前架构的主要约束
+
+- `http-router.ts` 已经偏大，协议层和分发逻辑耦合较重
+- `agent-orchestrator.ts` 职责过多，是当前最容易继续膨胀的模块
+- 持久化是文件级约定，不具备数据库事务能力
+- 大量瞬时态保存在进程内，进程重启不会恢复
+- `apps/electron` 的命名与真实运行形态不完全一致，增加新接手者理解成本
+- `packages/shared` 仍保留部分大于当前最小产品边界的历史表面
+
+## 23. 总结
+
+当前 Proma 已经从更复杂、更偏桌面应用的一体化产品，收敛为一个结构相对清晰的本地 Web Agent 应用。
+
+当前最关键的两条主线是：
+
+- workspace-scoped runtime
+- session-scoped streaming state
+
+绝大多数实现，无论是后端编排、前端状态设计，还是 OpenSpec 规格，都围绕这两条主线组织。
+
+如果后续要继续深入理解或演进这个系统，最值得优先拆解的两个主题是：
+
+1. `http-router -> agent-service -> agent-orchestrator -> adapter` 的会话执行时序
+2. `session/workspace persistence + frontend transient state` 的一致性模型

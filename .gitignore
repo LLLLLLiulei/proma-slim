@@ -48,3 +48,5 @@ node_modules*
 
 .serena/
 .tmp/
+
+.tmp-proma-test/
