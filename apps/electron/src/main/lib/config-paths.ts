@@ -250,6 +250,16 @@ export function getWorkspaceSkillsDir(slug: string): string {
 }
 
 /**
+ * 获取工作区 Claude plugin manifest 文件路径
+ *
+ * @param slug 工作区 slug
+ * @returns ~/.proma/agent-workspaces/{slug}/.claude-plugin/plugin.json
+ */
+export function getWorkspacePluginManifestPath(slug: string): string {
+  return join(getAgentWorkspacePath(slug), '.claude-plugin', 'plugin.json')
+}
+
+/**
  * 获取工作区不活跃 Skills 目录路径
  *
  * @param slug 工作区 slug
@@ -279,6 +289,36 @@ export function getWorkspaceFilesDir(slug: string): string {
   }
 
   return dir
+}
+
+/**
+ * 获取工作区本地记忆目录路径
+ *
+ * 简化版 Web 运行时没有接回原版的云记忆 MCP，因此需要为每个工作区显式
+ * 约定一个稳定的本地记忆目录，避免 agent 退回到 SDK 内部 project memory
+ * 路径猜测。
+ *
+ * @param slug 工作区 slug
+ * @returns ~/.proma/agent-workspaces/{slug}/memory/
+ */
+export function getWorkspaceMemoryDir(slug: string): string {
+  const dir = join(getAgentWorkspacePath(slug), 'memory')
+
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true })
+  }
+
+  return dir
+}
+
+/**
+ * 获取工作区本地记忆文件路径
+ *
+ * @param slug 工作区 slug
+ * @returns ~/.proma/agent-workspaces/{slug}/memory/MEMORY.md
+ */
+export function getWorkspaceMemoryFilePath(slug: string): string {
+  return join(getWorkspaceMemoryDir(slug), 'MEMORY.md')
 }
 
 /**
@@ -317,17 +357,27 @@ export function getDefaultSkillsDir(): string {
 }
 
 /**
- * 从 app bundle 同步默认 Skills 到 ~/.proma/default-skills/
+ * 解析当前运行时可用的默认 Skills 源目录。
  *
- * 打包模式下从 process.resourcesPath/default-skills 复制。
- * 仅补充缺失的 Skill 目录，不覆盖用户已有的内容。
- * 开发模式下从源码 default-skills/ 目录复制。
+ * 当前 Bun 本地 Web 应用直接运行 `src/main/index.ts`，所以默认从
+ * `apps/electron/default-skills` 读取。若未来运行布局变化（例如外部打包
+ * 或测试注入），可通过 PROMA_DEFAULT_SKILLS_DIR 显式覆盖该来源目录。
+ */
+function resolveBundledDefaultSkillsDir(): string {
+  const configuredDir = process.env.PROMA_DEFAULT_SKILLS_DIR?.trim()
+  return configuredDir
+    ? configuredDir
+    : fileURLToPath(new URL('../../../default-skills', import.meta.url))
+}
+
+/**
+ * 同步默认 Skills 到 ~/.proma/default-skills/
+ *
+ * 仅补充缺失的 Skill 目录，不覆盖用户已有内容。工作区初始化时再从这里
+ * 复制到各自的 `skills/` 目录，因此这里是默认 Skills 的本地种子来源。
  */
 export function seedDefaultSkills(): void {
-  const configuredDir = process.env.PROMA_DEFAULT_SKILLS_DIR?.trim()
-  const bundledDir = configuredDir
-    ? configuredDir
-    : fileURLToPath(new URL('../../default-skills', import.meta.url))
+  const bundledDir = resolveBundledDefaultSkillsDir()
 
   if (!existsSync(bundledDir)) {
     console.log('[配置] 未找到内置 default-skills 目录，跳过')

@@ -41,6 +41,35 @@ describe('createAgentStreamCallbacks', () => {
   })
 })
 
+describe('SSEManager lifecycle', () => {
+  test('canceling one reader does not close other SSE connections for the same session', async () => {
+    const sessionId = 'session-shared-connections'
+    const responseA = sseManager.createResponse(sessionId)
+    const responseB = sseManager.createResponse(sessionId)
+    const readerA = responseA.body?.getReader()
+    const readerB = responseB.body?.getReader()
+
+    expect(readerA).not.toBeNull()
+    expect(readerB).not.toBeNull()
+
+    await readerA!.read()
+    await readerB!.read()
+
+    await readerA!.cancel()
+
+    expect(sseManager.hasSession(sessionId)).toBe(true)
+
+    sseManager.emitAgentEvent(sessionId, { type: 'text_delta', text: 'still connected' })
+
+    const nextChunk = await readerB!.read()
+    expect(nextChunk.done).toBe(false)
+    expect(decoder.decode(nextChunk.value)).toContain('event: text_delta')
+    expect(decoder.decode(nextChunk.value)).toContain('"text":"still connected"')
+
+    sseManager.closeSession(sessionId)
+  })
+})
+
 describe('persistGeneratedSessionTitle', () => {
   test('persists a generated title for default-titled sessions before streaming starts', async () => {
     const session = createAgentSession()
@@ -109,5 +138,30 @@ describe('createSendResponse', () => {
     expect(decoder.decode(connectedChunk.value)).toContain(': connected')
 
     sseManager.closeSession('session-1')
+  })
+
+  test('disconnecting the response does not implicitly stop the running agent', async () => {
+    const stopAgent = mock(() => {})
+    let active = false
+    const runAgent = mock(async (_input: AgentSendInput) => {
+      await new Promise(() => {})
+    })
+
+    const response = await createSendResponse('session-implicit-stop', { userMessage: 'keep running' }, {
+      isAgentSessionActive: () => active,
+      runAgent,
+      stopAgent,
+      generateTitle: mock(async () => null),
+    })
+
+    const reader = response.body?.getReader()
+    expect(reader).not.toBeNull()
+
+    await reader!.read()
+    active = true
+    await reader!.cancel()
+
+    expect(stopAgent).not.toHaveBeenCalled()
+    expect(runAgent).toHaveBeenCalledTimes(1)
   })
 })

@@ -27,8 +27,11 @@ import {
   getAgentWorkspacesIndexPath,
   getDefaultSkillsDir,
   getInactiveSkillsDir,
+  getWorkspaceMemoryDir,
+  getWorkspaceMemoryFilePath,
   getWorkspaceFilesDir,
   getWorkspaceMcpPath,
+  getWorkspacePluginManifestPath,
   getWorkspaceSkillsDir,
 } from './config-paths'
 
@@ -118,11 +121,71 @@ function writeWorkspaceConfig(workspaceSlug: string, config: WorkspaceConfig): v
   writeFileSync(getWorkspaceConfigPath(workspaceSlug), JSON.stringify(config, null, 2), 'utf-8')
 }
 
+/**
+ * Claude SDK 在当前 Web 运行时里，会将 workspace skills 解析为
+ * `<workspace-slug>:<skill-slug>` 这种调用名，而不是旧 Electron 版本中
+ * 使用过的 `proma-workspace-<slug>:<skill-slug>`。
+ *
+ * 所有 prompt 注入与测试断言都必须复用这个 helper，避免再次出现命名漂移。
+ */
+export function getWorkspaceSkillInvocationName(workspaceSlug: string, skillSlug: string): string {
+  return `${workspaceSlug}:${skillSlug}`
+}
+
+function ensureWorkspacePluginManifest(workspaceSlug: string): void {
+  const pluginDir = join(getAgentWorkspacePath(workspaceSlug), '.claude-plugin')
+  const manifestPath = getWorkspacePluginManifestPath(workspaceSlug)
+  const expectedManifest = {
+    // 与当前 SDK 解析出来的 skill namespace 保持一致。
+    name: workspaceSlug,
+    version: '1.0.0',
+  }
+
+  if (!existsSync(pluginDir)) {
+    mkdirSync(pluginDir, { recursive: true })
+  }
+
+  if (existsSync(manifestPath)) {
+    try {
+      const existing = JSON.parse(readFileSync(manifestPath, 'utf-8')) as {
+        name?: string
+        version?: string
+      }
+      if (
+        existing.name === expectedManifest.name &&
+        existing.version === expectedManifest.version
+      ) {
+        return
+      }
+    } catch {
+      // 旧文件损坏或格式变化时，直接重写为当前契约
+    }
+  }
+
+  writeFileSync(manifestPath, JSON.stringify(expectedManifest, null, 2), 'utf-8')
+}
+
+function ensureWorkspaceMemoryFile(workspaceSlug: string): void {
+  getWorkspaceMemoryDir(workspaceSlug)
+  const memoryFilePath = getWorkspaceMemoryFilePath(workspaceSlug)
+
+  if (!existsSync(memoryFilePath)) {
+    /**
+     * 原版 Electron 通过 MCP/云记忆处理长期记忆；简化版 Web 运行时没有这条链路。
+     * 这里显式创建 workspace-local MEMORY.md，给 agent 一个稳定、可预期的本地持久化入口，
+     * 避免它回退到 `sdk-config/projects/.../memory` 这类 SDK 内部路径猜测。
+     */
+    writeFileSync(memoryFilePath, '', 'utf-8')
+  }
+}
+
 function ensureWorkspaceStructure(workspaceSlug: string): void {
   getAgentWorkspacePath(workspaceSlug)
   getWorkspaceSkillsDir(workspaceSlug)
+  ensureWorkspacePluginManifest(workspaceSlug)
   getInactiveSkillsDir(workspaceSlug)
   getWorkspaceFilesDir(workspaceSlug)
+  ensureWorkspaceMemoryFile(workspaceSlug)
 
   const mcpPath = getWorkspaceMcpPath(workspaceSlug)
   if (!existsSync(mcpPath)) {
@@ -407,6 +470,7 @@ export function getWorkspaceDirectoryContext(workspaceId: string): WorkspaceDire
     workspaceFilesPath: getWorkspaceFilesDir(workspace.slug),
     skillsPath: getWorkspaceSkillsDir(workspace.slug),
     mcpConfigPath: getWorkspaceMcpPath(workspace.slug),
+    memoryFilePath: getWorkspaceMemoryFilePath(workspace.slug),
     attachedDirectories: getWorkspaceAttachedDirectories(workspace.slug),
   }
 }

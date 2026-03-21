@@ -16,9 +16,11 @@ export class SSEManager {
   private sessions = new Map<string, Set<SessionConnection>>()
 
   createResponse(sessionId: string, onClose?: () => void): Response {
+    let connection: SessionConnection | null = null
+
     const stream = new ReadableStream<Uint8Array>({
       start: (controller) => {
-        const connection: SessionConnection = {
+        connection = {
           controller,
           onClose,
           closed: false,
@@ -31,7 +33,9 @@ export class SSEManager {
         controller.enqueue(encoder.encode(': connected\n\n'))
       },
       cancel: () => {
-        this.closeSession(sessionId)
+        if (connection) {
+          this.closeConnection(sessionId, connection)
+        }
       },
     })
 

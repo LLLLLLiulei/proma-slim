@@ -111,6 +111,8 @@ export interface ClaudeAgentQueryOptions extends AgentQueryInput {
     input: Record<string, unknown>,
     options: CanUseToolOptions,
   ) => Promise<PermissionResult>
+  /** SDK hooks（如 PreToolUse / PostToolUse） */
+  hooks?: import('@anthropic-ai/claude-agent-sdk').Options['hooks']
   /** 只读工具白名单 */
   allowedTools?: string[]
   /** 系统提示词 */
@@ -711,6 +713,7 @@ export class ClaudeAgentAdapter implements AgentProviderAdapter {
 
         // 条件字段
         ...(options.canUseTool && { canUseTool: options.canUseTool }),
+        ...(options.hooks && { hooks: options.hooks }),
         ...(options.allowedTools && { allowedTools: options.allowedTools }),
         ...(options.resumeSessionId ? { resume: options.resumeSessionId } : {}),
         ...(options.plugins && { plugins: options.plugins }),

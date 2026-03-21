@@ -95,11 +95,7 @@ export async function createSendResponse(
     ...(body.mentionedMcpServers && { mentionedMcpServers: body.mentionedMcpServers }),
   }
 
-  const response = sseManager.createResponse(sessionId, () => {
-    if (deps.isAgentSessionActive(sessionId)) {
-      deps.stopAgent(sessionId)
-    }
-  })
+  const response = sseManager.createResponse(sessionId)
 
   void deps.runAgent(input, createAgentStreamCallbacks(sessionId)).catch((error) => {
     console.error(`[HTTP] 会话 ${sessionId} 流式执行失败:`, error)

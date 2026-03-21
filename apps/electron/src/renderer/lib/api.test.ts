@@ -163,6 +163,7 @@ describe('renderer api wrappers', () => {
         workspaceFilesPath: '/tmp/proma-docs/workspace-files',
         skillsPath: '/tmp/proma-docs/skills',
         mcpConfigPath: '/tmp/proma-docs/mcp.json',
+        memoryFilePath: '/tmp/proma-docs/memory/MEMORY.md',
         attachedDirectories: ['/tmp/external-docs'],
       })
     })

@@ -22,6 +22,7 @@ import { createRequire } from 'node:module'
 import type { AgentSendInput, AgentEvent, AgentMessage, AgentGenerateTitleInput, AgentProviderAdapter, TypedError, RetryAttempt } from '@proma/shared'
 import { SAFE_TOOLS } from '@proma/shared'
 import type { PermissionRequest, PromaPermissionMode, AskUserRequest } from '@proma/shared'
+import type { HookCallbackMatcher, PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk'
 import type { ClaudeAgentQueryOptions } from './adapters/claude-agent-adapter'
 import { isPromptTooLongError } from './adapters/claude-agent-adapter'
 import { AgentEventBus } from './agent-event-bus'
@@ -32,6 +33,7 @@ import {
   getAgentSessionWorkspacePath,
   getAgentWorkspacePath,
   getSdkConfigDir,
+  getWorkspaceMemoryFilePath,
   getWorkspaceFilesDir,
 } from './config-paths'
 import { getRuntimeStatus } from './runtime-init'
@@ -40,51 +42,24 @@ import { buildSystemPromptAppend, buildDynamicContext } from './agent-prompt-bui
 import { permissionService } from './agent-permission-service'
 import { askUserService } from './agent-ask-user-service'
 import { mapAgentFriendlyError } from './agent-friendly-error'
+import { applyPromaAgentToolGuardrails } from './agent-tool-guardrails'
+import {
+  areAllWorkersIdle,
+  findTeamLeadInboxPath,
+  formatInboxPrompt,
+  formatSummaryFallbackPrompt,
+  INBOX_RETRY_CONFIG,
+  markInboxAsRead,
+  pollInboxWithRetry,
+  type TaskNotificationSummary,
+} from './agent-team-reader'
 import {
   ensureDefaultWorkspace,
   getAgentWorkspace,
   getWorkspaceAttachedDirectories,
+  getWorkspaceSkillInvocationName,
   getWorkspaceMcpConfig,
 } from './workspace-service'
-
-interface TaskNotificationSummary {
-  taskId?: string
-  status?: 'completed' | 'failed' | 'stopped'
-  summary?: string
-  outputFile?: string
-}
-
-async function findTeamLeadInboxPath(_sdkSessionId: string): Promise<{ inboxPath: string; teamName?: string } | null> {
-  return null
-}
-
-async function pollInboxWithRetry(
-  _inboxPath: string,
-  _config: { maxRetries: number; intervalMs: number; timeoutMs: number },
-  _shouldContinue?: () => boolean,
-): Promise<string[]> {
-  return []
-}
-
-async function markInboxAsRead(_inboxPath: string): Promise<void> {}
-
-function formatInboxPrompt(messages: string[]): string {
-  return messages.join('\n')
-}
-
-function formatSummaryFallbackPrompt(summaries: TaskNotificationSummary[]): string {
-  return summaries.map((s) => s.summary).filter(Boolean).join('\n')
-}
-
-async function areAllWorkersIdle(_sdkSessionId: string, _workerCount: number): Promise<boolean> {
-  return true
-}
-
-const INBOX_RETRY_CONFIG = {
-  maxRetries: 0,
-  intervalMs: 0,
-  timeoutMs: 0,
-}
 
 interface ResolvedWorkspaceRuntime {
   workspace: import('@proma/shared').AgentWorkspace
@@ -745,6 +720,10 @@ export class AgentOrchestrator {
         agentCwd,
         workspaceName: workspaceRuntime.workspace.name,
         workspaceSlug,
+        workspaceRootPath: getAgentWorkspacePath(workspaceSlug),
+        workspaceFilesDir: getWorkspaceFilesDir(workspaceSlug),
+        accessibleDirectories: resolvedAdditionalDirectories,
+        memoryFilePath: getWorkspaceMemoryFilePath(workspaceSlug),
       })
 
       let enrichedMessage = userMessage
@@ -753,7 +732,7 @@ export class AgentOrchestrator {
 
         for (const slug of mentionedSkills ?? []) {
           const qualifiedName = workspaceSlug
-            ? `proma-workspace-${workspaceSlug}:${slug}`
+            ? getWorkspaceSkillInvocationName(workspaceSlug, slug)
             : slug
           toolLines.push(`- Skill: ${qualifiedName}（请立即调用此 Skill）`)
         }
@@ -786,7 +765,7 @@ export class AgentOrchestrator {
       const permissionMode: PromaPermissionMode = appSettings.agentPermissionMode ?? 'smart'
       console.log(`[Agent 编排] 权限模式: ${permissionMode}`)
 
-      const canUseTool = permissionMode !== 'auto'
+      const baseCanUseTool = permissionMode !== 'auto'
         ? permissionService.createCanUseTool(
             sessionId,
             permissionMode,
@@ -809,6 +788,76 @@ export class AgentOrchestrator {
           )
         : undefined
 
+      const canUseTool = baseCanUseTool
+        ? async (
+            toolName: string,
+            toolInput: Record<string, unknown>,
+            options: Parameters<typeof baseCanUseTool>[2],
+          ) => {
+            const guarded = applyPromaAgentToolGuardrails(toolName, toolInput, {
+              runtimeMode: 'scratch',
+            })
+
+            if (guarded.changed) {
+              console.log(`[Agent 编排] Agent tool guardrail 已改写输入: ${guarded.reason}`)
+            }
+
+            // Scratch workspace 下的 Agent tool 属于运行时编排能力本身。
+            // 这里直接放行，可避免多 subagent 工作流被权限弹窗打断，同时保证
+            // `worktree` 等不受支持的输入已经先经过 guardrail 降级。
+            if (toolName === 'Agent') {
+              return {
+                behavior: 'allow' as const,
+                updatedInput: guarded.updatedInput,
+              }
+            }
+
+            return baseCanUseTool(toolName, guarded.updatedInput, options)
+          }
+        : undefined
+
+      const hooks: { PreToolUse: HookCallbackMatcher[] } | undefined = workspaceSlug
+        ? {
+            PreToolUse: [{
+              hooks: [
+                async (input) => {
+                  const hookInput = input as PreToolUseHookInput
+
+                  if (hookInput.tool_name !== 'Agent') {
+                    return { continue: true }
+                  }
+
+                  const toolInput = (
+                    hookInput.tool_input &&
+                    typeof hookInput.tool_input === 'object' &&
+                    !Array.isArray(hookInput.tool_input)
+                  )
+                    ? hookInput.tool_input as Record<string, unknown>
+                    : {}
+
+                  const guarded = applyPromaAgentToolGuardrails(hookInput.tool_name, toolInput, {
+                    runtimeMode: 'scratch',
+                  })
+
+                  if (guarded.changed) {
+                    console.log(`[Agent 编排] PreToolUse hook 已改写 Agent 输入: ${guarded.reason}`)
+                  }
+
+                  return {
+                    continue: true,
+                    hookSpecificOutput: {
+                      hookEventName: 'PreToolUse' as const,
+                      permissionDecision: 'allow' as const,
+                      updatedInput: guarded.updatedInput,
+                      permissionDecisionReason: 'Proma scratch workspace subagents run without worktree isolation',
+                    },
+                  }
+                },
+              ],
+            }],
+          }
+        : undefined
+
       // 13. 构建 Adapter 查询选项
       const maxTurns = appSettings.agentMaxTurns && appSettings.agentMaxTurns > 0
         ? appSettings.agentMaxTurns
@@ -823,10 +872,11 @@ export class AgentOrchestrator {
         env: sdkEnv,
         ...(maxTurns != null && { maxTurns }),
         sdkPermissionMode: permissionMode === 'auto' ? 'bypassPermissions' : 'default',
-        // 始终为 true：Worker 子代理使用 SDK 内部 mailbox 通信，
-        // 若不跳过权限检查会导致 Worker 阻塞超时并提前停止
-        allowDangerouslySkipPermissions: true,
+        // 仅在 auto/bypass 模式下才显式跳过权限。
+        // 交互模式必须保留 canUseTool 链路，否则 scratch subagent guardrail 无法生效。
+        allowDangerouslySkipPermissions: permissionMode === 'auto',
         ...(canUseTool && { canUseTool }),
+        ...(hooks && { hooks }),
         ...(permissionMode !== 'auto' && { allowedTools: [...SAFE_TOOLS] }),
         systemPrompt: {
           type: 'preset',
@@ -834,6 +884,8 @@ export class AgentOrchestrator {
           append: buildSystemPromptAppend({
             sessionId,
             permissionMode,
+            workspaceName: workspaceRuntime.workspace.name,
+            workspaceSlug,
           }),
         },
         resumeSessionId: existingSdkSessionId,

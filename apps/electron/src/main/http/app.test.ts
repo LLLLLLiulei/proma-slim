@@ -122,9 +122,14 @@ describe('createHttpApp', () => {
 
     const contextResponse = await app.fetch(new Request(`http://localhost/api/workspaces/${created.id}/directory-context`))
     expect(contextResponse.status).toBe(200)
-    const context = await contextResponse.json() as { workspaceSlug: string; workspaceFilesPath: string }
+    const context = await contextResponse.json() as {
+      workspaceSlug: string
+      workspaceFilesPath: string
+      memoryFilePath: string
+    }
     expect(context.workspaceSlug).toBe('proma-docs')
     expect(context.workspaceFilesPath).toContain('/workspace-files')
+    expect(context.memoryFilePath).toContain('/memory/MEMORY.md')
 
     const workspaceRoot = join(homedir(), '.proma', 'agent-workspaces', created.slug)
     const externalDir = join(homedir(), '.proma', 'external-docs')

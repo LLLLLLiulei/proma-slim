@@ -1,6 +1,7 @@
 import type { AgentMessage } from '@proma/shared'
 
 export interface LoadSessionMessagesWithCatchupOptions {
+  initialMessages?: AgentMessage[]
   maxAttempts?: number
   retryDelayMs?: number
   wait?: (ms: number) => Promise<void>
@@ -23,7 +24,7 @@ export async function loadSessionMessagesWithCatchup(
   const retryDelayMs = Math.max(0, options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS)
   const wait = options.wait ?? defaultWait
 
-  let messages = await loadMessages()
+  let messages = options.initialMessages ?? await loadMessages()
 
   for (let attempt = 1; attempt < maxAttempts; attempt++) {
     if (messages.at(-1)?.role !== 'user') {

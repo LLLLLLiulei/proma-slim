@@ -446,6 +446,7 @@ export interface WorkspaceDirectoryContext {
   workspaceFilesPath: string
   skillsPath: string
   mcpConfigPath: string
+  memoryFilePath: string
   attachedDirectories: string[]
 }
 

@@ -1,11 +1,15 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import {
+  seedDefaultSkills,
   getAgentWorkspacePath,
   getAgentWorkspacesIndexPath,
   getInactiveSkillsDir,
+  getWorkspaceMemoryDir,
+  getWorkspaceMemoryFilePath,
+  getWorkspacePluginManifestPath,
   getWorkspaceFilesDir,
   getWorkspaceMcpPath,
   getWorkspaceSkillsDir,
@@ -16,20 +20,30 @@ import {
   createAgentWorkspace,
   deleteAgentWorkspace,
   ensureDefaultWorkspace,
+  getWorkspaceDirectoryContext,
+  getWorkspaceSkillInvocationName,
   listAgentWorkspaces,
   updateAgentWorkspace,
 } from './workspace-service'
 
 describe('workspace service', () => {
   let configDir: string
+  let originalDefaultSkillsDir: string | undefined
 
   beforeEach(() => {
     configDir = mkdtempSync(join(tmpdir(), 'proma-workspace-service-'))
     process.env.PROMA_CONFIG_DIR = configDir
+    originalDefaultSkillsDir = process.env.PROMA_DEFAULT_SKILLS_DIR
+    delete process.env.PROMA_DEFAULT_SKILLS_DIR
   })
 
   afterEach(() => {
     delete process.env.PROMA_CONFIG_DIR
+    if (originalDefaultSkillsDir === undefined) {
+      delete process.env.PROMA_DEFAULT_SKILLS_DIR
+    } else {
+      process.env.PROMA_DEFAULT_SKILLS_DIR = originalDefaultSkillsDir
+    }
     rmSync(configDir, { recursive: true, force: true })
   })
 
@@ -51,8 +65,52 @@ describe('workspace service', () => {
 
     expect(existsSync(indexPath)).toBe(true)
     expect(existsSync(defaultWorkspacePath)).toBe(true)
+    expect(existsSync(getWorkspacePluginManifestPath(DEFAULT_WORKSPACE_SLUG))).toBe(true)
+    expect(existsSync(getWorkspaceMemoryDir(DEFAULT_WORKSPACE_SLUG))).toBe(true)
+    expect(existsSync(getWorkspaceMemoryFilePath(DEFAULT_WORKSPACE_SLUG))).toBe(true)
     expect(index.workspaces).toHaveLength(1)
     expect(index.workspaces[0]?.id).toBe(workspace.id)
+  })
+
+  test('migrates legacy plugin manifests to the current workspace slug contract', () => {
+    const workspaceRoot = getAgentWorkspacePath(DEFAULT_WORKSPACE_SLUG)
+    const manifestPath = getWorkspacePluginManifestPath(DEFAULT_WORKSPACE_SLUG)
+    const indexPath = getAgentWorkspacesIndexPath()
+
+    writeFileSync(indexPath, JSON.stringify({
+      version: 1,
+      workspaces: [{
+        id: 'workspace-default',
+        name: DEFAULT_WORKSPACE_NAME,
+        slug: DEFAULT_WORKSPACE_SLUG,
+        createdAt: 1,
+        updatedAt: 1,
+      }],
+    }, null, 2), 'utf-8')
+    mkdirSync(join(workspaceRoot, '.claude-plugin'), { recursive: true })
+    writeFileSync(manifestPath, JSON.stringify({
+      name: 'proma-workspace-default',
+      version: '1.0.0',
+    }, null, 2), 'utf-8')
+
+    const workspace = ensureDefaultWorkspace()
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf-8')) as {
+      name: string
+      version: string
+    }
+
+    expect(workspace.id).toBe('workspace-default')
+    expect(existsSync(workspaceRoot)).toBe(true)
+    expect(manifest).toEqual({
+      name: DEFAULT_WORKSPACE_SLUG,
+      version: '1.0.0',
+    })
+  })
+
+  test('seeds default skills from the bundled source tree', () => {
+    seedDefaultSkills()
+
+    expect(existsSync(join(configDir, 'default-skills', 'brainstorming', 'SKILL.md'))).toBe(true)
   })
 
   test('creates a workspace with a stable slug and directory', () => {
@@ -61,6 +119,12 @@ describe('workspace service', () => {
 
     expect(workspace.slug).toBe('release-planning')
     expect(existsSync(getAgentWorkspacePath('release-planning'))).toBe(true)
+    expect(existsSync(getWorkspacePluginManifestPath('release-planning'))).toBe(true)
+  })
+
+  test('builds workspace skill invocation names from the workspace slug', () => {
+    expect(getWorkspaceSkillInvocationName('default', 'skill-creator')).toBe('default:skill-creator')
+    expect(getWorkspaceSkillInvocationName('release-planning', 'docs')).toBe('release-planning:docs')
   })
 
   test('updates the name without changing the slug', () => {
@@ -93,15 +157,23 @@ describe('workspace service', () => {
     const inactiveSkillsPath = getInactiveSkillsDir(workspace.slug)
     const workspaceFilesPath = getWorkspaceFilesDir(workspace.slug)
     const mcpConfigPath = getWorkspaceMcpPath(workspace.slug)
+    const memoryDirPath = getWorkspaceMemoryDir(workspace.slug)
+    const memoryFilePath = getWorkspaceMemoryFilePath(workspace.slug)
+    const context = getWorkspaceDirectoryContext(workspace.id)
 
     expect(rootPath).toBe(join(configDir, 'agent-workspaces', workspace.slug))
     expect(skillsPath).toBe(join(rootPath, 'skills'))
     expect(inactiveSkillsPath).toBe(join(rootPath, 'skills-inactive'))
     expect(workspaceFilesPath).toBe(join(rootPath, 'workspace-files'))
     expect(mcpConfigPath).toBe(join(rootPath, 'mcp.json'))
+    expect(memoryDirPath).toBe(join(rootPath, 'memory'))
+    expect(memoryFilePath).toBe(join(rootPath, 'memory', 'MEMORY.md'))
 
     expect(existsSync(skillsPath)).toBe(true)
     expect(existsSync(inactiveSkillsPath)).toBe(true)
     expect(existsSync(workspaceFilesPath)).toBe(true)
+    expect(existsSync(memoryDirPath)).toBe(true)
+    expect(existsSync(memoryFilePath)).toBe(true)
+    expect(context.memoryFilePath).toBe(memoryFilePath)
   })
 })

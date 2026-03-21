@@ -225,28 +225,43 @@ export function finalizeStream(store: JotaiStore, sessionId: string, options?: F
 export function useAgentSSE() {
   const store = useStore()
   const controllersRef = useRef(new Map<string, AbortController>())
+  const detachedSessionsRef = useRef(new Set<string>())
   const stoppingSessionsRef = useRef(new Set<string>())
+  const stopSucceededSessionsRef = useRef(new Set<string>())
 
   useEffect(() => {
     return () => {
-      for (const controller of controllersRef.current.values()) {
+      for (const [sessionId, controller] of controllersRef.current.entries()) {
+        detachedSessionsRef.current.add(sessionId)
         controller.abort()
       }
       controllersRef.current.clear()
-      stoppingSessionsRef.current.clear()
     }
   }, [])
 
   const stopSession = useCallback(async (sessionId: string): Promise<void> => {
+    const controller = controllersRef.current.get(sessionId)
+    const hadActiveStream = Boolean(controller)
     stoppingSessionsRef.current.add(sessionId)
-    controllersRef.current.get(sessionId)?.abort()
-    controllersRef.current.delete(sessionId)
 
     try {
       await api.stopSession(sessionId)
-    } finally {
-      finalizeStream(store, sessionId)
+
+      if (!hadActiveStream) {
+        finalizeStream(store, sessionId)
+        return
+      }
+
+      stopSucceededSessionsRef.current.add(sessionId)
+      controller?.abort()
+    } catch (error) {
       stoppingSessionsRef.current.delete(sessionId)
+      stopSucceededSessionsRef.current.delete(sessionId)
+      throw error
+    } finally {
+      if (!hadActiveStream) {
+        stoppingSessionsRef.current.delete(sessionId)
+      }
     }
   }, [store])
 
@@ -313,13 +328,22 @@ export function useAgentSSE() {
 
       finalizeStream(store, sessionId)
     } catch (error) {
+      if (detachedSessionsRef.current.has(sessionId)) return
+
+      if (stopSucceededSessionsRef.current.has(sessionId)) {
+        finalizeStream(store, sessionId)
+        return
+      }
+
       if (!stoppingSessionsRef.current.has(sessionId)) {
         const message = error instanceof Error ? error.message : '连接已断开'
         finalizeStream(store, sessionId, { error: message || '连接已断开' })
       }
     } finally {
       controllersRef.current.delete(sessionId)
+      detachedSessionsRef.current.delete(sessionId)
       stoppingSessionsRef.current.delete(sessionId)
+      stopSucceededSessionsRef.current.delete(sessionId)
     }
   }, [store])
 
