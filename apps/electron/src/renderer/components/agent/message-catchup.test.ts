@@ -62,4 +62,33 @@ describe('loadSessionMessagesWithCatchup', () => {
     expect(callCount).toBe(1)
     expect(result).toEqual(batch)
   })
+
+  test('continues catchup from provided initial messages without reloading the first batch again', async () => {
+    const firstBatch: AgentMessage[] = [
+      createMessage('u1', 'user', 'first'),
+      createMessage('a1', 'assistant', 'first reply'),
+      createMessage('u2', 'user', 'second'),
+    ]
+    const secondBatch: AgentMessage[] = [
+      ...firstBatch,
+      createMessage('a2', 'assistant', 'second reply'),
+    ]
+
+    let callCount = 0
+    const result = await loadSessionMessagesWithCatchup(
+      async () => {
+        callCount++
+        return secondBatch
+      },
+      {
+        initialMessages: firstBatch,
+        maxAttempts: 3,
+        retryDelayMs: 0,
+        wait: async () => {},
+      },
+    )
+
+    expect(callCount).toBe(1)
+    expect(result).toEqual(secondBatch)
+  })
 })

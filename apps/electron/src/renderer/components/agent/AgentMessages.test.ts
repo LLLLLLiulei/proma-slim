@@ -35,6 +35,17 @@ function createCompletedToolStreamState(content: string): AgentStreamState {
   }
 }
 
+function createStreamingState(content: string): AgentStreamState {
+  return {
+    running: true,
+    content,
+    model: 'claude-sonnet-4-6',
+    startedAt: 1,
+    teammates: [],
+    toolActivities: [],
+  }
+}
+
 function createAssistantMessageWithToolEvents(content: string, includeEvents: boolean): AgentMessage {
   return {
     id: 'assistant-1',
@@ -136,6 +147,26 @@ describe('AgentMessages transient assistant rendering', () => {
     })).toBe(false)
   })
 
+  test('suppresses leftover smooth content once the persisted latest assistant already contains that prefix', () => {
+    const messages: AgentMessage[] = [
+      {
+        id: 'assistant-1',
+        role: 'assistant',
+        content: '根据搜索结果，湖南长沙今天的天气情况如下：多云，17°C 到 11°C。',
+        createdAt: Date.now(),
+      },
+    ]
+
+    expect(shouldRenderTransientAssistantMessage({
+      messages,
+      streaming: false,
+      streamingContent: '',
+      smoothContent: '根据搜索结果，湖南长沙今天的天气情况如下：',
+      toolActivities: [],
+      retrying: undefined,
+    })).toBe(false)
+  })
+
   test('does not render a duplicate transient tool block after the persisted assistant message already contains the same tool events', () => {
     const markup = renderToStaticMarkup(
       React.createElement(AgentMessages, {
@@ -162,5 +193,42 @@ describe('AgentMessages transient assistant rendering', () => {
 
     expect(countOccurrences(markup, 'TaskCreate')).toBe(1)
     expect(countOccurrences(markup, 'TaskList')).toBe(1)
+  })
+
+  test('does not render a leftover transient tool block when an earlier persisted assistant already contains those tool events', () => {
+    const markup = renderToStaticMarkup(
+      React.createElement(AgentMessages, {
+        sessionId: 'session-resume-tools',
+        messages: [
+          createAssistantMessageWithToolEvents('我来先执行工具。', true),
+          {
+            id: 'assistant-2',
+            role: 'assistant',
+            content: '这是最终总结。',
+            createdAt: 2,
+            model: 'claude-sonnet-4-6',
+          },
+        ],
+        streaming: false,
+        streamState: createCompletedToolStreamState('这是最终总结。'),
+      })
+    )
+
+    expect(countOccurrences(markup, 'TaskCreate')).toBe(1)
+    expect(countOccurrences(markup, 'TaskList')).toBe(1)
+  })
+
+  test('shows an explicit loading label while partial assistant text is still streaming', () => {
+    const markup = renderToStaticMarkup(
+      React.createElement(AgentMessages, {
+        sessionId: 'session-streaming',
+        messages: [],
+        streaming: true,
+        streamState: createStreamingState('这是正在流式输出的部分内容。'),
+      })
+    )
+
+    expect(markup).toContain('这是正在流式输出的部分内容。')
+    expect(markup).toContain('正在输出...')
   })
 })

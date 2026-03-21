@@ -23,6 +23,14 @@ import { useGlobalAgentListeners } from '@/hooks/useGlobalAgentListeners'
 import { cn } from '@/lib/utils'
 import type { AgentMessage } from '@proma/shared'
 
+interface SyncSessionMessagesDeps {
+  loadSessionMessagesWithCatchup: typeof loadSessionMessagesWithCatchup
+}
+
+const defaultSyncSessionMessagesDeps: SyncSessionMessagesDeps = {
+  loadSessionMessagesWithCatchup,
+}
+
 export function getMessagesForSession(
   messagesBySession: Map<string, AgentMessage[]>,
   sessionId: string,
@@ -50,6 +58,43 @@ export function appendMessageForSession(
     sessionId,
     [...getMessagesForSession(messagesBySession, sessionId), message],
   )
+}
+
+function haveSameMessages(
+  currentMessages: AgentMessage[],
+  nextMessages: AgentMessage[],
+): boolean {
+  if (currentMessages.length !== nextMessages.length) return false
+
+  return currentMessages.every((message, index) => {
+    const nextMessage = nextMessages[index]
+    return nextMessage
+      && message.id === nextMessage.id
+      && message.role === nextMessage.role
+      && message.content === nextMessage.content
+      && message.createdAt === nextMessage.createdAt
+  })
+}
+
+export async function syncSessionMessages(
+  loadMessages: () => Promise<AgentMessage[]>,
+  onMessages: (messages: AgentMessage[]) => void,
+  deps: SyncSessionMessagesDeps = defaultSyncSessionMessagesDeps,
+): Promise<void> {
+  const initialMessages = await loadMessages()
+  onMessages(initialMessages)
+
+  if (initialMessages.at(-1)?.role !== 'user') {
+    return
+  }
+
+  const nextMessages = await deps.loadSessionMessagesWithCatchup(loadMessages, {
+    initialMessages,
+  })
+
+  if (!haveSameMessages(initialMessages, nextMessages)) {
+    onMessages(nextMessages)
+  }
 }
 
 function StatusNotice({ status }: { status: AppStatus }): React.ReactElement | null {
@@ -143,13 +188,14 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
   React.useEffect(() => {
     let cancelled = false
 
-    void loadSessionMessagesWithCatchup(
+    void syncSessionMessages(
       () => api.getSessionMessages(sessionId),
-    ).then((nextMessages) => {
-      if (!cancelled) {
-        setMessagesBySession((prev) => replaceMessagesForSession(prev, sessionId, nextMessages))
+      (nextMessages) => {
+        if (!cancelled) {
+          setMessagesBySession((prev) => replaceMessagesForSession(prev, sessionId, nextMessages))
+        }
       }
-    }).catch((error) => {
+    ).catch((error) => {
       console.error('[AgentView] 读取消息失败:', error)
     })
 

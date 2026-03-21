@@ -424,14 +424,22 @@ export const UserMessageContent = React.memo(
 
 // ===== MessageLoading 加载动画 =====
 
-type MessageLoadingProps = HTMLAttributes<HTMLDivElement> & { startedAt?: number }
+type MessageLoadingProps = HTMLAttributes<HTMLDivElement> & {
+  startedAt?: number
+  label?: string
+}
 
 /** 等待首个 chunk 的加载动画 */
-export function MessageLoading({ className, startedAt, ...props }: MessageLoadingProps): React.ReactElement {
+export function MessageLoading({
+  className,
+  startedAt,
+  label = '正在思考...',
+  ...props
+}: MessageLoadingProps): React.ReactElement {
   return (
     <div className={cn('mt-0', className)} {...props}>
       <LoadingIndicator
-        label="正在思考..."
+        label={label}
         size="sm"
         showElapsed={startedAt || true}
         className="text-muted-foreground/60"

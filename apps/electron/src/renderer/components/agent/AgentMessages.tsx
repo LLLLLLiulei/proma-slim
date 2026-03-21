@@ -15,7 +15,6 @@ import {
   MessageActions,
   MessageLoading,
   MessageResponse,
-  StreamingIndicator,
   UserMessageContent,
 } from '@/components/ai-elements/message'
 import {
@@ -90,7 +89,18 @@ export function shouldRenderTransientAssistantMessage({
   const lastAssistantMessage = [...messages].reverse().find((message) => message.role === 'assistant')
   if (!lastAssistantMessage || !smoothContent) return true
 
-  return normalizeAssistantContent(lastAssistantMessage.content) !== normalizeAssistantContent(smoothContent)
+  const normalizedPersistedContent = normalizeAssistantContent(lastAssistantMessage.content)
+  const normalizedSmoothContent = normalizeAssistantContent(smoothContent)
+
+  if (normalizedPersistedContent === normalizedSmoothContent) {
+    return false
+  }
+
+  if (normalizedPersistedContent.startsWith(normalizedSmoothContent)) {
+    return false
+  }
+
+  return true
 }
 
 export function shouldRenderTransientToolActivities({
@@ -105,14 +115,17 @@ export function shouldRenderTransientToolActivities({
   if (toolActivities.length === 0) return false
   if (streaming) return true
 
-  const lastAssistantMessage = [...messages].reverse().find((message) => message.role === 'assistant')
-  if (!lastAssistantMessage) return true
+  const normalizedTransientActivities = normalizeToolActivitiesForComparison(toolActivities)
 
-  const persistedToolActivities = extractToolActivities(lastAssistantMessage.events)
-  if (persistedToolActivities.length === 0) return true
+  return !messages.some((message) => {
+    if (message.role !== 'assistant') return false
 
-  return normalizeToolActivitiesForComparison(persistedToolActivities)
-    !== normalizeToolActivitiesForComparison(toolActivities)
+    const persistedToolActivities = extractToolActivities(message.events)
+    if (persistedToolActivities.length === 0) return false
+
+    return normalizeToolActivitiesForComparison(persistedToolActivities)
+      === normalizedTransientActivities
+  })
 }
 
 function EmptyState(): React.ReactElement {
@@ -592,6 +605,11 @@ export function AgentMessages({ sessionId, messages, streaming, streamState, onR
     toolActivities,
   })
   const shouldShowTransientShell = streaming || shouldShowTransientToolBlock || Boolean(retrying) || shouldShowTransientAssistant
+  const loadingLabel = shouldShowTransientAssistant
+    ? '正在输出...'
+    : toolActivities.length > 0
+      ? '正在执行工具...'
+      : '正在思考...'
 
   // 迷你地图数据
   const minimapItems: MinimapItem[] = React.useMemo(
@@ -639,11 +657,14 @@ export function AgentMessages({ sessionId, messages, streaming, streamState, onR
                   )}
                   {shouldShowTransientAssistant ? (
                     <>
-                      <MessageResponse>{smoothContent}</MessageResponse>
-                      {streaming && <StreamingIndicator />}
+                      {smoothContent && <MessageResponse>{smoothContent}</MessageResponse>}
+                      {streaming && !retrying && (
+                        // 流式正文已出现后仍保留显式 loading 文案，避免只剩一个弱提示点。
+                        <MessageLoading startedAt={startedAt} label={loadingLabel} className={smoothContent ? 'mt-1' : undefined} />
+                      )}
                     </>
                   ) : (
-                    streaming && toolActivities.length === 0 && !retrying && <MessageLoading startedAt={startedAt} />
+                    streaming && !retrying && <MessageLoading startedAt={startedAt} label={loadingLabel} />
                   )}
                 </MessageContent>
               </Message>
