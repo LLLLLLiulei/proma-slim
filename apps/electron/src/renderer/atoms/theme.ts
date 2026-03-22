@@ -1,11 +1,11 @@
 import { atom } from 'jotai'
-import type { ThemeMode } from '../../types'
+import { DEFAULT_THEME_MODE, type ThemeMode } from '../../types'
 
 const THEME_CACHE_KEY = 'proma-theme-mode'
 
 function getCachedThemeMode(): ThemeMode {
   if (typeof window === 'undefined') {
-    return 'system'
+    return DEFAULT_THEME_MODE
   }
 
   try {
@@ -17,7 +17,7 @@ function getCachedThemeMode(): ThemeMode {
     // ignore storage failures
   }
 
-  return 'system'
+  return DEFAULT_THEME_MODE
 }
 
 function cacheThemeMode(mode: ThemeMode): void {

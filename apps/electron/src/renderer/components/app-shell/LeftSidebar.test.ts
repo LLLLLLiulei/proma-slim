@@ -68,11 +68,12 @@ describe('LeftSidebar workspace session visibility', () => {
 })
 
 describe('LeftSidebar footer actions', () => {
-  test('does not render the workspace capability summary button', () => {
+  test('does not render the workspace capability summary button or settings entry', () => {
     const markup = renderToStaticMarkup(React.createElement(LeftSidebar))
 
     expect(markup).not.toContain('0 MCP')
     expect(markup).not.toContain('0 Skills')
-    expect(markup).toContain('>设置<')
+    expect(markup).not.toContain('>设置<')
+    expect(markup).not.toContain('主题与用户档案')
   })
 })

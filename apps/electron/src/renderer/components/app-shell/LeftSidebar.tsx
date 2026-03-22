@@ -9,7 +9,6 @@ import {
   Pin,
   PinOff,
   Plus,
-  Settings,
   Trash2,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -23,8 +22,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { activeViewAtom } from '@/atoms/active-view'
-import { settingsTabAtom } from '@/atoms/settings-tab'
 import {
   agentRunningSessionIdsAtom,
   agentSessionsAtom,
@@ -264,7 +261,6 @@ function SessionRow({
 }
 
 export function LeftSidebar(): React.ReactElement {
-  const [activeView, setActiveView] = useAtom(activeViewAtom)
   const [sessions, setSessions] = useAtom(agentSessionsAtom)
   const [workspaces, setWorkspaces] = useAtom(agentWorkspacesAtom)
   const [currentSessionId, setCurrentSessionId] = useAtom(currentAgentSessionIdAtom)
@@ -272,7 +268,6 @@ export function LeftSidebar(): React.ReactElement {
   const sessionTabs = useAtomValue(sessionTabsAtom)
   const activeSessionTabId = useAtomValue(activeSessionTabIdAtom)
   const runningSessionIds = useAtomValue(agentRunningSessionIdsAtom)
-  const setSettingsTab = useSetAtom(settingsTabAtom)
   const setSessionTabs = useSetAtom(sessionTabsAtom)
   const setActiveSessionTabId = useSetAtom(activeSessionTabIdAtom)
 
@@ -302,8 +297,7 @@ export function LeftSidebar(): React.ReactElement {
     setSessionTabs(next.tabs)
     setActiveSessionTabId(next.activeTabId)
     setCurrentSessionId(session.id)
-    setActiveView('conversations')
-  }, [sessionTabs, setActiveSessionTabId, setActiveView, setCurrentSessionId, setSessionTabs])
+  }, [sessionTabs, setActiveSessionTabId, setCurrentSessionId, setSessionTabs])
 
   React.useEffect(() => {
     let cancelled = false
@@ -561,9 +555,6 @@ export function LeftSidebar(): React.ReactElement {
       setActiveSessionTabId(nextActiveTabId)
       setCurrentSessionId(nextActiveTabId)
 
-      if (nextSessions.length === 0) {
-        setActiveView('conversations')
-      }
     } catch (error) {
       console.error('[LeftSidebar] 删除会话失败:', error)
       toast.error(error instanceof Error ? error.message : '删除会话失败')
@@ -644,7 +635,7 @@ export function LeftSidebar(): React.ReactElement {
                       <SessionRow
                         key={`pinned-${session.id}`}
                         session={session}
-                        isActive={activeView === 'conversations' && currentSessionId === session.id}
+                        isActive={currentSessionId === session.id}
                         isRunning={runningSessionIds.has(session.id)}
                         isEditing={editingId === session.id}
                         isPinned={isPinned(session)}
@@ -673,7 +664,7 @@ export function LeftSidebar(): React.ReactElement {
                     <SessionRow
                       key={session.id}
                       session={session}
-                      isActive={activeView === 'conversations' && currentSessionId === session.id}
+                      isActive={currentSessionId === session.id}
                       isRunning={runningSessionIds.has(session.id)}
                       isEditing={editingId === session.id}
                       isPinned={isPinned(session)}
@@ -695,30 +686,6 @@ export function LeftSidebar(): React.ReactElement {
             ))}
           </div>
         )}
-      </div>
-
-      <div className="px-3 pb-3 pt-2">
-        <button
-          type="button"
-          onClick={() => {
-            setSettingsTab('general')
-            setActiveView('settings')
-          }}
-          className={cn(
-            'flex w-full items-center gap-3 rounded-[10px] px-2.5 py-2.5 text-left text-sm transition-colors',
-            activeView === 'settings'
-              ? 'bg-foreground/[0.08] text-foreground shadow-[0_1px_2px_0_rgba(0,0,0,0.05)]'
-              : 'text-foreground/70 hover:bg-foreground/[0.04] hover:text-foreground'
-          )}
-        >
-          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-foreground/[0.05] text-muted-foreground">
-            <Settings className="size-4" />
-          </span>
-          <div className="min-w-0 flex-1">
-            <div className="font-medium">设置</div>
-            <div className="truncate text-xs text-muted-foreground">主题与用户档案</div>
-          </div>
-        </button>
       </div>
 
       <AlertDialog open={pendingDeleteId !== null} onOpenChange={(open) => {

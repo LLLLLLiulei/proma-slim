@@ -10,7 +10,7 @@ import type { EnvironmentCheckResult, PromaPermissionMode, ThinkingConfig, Agent
 export type ThemeMode = 'light' | 'dark' | 'system'
 
 /** 默认主题模式 */
-export const DEFAULT_THEME_MODE: ThemeMode = 'dark'
+export const DEFAULT_THEME_MODE: ThemeMode = 'light'
 
 /** 应用设置 */
 export interface AppSettings {

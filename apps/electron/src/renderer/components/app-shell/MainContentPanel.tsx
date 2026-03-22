@@ -1,11 +1,9 @@
 import * as React from 'react'
 import { useAtom, useAtomValue } from 'jotai'
-import { MessageSquareText, Settings2, Sparkles, X } from 'lucide-react'
-import { activeViewAtom } from '@/atoms/active-view'
+import { MessageSquareText, Sparkles, X } from 'lucide-react'
 import { agentSessionsAtom, currentAgentSessionIdAtom } from '@/atoms/agent-atoms'
 import { activeSessionTabIdAtom, closeSessionTab, reconcileSessionTabs, sessionTabsAtom } from '@/atoms/session-tabs'
 import { AgentView } from '@/components/agent'
-import { SettingsPanel } from '@/components/settings'
 import { cn } from '@/lib/utils'
 
 export function resolveRenderableSessionId(
@@ -97,38 +95,7 @@ function SessionTabStrip({
   )
 }
 
-function StaticTabBar({
-  label,
-  icon,
-  onClose,
-}: {
-  label: string
-  icon: React.ReactNode
-  onClose: () => void
-}): React.ReactElement {
-  return (
-    <div className="proma-tab-strip flex h-[38px] items-end gap-0.5 px-2 pt-1 titlebar-drag-region">
-      <div className="flex min-w-0 flex-1 items-end overflow-x-auto scrollbar-none titlebar-no-drag">
-        <div className="proma-tab-item is-active flex h-[33px] min-w-[104px] max-w-[220px] items-center gap-2 px-3">
-          <span className="shrink-0 text-muted-foreground">{icon}</span>
-          <span className="min-w-0 flex-1 truncate text-[12px] font-medium">{label}</span>
-          <button
-            type="button"
-            onClick={onClose}
-            className="proma-tab-close flex size-4 shrink-0 items-center justify-center rounded-sm opacity-70"
-            aria-label="关闭当前标签"
-          >
-            <X className="size-3" />
-          </button>
-        </div>
-      </div>
-      <div className="flex-1" />
-    </div>
-  )
-}
-
 export function MainContentPanel(): React.ReactElement {
-  const [activeView, setActiveView] = useAtom(activeViewAtom)
   const [currentSessionId, setCurrentSessionId] = useAtom(currentAgentSessionIdAtom)
   const sessions = useAtomValue(agentSessionsAtom)
   const [sessionTabs, setSessionTabs] = useAtom(sessionTabsAtom)
@@ -148,11 +115,10 @@ export function MainContentPanel(): React.ReactElement {
   }, [activeSessionTabId, sessionTabs, sessions, setActiveSessionTabId, setSessionTabs])
 
   React.useEffect(() => {
-    if (activeView === 'settings') return
     if (!activeTabSessionId) return
     if (currentSessionId === activeTabSessionId) return
     setCurrentSessionId(activeTabSessionId)
-  }, [activeTabSessionId, activeView, currentSessionId, setCurrentSessionId])
+  }, [activeTabSessionId, currentSessionId, setCurrentSessionId])
 
   const handleCloseSessionTab = React.useCallback((tabId: string): void => {
     const next = closeSessionTab(sessionTabs, activeSessionTabId, tabId)
@@ -164,31 +130,20 @@ export function MainContentPanel(): React.ReactElement {
   return (
     <main className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div className="proma-main-panel flex h-full min-h-0 flex-col overflow-hidden">
-        {activeView === 'settings' ? (
-          <StaticTabBar
-            label="设置"
-            icon={<Settings2 className="size-4" />}
-            onClose={() => setActiveView('conversations')}
-          />
-        ) : (
-          <SessionTabStrip
-            tabs={sessionTabs}
-            activeTabId={activeSessionTabId}
-            onActivate={(tabId) => {
-              setActiveSessionTabId(tabId)
-              setCurrentSessionId(tabId)
-              setActiveView('conversations')
-            }}
-            onClose={handleCloseSessionTab}
-          />
-        )}
+        <SessionTabStrip
+          tabs={sessionTabs}
+          activeTabId={activeSessionTabId}
+          onActivate={(tabId) => {
+            setActiveSessionTabId(tabId)
+            setCurrentSessionId(tabId)
+          }}
+          onClose={handleCloseSessionTab}
+        />
 
         <div className="min-h-0 flex-1 overflow-hidden bg-background/35">
-          {activeView === 'settings'
-            ? <SettingsPanel />
-            : renderSessionId
-              ? <AgentView sessionId={renderSessionId} />
-              : <EmptyState />}
+          {renderSessionId
+            ? <AgentView sessionId={renderSessionId} />
+            : <EmptyState />}
         </div>
       </div>
     </main>
