@@ -34,7 +34,9 @@ import {
   closeSessionTab,
   initializeSessionTabs,
   openSessionTab,
+  resolveSessionSelection,
   sessionTabsAtom,
+  type SessionTab,
 } from '@/atoms/session-tabs'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -42,7 +44,7 @@ import {
   resolveWorkspaceSelectionFallback,
   WorkspaceSidebarSection,
 } from './WorkspaceSidebarSection'
-import type { AgentSessionMeta } from '@proma/shared'
+import type { AgentSessionMeta, AgentWorkspace } from '@proma/shared'
 
 type DateGroupLabel = '今天' | '昨天' | '更早'
 
@@ -105,6 +107,27 @@ export function resolveInitialWorkspaceId(
   }
 
   return workspaces.find((workspace) => workspace.id === preferredWorkspaceId)?.id ?? workspaces[0]!.id
+}
+
+export function resolveInitialWorkspaceSelection(
+  workspaces: Array<Pick<AgentWorkspace, 'id'>>,
+  sessions: Array<Pick<AgentSessionMeta, 'id' | 'workspaceId'>>,
+  preferredWorkspaceId: string | null,
+  currentSessionId: string | null,
+): string | null {
+  if (workspaces.length === 0) {
+    return null
+  }
+
+  const sessionWorkspaceId = currentSessionId
+    ? sessions.find((session) => session.id === currentSessionId)?.workspaceId ?? null
+    : null
+
+  if (sessionWorkspaceId && workspaces.some((workspace) => workspace.id === sessionWorkspaceId)) {
+    return sessionWorkspaceId
+  }
+
+  return resolveInitialWorkspaceId(workspaces, preferredWorkspaceId)
 }
 
 export function getVisibleSessionsForWorkspace(
@@ -279,6 +302,7 @@ export function LeftSidebar(): React.ReactElement {
   const [pendingWorkspaceDeleteId, setPendingWorkspaceDeleteId] = React.useState<string | null>(null)
   const [isCreating, setIsCreating] = React.useState(false)
   const [isCreatingWorkspace, setIsCreatingWorkspace] = React.useState(false)
+  const [isRestoringSelection, setIsRestoringSelection] = React.useState(true)
   const [newWorkspaceName, setNewWorkspaceName] = React.useState('')
   const [pinnedExpanded, setPinnedExpanded] = React.useState(true)
   const [pinOverrides, setPinOverrides] = React.useState<Record<string, boolean>>(() => readPinOverrides())
@@ -292,12 +316,29 @@ export function LeftSidebar(): React.ReactElement {
     window.localStorage.setItem(PIN_OVERRIDES_STORAGE_KEY, JSON.stringify(pinOverrides))
   }, [pinOverrides])
 
+  const applyTabSelection = React.useCallback((
+    nextTabs: SessionTab[],
+    nextActiveTabId: string | null,
+    nextSessions: AgentSessionMeta[],
+  ): void => {
+    setSessionTabs(nextTabs)
+    setActiveSessionTabId(nextActiveTabId)
+
+    const nextSelection = resolveSessionSelection(nextTabs, nextActiveTabId, nextSessions)
+    setCurrentSessionId(nextSelection.sessionId)
+
+    if (nextSelection.workspaceId) {
+      setCurrentWorkspaceId(nextSelection.workspaceId)
+    }
+  }, [setActiveSessionTabId, setCurrentSessionId, setCurrentWorkspaceId, setSessionTabs])
+
   const activateSession = React.useCallback((session: AgentSessionMeta): void => {
+    const nextSessions = sessions.some((item) => item.id === session.id)
+      ? sessions.map((item) => item.id === session.id ? session : item)
+      : [session, ...sessions]
     const next = openSessionTab(sessionTabs, session)
-    setSessionTabs(next.tabs)
-    setActiveSessionTabId(next.activeTabId)
-    setCurrentSessionId(session.id)
-  }, [sessionTabs, setActiveSessionTabId, setCurrentSessionId, setSessionTabs])
+    applyTabSelection(next.tabs, next.activeTabId, nextSessions)
+  }, [applyTabSelection, sessionTabs, sessions])
 
   React.useEffect(() => {
     let cancelled = false
@@ -308,15 +349,23 @@ export function LeftSidebar(): React.ReactElement {
       setSessions(nextSessions)
       setWorkspaces(nextWorkspaces)
 
-      setCurrentWorkspaceId(resolveInitialWorkspaceId(nextWorkspaces, currentWorkspaceIdRef.current))
-
       const initialized = initializeSessionTabs(currentSessionId, nextSessions, sessionTabs, activeSessionTabId)
+      setCurrentWorkspaceId(resolveInitialWorkspaceSelection(
+        nextWorkspaces,
+        nextSessions,
+        currentWorkspaceIdRef.current,
+        initialized.currentSessionId,
+      ))
       setCurrentSessionId(initialized.currentSessionId)
       setSessionTabs(initialized.tabs)
       setActiveSessionTabId(initialized.activeTabId)
     }).catch((error) => {
       console.error('[LeftSidebar] 加载会话失败:', error)
       toast.error(error instanceof Error ? error.message : '加载工作区或会话失败')
+    }).finally(() => {
+      if (!cancelled) {
+        setIsRestoringSelection(false)
+      }
     })
 
     return () => {
@@ -384,7 +433,7 @@ export function LeftSidebar(): React.ReactElement {
   }, [sessions])
 
   const handleCreate = async (): Promise<void> => {
-    if (isCreating) return
+    if (isCreating || isRestoringSelection || !currentWorkspaceId) return
     setIsCreating(true)
 
     try {
@@ -551,9 +600,7 @@ export function LeftSidebar(): React.ReactElement {
         nextActiveTabId = opened.activeTabId
       }
 
-      setSessionTabs(nextTabs)
-      setActiveSessionTabId(nextActiveTabId)
-      setCurrentSessionId(nextActiveTabId)
+      applyTabSelection(nextTabs, nextActiveTabId, nextSessions)
 
     } catch (error) {
       console.error('[LeftSidebar] 删除会话失败:', error)
@@ -607,7 +654,7 @@ export function LeftSidebar(): React.ReactElement {
         <button
           type="button"
           onClick={() => { void handleCreate() }}
-          disabled={isCreating}
+          disabled={isCreating || isRestoringSelection || !currentWorkspaceId}
           className="mt-2 flex w-full items-center gap-2 rounded-[10px] border border-dashed border-foreground/10 bg-foreground/[0.03] px-3 py-2 text-[13px] font-medium text-foreground/70 transition-colors hover:border-foreground/20 hover:bg-foreground/[0.06] hover:text-foreground disabled:opacity-50"
         >
           {isCreating ? <LoaderCircle className="size-4 animate-spin" /> : <Plus className="size-4" />}

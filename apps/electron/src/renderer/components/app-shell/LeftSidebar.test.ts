@@ -19,6 +19,32 @@ function createSession(id: string, workspaceId: string): AgentSessionMeta {
 }
 
 describe('LeftSidebar workspace initialization', () => {
+  test('prefers the restored active session workspace over a stale persisted workspace id', async () => {
+    const sidebarModule = await import('./LeftSidebar') as Record<string, unknown>
+
+    expect(typeof sidebarModule.resolveInitialWorkspaceSelection).toBe('function')
+
+    const resolveInitialWorkspaceSelection = sidebarModule.resolveInitialWorkspaceSelection as (
+      workspaces: Array<{ id: string }>,
+      sessions: Array<{ id: string; workspaceId?: string }>,
+      preferredWorkspaceId: string | null,
+      currentSessionId: string | null,
+    ) => string | null
+
+    expect(resolveInitialWorkspaceSelection(
+      [
+        { id: 'workspace-hello' },
+        { id: 'workspace-1' },
+      ],
+      [
+        { id: 'session-hello', workspaceId: 'workspace-hello' },
+        { id: 'session-1', workspaceId: 'workspace-1' },
+      ],
+      'workspace-hello',
+      'session-1',
+    )).toBe('workspace-1')
+  })
+
   test('prefers the persisted workspace id when it still exists in the loaded list', () => {
     expect(resolveInitialWorkspaceId(
       [
@@ -68,6 +94,12 @@ describe('LeftSidebar workspace session visibility', () => {
 })
 
 describe('LeftSidebar footer actions', () => {
+  test('disables the new session button before the initial workspace restore completes', () => {
+    const markup = renderToStaticMarkup(React.createElement(LeftSidebar))
+
+    expect(markup).toContain('disabled=""')
+  })
+
   test('does not render the workspace capability summary button or settings entry', () => {
     const markup = renderToStaticMarkup(React.createElement(LeftSidebar))
 

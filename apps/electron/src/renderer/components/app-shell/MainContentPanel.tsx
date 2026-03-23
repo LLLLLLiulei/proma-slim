@@ -1,8 +1,8 @@
 import * as React from 'react'
-import { useAtom, useAtomValue } from 'jotai'
+import { useAtom, useAtomValue, useSetAtom } from 'jotai'
 import { MessageSquareText, Sparkles, X } from 'lucide-react'
-import { agentSessionsAtom, currentAgentSessionIdAtom } from '@/atoms/agent-atoms'
-import { activeSessionTabIdAtom, closeSessionTab, reconcileSessionTabs, sessionTabsAtom } from '@/atoms/session-tabs'
+import { agentSessionsAtom, currentAgentSessionIdAtom, currentAgentWorkspaceIdAtom } from '@/atoms/agent-atoms'
+import { activeSessionTabIdAtom, closeSessionTab, reconcileSessionTabs, resolveSessionSelection, sessionTabsAtom } from '@/atoms/session-tabs'
 import { AgentView } from '@/components/agent'
 import { cn } from '@/lib/utils'
 
@@ -100,9 +100,18 @@ export function MainContentPanel(): React.ReactElement {
   const sessions = useAtomValue(agentSessionsAtom)
   const [sessionTabs, setSessionTabs] = useAtom(sessionTabsAtom)
   const [activeSessionTabId, setActiveSessionTabId] = useAtom(activeSessionTabIdAtom)
+  const setCurrentWorkspaceId = useSetAtom(currentAgentWorkspaceIdAtom)
   const activeSessionTab = sessionTabs.find((item) => item.id === activeSessionTabId) ?? null
   const activeTabSessionId = activeSessionTab?.sessionId ?? null
   const renderSessionId = resolveRenderableSessionId(activeTabSessionId, sessions)
+
+  const syncSelectionFromTabs = React.useCallback((nextTabs: typeof sessionTabs, nextActiveTabId: string | null): void => {
+    const nextSelection = resolveSessionSelection(nextTabs, nextActiveTabId, sessions)
+    setCurrentSessionId(nextSelection.sessionId)
+    if (nextSelection.workspaceId) {
+      setCurrentWorkspaceId(nextSelection.workspaceId)
+    }
+  }, [sessions, setCurrentSessionId, setCurrentWorkspaceId])
 
   React.useEffect(() => {
     const next = reconcileSessionTabs(sessionTabs, activeSessionTabId, sessions)
@@ -111,8 +120,9 @@ export function MainContentPanel(): React.ReactElement {
     }
     if (next.activeTabId !== activeSessionTabId) {
       setActiveSessionTabId(next.activeTabId)
+      syncSelectionFromTabs(next.tabs, next.activeTabId)
     }
-  }, [activeSessionTabId, sessionTabs, sessions, setActiveSessionTabId, setSessionTabs])
+  }, [activeSessionTabId, sessionTabs, sessions, setActiveSessionTabId, setSessionTabs, syncSelectionFromTabs])
 
   React.useEffect(() => {
     if (!activeTabSessionId) return
@@ -124,8 +134,8 @@ export function MainContentPanel(): React.ReactElement {
     const next = closeSessionTab(sessionTabs, activeSessionTabId, tabId)
     setSessionTabs(next.tabs)
     setActiveSessionTabId(next.activeTabId)
-    setCurrentSessionId(next.activeTabId)
-  }, [activeSessionTabId, sessionTabs, setActiveSessionTabId, setCurrentSessionId, setSessionTabs])
+    syncSelectionFromTabs(next.tabs, next.activeTabId)
+  }, [activeSessionTabId, sessionTabs, setActiveSessionTabId, setSessionTabs, syncSelectionFromTabs])
 
   return (
     <main className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -135,7 +145,7 @@ export function MainContentPanel(): React.ReactElement {
           activeTabId={activeSessionTabId}
           onActivate={(tabId) => {
             setActiveSessionTabId(tabId)
-            setCurrentSessionId(tabId)
+            syncSelectionFromTabs(sessionTabs, tabId)
           }}
           onClose={handleCloseSessionTab}
         />

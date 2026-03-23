@@ -8,6 +8,7 @@ export interface SessionTab {
 }
 
 type SessionTabSource = Pick<AgentSessionMeta, 'id' | 'title'>
+type SessionSelectionSource = Pick<AgentSessionMeta, 'id' | 'workspaceId'>
 
 const STORAGE_OPTIONS = { getOnInit: true } as const
 
@@ -90,6 +91,25 @@ export function initializeSessionTabs(
     activeTabId: opened.activeTabId,
     currentSessionId: targetSession.id,
   }
+}
+
+export function resolveSessionSelection(
+  tabs: SessionTab[],
+  activeTabId: string | null,
+  sessions: SessionSelectionSource[],
+): { sessionId: string | null; workspaceId: string | null } {
+  if (!activeTabId) {
+    return { sessionId: null, workspaceId: null }
+  }
+
+  const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? null
+  const sessionId = activeTab?.sessionId ?? null
+  if (!sessionId) {
+    return { sessionId: null, workspaceId: null }
+  }
+
+  const workspaceId = sessions.find((session) => session.id === sessionId)?.workspaceId ?? null
+  return { sessionId, workspaceId }
 }
 
 export function closeSessionTab(

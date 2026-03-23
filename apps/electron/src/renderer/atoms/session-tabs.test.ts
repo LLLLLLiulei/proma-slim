@@ -4,6 +4,7 @@ import {
   initializeSessionTabs,
   openSessionTab,
   reconcileSessionTabs,
+  resolveSessionSelection,
   type SessionTab,
 } from './session-tabs'
 
@@ -122,6 +123,46 @@ describe('session tab state', () => {
       tabs: [{ id: 's3', sessionId: 's3', title: '最新会话' }],
       activeTabId: 's3',
       currentSessionId: 's3',
+    })
+  })
+
+  test('resolves the active tab back to its session and workspace', () => {
+    expect(resolveSessionSelection(
+      [
+        { id: 'tab-a', sessionId: 's1', title: '工作区 A' },
+        { id: 'tab-b', sessionId: 's2', title: '工作区 B' },
+      ],
+      'tab-b',
+      [
+        { id: 's1', workspaceId: 'workspace-a' },
+        { id: 's2', workspaceId: 'workspace-b' },
+      ],
+    )).toEqual({
+      sessionId: 's2',
+      workspaceId: 'workspace-b',
+    })
+  })
+
+  test('resolves the fallback workspace after closing the active tab', () => {
+    const closed = closeSessionTab(
+      [
+        { id: 'tab-a', sessionId: 's1', title: '工作区 A' },
+        { id: 'tab-b', sessionId: 's2', title: '工作区 B' },
+      ],
+      'tab-a',
+      'tab-a',
+    )
+
+    expect(resolveSessionSelection(
+      closed.tabs,
+      closed.activeTabId,
+      [
+        { id: 's1', workspaceId: 'workspace-a' },
+        { id: 's2', workspaceId: 'workspace-b' },
+      ],
+    )).toEqual({
+      sessionId: 's2',
+      workspaceId: 'workspace-b',
     })
   })
 })
