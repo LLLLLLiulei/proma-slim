@@ -4,8 +4,8 @@
 
 ## 审计范围
 
-- `apps/electron/src/main`
-- `apps/electron/src/renderer`
+- `apps/app/src/main`
+- `apps/app/src/renderer`
 - `packages/shared/src`
 - `packages/ui/src`
 
@@ -22,13 +22,13 @@
 ### 1. Monorepo 结构
 
 - 根仓库通过 Bun workspace 组织。
-- `apps/electron` 是实际运行的应用，虽然目录名叫 `electron`，当前运行形态是 Bun HTTP 服务 + Vite/React 浏览器前端。
+- `apps/app` 是实际运行的应用，当前已使用中性的 app 命名，运行形态是 Bun HTTP 服务 + Vite/React 浏览器前端。
 - `packages/shared` 提供跨层共享类型、事件协议、权限规则和公共工具。
 - `packages/ui` 提供代码块、Mermaid、平滑流式文本渲染等 UI 基础能力。
 
 ### 2. 后端运行时分层
 
-后端的主入口是 `apps/electron/src/main/index.ts`。启动顺序大致如下：
+后端的主入口是 `apps/app/src/main/index.ts`。启动顺序大致如下：
 
 1. `initializeRuntime()` 完成运行时初始化。
 2. `seedDefaultSkills()` 准备默认技能目录。
@@ -81,7 +81,7 @@
 
 ### 4. 前端状态与渲染链路
 
-前端主入口是 `apps/electron/src/renderer/App.tsx`。整体分层如下：
+前端主入口是 `apps/app/src/renderer/App.tsx`。整体分层如下：
 
 - 顶层容器：
   - `App.tsx`
@@ -132,9 +132,9 @@
 ### P1-1 SSE 连接的“单连接取消”会被当成“整个 session 结束”，并连带中止所有观察者
 
 - 证据：
-  - `apps/electron/src/main/sse-manager.ts:18-35`
-  - `apps/electron/src/main/sse-manager.ts:65-114`
-  - `apps/electron/src/main/http-router.ts:349-353`
+  - `apps/app/src/main/sse-manager.ts:18-35`
+  - `apps/app/src/main/sse-manager.ts:65-114`
+  - `apps/app/src/main/http-router.ts:349-353`
 - 问题说明：
   - `SSEManager.createResponse()` 为每个 session 保存一个连接集合。
   - 但连接的 `cancel()` 直接调用 `closeSession(sessionId)`，不是只关闭当前连接。
@@ -153,11 +153,11 @@
 ### P1-2 前端 SSE 生命周期绑定在 `AgentView` 上，视图卸载会把进行中的流错误地标记为断线
 
 - 证据：
-  - `apps/electron/src/renderer/hooks/useGlobalAgentListeners.ts:1-4`
-  - `apps/electron/src/renderer/components/agent/AgentView.tsx:86`
-  - `apps/electron/src/renderer/hooks/useAgentSSE.ts:230-237`
-  - `apps/electron/src/renderer/hooks/useAgentSSE.ts:315-323`
-  - `apps/electron/src/renderer/components/app-shell/MainContentPanel.tsx:164-169`
+  - `apps/app/src/renderer/hooks/useGlobalAgentListeners.ts:1-4`
+  - `apps/app/src/renderer/components/agent/AgentView.tsx:86`
+  - `apps/app/src/renderer/hooks/useAgentSSE.ts:230-237`
+  - `apps/app/src/renderer/hooks/useAgentSSE.ts:315-323`
+  - `apps/app/src/renderer/components/app-shell/MainContentPanel.tsx:164-169`
 - 问题说明：
   - `useGlobalAgentListeners()` 只是 `useAgentSSE()` 的一层薄包装。
   - 但它并没有挂在真正的“全局层”，而是挂在 `AgentView` 内。
@@ -174,12 +174,12 @@
 ### P1-3 删除活跃会话时存在停止/持久化竞态，可能在删除后重新生成孤儿消息文件
 
 - 证据：
-  - `apps/electron/src/main/http-router.ts:263-268`
-  - `apps/electron/src/main/lib/agent-orchestrator.ts:564-580`
-  - `apps/electron/src/main/lib/agent-orchestrator.ts:1262-1304`
-  - `apps/electron/src/main/lib/agent-orchestrator.ts:1361-1364`
-  - `apps/electron/src/main/lib/agent-session-manager.ts:166-175`
-  - `apps/electron/src/main/lib/agent-session-manager.ts:209-238`
+  - `apps/app/src/main/http-router.ts:263-268`
+  - `apps/app/src/main/lib/agent-orchestrator.ts:564-580`
+  - `apps/app/src/main/lib/agent-orchestrator.ts:1262-1304`
+  - `apps/app/src/main/lib/agent-orchestrator.ts:1361-1364`
+  - `apps/app/src/main/lib/agent-session-manager.ts:166-175`
+  - `apps/app/src/main/lib/agent-session-manager.ts:209-238`
 - 问题说明：
   - 删除会话时，路由先 `stopAgent(sessionId)`，然后立刻 `deleteAgentSession(sessionId)`。
   - 但 `stopAgent()` 只是把 session 从 `activeSessions` 移除并请求 adapter `abort()`，并不等待编排层完全退出。
@@ -197,9 +197,9 @@
 ### P1-4 SSE 没有持续心跳，但服务端配置了 `idleTimeout`，长静默阶段存在被动断流风险
 
 - 证据：
-  - `apps/electron/src/main/http-server.ts:25-33`
-  - `apps/electron/src/main/sse-manager.ts:18-31`
-  - `apps/electron/src/main/sse-manager.ts:74-89`
+  - `apps/app/src/main/http-server.ts:25-33`
+  - `apps/app/src/main/sse-manager.ts:18-31`
+  - `apps/app/src/main/sse-manager.ts:74-89`
 - 问题说明：
   - SSE 建连后当前只发送一次 `: connected` 注释。
   - 后续完全依赖业务事件驱动，没有定时心跳。
@@ -215,10 +215,10 @@
 ### P2-1 手动停止时前端先断本地流、后发 stop 请求，容易遗留过期的权限/AskUser UI 状态
 
 - 证据：
-  - `apps/electron/src/renderer/hooks/useAgentSSE.ts:240-250`
-  - `apps/electron/src/main/lib/agent-orchestrator.ts:1348-1351`
-  - `apps/electron/src/main/lib/agent-permission-service.ts:227-245`
-  - `apps/electron/src/main/lib/agent-ask-user-service.ts:105-120`
+  - `apps/app/src/renderer/hooks/useAgentSSE.ts:240-250`
+  - `apps/app/src/main/lib/agent-orchestrator.ts:1348-1351`
+  - `apps/app/src/main/lib/agent-permission-service.ts:227-245`
+  - `apps/app/src/main/lib/agent-ask-user-service.ts:105-120`
 - 问题说明：
   - `stopSession()` 先 `abort()` 当前 reader，再调用 `api.stopSession()`。
   - 后端在 finally 里会清理 pending permission / AskUser，并通过 resolved 事件通知前端。
@@ -234,8 +234,8 @@
 ### P2-2 `file-search` 端点会同步递归扫描目录，而且信任客户端传入的任意 `dir` 参数
 
 - 证据：
-  - `apps/electron/src/main/http-router.ts:240-245`
-  - `apps/electron/src/main/lib/workspace-service.ts:414-502`
+  - `apps/app/src/main/http-router.ts:240-245`
+  - `apps/app/src/main/lib/workspace-service.ts:414-502`
 - 问题说明：
   - `searchWorkspaceFiles()` 在请求线程里用 `readdirSync()` 递归扫描工作区和 `extraDirectories`。
   - `limit` 只作用在最终结果裁剪，不会提前停止扫描。
@@ -252,9 +252,9 @@
 
 - 证据：
   - `packages/shared/src/types/agent.ts:457-477`
-  - `apps/electron/src/main/http-router.ts:337-346`
-  - `apps/electron/src/main/lib/agent-orchestrator.ts:590-598`
-  - `apps/electron/src/main/lib/agent-orchestrator.ts:812-849`
+  - `apps/app/src/main/http-router.ts:337-346`
+  - `apps/app/src/main/lib/agent-orchestrator.ts:590-598`
+  - `apps/app/src/main/lib/agent-orchestrator.ts:812-849`
 - 问题说明：
   - `AgentSendInput` 已声明 `permissionModeOverride?: PromaPermissionMode`。
   - 路由层也会把 `body.permissionModeOverride` 放进 `input`。
@@ -270,9 +270,9 @@
 ### P2-4 创建会话时不校验 `workspaceId` 是否存在，会生成逻辑上悬空的 session 元数据
 
 - 证据：
-  - `apps/electron/src/main/http-router.ts:183-186`
-  - `apps/electron/src/main/lib/agent-session-manager.ts:111-140`
-  - `apps/electron/src/main/lib/agent-orchestrator.ts:125-154`
+  - `apps/app/src/main/http-router.ts:183-186`
+  - `apps/app/src/main/lib/agent-session-manager.ts:111-140`
+  - `apps/app/src/main/lib/agent-orchestrator.ts:125-154`
 - 问题说明：
   - `POST /api/sessions` 直接把 `workspaceId` 传给 `createAgentSession()`。
   - `createAgentSession()` 会把这个 id 原样写进元数据，但并不验证工作区是否存在。
@@ -287,9 +287,9 @@
 ### P2-5 Jotai 以整张 `Map` 作为订阅粒度，单 session 的 token 更新会拖着侧栏和其他视图一起重渲染
 
 - 证据：
-  - `apps/electron/src/renderer/atoms/agent-atoms.ts:212-219`
-  - `apps/electron/src/renderer/components/agent/AgentView.tsx:75-90`
-  - `apps/electron/src/renderer/components/app-shell/LeftSidebar.tsx:363-380`
+  - `apps/app/src/renderer/atoms/agent-atoms.ts:212-219`
+  - `apps/app/src/renderer/components/agent/AgentView.tsx:75-90`
+  - `apps/app/src/renderer/components/app-shell/LeftSidebar.tsx:363-380`
 - 问题说明：
   - 多个关键状态都存成 `Map<sessionId, ...>`。
   - 组件通过 `useAtomValue(mapAtom).get(sessionId)` 读取，会订阅整张 `Map`。
@@ -305,7 +305,7 @@
 ### P2-6 发送失败时乐观更新没有完整回滚，用户输入和标题可能永久偏离服务端真实状态
 
 - 证据：
-  - `apps/electron/src/renderer/components/agent/AgentView.tsx:183-230`
+  - `apps/app/src/renderer/components/agent/AgentView.tsx:183-230`
 - 问题说明：
   - 发送前会先：
     - 本地追加一条 optimistic user message
@@ -323,10 +323,10 @@
 ### P2-7 流结束后的同步依赖“全量重拉历史消息”，再叠加本地无限缓存，长会话成本会线性放大
 
 - 证据：
-  - `apps/electron/src/renderer/hooks/useAgentSSE.ts:199-223`
-  - `apps/electron/src/renderer/components/agent/AgentView.tsx:72-90`
-  - `apps/electron/src/renderer/components/agent/AgentView.tsx:143-159`
-  - `apps/electron/src/renderer/components/agent/message-catchup.ts:17-37`
+  - `apps/app/src/renderer/hooks/useAgentSSE.ts:199-223`
+  - `apps/app/src/renderer/components/agent/AgentView.tsx:72-90`
+  - `apps/app/src/renderer/components/agent/AgentView.tsx:143-159`
+  - `apps/app/src/renderer/components/agent/message-catchup.ts:17-37`
 - 问题说明：
   - `finalizeStream()` 每次都会递增 `agentMessageRefreshAtom`。
   - `AgentView` 监听这个值并重新调用 `getSessionMessages(sessionId)` 拉完整历史。
@@ -343,11 +343,11 @@
 ### P2-8 长会话 UI 没有窗口化，滚动缩略图还在每次滚动时扫描全部消息节点
 
 - 证据：
-  - `apps/electron/src/renderer/components/agent/AgentMessages.tsx:596-649`
+  - `apps/app/src/renderer/components/agent/AgentMessages.tsx:596-649`
   - 前端 subagent 额外定位：
-    - `apps/electron/src/renderer/components/ai-elements/scroll-minimap.tsx:40`
-    - `apps/electron/src/renderer/components/ai-elements/scroll-minimap.tsx:49`
-    - `apps/electron/src/renderer/components/ai-elements/scroll-minimap.tsx:105`
+    - `apps/app/src/renderer/components/ai-elements/scroll-minimap.tsx:40`
+    - `apps/app/src/renderer/components/ai-elements/scroll-minimap.tsx:49`
+    - `apps/app/src/renderer/components/ai-elements/scroll-minimap.tsx:105`
 - 问题说明：
   - 消息区按 `messages.map(...)` 全量渲染。
   - minimap 的可见性统计依赖滚动时对 DOM 做 O(n) 扫描。
@@ -361,8 +361,8 @@
 ### P2-9 `POST /send` 在返回 SSE 之前同步等待标题生成，首包和流启动被无谓阻塞
 
 - 证据：
-  - `apps/electron/src/main/http-router.ts:134-149`
-  - `apps/electron/src/main/http-router.ts:320-365`
+  - `apps/app/src/main/http-router.ts:134-149`
+  - `apps/app/src/main/http-router.ts:320-365`
 - 问题说明：
   - 发送接口在创建 SSE 响应前，会先 `await persistGeneratedSessionTitle(sessionId, body.userMessage)`。
   - 而标题生成内部会触发一次额外的 Agent 标题生成流程。
@@ -376,7 +376,7 @@
 ### P2-10 SSE 广播没有背压控制，慢客户端会造成队列积压和额外内存压力
 
 - 证据：
-  - `apps/electron/src/main/sse-manager.ts:74-89`
+  - `apps/app/src/main/sse-manager.ts:74-89`
 - 问题说明：
   - `emit()` 对每个连接都直接 `controller.enqueue(frame)`。
   - 当前没有检查 `desiredSize`，也没有对持续落后的消费者做摘除或降级。
@@ -391,8 +391,8 @@
 ### P2-11 后端可用状态被 `App` 与 `AgentView` 各自一次性拉取，UI 可能长期自相矛盾
 
 - 证据：
-  - `apps/electron/src/renderer/App.tsx:16-42`
-  - `apps/electron/src/renderer/components/agent/AgentView.tsx:74-141`
+  - `apps/app/src/renderer/App.tsx:16-42`
+  - `apps/app/src/renderer/components/agent/AgentView.tsx:74-141`
 - 问题说明：
   - 顶部 banner 和消息页输入禁用态不是同一个状态源。
   - 两者都只在挂载时请求一次 `/api/status`。
@@ -408,10 +408,10 @@
 ### P2-12 侧栏当前工作区与主面板当前 session/tab 没有同步，跨工作区切换会长期指向不同上下文
 
 - 证据：
-  - `apps/electron/src/renderer/components/app-shell/LeftSidebar.tsx:300-318`
-  - `apps/electron/src/renderer/components/app-shell/LeftSidebar.tsx:363-380`
-  - `apps/electron/src/renderer/components/app-shell/LeftSidebar.tsx:545-563`
-  - `apps/electron/src/renderer/components/app-shell/MainContentPanel.tsx:150-162`
+  - `apps/app/src/renderer/components/app-shell/LeftSidebar.tsx:300-318`
+  - `apps/app/src/renderer/components/app-shell/LeftSidebar.tsx:363-380`
+  - `apps/app/src/renderer/components/app-shell/LeftSidebar.tsx:545-563`
+  - `apps/app/src/renderer/components/app-shell/MainContentPanel.tsx:150-162`
 - 问题说明：
   - `currentWorkspaceId` 决定侧栏显示哪一组 session。
   - 但切 tab、关闭 tab、恢复活动 tab 时，只同步了 `currentSessionId`，没有同步当前工作区。
@@ -426,8 +426,8 @@
 ### P3-1 会话级“总是允许”白名单声明了清理接口，但在编排完成路径上从未调用
 
 - 证据：
-  - `apps/electron/src/main/lib/agent-permission-service.ts:241-245`
-  - `apps/electron/src/main/lib/agent-orchestrator.ts:1348-1351`
+  - `apps/app/src/main/lib/agent-permission-service.ts:241-245`
+  - `apps/app/src/main/lib/agent-orchestrator.ts:1348-1351`
 - 问题说明：
   - `AgentPermissionService` 提供了 `clearSessionWhitelist(sessionId)`。
   - 但 orchestrator finally 里只清 pending，不清 whitelist。

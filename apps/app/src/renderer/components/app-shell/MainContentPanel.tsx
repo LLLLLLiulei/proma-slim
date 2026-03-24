@@ -21,16 +21,20 @@ export function resolveSelectionSyncFromActiveTab(
   sessions: Array<{ id: string; workspaceId?: string }>,
 ): { sessionId: string | null; workspaceId: string | null } | null {
   const nextSelection = resolveSessionSelection(tabs, activeTabId, sessions)
-  if (!nextSelection.sessionId) return null
+  if (!nextSelection.sessionId) {
+    return currentSelection.sessionId === null
+      ? null
+      : { sessionId: null, workspaceId: currentSelection.workspaceId }
+  }
 
-  if (
-    nextSelection.sessionId === currentSelection.sessionId
-    && nextSelection.workspaceId === currentSelection.workspaceId
-  ) {
+  if (nextSelection.sessionId === currentSelection.sessionId) {
     return null
   }
 
-  return nextSelection
+  return {
+    sessionId: nextSelection.sessionId,
+    workspaceId: currentSelection.workspaceId,
+  }
 }
 
 function EmptyState(): React.ReactElement {
@@ -127,8 +131,7 @@ export function MainContentPanel(): React.ReactElement {
   const syncSelectionFromTabs = React.useCallback((nextTabs: typeof sessionTabs, nextActiveTabId: string | null): void => {
     const nextSelection = resolveSessionSelection(nextTabs, nextActiveTabId, sessions)
     setCurrentSessionId(nextSelection.sessionId)
-    setCurrentWorkspaceId(nextSelection.workspaceId)
-  }, [sessions, setCurrentSessionId, setCurrentWorkspaceId])
+  }, [sessions, setCurrentSessionId])
 
   React.useEffect(() => {
     const next = reconcileSessionTabs(sessionTabs, activeSessionTabId, sessions)

@@ -119,6 +119,10 @@ export function resolveInitialWorkspaceSelection(
     return null
   }
 
+  if (preferredWorkspaceId && workspaces.some((workspace) => workspace.id === preferredWorkspaceId)) {
+    return preferredWorkspaceId
+  }
+
   const sessionWorkspaceId = currentSessionId
     ? sessions.find((session) => session.id === currentSessionId)?.workspaceId ?? null
     : null
@@ -326,10 +330,6 @@ export function LeftSidebar(): React.ReactElement {
 
     const nextSelection = resolveSessionSelection(nextTabs, nextActiveTabId, nextSessions)
     setCurrentSessionId(nextSelection.sessionId)
-
-    if (nextSelection.workspaceId) {
-      setCurrentWorkspaceId(nextSelection.workspaceId)
-    }
   }, [setActiveSessionTabId, setCurrentSessionId, setCurrentWorkspaceId, setSessionTabs])
 
   const activateSession = React.useCallback((session: AgentSessionMeta): void => {

@@ -20,8 +20,8 @@
 
 它的几个最重要的架构判断如下：
 
-- 仓库是 Bun workspace 单仓，但真正可运行应用集中在 `apps/electron`
-- `apps/electron` 这个名字是历史遗留；当前实现并不是典型 Electron IPC 应用，而是一个浏览器访问的本地 Web 应用
+- 仓库是 Bun workspace 单仓，但真正可运行应用集中在 `apps/app`
+- `apps/app` 已作为当前主应用的中性 workspace 命名；当前实现并不是典型 Electron IPC 应用，而是一个浏览器访问的本地 Web 应用
 - 后端通过 Bun 提供 REST 和 SSE，前端不直接碰主进程内部逻辑
 - Agent 主链路采用 `HTTP Router -> Agent Service -> Agent Orchestrator -> Claude Agent Adapter -> Claude Agent SDK` 分层
 - 会话、工作区、设置、技能目录、MCP 配置和会话工作目录都直接落在 `~/.proma/`
@@ -32,7 +32,7 @@
 
 项目顶层工作区定义在 `package.json`，核心目录如下：
 
-- `apps/electron`
+- `apps/app`
   - 当前唯一的可运行应用
   - `src/main` 是 Bun HTTP 服务和 Agent 运行链路
   - `src/renderer` 是 React 前端
@@ -54,7 +54,7 @@
 - `bun run typecheck`
 - `bun test`
 
-这些顶层脚本最终都转发到 `@proma/electron` 这个 workspace。
+这些顶层脚本最终都转发到 `@proma/app` 这个 workspace。
 
 ## 3. 总体架构图
 
@@ -107,7 +107,7 @@ Local persistence
 开发模式：
 
 1. 从仓库根目录执行 `bun run dev`
-2. 顶层脚本转发到 `apps/electron/package.json`
+2. 顶层脚本转发到 `apps/app/package.json`
 3. `concurrently` 同时启动：
 4. `vite dev`
 5. `bun --watch src/main/index.ts`
@@ -117,7 +117,7 @@ Local persistence
 生产模式：
 
 1. 执行 `bun run build`
-2. 只构建 renderer，输出到 `apps/electron/dist`
+2. 只构建 renderer，输出到 `apps/app/dist`
 3. 执行 `bun run start`
 4. Bun 服务同时提供：
 5. `/api/*` REST 和 SSE
@@ -127,7 +127,7 @@ Local persistence
 
 ### 4.2 后端启动流程
 
-主入口在 `apps/electron/src/main/index.ts`。
+主入口在 `apps/app/src/main/index.ts`。
 
 启动时按如下顺序执行：
 
@@ -137,7 +137,7 @@ Local persistence
 4. 注册 `SIGINT` / `SIGTERM` 清理逻辑
 5. 退出时中止全部活跃 Agent 会话
 
-运行时初始化在 `apps/electron/src/main/lib/runtime-init.ts`，其职责是：
+运行时初始化在 `apps/app/src/main/lib/runtime-init.ts`，其职责是：
 
 - 加载 shell 环境
 - 检测 Node
@@ -153,9 +153,9 @@ Local persistence
 
 核心文件：
 
-- `apps/electron/src/main/http-server.ts`
-- `apps/electron/src/main/http-router.ts`
-- `apps/electron/src/main/sse-manager.ts`
+- `apps/app/src/main/http-server.ts`
+- `apps/app/src/main/http-router.ts`
+- `apps/app/src/main/sse-manager.ts`
 
 设计特点：
 
@@ -184,10 +184,10 @@ HTTP 层主要承担：
 
 Agent 主链路相关文件：
 
-- `apps/electron/src/main/lib/agent-service.ts`
-- `apps/electron/src/main/lib/agent-orchestrator.ts`
-- `apps/electron/src/main/lib/agent-event-bus.ts`
-- `apps/electron/src/main/lib/adapters/claude-agent-adapter.ts`
+- `apps/app/src/main/lib/agent-service.ts`
+- `apps/app/src/main/lib/agent-orchestrator.ts`
+- `apps/app/src/main/lib/agent-event-bus.ts`
+- `apps/app/src/main/lib/adapters/claude-agent-adapter.ts`
 
 分层职责如下：
 
@@ -233,7 +233,7 @@ AgentView.handleSend
 
 ### 6.2 Orchestrator 的核心职责
 
-`apps/electron/src/main/lib/agent-orchestrator.ts` 是当前最核心的业务编排器。
+`apps/app/src/main/lib/agent-orchestrator.ts` 是当前最核心的业务编排器。
 
 它负责：
 
@@ -255,7 +255,7 @@ AgentView.handleSend
 
 ### 6.3 SDK 适配层
 
-`apps/electron/src/main/lib/adapters/claude-agent-adapter.ts` 的职责是：
+`apps/app/src/main/lib/adapters/claude-agent-adapter.ts` 的职责是：
 
 - 动态导入 `@anthropic-ai/claude-agent-sdk`
 - 构造 SDK options
@@ -295,7 +295,7 @@ Proma 自己的事件协议定义在 `packages/shared/src/types/agent.ts`。
 
 当前项目不依赖数据库，所有配置和业务数据都落在 `~/.proma/` 下。
 
-路径定义集中在 `apps/electron/src/main/lib/config-paths.ts`。
+路径定义集中在 `apps/app/src/main/lib/config-paths.ts`。
 
 ### 7.2 关键目录结构
 
@@ -324,7 +324,7 @@ Proma 自己的事件协议定义在 `packages/shared/src/types/agent.ts`。
 
 ### 7.3 会话存储模型
 
-会话相关逻辑集中在 `apps/electron/src/main/lib/agent-session-manager.ts`。
+会话相关逻辑集中在 `apps/app/src/main/lib/agent-session-manager.ts`。
 
 设计是“两层结构”：
 
@@ -342,7 +342,7 @@ Proma 自己的事件协议定义在 `packages/shared/src/types/agent.ts`。
 
 ### 7.4 工作区模型
 
-工作区逻辑集中在 `apps/electron/src/main/lib/workspace-service.ts`。
+工作区逻辑集中在 `apps/app/src/main/lib/workspace-service.ts`。
 
 工作区不只是 UI 组织单元，而是运行时实体。它实际决定：
 
@@ -393,12 +393,12 @@ Proma 自己的事件协议定义在 `packages/shared/src/types/agent.ts`。
 
 前端入口：
 
-- `apps/electron/src/renderer/main.tsx`
-- `apps/electron/src/renderer/App.tsx`
+- `apps/app/src/renderer/main.tsx`
+- `apps/app/src/renderer/App.tsx`
 
 最外层布局：
 
-- `apps/electron/src/renderer/components/app-shell/AppShell.tsx`
+- `apps/app/src/renderer/components/app-shell/AppShell.tsx`
 
 结构是典型双栏：
 
@@ -411,7 +411,7 @@ App
 
 ### 9.2 主内容区结构
 
-主内容区在 `apps/electron/src/renderer/components/app-shell/MainContentPanel.tsx`。
+主内容区在 `apps/app/src/renderer/components/app-shell/MainContentPanel.tsx`。
 
 其职责是：
 
@@ -422,7 +422,7 @@ App
 
 ### 9.3 侧边栏结构
 
-左侧栏在 `apps/electron/src/renderer/components/app-shell/LeftSidebar.tsx`。
+左侧栏在 `apps/app/src/renderer/components/app-shell/LeftSidebar.tsx`。
 
 其职责是：
 
@@ -443,10 +443,10 @@ App
 
 核心原子定义在：
 
-- `apps/electron/src/renderer/atoms/agent-atoms.ts`
-- `apps/electron/src/renderer/atoms/session-tabs.ts`
-- `apps/electron/src/renderer/atoms/active-view.ts`
-- `apps/electron/src/renderer/atoms/theme.ts`
+- `apps/app/src/renderer/atoms/agent-atoms.ts`
+- `apps/app/src/renderer/atoms/session-tabs.ts`
+- `apps/app/src/renderer/atoms/active-view.ts`
+- `apps/app/src/renderer/atoms/theme.ts`
 
 ### 10.1 持久对象态
 
@@ -483,7 +483,7 @@ App
 
 ## 11. 会话页签与工作区列表的交互逻辑
 
-会话 tab 逻辑在 `apps/electron/src/renderer/atoms/session-tabs.ts`。
+会话 tab 逻辑在 `apps/app/src/renderer/atoms/session-tabs.ts`。
 
 关键规则：
 
@@ -504,7 +504,7 @@ App
 
 ### 12.1 SSE 消费
 
-核心在 `apps/electron/src/renderer/hooks/useAgentSSE.ts`。
+核心在 `apps/app/src/renderer/hooks/useAgentSSE.ts`。
 
 这层负责：
 
@@ -548,7 +548,7 @@ App
 
 ### 12.4 历史追平机制
 
-`apps/electron/src/renderer/components/agent/message-catchup.ts` 提供 `loadSessionMessagesWithCatchup()`。
+`apps/app/src/renderer/components/agent/message-catchup.ts` 提供 `loadSessionMessagesWithCatchup()`。
 
 它会在必要时对历史消息做短轮询：
 
@@ -562,7 +562,7 @@ App
 
 ### 13.1 Agent 视图
 
-主视图在 `apps/electron/src/renderer/components/agent/AgentView.tsx`。
+主视图在 `apps/app/src/renderer/components/agent/AgentView.tsx`。
 
 它负责：
 
@@ -574,7 +574,7 @@ App
 
 ### 13.2 消息列表
 
-消息列表在 `apps/electron/src/renderer/components/agent/AgentMessages.tsx`。
+消息列表在 `apps/app/src/renderer/components/agent/AgentMessages.tsx`。
 
 它负责：
 
@@ -586,7 +586,7 @@ App
 
 ### 13.3 Markdown 和内容渲染
 
-消息原语在 `apps/electron/src/renderer/components/ai-elements/message.tsx`。
+消息原语在 `apps/app/src/renderer/components/ai-elements/message.tsx`。
 
 当前能力包括：
 
@@ -628,8 +628,8 @@ App
 
 后端相关服务：
 
-- `apps/electron/src/main/lib/agent-permission-service.ts`
-- `apps/electron/src/main/lib/agent-ask-user-service.ts`
+- `apps/app/src/main/lib/agent-permission-service.ts`
+- `apps/app/src/main/lib/agent-ask-user-service.ts`
 
 ### 15.1 权限审批流程
 
@@ -655,11 +655,11 @@ App
 
 相关文件：
 
-- 前端 API 封装：`apps/electron/src/renderer/lib/api.ts`
-- 主题状态：`apps/electron/src/renderer/atoms/theme.ts`
-- 设置面板：`apps/electron/src/renderer/components/settings/SettingsPanel.tsx`
-- 后端设置服务：`apps/electron/src/main/lib/settings-service.ts`
-- 用户资料服务：`apps/electron/src/main/lib/user-profile-service.ts`
+- 前端 API 封装：`apps/app/src/renderer/lib/api.ts`
+- 主题状态：`apps/app/src/renderer/atoms/theme.ts`
+- 设置面板：`apps/app/src/renderer/components/settings/SettingsPanel.tsx`
+- 后端设置服务：`apps/app/src/main/lib/settings-service.ts`
+- 用户资料服务：`apps/app/src/main/lib/user-profile-service.ts`
 
 设计原则与主业务一致：
 
@@ -788,7 +788,7 @@ App
 - `agent-orchestrator.ts` 职责过多，是当前最容易继续膨胀的模块
 - 持久化是文件级约定，不具备数据库事务能力
 - 大量瞬时态保存在进程内，进程重启不会恢复
-- `apps/electron` 的命名与真实运行形态不完全一致，增加新接手者理解成本
+- 主应用内部仍保留 `src/main` / `src/renderer` 等历史层级命名，增加新接手者理解成本
 - `packages/shared` 仍保留部分大于当前最小产品边界的历史表面
 
 ## 23. 总结

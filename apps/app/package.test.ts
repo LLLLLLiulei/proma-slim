@@ -2,7 +2,17 @@ import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-describe('electron package scripts', () => {
+describe('app package scripts', () => {
+  test('workspace package is published as @proma/app', () => {
+    const packageJson = JSON.parse(
+      readFileSync(join(import.meta.dir, 'package.json'), 'utf-8'),
+    ) as {
+      name?: string
+    }
+
+    expect(packageJson.name).toBe('@proma/app')
+  })
+
   test('dev:server sets PROMA_CONFIG_DIR to ~/.proma-dev by default', () => {
     const packageJson = JSON.parse(
       readFileSync(join(import.meta.dir, 'package.json'), 'utf-8'),

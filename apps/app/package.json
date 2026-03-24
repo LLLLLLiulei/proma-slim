@@ -1,5 +1,5 @@
 {
-  "name": "@proma/electron",
+  "name": "@proma/app",
   "version": "0.7.1",
   "description": "Proma minimal Claude Code web app",
   "author": {

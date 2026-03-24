@@ -28,8 +28,8 @@
 
 核心位置：
 
-- `apps/electron/src/renderer/hooks/useAgentSSE.ts`
-- `apps/electron/src/renderer/components/app-shell/MainContentPanel.tsx`
+- `apps/app/src/renderer/hooks/useAgentSSE.ts`
+- `apps/app/src/renderer/components/app-shell/MainContentPanel.tsx`
 
 现象：
 
@@ -52,8 +52,8 @@
 
 核心位置：
 
-- `apps/electron/src/main/sse-manager.ts`
-- `apps/electron/src/main/http-router.ts`
+- `apps/app/src/main/sse-manager.ts`
+- `apps/app/src/main/http-router.ts`
 
 现象：
 
@@ -81,7 +81,7 @@
 
 核心位置：
 
-- `apps/electron/src/main/lib/agent-orchestrator.ts`
+- `apps/app/src/main/lib/agent-orchestrator.ts`
 
 现象：
 
@@ -106,9 +106,9 @@
 
 核心位置：
 
-- `apps/electron/src/main/http-router.ts`
-- `apps/electron/src/main/lib/agent-session-manager.ts`
-- `apps/electron/src/main/lib/agent-orchestrator.ts`
+- `apps/app/src/main/http-router.ts`
+- `apps/app/src/main/lib/agent-session-manager.ts`
+- `apps/app/src/main/lib/agent-orchestrator.ts`
 
 现象：
 
@@ -136,9 +136,9 @@
 
 核心位置：
 
-- `apps/electron/src/main/http-router.ts`
-- `apps/electron/src/main/lib/agent-orchestrator.ts`
-- `apps/electron/src/renderer/hooks/useAgentSSE.ts`
+- `apps/app/src/main/http-router.ts`
+- `apps/app/src/main/lib/agent-orchestrator.ts`
+- `apps/app/src/renderer/hooks/useAgentSSE.ts`
 
 现象：
 
@@ -163,7 +163,7 @@
 
 核心位置：
 
-- `apps/electron/src/main/lib/workspace-service.ts`
+- `apps/app/src/main/lib/workspace-service.ts`
 
 现象：
 
@@ -194,9 +194,9 @@
 
 核心位置：
 
-- `apps/electron/src/main/http-router.ts`
-- `apps/electron/src/main/lib/agent-orchestrator.ts`
-- `apps/electron/src/main/lib/agent-session-manager.ts`
+- `apps/app/src/main/http-router.ts`
+- `apps/app/src/main/lib/agent-orchestrator.ts`
+- `apps/app/src/main/lib/agent-session-manager.ts`
 
 现象：
 
@@ -219,7 +219,7 @@
 
 核心位置：
 
-- `apps/electron/src/renderer/components/agent/AskUserBanner.tsx`
+- `apps/app/src/renderer/components/agent/AskUserBanner.tsx`
 
 现象：
 
@@ -242,8 +242,8 @@
 
 核心位置：
 
-- `apps/electron/src/renderer/components/agent/message-catchup.ts`
-- `apps/electron/src/renderer/components/agent/AgentView.tsx`
+- `apps/app/src/renderer/components/agent/message-catchup.ts`
+- `apps/app/src/renderer/components/agent/AgentView.tsx`
 
 现象：
 
@@ -264,8 +264,8 @@
 
 核心位置：
 
-- `apps/electron/src/main/http-router.ts`
-- `apps/electron/src/main/lib/agent-orchestrator.ts`
+- `apps/app/src/main/http-router.ts`
+- `apps/app/src/main/lib/agent-orchestrator.ts`
 
 现象：
 
@@ -289,7 +289,7 @@
 
 核心位置：
 
-- `apps/electron/src/renderer/hooks/useAgentSSE.ts`
+- `apps/app/src/renderer/hooks/useAgentSSE.ts`
 
 现象：
 
@@ -310,8 +310,8 @@
 
 核心位置：
 
-- `apps/electron/src/renderer/components/app-shell/LeftSidebar.tsx`
-- `apps/electron/src/renderer/components/app-shell/MainContentPanel.tsx`
+- `apps/app/src/renderer/components/app-shell/LeftSidebar.tsx`
+- `apps/app/src/renderer/components/app-shell/MainContentPanel.tsx`
 
 现象：
 
@@ -334,7 +334,7 @@
 
 核心位置：
 
-- `apps/electron/src/main/lib/agent-session-manager.ts`
+- `apps/app/src/main/lib/agent-session-manager.ts`
 
 现象：
 
@@ -358,7 +358,7 @@
 
 核心位置：
 
-- `apps/electron/src/main/lib/workspace-service.ts`
+- `apps/app/src/main/lib/workspace-service.ts`
 
 问题：
 
@@ -376,8 +376,8 @@
 
 核心位置：
 
-- `apps/electron/src/main/lib/agent-session-manager.ts`
-- `apps/electron/src/main/lib/workspace-service.ts`
+- `apps/app/src/main/lib/agent-session-manager.ts`
+- `apps/app/src/main/lib/workspace-service.ts`
 
 问题：
 
@@ -393,8 +393,8 @@
 
 核心位置：
 
-- `apps/electron/src/renderer/hooks/useAgentSSE.ts`
-- `apps/electron/src/renderer/atoms/agent-atoms.ts`
+- `apps/app/src/renderer/hooks/useAgentSSE.ts`
+- `apps/app/src/renderer/atoms/agent-atoms.ts`
 
 问题：
 
@@ -410,7 +410,7 @@
 
 核心位置：
 
-- `apps/electron/src/renderer/components/agent/AgentView.tsx`
+- `apps/app/src/renderer/components/agent/AgentView.tsx`
 
 问题：
 

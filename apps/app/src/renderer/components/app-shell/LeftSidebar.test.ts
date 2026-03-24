@@ -19,7 +19,7 @@ function createSession(id: string, workspaceId: string): AgentSessionMeta {
 }
 
 describe('LeftSidebar workspace initialization', () => {
-  test('prefers the restored active session workspace over a stale persisted workspace id', async () => {
+  test('prefers the persisted workspace id over the restored active session workspace', async () => {
     const sidebarModule = await import('./LeftSidebar') as Record<string, unknown>
 
     expect(typeof sidebarModule.resolveInitialWorkspaceSelection).toBe('function')
@@ -42,7 +42,7 @@ describe('LeftSidebar workspace initialization', () => {
       ],
       'workspace-hello',
       'session-1',
-    )).toBe('workspace-1')
+    )).toBe('workspace-hello')
   })
 
   test('prefers the persisted workspace id when it still exists in the loaded list', () => {

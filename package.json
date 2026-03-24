@@ -10,9 +10,9 @@
     "apps/*"
   ],
   "scripts": {
-    "dev": "bun run --filter='@proma/electron' dev",
-    "build": "bun run --filter='@proma/electron' build",
-    "start": "bun run --filter='@proma/electron' start",
+    "dev": "bun run --filter='@proma/app' dev",
+    "build": "bun run --filter='@proma/app' build",
+    "start": "bun run --filter='@proma/app' start",
     "typecheck": "bun run --filter='*' typecheck",
     "test": "bun test"
   },

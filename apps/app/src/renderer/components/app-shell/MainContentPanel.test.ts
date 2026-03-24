@@ -13,7 +13,7 @@ describe('MainContentPanel session resolution', () => {
 })
 
 describe('MainContentPanel selection sync', () => {
-  test('returns the active tab selection when the workspace id is stale even if the session id already matches', () => {
+  test('does not overwrite the selected workspace when only the active tab workspace differs', () => {
     expect(resolveSelectionSyncFromActiveTab(
       {
         sessionId: 'session-1',
@@ -33,9 +33,32 @@ describe('MainContentPanel selection sync', () => {
           workspaceId: 'workspace-1',
         },
       ],
+    )).toBeNull()
+  })
+
+  test('updates only the active session id when the active tab changes across workspaces', () => {
+    expect(resolveSelectionSyncFromActiveTab(
+      {
+        sessionId: 'session-1',
+        workspaceId: 'workspace-selected',
+      },
+      [
+        {
+          id: 'tab-2',
+          sessionId: 'session-2',
+          title: 'Session 2',
+        },
+      ],
+      'tab-2',
+      [
+        {
+          id: 'session-2',
+          workspaceId: 'workspace-2',
+        },
+      ],
     )).toEqual({
-      sessionId: 'session-1',
-      workspaceId: 'workspace-1',
+      sessionId: 'session-2',
+      workspaceId: 'workspace-selected',
     })
   })
 

@@ -360,7 +360,7 @@ export function getDefaultSkillsDir(): string {
  * 解析当前运行时可用的默认 Skills 源目录。
  *
  * 当前 Bun 本地 Web 应用直接运行 `src/main/index.ts`，所以默认从
- * `apps/electron/default-skills` 读取。若未来运行布局变化（例如外部打包
+ * `apps/app/default-skills` 读取。若未来运行布局变化（例如外部打包
  * 或测试注入），可通过 PROMA_DEFAULT_SKILLS_DIR 显式覆盖该来源目录。
  */
 function resolveBundledDefaultSkillsDir(): string {
