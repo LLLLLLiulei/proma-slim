@@ -1,8 +1,8 @@
 import * as React from 'react'
-import { useAtom, useAtomValue, useSetAtom } from 'jotai'
+import { useAtom, useAtomValue } from 'jotai'
 import { MessageSquareText, Sparkles, X } from 'lucide-react'
 import { agentSessionsAtom, currentAgentSessionIdAtom, currentAgentWorkspaceIdAtom } from '@/atoms/agent-atoms'
-import { activeSessionTabIdAtom, closeSessionTab, reconcileSessionTabs, resolveSessionSelection, sessionTabsAtom } from '@/atoms/session-tabs'
+import { activeSessionTabIdAtom, closeSessionTab, reconcileSessionTabs, resolveSessionSelection, sessionTabsAtom, type SessionTab } from '@/atoms/session-tabs'
 import { AgentView } from '@/components/agent'
 import { cn } from '@/lib/utils'
 
@@ -12,6 +12,25 @@ export function resolveRenderableSessionId(
 ): string | null {
   if (!activeTabSessionId) return null
   return sessions.some((session) => session.id === activeTabSessionId) ? activeTabSessionId : null
+}
+
+export function resolveSelectionSyncFromActiveTab(
+  currentSelection: { sessionId: string | null; workspaceId: string | null },
+  tabs: SessionTab[],
+  activeTabId: string | null,
+  sessions: Array<{ id: string; workspaceId?: string }>,
+): { sessionId: string | null; workspaceId: string | null } | null {
+  const nextSelection = resolveSessionSelection(tabs, activeTabId, sessions)
+  if (!nextSelection.sessionId) return null
+
+  if (
+    nextSelection.sessionId === currentSelection.sessionId
+    && nextSelection.workspaceId === currentSelection.workspaceId
+  ) {
+    return null
+  }
+
+  return nextSelection
 }
 
 function EmptyState(): React.ReactElement {
@@ -97,10 +116,10 @@ function SessionTabStrip({
 
 export function MainContentPanel(): React.ReactElement {
   const [currentSessionId, setCurrentSessionId] = useAtom(currentAgentSessionIdAtom)
+  const [currentWorkspaceId, setCurrentWorkspaceId] = useAtom(currentAgentWorkspaceIdAtom)
   const sessions = useAtomValue(agentSessionsAtom)
   const [sessionTabs, setSessionTabs] = useAtom(sessionTabsAtom)
   const [activeSessionTabId, setActiveSessionTabId] = useAtom(activeSessionTabIdAtom)
-  const setCurrentWorkspaceId = useSetAtom(currentAgentWorkspaceIdAtom)
   const activeSessionTab = sessionTabs.find((item) => item.id === activeSessionTabId) ?? null
   const activeTabSessionId = activeSessionTab?.sessionId ?? null
   const renderSessionId = resolveRenderableSessionId(activeTabSessionId, sessions)
@@ -108,9 +127,7 @@ export function MainContentPanel(): React.ReactElement {
   const syncSelectionFromTabs = React.useCallback((nextTabs: typeof sessionTabs, nextActiveTabId: string | null): void => {
     const nextSelection = resolveSessionSelection(nextTabs, nextActiveTabId, sessions)
     setCurrentSessionId(nextSelection.sessionId)
-    if (nextSelection.workspaceId) {
-      setCurrentWorkspaceId(nextSelection.workspaceId)
-    }
+    setCurrentWorkspaceId(nextSelection.workspaceId)
   }, [sessions, setCurrentSessionId, setCurrentWorkspaceId])
 
   React.useEffect(() => {
@@ -125,10 +142,29 @@ export function MainContentPanel(): React.ReactElement {
   }, [activeSessionTabId, sessionTabs, sessions, setActiveSessionTabId, setSessionTabs, syncSelectionFromTabs])
 
   React.useEffect(() => {
-    if (!activeTabSessionId) return
-    if (currentSessionId === activeTabSessionId) return
-    setCurrentSessionId(activeTabSessionId)
-  }, [activeTabSessionId, currentSessionId, setCurrentSessionId])
+    const nextSelection = resolveSelectionSyncFromActiveTab(
+      {
+        sessionId: currentSessionId,
+        workspaceId: currentWorkspaceId,
+      },
+      sessionTabs,
+      activeSessionTabId,
+      sessions,
+    )
+
+    if (!nextSelection) return
+
+    setCurrentSessionId(nextSelection.sessionId)
+    setCurrentWorkspaceId(nextSelection.workspaceId)
+  }, [
+    activeSessionTabId,
+    currentSessionId,
+    currentWorkspaceId,
+    sessionTabs,
+    sessions,
+    setCurrentSessionId,
+    setCurrentWorkspaceId,
+  ])
 
   const handleCloseSessionTab = React.useCallback((tabId: string): void => {
     const next = closeSessionTab(sessionTabs, activeSessionTabId, tabId)
