@@ -18,9 +18,9 @@ export function resolveSelectionSyncFromActiveTab(
   currentSelection: { sessionId: string | null; workspaceId: string | null },
   tabs: SessionTab[],
   activeTabId: string | null,
-  sessions: Array<{ id: string; workspaceId?: string }>,
+  _sessions: Array<{ id: string; workspaceId?: string }>,
 ): { sessionId: string | null; workspaceId: string | null } | null {
-  const nextSelection = resolveSessionSelection(tabs, activeTabId, sessions)
+  const nextSelection = resolveSessionSelection(tabs, activeTabId)
   if (!nextSelection.sessionId) {
     return currentSelection.sessionId === null
       ? null
@@ -129,7 +129,7 @@ export function MainContentPanel(): React.ReactElement {
   const renderSessionId = resolveRenderableSessionId(activeTabSessionId, sessions)
 
   const syncSelectionFromTabs = React.useCallback((nextTabs: typeof sessionTabs, nextActiveTabId: string | null): void => {
-    const nextSelection = resolveSessionSelection(nextTabs, nextActiveTabId, sessions)
+    const nextSelection = resolveSessionSelection(nextTabs, nextActiveTabId)
     setCurrentSessionId(nextSelection.sessionId)
   }, [sessions, setCurrentSessionId])
 

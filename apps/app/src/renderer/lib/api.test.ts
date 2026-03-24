@@ -17,6 +17,45 @@ afterEach(() => {
 })
 
 describe('renderer api wrappers', () => {
+  test('getSettings requests /api/settings and parses persisted workspace settings', async () => {
+    const fetchMock = mock(async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe('/api/settings')
+      return jsonResponse({
+        themeMode: 'light',
+        agentWorkspaceId: 'workspace-1',
+        notificationsEnabled: true,
+      })
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const { api } = await import('./api')
+    const settings = await api.getSettings()
+
+    expect(settings.agentWorkspaceId).toBe('workspace-1')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  test('updateSettings PATCHes /api/settings with agentWorkspaceId updates', async () => {
+    const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe('/api/settings')
+      expect(init?.method).toBe('PATCH')
+      expect(new Headers(init?.headers).get('content-type')).toBe('application/json')
+      expect(JSON.parse(String(init?.body))).toEqual({ agentWorkspaceId: 'workspace-2' })
+      return jsonResponse({
+        themeMode: 'light',
+        agentWorkspaceId: 'workspace-2',
+        notificationsEnabled: true,
+      })
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const { api } = await import('./api')
+    const settings = await api.updateSettings({ agentWorkspaceId: 'workspace-2' })
+
+    expect(settings.agentWorkspaceId).toBe('workspace-2')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
   test('getStatus requests /api/status and parses the JSON payload', async () => {
     const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
       expect(String(input)).toBe('/api/status')

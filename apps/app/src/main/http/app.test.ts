@@ -55,6 +55,25 @@ describe('createHttpApp', () => {
     expect(await patchResponse.json()).toEqual(updateSettings({ themeMode: 'light' }))
   })
 
+  test('settings routes persist agentWorkspaceId for browser-independent workspace restore', async () => {
+    const app = createApp()
+
+    const patchResponse = await app.fetch(new Request('http://localhost/api/settings', {
+      method: 'PATCH',
+      body: JSON.stringify({ agentWorkspaceId: 'workspace-restore-target' }),
+      headers: {
+        'content-type': 'application/json',
+      },
+    }))
+
+    expect(patchResponse.status).toBe(200)
+    expect(await patchResponse.json()).toEqual(updateSettings({ agentWorkspaceId: 'workspace-restore-target' }))
+
+    const getResponse = await app.fetch(new Request('http://localhost/api/settings'))
+    expect(getResponse.status).toBe(200)
+    expect(await getResponse.json()).toEqual(getSettings())
+  })
+
   test('user profile routes preserve existing GET and PATCH behavior', async () => {
     const app = createApp()
 

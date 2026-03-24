@@ -45,10 +45,12 @@ import {
   WorkspaceSidebarSection,
 } from './WorkspaceSidebarSection'
 import type { AgentSessionMeta, AgentWorkspace } from '@proma/shared'
+import type { AppSettings } from '../../../types'
 
 type DateGroupLabel = '今天' | '昨天' | '更早'
 
 const PIN_OVERRIDES_STORAGE_KEY = 'proma-ui-pin-overrides'
+const LEGACY_WORKSPACE_STORAGE_KEY = 'proma-current-agent-workspace-id'
 
 function readPinOverrides(): Record<string, boolean> {
   if (typeof window === 'undefined') return {}
@@ -60,6 +62,20 @@ function readPinOverrides(): Record<string, boolean> {
     return typeof parsed === 'object' && parsed ? parsed : {}
   } catch {
     return {}
+  }
+}
+
+function readLegacyWorkspaceSelection(): string | null {
+  if (typeof window === 'undefined') return null
+
+  const raw = window.localStorage.getItem(LEGACY_WORKSPACE_STORAGE_KEY)
+  if (!raw) return null
+
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    return typeof parsed === 'string' && parsed ? parsed : null
+  } catch {
+    return raw.trim() || null
   }
 }
 
@@ -110,7 +126,7 @@ export function resolveInitialWorkspaceId(
 }
 
 export function resolveInitialWorkspaceSelection(
-  workspaces: Array<Pick<AgentWorkspace, 'id'>>,
+  workspaces: Array<Pick<AgentWorkspace, 'id' | 'slug'>>,
   sessions: Array<Pick<AgentSessionMeta, 'id' | 'workspaceId'>>,
   preferredWorkspaceId: string | null,
   currentSessionId: string | null,
@@ -123,6 +139,10 @@ export function resolveInitialWorkspaceSelection(
     return preferredWorkspaceId
   }
 
+  if (preferredWorkspaceId) {
+    return resolveWorkspaceSelectionFallback(workspaces)
+  }
+
   const sessionWorkspaceId = currentSessionId
     ? sessions.find((session) => session.id === currentSessionId)?.workspaceId ?? null
     : null
@@ -131,7 +151,52 @@ export function resolveInitialWorkspaceSelection(
     return sessionWorkspaceId
   }
 
-  return resolveInitialWorkspaceId(workspaces, preferredWorkspaceId)
+  return resolveWorkspaceSelectionFallback(workspaces)
+}
+
+export function resolveRestoredWorkspaceSelection(
+  workspaces: Array<Pick<AgentWorkspace, 'id' | 'slug'>>,
+  sessions: Array<Pick<AgentSessionMeta, 'id' | 'workspaceId'>>,
+  persistedWorkspaceId: string | undefined,
+  legacyWorkspaceId: string | null,
+  currentSessionId: string | null,
+): { workspaceId: string | null; shouldPersist: boolean } {
+  if (workspaces.length === 0) {
+    return { workspaceId: null, shouldPersist: false }
+  }
+
+  const hasWorkspace = (workspaceId: string | null | undefined): workspaceId is string =>
+    typeof workspaceId === 'string' && workspaces.some((workspace) => workspace.id === workspaceId)
+
+  if (hasWorkspace(persistedWorkspaceId)) {
+    return { workspaceId: persistedWorkspaceId, shouldPersist: false }
+  }
+
+  if (typeof persistedWorkspaceId === 'string') {
+    const fallbackWorkspaceId = resolveWorkspaceSelectionFallback(workspaces)
+    return {
+      workspaceId: fallbackWorkspaceId,
+      shouldPersist: fallbackWorkspaceId !== null,
+    }
+  }
+
+  if (hasWorkspace(legacyWorkspaceId)) {
+    return { workspaceId: legacyWorkspaceId, shouldPersist: true }
+  }
+
+  const sessionWorkspaceId = currentSessionId
+    ? sessions.find((session) => session.id === currentSessionId)?.workspaceId ?? null
+    : null
+
+  if (hasWorkspace(sessionWorkspaceId)) {
+    return { workspaceId: sessionWorkspaceId, shouldPersist: true }
+  }
+
+  const fallbackWorkspaceId = resolveWorkspaceSelectionFallback(workspaces)
+  return {
+    workspaceId: fallbackWorkspaceId,
+    shouldPersist: fallbackWorkspaceId !== null,
+  }
 }
 
 export function getVisibleSessionsForWorkspace(
@@ -323,14 +388,14 @@ export function LeftSidebar(): React.ReactElement {
   const applyTabSelection = React.useCallback((
     nextTabs: SessionTab[],
     nextActiveTabId: string | null,
-    nextSessions: AgentSessionMeta[],
+    _nextSessions: AgentSessionMeta[],
   ): void => {
     setSessionTabs(nextTabs)
     setActiveSessionTabId(nextActiveTabId)
 
-    const nextSelection = resolveSessionSelection(nextTabs, nextActiveTabId, nextSessions)
+    const nextSelection = resolveSessionSelection(nextTabs, nextActiveTabId)
     setCurrentSessionId(nextSelection.sessionId)
-  }, [setActiveSessionTabId, setCurrentSessionId, setCurrentWorkspaceId, setSessionTabs])
+  }, [setActiveSessionTabId, setCurrentSessionId, setSessionTabs])
 
   const activateSession = React.useCallback((session: AgentSessionMeta): void => {
     const nextSessions = sessions.some((item) => item.id === session.id)
@@ -343,22 +408,37 @@ export function LeftSidebar(): React.ReactElement {
   React.useEffect(() => {
     let cancelled = false
 
-    void Promise.all([api.listSessions(), api.listWorkspaces()]).then(([nextSessions, nextWorkspaces]) => {
+    void Promise.all([
+      api.listSessions(),
+      api.listWorkspaces(),
+      api.getSettings().catch((error): Pick<AppSettings, 'agentWorkspaceId'> => {
+        console.error('[LeftSidebar] 加载设置失败，将使用迁移/回退逻辑:', error)
+        return { agentWorkspaceId: undefined }
+      }),
+    ]).then(([nextSessions, nextWorkspaces, settings]) => {
       if (cancelled) return
 
       setSessions(nextSessions)
       setWorkspaces(nextWorkspaces)
 
       const initialized = initializeSessionTabs(currentSessionId, nextSessions, sessionTabs, activeSessionTabId)
-      setCurrentWorkspaceId(resolveInitialWorkspaceSelection(
+      const restoredWorkspace = resolveRestoredWorkspaceSelection(
         nextWorkspaces,
         nextSessions,
-        currentWorkspaceIdRef.current,
+        settings.agentWorkspaceId,
+        readLegacyWorkspaceSelection(),
         initialized.currentSessionId,
-      ))
+      )
+      setCurrentWorkspaceId(restoredWorkspace.workspaceId)
       setCurrentSessionId(initialized.currentSessionId)
       setSessionTabs(initialized.tabs)
       setActiveSessionTabId(initialized.activeTabId)
+
+      if (restoredWorkspace.shouldPersist && restoredWorkspace.workspaceId) {
+        void api.updateSettings({ agentWorkspaceId: restoredWorkspace.workspaceId }).catch((error) => {
+          console.error('[LeftSidebar] 持久化恢复后的当前工作区失败:', error)
+        })
+      }
     }).catch((error) => {
       console.error('[LeftSidebar] 加载会话失败:', error)
       toast.error(error instanceof Error ? error.message : '加载工作区或会话失败')
@@ -459,7 +539,13 @@ export function LeftSidebar(): React.ReactElement {
     try {
       const workspace = await api.createWorkspace(trimmedName)
       setWorkspaces((prev) => [workspace, ...prev])
+      const previousWorkspaceId = currentWorkspaceIdRef.current
       setCurrentWorkspaceId(workspace.id)
+      void api.updateSettings({ agentWorkspaceId: workspace.id }).catch((error) => {
+        console.error('[LeftSidebar] 持久化新工作区选择失败:', error)
+        setCurrentWorkspaceId(previousWorkspaceId)
+        toast.error(error instanceof Error ? error.message : '保存当前工作区失败')
+      })
       setEditingWorkspaceId(null)
       setEditingWorkspaceName('')
       setIsCreatingWorkspace(false)
@@ -537,7 +623,14 @@ export function LeftSidebar(): React.ReactElement {
       setWorkspaces(nextWorkspaces)
 
       if (currentWorkspaceId === pendingWorkspaceDeleteId || !nextWorkspaces.some((workspace) => workspace.id === currentWorkspaceId)) {
-        setCurrentWorkspaceId(resolveWorkspaceSelectionFallback(nextWorkspaces))
+        const fallbackWorkspaceId = resolveWorkspaceSelectionFallback(nextWorkspaces)
+        setCurrentWorkspaceId(fallbackWorkspaceId)
+        if (fallbackWorkspaceId) {
+          void api.updateSettings({ agentWorkspaceId: fallbackWorkspaceId }).catch((error) => {
+            console.error('[LeftSidebar] 持久化删除后的当前工作区失败:', error)
+            toast.error(error instanceof Error ? error.message : '保存当前工作区失败')
+          })
+        }
       }
     } catch (error) {
       console.error('[LeftSidebar] 删除工作区失败:', error)
@@ -639,7 +732,15 @@ export function LeftSidebar(): React.ReactElement {
           editingWorkspaceName={editingWorkspaceName}
           workspaceInputRef={workspaceInputRef}
           workspaceEditInputRef={workspaceEditInputRef}
-          onSelectWorkspace={(workspace) => setCurrentWorkspaceId(workspace.id)}
+          onSelectWorkspace={(workspace) => {
+            const previousWorkspaceId = currentWorkspaceIdRef.current
+            setCurrentWorkspaceId(workspace.id)
+            void api.updateSettings({ agentWorkspaceId: workspace.id }).catch((error) => {
+              console.error('[LeftSidebar] 持久化当前工作区失败:', error)
+              setCurrentWorkspaceId(previousWorkspaceId)
+              toast.error(error instanceof Error ? error.message : '保存当前工作区失败')
+            })
+          }}
           onStartCreateWorkspace={startCreateWorkspace}
           onChangeNewWorkspaceName={setNewWorkspaceName}
           onSubmitCreateWorkspace={() => { void handleCreateWorkspace() }}

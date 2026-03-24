@@ -126,24 +126,19 @@ describe('session tab state', () => {
     })
   })
 
-  test('resolves the active tab back to its session and workspace', () => {
+  test('resolves the active tab back to its session without reintroducing workspace coupling', () => {
     expect(resolveSessionSelection(
       [
         { id: 'tab-a', sessionId: 's1', title: '工作区 A' },
         { id: 'tab-b', sessionId: 's2', title: '工作区 B' },
       ],
       'tab-b',
-      [
-        { id: 's1', workspaceId: 'workspace-a' },
-        { id: 's2', workspaceId: 'workspace-b' },
-      ],
     )).toEqual({
       sessionId: 's2',
-      workspaceId: 'workspace-b',
     })
   })
 
-  test('resolves the fallback workspace after closing the active tab', () => {
+  test('resolves the fallback session after closing the active tab without returning workspace state', () => {
     const closed = closeSessionTab(
       [
         { id: 'tab-a', sessionId: 's1', title: '工作区 A' },
@@ -156,13 +151,8 @@ describe('session tab state', () => {
     expect(resolveSessionSelection(
       closed.tabs,
       closed.activeTabId,
-      [
-        { id: 's1', workspaceId: 'workspace-a' },
-        { id: 's2', workspaceId: 'workspace-b' },
-      ],
     )).toEqual({
       sessionId: 's2',
-      workspaceId: 'workspace-b',
     })
   })
 })

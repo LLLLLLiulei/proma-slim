@@ -208,7 +208,7 @@ export function isActivityGroup(item: ActivityGroup | ToolActivity): item is Act
 export const agentSessionsAtom = atom<AgentSessionMeta[]>([])
 export const agentWorkspacesAtom = atom<AgentWorkspace[]>([])
 export const currentAgentSessionIdAtom = atomWithStorage<string | null>('proma-current-agent-session-id', null)
-export const currentAgentWorkspaceIdAtom = atomWithStorage<string | null>('proma-current-agent-workspace-id', null)
+export const currentAgentWorkspaceIdAtom = atom<string | null>(null)
 export const agentStreamingStatesAtom = atom<Map<string, AgentStreamState>>(new Map())
 export const workspaceDirectoryContextMapAtom = atom<Map<string, WorkspaceDirectoryContext>>(new Map())
 

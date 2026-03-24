@@ -45,6 +45,91 @@ describe('LeftSidebar workspace initialization', () => {
     )).toBe('workspace-hello')
   })
 
+  test('falls back to the default workspace when the persisted id is invalid instead of reusing the active session workspace', async () => {
+    const sidebarModule = await import('./LeftSidebar') as Record<string, unknown>
+
+    expect(typeof sidebarModule.resolveInitialWorkspaceSelection).toBe('function')
+
+    const resolveInitialWorkspaceSelection = sidebarModule.resolveInitialWorkspaceSelection as (
+      workspaces: Array<{ id: string; slug?: string }>,
+      sessions: Array<{ id: string; workspaceId?: string }>,
+      preferredWorkspaceId: string | null,
+      currentSessionId: string | null,
+    ) => string | null
+
+    expect(resolveInitialWorkspaceSelection(
+      [
+        { id: 'workspace-docs', slug: 'docs' },
+        { id: 'workspace-default', slug: 'default' },
+      ],
+      [
+        { id: 'session-docs', workspaceId: 'workspace-docs' },
+      ],
+      'workspace-missing',
+      'session-docs',
+    )).toBe('workspace-default')
+  })
+
+  test('migrates from legacy local workspace state when settings-backed selection is missing', async () => {
+    const sidebarModule = await import('./LeftSidebar') as Record<string, unknown>
+
+    expect(typeof sidebarModule.resolveRestoredWorkspaceSelection).toBe('function')
+
+    const resolveRestoredWorkspaceSelection = sidebarModule.resolveRestoredWorkspaceSelection as (
+      workspaces: Array<{ id: string; slug?: string }>,
+      sessions: Array<{ id: string; workspaceId?: string }>,
+      persistedWorkspaceId: string | undefined,
+      legacyWorkspaceId: string | null,
+      currentSessionId: string | null,
+    ) => { workspaceId: string | null; shouldPersist: boolean }
+
+    expect(resolveRestoredWorkspaceSelection(
+      [
+        { id: 'workspace-docs', slug: 'docs' },
+        { id: 'workspace-default', slug: 'default' },
+      ],
+      [
+        { id: 'session-docs', workspaceId: 'workspace-docs' },
+      ],
+      undefined,
+      'workspace-docs',
+      'session-docs',
+    )).toEqual({
+      workspaceId: 'workspace-docs',
+      shouldPersist: true,
+    })
+  })
+
+  test('uses the restored current session only for one-time migration when settings-backed selection is missing', async () => {
+    const sidebarModule = await import('./LeftSidebar') as Record<string, unknown>
+
+    expect(typeof sidebarModule.resolveRestoredWorkspaceSelection).toBe('function')
+
+    const resolveRestoredWorkspaceSelection = sidebarModule.resolveRestoredWorkspaceSelection as (
+      workspaces: Array<{ id: string; slug?: string }>,
+      sessions: Array<{ id: string; workspaceId?: string }>,
+      persistedWorkspaceId: string | undefined,
+      legacyWorkspaceId: string | null,
+      currentSessionId: string | null,
+    ) => { workspaceId: string | null; shouldPersist: boolean }
+
+    expect(resolveRestoredWorkspaceSelection(
+      [
+        { id: 'workspace-docs', slug: 'docs' },
+        { id: 'workspace-default', slug: 'default' },
+      ],
+      [
+        { id: 'session-docs', workspaceId: 'workspace-docs' },
+      ],
+      undefined,
+      null,
+      'session-docs',
+    )).toEqual({
+      workspaceId: 'workspace-docs',
+      shouldPersist: true,
+    })
+  })
+
   test('prefers the persisted workspace id when it still exists in the loaded list', () => {
     expect(resolveInitialWorkspaceId(
       [

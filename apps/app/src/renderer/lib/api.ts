@@ -10,7 +10,7 @@ import type {
   WorkspaceCapabilities,
   WorkspaceDirectoryContext,
 } from '@proma/shared'
-import type { UserProfile } from '../../types'
+import type { AppSettings, UserProfile } from '../../types'
 
 export interface AppStatus {
   ok: boolean
@@ -89,6 +89,17 @@ async function requestStream(url: string, options: RequestOptions = {}): Promise
 export const api = {
   getStatus(): Promise<AppStatus> {
     return request<AppStatus>('/api/status')
+  },
+
+  getSettings(): Promise<AppSettings> {
+    return request<AppSettings>('/api/settings')
+  },
+
+  updateSettings(updates: Partial<AppSettings>): Promise<AppSettings> {
+    return request<AppSettings>('/api/settings', {
+      method: 'PATCH',
+      body: updates,
+    })
   },
 
   getUserProfile(): Promise<UserProfile> {
