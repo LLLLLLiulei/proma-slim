@@ -12,6 +12,16 @@ import { Button } from '@/components/ui/button'
 import { api } from '@/lib/api'
 import { clearBootstrapPayload, readBootstrapPayload } from '@page-builder/lib/bootstrap-cache'
 import { resolveBuilderContext } from '@page-builder/lib/builder-context'
+import {
+  BUILDER_SPLIT_GAP,
+  BUILDER_SPLIT_RAIL_WIDTH,
+  DEFAULT_BUILDER_SPLIT_RATIO,
+  clampBuilderSplitRatio,
+  deriveBuilderSplitRatioFromPointer,
+  readStoredBuilderSplitRatio,
+  resolveBuilderDesktopTrackWidths,
+  writeStoredBuilderSplitRatio,
+} from '@page-builder/lib/desktop-split'
 import { PreviewPane } from '@page-builder/components/builder/PreviewPane'
 import { ProjectTitleBar } from '@page-builder/components/builder/ProjectTitleBar'
 
@@ -27,11 +37,37 @@ export function BuilderPage({
   workspaceId: string
   sessionId: string
 }): React.ReactElement {
+  const desktopGridRef = React.useRef<HTMLDivElement>(null)
   const setSessions = useSetAtom(agentSessionsAtom)
   const setWorkspaces = useSetAtom(agentWorkspacesAtom)
   const setCurrentSessionId = useSetAtom(currentAgentSessionIdAtom)
   const setCurrentWorkspaceId = useSetAtom(currentAgentWorkspaceIdAtom)
   const [loadState, setLoadState] = React.useState<LoadState>({ status: 'loading' })
+  const [desktopGridWidth, setDesktopGridWidth] = React.useState(0)
+  const [desktopSplitRatio, setDesktopSplitRatio] = React.useState(() => {
+    if (typeof window === 'undefined') return DEFAULT_BUILDER_SPLIT_RATIO
+    return readStoredBuilderSplitRatio(window.localStorage) ?? DEFAULT_BUILDER_SPLIT_RATIO
+  })
+  const [isDraggingSplit, setIsDraggingSplit] = React.useState(false)
+
+  const persistDesktopSplitRatio = React.useCallback((nextRatio: number) => {
+    const containerWidth = desktopGridRef.current?.getBoundingClientRect().width
+    const clamped = clampBuilderSplitRatio(nextRatio, containerWidth)
+
+    setDesktopSplitRatio(clamped)
+
+    if (typeof window !== 'undefined') {
+      writeStoredBuilderSplitRatio(window.localStorage, clamped)
+    }
+  }, [])
+
+  const updateDesktopSplitRatioFromPointer = React.useCallback((clientX: number) => {
+    const rect = desktopGridRef.current?.getBoundingClientRect()
+    if (!rect) return
+
+    const nextRatio = deriveBuilderSplitRatioFromPointer(clientX, rect)
+    persistDesktopSplitRatio(nextRatio)
+  }, [persistDesktopSplitRatio])
 
   const loadBuilderRuntime = React.useCallback(async (): Promise<void> => {
     setLoadState({ status: 'loading' })
@@ -88,6 +124,48 @@ export function BuilderPage({
     void loadBuilderRuntime()
   }, [loadBuilderRuntime])
 
+  React.useEffect(() => {
+    const element = desktopGridRef.current
+    if (!element) return
+
+    const updateWidth = () => {
+      setDesktopGridWidth(element.getBoundingClientRect().width)
+    }
+
+    updateWidth()
+
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(() => updateWidth())
+      observer.observe(element)
+      return () => observer.disconnect()
+    }
+
+    if (typeof window === 'undefined') return
+    window.addEventListener('resize', updateWidth)
+    return () => window.removeEventListener('resize', updateWidth)
+  }, [])
+
+  React.useEffect(() => {
+    if (!isDraggingSplit || typeof window === 'undefined') return
+
+    const handlePointerMove = (event: PointerEvent) => {
+      updateDesktopSplitRatioFromPointer(event.clientX)
+    }
+    const handlePointerUp = () => {
+      setIsDraggingSplit(false)
+    }
+
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', handlePointerUp)
+    window.addEventListener('pointercancel', handlePointerUp)
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', handlePointerUp)
+      window.removeEventListener('pointercancel', handlePointerUp)
+    }
+  }, [isDraggingSplit, updateDesktopSplitRatioFromPointer])
+
   const handleInitialUserMessageHandled = React.useCallback(() => {
     if (typeof window === 'undefined') return
     clearBootstrapPayload(window.sessionStorage, sessionId)
@@ -95,6 +173,37 @@ export function BuilderPage({
       ? { ...prev, initialUserMessage: null }
       : prev)
   }, [sessionId])
+
+  const handleSplitPointerDown = React.useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return
+    event.preventDefault()
+    updateDesktopSplitRatioFromPointer(event.clientX)
+    setIsDraggingSplit(true)
+  }, [updateDesktopSplitRatioFromPointer])
+
+  const handleSplitKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+    event.preventDefault()
+
+    const delta = event.key === 'ArrowLeft' ? -0.03 : 0.03
+    persistDesktopSplitRatio(desktopSplitRatio + delta)
+  }, [desktopSplitRatio, persistDesktopSplitRatio])
+
+  const desktopGridStyle = React.useMemo(() => ({
+    '--page-builder-preview-size': `${desktopSplitRatio}fr`,
+    '--page-builder-chat-size': `${1 - desktopSplitRatio}fr`,
+    '--page-builder-grid-gap': `${BUILDER_SPLIT_GAP}px`,
+    '--page-builder-split-rail-width': `${BUILDER_SPLIT_RAIL_WIDTH}px`,
+    ...(desktopGridWidth > 0
+      ? (() => {
+          const layout = resolveBuilderDesktopTrackWidths(desktopSplitRatio, desktopGridWidth)
+          return {
+            '--page-builder-preview-width': `${layout.previewWidth}px`,
+            '--page-builder-chat-width': `${layout.chatWidth}px`,
+          }
+        })()
+      : {}),
+  }) as React.CSSProperties, [desktopGridWidth, desktopSplitRatio])
 
   if (loadState.status === 'loading') {
     return (
@@ -126,8 +235,27 @@ export function BuilderPage({
 
   return (
     <div className="page-builder-workbench flex h-[100dvh] min-h-[100dvh] flex-col overflow-y-auto px-3 py-3 sm:px-4 sm:py-4 lg:overflow-hidden">
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 lg:h-full lg:grid-cols-[minmax(0,1.6fr)_minmax(360px,0.92fr)]">
+      <div
+        ref={desktopGridRef}
+        className="page-builder-builder-grid grid min-h-0 flex-1 grid-cols-1 gap-3 lg:h-full"
+        style={desktopGridStyle}
+      >
         <PreviewPane previewUrl={null} />
+
+        <div className="page-builder-split-rail hidden lg:flex" aria-hidden>
+          <div
+            aria-label="调整预览与对话宽度"
+            aria-orientation="vertical"
+            aria-valuemax={80}
+            aria-valuemin={28}
+            aria-valuenow={Math.round(desktopSplitRatio * 100)}
+            className={`page-builder-split-handle ${isDraggingSplit ? 'is-dragging' : ''}`}
+            onKeyDown={handleSplitKeyDown}
+            onPointerDown={handleSplitPointerDown}
+            role="separator"
+            tabIndex={0}
+          />
+        </div>
 
         <section className="page-builder-pane flex min-h-[560px] min-w-0 flex-col overflow-hidden rounded-2xl lg:h-full lg:min-h-0">
           <ProjectTitleBar workspaceId={workspaceId} />

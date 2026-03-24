@@ -10,6 +10,7 @@ import {
   currentAgentWorkspaceIdAtom,
 } from '@/atoms/agent-atoms'
 import { readBootstrapPayload, writeBootstrapPayload } from '@page-builder/lib/bootstrap-cache'
+import { DEFAULT_BUILDER_SPLIT_RATIO } from '@page-builder/lib/desktop-split'
 
 function createMemoryStorage(initial: Record<string, string> = {}): Storage {
   const state = new Map(Object.entries(initial))
@@ -36,17 +37,28 @@ function createMemoryStorage(initial: Record<string, string> = {}): Storage {
   }
 }
 
-function installWindowHarness(): Storage {
+function installWindowHarness(): { localStorage: Storage; sessionStorage: Storage } {
   const sessionStorage = createMemoryStorage()
+  const localStorage = createMemoryStorage()
+  const listeners = new Map<string, Set<(event?: unknown) => void>>()
 
   Object.defineProperty(globalThis, 'window', {
     configurable: true,
     value: {
+      addEventListener(type: string, listener: (event?: unknown) => void) {
+        const bucket = listeners.get(type) ?? new Set()
+        bucket.add(listener)
+        listeners.set(type, bucket)
+      },
+      removeEventListener(type: string, listener: (event?: unknown) => void) {
+        listeners.get(type)?.delete(listener)
+      },
+      localStorage,
       sessionStorage,
     },
   })
 
-  return sessionStorage
+  return { localStorage, sessionStorage }
 }
 
 async function loadBuilderPage(options: {
@@ -123,7 +135,7 @@ describe('BuilderPage', () => {
     )
     const grid = renderer.root.find((node) =>
       typeof node.props.className === 'string'
-      && node.props.className.includes('lg:grid-cols-[minmax(0,1.6fr)_minmax(360px,0.92fr)]')
+      && node.props.className.includes('page-builder-builder-grid')
     )
     const panes = renderer.root.findAll((node) =>
       node.type === 'section'
@@ -135,13 +147,72 @@ describe('BuilderPage', () => {
     expect(workbench.props.className).toContain('overflow-y-auto')
     expect(workbench.props.className).toContain('lg:overflow-hidden')
     expect(grid.props.className).toContain('lg:h-full')
+    expect(grid.props.style['--page-builder-preview-size']).toBe(`${DEFAULT_BUILDER_SPLIT_RATIO}fr`)
     expect(panes.length).toBe(2)
     expect(panes.every((pane) => pane.props.className.includes('lg:h-full'))).toBe(true)
     expect(panes.every((pane) => pane.props.className.includes('lg:min-h-0'))).toBe(true)
   })
 
+  test('renders a draggable separator and persists desktop width changes from keyboard nudges', async () => {
+    const { localStorage } = installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const { BuilderPage } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+    })
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+    })
+
+    const gridBefore = renderer.root.find((node) =>
+      typeof node.props.className === 'string'
+      && node.props.className.includes('page-builder-builder-grid')
+    )
+    const separator = renderer.root.find((node) =>
+      node.props['aria-label'] === '调整预览与对话宽度'
+    )
+    const initialPreviewSize = gridBefore.props.style['--page-builder-preview-size']
+
+    await act(async () => {
+      separator.props.onKeyDown({
+        key: 'ArrowLeft',
+        preventDefault() {},
+      })
+    })
+
+    const gridAfter = renderer.root.find((node) =>
+      typeof node.props.className === 'string'
+      && node.props.className.includes('page-builder-builder-grid')
+    )
+
+    expect(initialPreviewSize).toBe(`${DEFAULT_BUILDER_SPLIT_RATIO}fr`)
+    expect(gridAfter.props.style['--page-builder-preview-size']).not.toBe(initialPreviewSize)
+    expect(localStorage.length).toBeGreaterThan(0)
+  })
+
   test('hydrates the builder runtime and passes the bootstrap prompt into the embedded AgentView', async () => {
-    const sessionStorage = installWindowHarness()
+    const { sessionStorage } = installWindowHarness()
     const workspace: AgentWorkspace = {
       id: 'workspace-1',
       name: '未命名项目',
@@ -197,7 +268,7 @@ describe('BuilderPage', () => {
   })
 
   test('drops a stale bootstrap prompt when it belongs to another workspace', async () => {
-    const sessionStorage = installWindowHarness()
+    const { sessionStorage } = installWindowHarness()
     const workspace: AgentWorkspace = {
       id: 'workspace-1',
       name: '未命名项目',
