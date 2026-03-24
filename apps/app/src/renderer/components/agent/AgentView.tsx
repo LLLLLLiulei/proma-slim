@@ -114,9 +114,48 @@ function StatusNotice({ status }: { status: AppStatus }): React.ReactElement | n
   )
 }
 
-export function AgentView({ sessionId }: { sessionId: string }): React.ReactElement {
+export interface AgentViewProps {
+  sessionId: string
+  showHeader?: boolean
+  initialUserMessage?: string | null
+  onInitialUserMessageHandled?: () => void
+}
+
+export function resolveShouldRenderAgentHeader(showHeader = true): boolean {
+  return showHeader
+}
+
+export function resolveShouldAutoSendInitialMessage({
+  initialMessageLoaded,
+  initialUserMessage,
+  hasMessages,
+  alreadyTriggered,
+  streaming,
+}: {
+  initialMessageLoaded: boolean
+  initialUserMessage: string | null | undefined
+  hasMessages: boolean
+  alreadyTriggered: boolean
+  streaming: boolean
+}): boolean {
+  return Boolean(
+    initialMessageLoaded
+      && initialUserMessage?.trim()
+      && !hasMessages
+      && !alreadyTriggered
+      && !streaming,
+  )
+}
+
+export function AgentView({
+  sessionId,
+  showHeader = true,
+  initialUserMessage = null,
+  onInitialUserMessageHandled,
+}: AgentViewProps): React.ReactElement {
   const [messagesBySession, setMessagesBySession] = React.useState<Map<string, AgentMessage[]>>(() => new Map())
   const [status, setStatus] = React.useState<AppStatus | null>(null)
+  const [initialMessageLoaded, setInitialMessageLoaded] = React.useState(false)
   const streamingState = useAtomValue(agentStreamingStatesAtom).get(sessionId)
   const streamError = useAtomValue(agentStreamErrorsAtom).get(sessionId) ?? null
   const refreshVersion = useAtomValue(agentMessageRefreshAtom).get(sessionId) ?? 0
@@ -129,6 +168,7 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
   const workspaceDirectoryContextMap = useAtomValue(workspaceDirectoryContextMapAtom)
   const setDraftsMap = useSetAtom(agentSessionDraftsAtom)
   const { sendMessage, stopSession } = useGlobalAgentListeners()
+  const initialMessageTriggeredRef = React.useRef(false)
   const messages = React.useMemo(
     () => getMessagesForSession(messagesBySession, sessionId),
     [messagesBySession, sessionId],
@@ -186,6 +226,11 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
   }, [])
 
   React.useEffect(() => {
+    initialMessageTriggeredRef.current = false
+    setInitialMessageLoaded(false)
+  }, [sessionId])
+
+  React.useEffect(() => {
     let cancelled = false
 
     void syncSessionMessages(
@@ -197,6 +242,10 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
       }
     ).catch((error) => {
       console.error('[AgentView] 读取消息失败:', error)
+    }).finally(() => {
+      if (!cancelled) {
+        setInitialMessageLoaded(true)
+      }
     })
 
     return () => {
@@ -226,13 +275,14 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
     }
   }, [sessionWorkspaceId, setWorkspaceDirectoryContextMap])
 
-  const handleSend = React.useCallback(async (): Promise<void> => {
-    const userMessage = inputValue.trim()
-    if (!userMessage || streaming) return
+  const sendDraftMessage = React.useCallback(async (nextUserMessage: string): Promise<boolean> => {
+    const userMessage = nextUserMessage.trim()
+    if (!userMessage) return false
+    if (streaming) return false
 
     if (status && !status.ok) {
       toast.error('后端未就绪，当前无法发送消息')
-      return
+      return false
     }
 
     const optimisticMessage: AgentMessage = {
@@ -268,15 +318,16 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
         ...(mentionedSkills.length > 0 && { mentionedSkills }),
         ...(mentionedMcpServers.length > 0 && { mentionedMcpServers }),
       })
+      return true
     } catch (error) {
       console.error('[AgentView] 发送消息失败:', error)
       toast.error(error instanceof Error ? error.message : '发送消息失败')
       const nextMessages = await api.getSessionMessages(sessionId)
       setMessagesBySession((prev) => replaceMessagesForSession(prev, sessionId, nextMessages))
+      return false
     }
   }, [
     attachedDirectories,
-    inputValue,
     sendMessage,
     session,
     sessionId,
@@ -285,6 +336,43 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
     setSessions,
     setStreamErrors,
     status,
+    streaming,
+  ])
+
+  const handleSend = React.useCallback(async (): Promise<void> => {
+    await sendDraftMessage(inputValue)
+  }, [inputValue, sendDraftMessage])
+
+  React.useEffect(() => {
+    const shouldAutoSend = resolveShouldAutoSendInitialMessage({
+      initialMessageLoaded,
+      initialUserMessage,
+      hasMessages: messages.length > 0,
+      alreadyTriggered: initialMessageTriggeredRef.current,
+      streaming,
+    })
+
+    if (!shouldAutoSend) {
+      if (initialMessageLoaded && messages.length > 0 && initialUserMessage?.trim() && !initialMessageTriggeredRef.current) {
+        initialMessageTriggeredRef.current = true
+        onInitialUserMessageHandled?.()
+      }
+      return
+    }
+
+    initialMessageTriggeredRef.current = true
+
+    void sendDraftMessage(initialUserMessage!).then((didSend) => {
+      if (didSend) {
+        onInitialUserMessageHandled?.()
+      }
+    })
+  }, [
+    initialMessageLoaded,
+    initialUserMessage,
+    messages.length,
+    onInitialUserMessageHandled,
+    sendDraftMessage,
     streaming,
   ])
 
@@ -299,7 +387,7 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <AgentHeader sessionId={sessionId} />
+      {resolveShouldRenderAgentHeader(showHeader) && <AgentHeader sessionId={sessionId} />}
 
       <div className="min-h-0 flex-1 overflow-hidden">
         <AgentMessages

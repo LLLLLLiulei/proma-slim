@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>Context</title>
+            <style>
+/* From extension vscode.github */
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+.vscode-dark img[src$=\#gh-light-mode-only],
+.vscode-light img[src$=\#gh-dark-mode-only],
+.vscode-high-contrast:not(.vscode-high-contrast-light) img[src$=\#gh-light-mode-only],
+.vscode-high-contrast-light img[src$=\#gh-dark-mode-only] {
+	display: none;
+}
+
+</style>
+            
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Microsoft/vscode/extensions/markdown-language-features/media/markdown.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Microsoft/vscode/extensions/markdown-language-features/media/highlight.css">
+<style>
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe WPC', 'Segoe UI', system-ui, 'Ubuntu', 'Droid Sans', sans-serif;
+                font-size: 14px;
+                line-height: 1.6;
+            }
+        </style>
+        <style>
+.task-list-item {
+    list-style-type: none;
+}
+
+.task-list-item-checkbox {
+    margin-left: -20px;
+    vertical-align: middle;
+    pointer-events: none;
+}
+</style>
+<style>
+:root {
+  --color-note: #0969da;
+  --color-tip: #1a7f37;
+  --color-warning: #9a6700;
+  --color-severe: #bc4c00;
+  --color-caution: #d1242f;
+  --color-important: #8250df;
+}
+
+</style>
+<style>
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-note: #2f81f7;
+    --color-tip: #3fb950;
+    --color-warning: #d29922;
+    --color-severe: #db6d28;
+    --color-caution: #f85149;
+    --color-important: #a371f7;
+  }
+}
+
+</style>
+<style>
+.markdown-alert {
+  padding: 0.5rem 1rem;
+  margin-bottom: 16px;
+  color: inherit;
+  border-left: .25em solid #888;
+}
+
+.markdown-alert>:first-child {
+  margin-top: 0
+}
+
+.markdown-alert>:last-child {
+  margin-bottom: 0
+}
+
+.markdown-alert .markdown-alert-title {
+  display: flex;
+  font-weight: 500;
+  align-items: center;
+  line-height: 1
+}
+
+.markdown-alert .markdown-alert-title .octicon {
+  margin-right: 0.5rem;
+  display: inline-block;
+  overflow: visible !important;
+  vertical-align: text-bottom;
+  fill: currentColor;
+}
+
+.markdown-alert.markdown-alert-note {
+  border-left-color: var(--color-note);
+}
+
+.markdown-alert.markdown-alert-note .markdown-alert-title {
+  color: var(--color-note);
+}
+
+.markdown-alert.markdown-alert-important {
+  border-left-color: var(--color-important);
+}
+
+.markdown-alert.markdown-alert-important .markdown-alert-title {
+  color: var(--color-important);
+}
+
+.markdown-alert.markdown-alert-warning {
+  border-left-color: var(--color-warning);
+}
+
+.markdown-alert.markdown-alert-warning .markdown-alert-title {
+  color: var(--color-warning);
+}
+
+.markdown-alert.markdown-alert-tip {
+  border-left-color: var(--color-tip);
+}
+
+.markdown-alert.markdown-alert-tip .markdown-alert-title {
+  color: var(--color-tip);
+}
+
+.markdown-alert.markdown-alert-caution {
+  border-left-color: var(--color-caution);
+}
+
+.markdown-alert.markdown-alert-caution .markdown-alert-title {
+  color: var(--color-caution);
+}
+
+</style>
+        
+        </head>
+        <body class="vscode-body vscode-light">
+            <h2 id="context">Context</h2>
+<p>Proma 当前的核心前端应用是 <code>apps/app</code>，它已经具备稳定的工作区、会话、消息流、SSE、权限交互、富文本输入和消息渲染能力，但这些能力主要通过通用 Agent 工作台暴露。此次变更要新增 <code>apps/page-builder</code>，为“用自然语言生成网页”场景提供一个独立入口：首页承担项目启动，builder 页承担网页预览与对话式迭代。</p>
+<p>该变更不是要重建一套新的聊天和运行时系统，而是在 <code>apps/app</code> 已有能力之上增加一层更贴近产品场景的页面和初始化封装。用户已经确认 <code>apps/app</code> 主要服务于当前体系，后续不会有新的破坏性变动，因此设计上可以接受直接复用其内部前端模块，而不必先抽取成新的共享包。</p>
+<p>当前约束与现状：</p>
+<ul>
+<li>后端已有工作区与会话接口，可直接支持“首页创建项目并进入构建页”的链路。</li>
+<li><code>apps/app</code> 当前没有前端路由体系，也没有现成的多页面壳；<code>page-builder</code> 需要自行提供最小路由能力。</li>
+<li>builder 页右侧必须尽量直接复用现有对话框、消息列表和输入区，而不是重写聊天 UI。</li>
+<li>builder 页顶部语义是“项目名”，对应工作区名称，而不是现有会话标题。</li>
+<li>第一阶段只开发首页和 builder 页；左侧预览允许先用 iframe 容器和占位地址，不要求完成真实网页生成与预览回传协议。</li>
+</ul>
+<h2 id="goals--non-goals">Goals / Non-Goals</h2>
+<p><strong>Goals:</strong></p>
+<ul>
+<li>新增 <code>apps/page-builder</code> 应用，并提供首页与 builder 两个页面。</li>
+<li>让首页输入在提交后真实创建工作区与首个会话，并进入 builder 页。</li>
+<li>在 builder 页实现紧凑型双栏布局：左侧为精简预览 iframe 面板，右侧复用现有 Agent 对话体验。</li>
+<li>使用工作区名称作为项目名展示与编辑入口，保持产品语义正确。</li>
+<li>保证首页首条需求在进入 builder 后自动发送，且只发送一次，避免刷新或回退造成重复发送。</li>
+<li>在不修改现有后端协议的前提下完成页面级集成。</li>
+</ul>
+<p><strong>Non-Goals:</strong></p>
+<ul>
+<li>不新增新的 Agent runtime、消息存储模型或独立的 SSE 实现。</li>
+<li>不重做 <code>apps/app</code> 的侧边栏、标签页、多会话工作台布局。</li>
+<li>不在第一阶段实现真实的网页生成结果回传协议、预览地址编排或项目发布能力。</li>
+<li>不为了模块边界再额外抽取 <code>apps/app</code> 的现有对话能力到新的共享包。</li>
+<li>不引入重量级前端路由框架来支撑只有两个页面的新应用。</li>
+</ul>
+<h2 id="decisions">Decisions</h2>
+<h3 id="1-appspage-builder-直接复用-appsapp-内部模块而不是先做共享抽取">1. <code>apps/page-builder</code> 直接复用 <code>apps/app</code> 内部模块，而不是先做共享抽取</h3>
+<p><code>page-builder</code> 会直接使用 <code>apps/app</code> 现有的前端模块，包括 API、Agent 状态原子、SSE 发送能力、消息视图与输入区。这样可以最大化复用当前稳定的会话系统，避免重写聊天内核和消息流整合逻辑。</p>
+<p><strong>Rationale</strong></p>
+<ul>
+<li>用户明确要求直接基于现有功能做封装和二次开发。</li>
+<li><code>apps/app</code> 被视为稳定底座，可以接受内部模块级复用。</li>
+<li>先抽共享包会扩大变更范围，延长实现时间，且对当前目标没有直接收益。</li>
+</ul>
+<p><strong>Alternatives considered</strong></p>
+<ul>
+<li>先将对话能力抽取到 <code>packages/ui</code> 或新的 shared package：边界更干净，但需要先重构 <code>apps/app</code>，与当前“快速验证 page-builder”目标冲突。</li>
+<li>只复用底层输入框和消息原语，重新拼一套 builder 对话层：实现独立，但会重复处理会话、SSE、权限和流式状态。</li>
+</ul>
+<h3 id="2-新应用使用最小路由实现而不是引入路由框架">2. 新应用使用最小路由实现，而不是引入路由框架</h3>
+<p><code>page-builder</code> 只需要两个页面：<code>/</code> 和 <code>/builder/:workspaceId/:sessionId</code>。因此采用基于 <code>window.location.pathname</code>、<code>history.pushState</code> 和 <code>popstate</code> 的最小路由实现即可。</p>
+<p><strong>Rationale</strong></p>
+<ul>
+<li>页面数量少，路径结构简单。</li>
+<li>避免为单一启动流引入额外依赖和配置。</li>
+<li>更容易与当前 Vite 单页入口结构保持一致。</li>
+</ul>
+<p><strong>Alternatives considered</strong></p>
+<ul>
+<li>引入 <code>react-router</code> 一类路由库：功能更完整，但超出当前需求，增加学习和维护面。</li>
+<li>完全不使用 URL、只靠内存状态切页：实现最简单，但无法支持刷新后恢复 builder 上下文。</li>
+</ul>
+<h3 id="3-builder-页采用外层项目壳--内层-agentview的结构">3. Builder 页采用“外层项目壳 + 内层 AgentView”的结构</h3>
+<p>builder 页右侧不会自定义新的聊天面板，而是在外层渲染项目标题条，在内层继续挂载现有 <code>AgentView</code>。为适配这一场景，<code>AgentView</code> 需要增加最小可配置能力，例如允许隐藏自身 header，使 builder 自己接管顶部区域。</p>
+<p><strong>Rationale</strong></p>
+<ul>
+<li>现有 <code>AgentView</code> 已覆盖消息列表、输入、停止生成、权限交互、AskUser 和错误态。</li>
+<li>builder 页顶部的业务语义是项目名，不能直接复用现有会话标题栏。</li>
+<li>外层包一层比重写消息区风险更低。</li>
+</ul>
+<p><strong>Alternatives considered</strong></p>
+<ul>
+<li>直接使用原始 <code>AgentView</code> 不做调整：复用最彻底，但顶部会显示并编辑会话标题，不符合产品语义。</li>
+<li>只复用底层消息组件，重建整个右侧面板：灵活，但重复实现过多。</li>
+</ul>
+<h3 id="4-builder-页顶部使用工作区名称作为项目名">4. Builder 页顶部使用工作区名称作为“项目名”</h3>
+<p>builder 顶部的标题条展示并编辑工作区名称，初始名称固定为“未命名项目”。这条标题条是 <code>page-builder</code> 自己的项目级 UI，不依赖现有 <code>AgentHeader</code>。</p>
+<p><strong>Rationale</strong></p>
+<ul>
+<li>该产品场景中的核心实体是“项目”，而不是“某次对话”。</li>
+<li>现有后端已经将工作区与会话分离，工作区更适合作为项目容器。</li>
+<li>用户明确选择 builder 顶部显示项目名，而不是会话标题。</li>
+</ul>
+<p><strong>Alternatives considered</strong></p>
+<ul>
+<li>使用现有会话标题作为顶部标题：实现更快，但语义错误。</li>
+<li>同时展示项目名与会话标题：信息层级过重，不符合当前紧凑工作台目标。</li>
+</ul>
+<h3 id="5-首页启动流使用真实创建链路并在-builder-中执行一次性自动发送">5. 首页启动流使用真实创建链路，并在 builder 中执行一次性自动发送</h3>
+<p>首页提交后立即调用现有接口创建工作区和首个会话，再跳转到 builder。首页输入的需求不会在首页发送，而是在 builder 初始化完成后自动作为首条消息发送。为避免刷新或重复进入时重复触发，采用一次性 bootstrap 缓存机制：按 <code>sessionId</code> 暂存初始化 prompt，builder 首次发现当前会话无消息时自动发送，随后立刻清理。</p>
+<p><strong>Rationale</strong></p>
+<ul>
+<li>用户要求首页回车后进入真实构建流程，而不是只做页面壳。</li>
+<li>builder 才是实际会话上下文完整的页面，自动发送应在该上下文中执行。</li>
+<li>一次性缓存机制可以同时兼顾刷新恢复和幂等性。</li>
+</ul>
+<p><strong>Alternatives considered</strong></p>
+<ul>
+<li>首页直接发送再跳转：上下文切换复杂，失败时更难回收状态。</li>
+<li>进入 builder 后只预填草稿，不自动发送：不符合用户要求。</li>
+<li>只用内存变量传递 prompt：刷新后丢失上下文，无法安全防重。</li>
+</ul>
+<h3 id="6-左侧预览区第一阶段只做精简-iframe-面板">6. 左侧预览区第一阶段只做精简 iframe 面板</h3>
+<p>预览区只包含 iframe 容器以及“全屏”“新窗口打开”两个操作，不提供复杂的浏览器模拟器、设备切换或多控制条。第一阶段允许 iframe 为空白或使用固定占位地址。</p>
+<p><strong>Rationale</strong></p>
+<ul>
+<li>当前目标是先完成首页和 builder 页骨架，并打通对话式初始化流程。</li>
+<li>用户明确要求预览壳精简，不要重型浏览器模拟 UI。</li>
+<li>真实预览地址编排属于后续生成链路能力，不应阻塞当前页面开发。</li>
+</ul>
+<p><strong>Alternatives considered</strong></p>
+<ul>
+<li>做完整浏览器工具栏和设备切换：视觉更丰富，但超出阶段目标。</li>
+<li>不放 iframe，只做静态占位：无法验证后续预览容器的集成方式。</li>
+</ul>
+<h3 id="7-构建配置采用双别名--扩展样式扫描的方式兼容直接复用">7. 构建配置采用“双别名 + 扩展样式扫描”的方式兼容直接复用</h3>
+<p>由于 <code>apps/app</code> 内部模块大量使用 <code>@/</code> 指向其 renderer 根目录，<code>page-builder</code> 需要在 Vite 解析中将 <code>@</code> 指向 <code>apps/app/src/renderer</code>，同时为自身源码提供独立别名，例如 <code>@page-builder</code>。Tailwind 内容扫描也需要覆盖 <code>apps/app/src/renderer/**/*</code>，以保证复用组件的样式不丢失。</p>
+<p><strong>Rationale</strong></p>
+<ul>
+<li>这是在保留现有 import 体系前提下复用 <code>apps/app</code> 内部模块的最小代价方案。</li>
+<li>避免为了复用而批量改写 <code>apps/app</code> 现有 import。</li>
+<li>可以让 <code>page-builder</code> 自身代码与复用代码保持可区分的命名空间。</li>
+</ul>
+<p><strong>Alternatives considered</strong></p>
+<ul>
+<li>在 <code>page-builder</code> 中重新导出一层所有 <code>apps/app</code> 模块：仍然需要处理内部别名问题，收益有限。</li>
+<li>批量修改 <code>apps/app</code> 源码别名：改动面大，风险高。</li>
+</ul>
+<h2 id="risks--trade-offs">Risks / Trade-offs</h2>
+<ul>
+<li>[直接依赖 <code>apps/app</code> 内部模块增加耦合] → 接受该耦合作为本次设计前提，并尽量把新增改动限制为非破坏性的最小可配置能力。</li>
+<li>[builder 自动发送首条消息可能在刷新时重复触发] → 使用按 <code>sessionId</code> 存储的一次性 bootstrap 缓存，并在发送前检查当前会话是否已有消息。</li>
+<li>[首页创建工作区成功但创建会话失败会留下半完成项目] → 保留已创建的 <code>workspaceId</code>，重试时仅重试会话创建，不重复创建新工作区。</li>
+<li>[复用 <code>AgentView</code> 仍可能带入不适合 page-builder 的顶部或布局行为] → 通过最小参数化控制 header 等嵌入式行为，避免复制完整聊天实现。</li>
+<li>[样式来源分散导致新 app 调整密度时出现不一致] → 复用现有视觉语言，但将 page-builder 的页面框架与紧凑布局样式收敛在自身目录内管理。</li>
+<li>[左侧 iframe 缺少真实预览地址时用户感知不完整] → 明确第一阶段目标是页面与工作流骨架，预览容器先占位但保留真实嵌入结构。</li>
+</ul>
+<h2 id="migration-plan">Migration Plan</h2>
+<p>第一阶段不涉及后端数据模型迁移，也不修改现有工作区与会话存储格式。部署顺序以新增应用为主：</p>
+<ol>
+<li>新增 <code>apps/page-builder</code> 及其构建配置。</li>
+<li>在不破坏现有行为的前提下，为 <code>apps/app</code> 的相关对话组件增加 <code>page-builder</code> 嵌入所需的最小可配置能力。</li>
+<li>接入现有 HTTP API，完成首页创建项目与 builder 初始化链路。</li>
+<li>验证 <code>page-builder</code> 可以独立运行，并且不影响 <code>apps/app</code> 现有体验。</li>
+</ol>
+<p>如需回滚，可直接移除 <code>apps/page-builder</code> 的入口与脚本；对 <code>apps/app</code> 的改动应保持为向后兼容的小改动，以便回滚成本最小化。</p>
+<h2 id="open-questions">Open Questions</h2>
+<ul>
+<li>当前阶段没有阻塞实现的产品问题。</li>
+<li>左侧 iframe 在后续阶段如何接入真实生成结果地址，属于后续预览能力设计，不阻塞本次首页与 builder 页面开发。</li>
+</ul>
+
+            
+            
+        </body>
+        </html>

@@ -24,6 +24,10 @@ interface PermissionBannerProps {
   sessionId: string
 }
 
+function isMissingPermissionRequestError(error: unknown): boolean {
+  return error instanceof Error && error.message.includes('权限请求不存在:')
+}
+
 export function PermissionBanner({ sessionId }: PermissionBannerProps): React.ReactElement | null {
   const [allRequests, setAllRequests] = useAtom(allPendingPermissionRequestsAtom)
   const requests = allRequests.get(sessionId) ?? []
@@ -57,7 +61,21 @@ export function PermissionBanner({ sessionId }: PermissionBannerProps): React.Re
         return map
       })
     } catch (error) {
-      console.error('[PermissionBanner] 响应权限失败:', error)
+      if (isMissingPermissionRequestError(error)) {
+        setAllRequests((prev) => {
+          const map = new Map(prev)
+          const current = map.get(sessionId) ?? []
+          const next = current.filter((item) => item.requestId !== request.requestId)
+          if (next.length === 0) {
+            map.delete(sessionId)
+          } else {
+            map.set(sessionId, next)
+          }
+          return map
+        })
+      } else {
+        console.error('[PermissionBanner] 响应权限失败:', error)
+      }
     } finally {
       setResponding(false)
     }

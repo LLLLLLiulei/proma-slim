@@ -4,6 +4,8 @@ import {
   appendMessageForSession,
   getMessagesForSession,
   replaceMessagesForSession,
+  resolveShouldAutoSendInitialMessage,
+  resolveShouldRenderAgentHeader,
   syncSessionMessages,
 } from './AgentView'
 
@@ -81,5 +83,55 @@ describe('AgentView session-scoped message state', () => {
       ['几点了', '19:49', '天气怎么样'],
       ['几点了', '19:49', '天气怎么样', '晴天'],
     ])
+  })
+})
+
+describe('AgentView embedding helpers', () => {
+  test('renders the session header by default and hides it only when explicitly disabled', () => {
+    expect(resolveShouldRenderAgentHeader()).toBe(true)
+    expect(resolveShouldRenderAgentHeader(true)).toBe(true)
+    expect(resolveShouldRenderAgentHeader(false)).toBe(false)
+  })
+
+  test('auto-sends an initial message only after initial history loads and no persisted messages exist', () => {
+    expect(resolveShouldAutoSendInitialMessage({
+      initialMessageLoaded: false,
+      initialUserMessage: '生成一个官网',
+      hasMessages: false,
+      alreadyTriggered: false,
+      streaming: false,
+    })).toBe(false)
+
+    expect(resolveShouldAutoSendInitialMessage({
+      initialMessageLoaded: true,
+      initialUserMessage: '生成一个官网',
+      hasMessages: false,
+      alreadyTriggered: false,
+      streaming: false,
+    })).toBe(true)
+
+    expect(resolveShouldAutoSendInitialMessage({
+      initialMessageLoaded: true,
+      initialUserMessage: '生成一个官网',
+      hasMessages: true,
+      alreadyTriggered: false,
+      streaming: false,
+    })).toBe(false)
+
+    expect(resolveShouldAutoSendInitialMessage({
+      initialMessageLoaded: true,
+      initialUserMessage: '生成一个官网',
+      hasMessages: false,
+      alreadyTriggered: true,
+      streaming: false,
+    })).toBe(false)
+
+    expect(resolveShouldAutoSendInitialMessage({
+      initialMessageLoaded: true,
+      initialUserMessage: '生成一个官网',
+      hasMessages: false,
+      alreadyTriggered: false,
+      streaming: true,
+    })).toBe(false)
   })
 })

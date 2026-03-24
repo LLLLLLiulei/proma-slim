@@ -11,6 +11,7 @@
   ],
   "scripts": {
     "dev": "bun run --filter='@proma/app' dev",
+    "dev:page-builder": "bun run --filter='@proma/page-builder' dev",
     "build": "bun run --filter='@proma/app' build",
     "start": "bun run --filter='@proma/app' start",
     "typecheck": "bun run --filter='*' typecheck",
