@@ -119,6 +119,15 @@ export interface AgentViewProps {
   showHeader?: boolean
   initialUserMessage?: string | null
   onInitialUserMessageHandled?: () => void
+  messageDecorator?: AgentMessageDecorator
+}
+
+export type AgentMessageDecorator = (userMessage: string) => string
+
+export interface PreparedAgentSendPayload {
+  userMessage: string
+  mentionedSkills: string[]
+  mentionedMcpServers: string[]
 }
 
 export function resolveShouldRenderAgentHeader(showHeader = true): boolean {
@@ -147,11 +156,30 @@ export function resolveShouldAutoSendInitialMessage({
   )
 }
 
+export function prepareAgentSendPayload(
+  userMessage: string,
+  messageDecorator?: AgentMessageDecorator,
+): PreparedAgentSendPayload {
+  const mentionedSkills = [...userMessage.matchAll(/\/skill:(\S+)/g)]
+    .map((match) => match[1])
+    .filter(Boolean) as string[]
+  const mentionedMcpServers = [...userMessage.matchAll(/#mcp:(\S+)/g)]
+    .map((match) => match[1])
+    .filter(Boolean) as string[]
+
+  return {
+    userMessage: messageDecorator ? messageDecorator(userMessage) : userMessage,
+    mentionedSkills,
+    mentionedMcpServers,
+  }
+}
+
 export function AgentView({
   sessionId,
   showHeader = true,
   initialUserMessage = null,
   onInitialUserMessageHandled,
+  messageDecorator,
 }: AgentViewProps): React.ReactElement {
   const [messagesBySession, setMessagesBySession] = React.useState<Map<string, AgentMessage[]>>(() => new Map())
   const [status, setStatus] = React.useState<AppStatus | null>(null)
@@ -308,15 +336,14 @@ export function AgentView({
     }
 
     try {
-      const mentionedSkills = [...userMessage.matchAll(/\/skill:(\S+)/g)].map((match) => match[1]).filter(Boolean) as string[]
-      const mentionedMcpServers = [...userMessage.matchAll(/#mcp:(\S+)/g)].map((match) => match[1]).filter(Boolean) as string[]
+      const payload = prepareAgentSendPayload(userMessage, messageDecorator)
 
       await sendMessage(sessionId, {
-        userMessage,
+        userMessage: payload.userMessage,
         ...(sessionWorkspaceId && { workspaceId: sessionWorkspaceId }),
         ...(attachedDirectories.length > 0 && { additionalDirectories: attachedDirectories }),
-        ...(mentionedSkills.length > 0 && { mentionedSkills }),
-        ...(mentionedMcpServers.length > 0 && { mentionedMcpServers }),
+        ...(payload.mentionedSkills.length > 0 && { mentionedSkills: payload.mentionedSkills }),
+        ...(payload.mentionedMcpServers.length > 0 && { mentionedMcpServers: payload.mentionedMcpServers }),
       })
       return true
     } catch (error) {
@@ -337,6 +364,7 @@ export function AgentView({
     setStreamErrors,
     status,
     streaming,
+    messageDecorator,
   ])
 
   const handleSend = React.useCallback(async (): Promise<void> => {

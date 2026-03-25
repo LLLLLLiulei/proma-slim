@@ -3,7 +3,10 @@ import type { AgentSessionMeta, AgentWorkspace } from '@proma/shared'
 export const DEFAULT_PAGE_BUILDER_PROJECT_NAME = '未命名项目'
 
 interface CreatePageBuilderProjectDeps {
-  createWorkspace: (name: string) => Promise<AgentWorkspace>
+  createWorkspace: (
+    name: string,
+    options?: { template?: 'page-builder' },
+  ) => Promise<AgentWorkspace>
   createSession: (title?: string, workspaceId?: string) => Promise<AgentSessionMeta>
 }
 
@@ -25,7 +28,9 @@ export class PageBuilderProjectStartError extends Error {
 export async function createPageBuilderProject(
   deps: CreatePageBuilderProjectDeps,
 ): Promise<{ workspace: AgentWorkspace; session: AgentSessionMeta }> {
-  const workspace = await deps.createWorkspace(DEFAULT_PAGE_BUILDER_PROJECT_NAME)
+  const workspace = await deps.createWorkspace(DEFAULT_PAGE_BUILDER_PROJECT_NAME, {
+    template: 'page-builder',
+  })
 
   try {
     const session = await deps.createSession(undefined, workspace.id)

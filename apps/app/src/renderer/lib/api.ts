@@ -20,6 +20,16 @@ export interface AppStatus {
   runtimeStatus?: RuntimeStatus | null
 }
 
+export interface WorkspacePreviewState {
+  hasPreview: boolean
+  entryUrl: string | null
+  revision: string | null
+}
+
+interface CreateWorkspaceOptions {
+  template?: 'page-builder'
+}
+
 interface RequestOptions extends Omit<RequestInit, 'body'> {
   body?: unknown
 }
@@ -121,10 +131,13 @@ export const api = {
     return request<AgentWorkspace[]>('/api/workspaces')
   },
 
-  createWorkspace(name: string): Promise<AgentWorkspace> {
+  createWorkspace(name: string, options?: CreateWorkspaceOptions): Promise<AgentWorkspace> {
     return request<AgentWorkspace>('/api/workspaces', {
       method: 'POST',
-      body: { name },
+      body: {
+        name,
+        ...(options?.template ? { template: options.template } : {}),
+      },
     })
   },
 
@@ -150,6 +163,10 @@ export const api = {
 
   getWorkspaceContext(workspaceId: string): Promise<WorkspaceDirectoryContext> {
     return request<WorkspaceDirectoryContext>(`/api/workspaces/${encodeURIComponent(workspaceId)}/directory-context`)
+  },
+
+  getWorkspacePreviewState(workspaceId: string): Promise<WorkspacePreviewState> {
+    return request<WorkspacePreviewState>(`/api/workspaces/${encodeURIComponent(workspaceId)}/preview-state`)
   },
 
   searchWorkspaceFiles(

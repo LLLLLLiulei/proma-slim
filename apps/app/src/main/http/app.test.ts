@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { getSettings, updateSettings } from '../lib/settings-service'
@@ -174,6 +174,105 @@ describe('createHttpApp', () => {
       method: 'DELETE',
     }))
     expect(deleteResponse.status).toBe(204)
+  })
+
+  test('workspace routes can create a page-builder workspace with a root CLAUDE.md file', async () => {
+    const app = createApp()
+
+    const createResponse = await app.fetch(new Request('http://localhost/api/workspaces', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: 'Page Builder Project',
+        template: 'page-builder',
+      }),
+      headers: {
+        'content-type': 'application/json',
+      },
+    }))
+
+    expect(createResponse.status).toBe(201)
+    const created = await createResponse.json() as { id: string; slug: string }
+    const claudeMdPath = join(homedir(), '.proma', 'agent-workspaces', created.slug, 'CLAUDE.md')
+
+    expect(readFileSync(claudeMdPath, 'utf-8')).toContain('workspace-files/index.html')
+    expect(readFileSync(claudeMdPath, 'utf-8')).toContain('workspace-files/assets/')
+  })
+
+  test('workspace preview routes expose preview-state, serve workspace-files, and refresh revision on changes', async () => {
+    const app = createApp()
+    const workspace = createAgentWorkspace('Preview Docs')
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+
+    const emptyStateResponse = await app.fetch(new Request(`http://localhost/api/workspaces/${workspace.id}/preview-state`))
+    expect(emptyStateResponse.status).toBe(200)
+    expect(await emptyStateResponse.json()).toEqual({
+      hasPreview: false,
+      entryUrl: null,
+      revision: null,
+    })
+
+    mkdirSync(join(workspaceFilesDir, 'assets'), { recursive: true })
+    writeFileSync(
+      join(workspaceFilesDir, 'index.html'),
+      '<!doctype html><html><body><link rel="stylesheet" href="./assets/site.css"><h1>Preview</h1></body></html>',
+      'utf-8',
+    )
+    writeFileSync(join(workspaceFilesDir, 'assets', 'site.css'), 'body { color: red; }', 'utf-8')
+
+    const previewStateResponse = await app.fetch(new Request(`http://localhost/api/workspaces/${workspace.id}/preview-state`))
+    expect(previewStateResponse.status).toBe(200)
+    const previewState = await previewStateResponse.json() as {
+      hasPreview: boolean
+      entryUrl: string | null
+      revision: string | null
+    }
+    expect(previewState.hasPreview).toBe(true)
+    expect(previewState.entryUrl).toBe(`/api/workspaces/${workspace.id}/preview/`)
+    expect(typeof previewState.revision).toBe('string')
+    expect(previewState.revision?.length).toBeGreaterThan(0)
+
+    const previewResponse = await app.fetch(new Request(`http://localhost${previewState.entryUrl}`))
+    expect(previewResponse.status).toBe(200)
+    expect(await previewResponse.text()).toContain('<h1>Preview</h1>')
+
+    const assetResponse = await app.fetch(new Request(`http://localhost/api/workspaces/${workspace.id}/preview/assets/site.css`))
+    expect(assetResponse.status).toBe(200)
+    expect(await assetResponse.text()).toContain('color: red')
+
+    writeFileSync(join(workspaceFilesDir, 'assets', 'site.css'), 'body { color: blue; }', 'utf-8')
+
+    const updatedStateResponse = await app.fetch(new Request(`http://localhost/api/workspaces/${workspace.id}/preview-state`))
+    expect(updatedStateResponse.status).toBe(200)
+    const updatedState = await updatedStateResponse.json() as {
+      hasPreview: boolean
+      entryUrl: string | null
+      revision: string | null
+    }
+    expect(updatedState.hasPreview).toBe(true)
+    expect(updatedState.revision).not.toBe(previewState.revision)
+  })
+
+  test('workspace preview routes stop serving stale preview content when the entry disappears', async () => {
+    const app = createApp()
+    const workspace = createAgentWorkspace('Preview Safety')
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(join(workspaceFilesDir, 'index.html'), '<html><body>safe</body></html>', 'utf-8')
+
+    rmSync(join(workspaceFilesDir, 'index.html'))
+
+    const emptyStateResponse = await app.fetch(new Request(`http://localhost/api/workspaces/${workspace.id}/preview-state`))
+    expect(emptyStateResponse.status).toBe(200)
+    expect(await emptyStateResponse.json()).toEqual({
+      hasPreview: false,
+      entryUrl: null,
+      revision: null,
+    })
+
+    const missingPreviewResponse = await app.fetch(new Request(`http://localhost/api/workspaces/${workspace.id}/preview/`))
+    expect(missingPreviewResponse.status).toBe(404)
+    expect(await missingPreviewResponse.json()).toEqual({ error: '预览入口不存在' })
   })
 
   test('workspace routes return a 404 JSON error when the workspace is missing', async () => {

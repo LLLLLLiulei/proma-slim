@@ -22,8 +22,14 @@ import {
   resolveBuilderDesktopTrackWidths,
   writeStoredBuilderSplitRatio,
 } from '@page-builder/lib/desktop-split'
+import {
+  BUILDER_PREVIEW_POLL_INTERVAL_MS,
+  areWorkspacePreviewStatesEqual,
+  resolveWorkspacePreviewUrl,
+} from '@page-builder/lib/preview-state'
 import { PreviewPane } from '@page-builder/components/builder/PreviewPane'
 import { ProjectTitleBar } from '@page-builder/components/builder/ProjectTitleBar'
+import type { WorkspacePreviewState } from '@/lib/api'
 
 type LoadState =
   | { status: 'loading' }
@@ -43,6 +49,7 @@ export function BuilderPage({
   const setCurrentSessionId = useSetAtom(currentAgentSessionIdAtom)
   const setCurrentWorkspaceId = useSetAtom(currentAgentWorkspaceIdAtom)
   const [loadState, setLoadState] = React.useState<LoadState>({ status: 'loading' })
+  const [previewState, setPreviewState] = React.useState<WorkspacePreviewState | null>(null)
   const [desktopGridWidth, setDesktopGridWidth] = React.useState(0)
   const [desktopSplitRatio, setDesktopSplitRatio] = React.useState(() => {
     if (typeof window === 'undefined') return DEFAULT_BUILDER_SPLIT_RATIO
@@ -71,6 +78,7 @@ export function BuilderPage({
 
   const loadBuilderRuntime = React.useCallback(async (): Promise<void> => {
     setLoadState({ status: 'loading' })
+    setPreviewState(null)
 
     try {
       const [sessions, workspaces] = await Promise.all([
@@ -123,6 +131,37 @@ export function BuilderPage({
   React.useEffect(() => {
     void loadBuilderRuntime()
   }, [loadBuilderRuntime])
+
+  React.useEffect(() => {
+    if (loadState.status !== 'ready' || typeof window === 'undefined') return
+
+    let cancelled = false
+    const syncPreviewState = async () => {
+      try {
+        const nextState = await api.getWorkspacePreviewState(workspaceId)
+        if (cancelled) return
+
+        setPreviewState((previous) => (
+          areWorkspacePreviewStatesEqual(previous, nextState) ? previous : nextState
+        ))
+      } catch (error) {
+        if (!cancelled) {
+          console.error('[BuilderPage] 读取预览状态失败:', error)
+        }
+      }
+    }
+
+    void syncPreviewState()
+
+    const intervalId = window.setInterval(() => {
+      void syncPreviewState()
+    }, BUILDER_PREVIEW_POLL_INTERVAL_MS)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(intervalId)
+    }
+  }, [loadState.status, workspaceId])
 
   React.useEffect(() => {
     const element = desktopGridRef.current
@@ -204,6 +243,10 @@ export function BuilderPage({
         })()
       : {}),
   }) as React.CSSProperties, [desktopGridWidth, desktopSplitRatio])
+  const previewUrl = React.useMemo(
+    () => resolveWorkspacePreviewUrl(previewState),
+    [previewState],
+  )
 
   if (loadState.status === 'loading') {
     return (
@@ -240,7 +283,7 @@ export function BuilderPage({
         className="page-builder-builder-grid grid min-h-0 flex-1 grid-cols-1 gap-3 lg:h-full"
         style={desktopGridStyle}
       >
-        <PreviewPane previewUrl={null} />
+        <PreviewPane previewUrl={previewUrl} />
 
         <div className="page-builder-split-rail hidden lg:flex" aria-hidden>
           <div

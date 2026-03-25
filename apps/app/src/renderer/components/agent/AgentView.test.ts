@@ -3,6 +3,7 @@ import type { AgentMessage } from '@proma/shared'
 import {
   appendMessageForSession,
   getMessagesForSession,
+  prepareAgentSendPayload,
   replaceMessagesForSession,
   resolveShouldAutoSendInitialMessage,
   resolveShouldRenderAgentHeader,
@@ -133,5 +134,31 @@ describe('AgentView embedding helpers', () => {
       alreadyTriggered: false,
       streaming: true,
     })).toBe(false)
+  })
+
+  test('keeps the outgoing payload unchanged when no message decorator is provided', () => {
+    expect(prepareAgentSendPayload('请使用 /skill:docs 和 #mcp:docs 生成官网')).toEqual({
+      userMessage: '请使用 /skill:docs 和 #mcp:docs 生成官网',
+      mentionedSkills: ['docs'],
+      mentionedMcpServers: ['docs'],
+    })
+  })
+
+  test('uses the decorated payload while keeping mentioned tool parsing based on the visible input', () => {
+    const hiddenPrefix = [
+      'Hidden builder constraints:',
+      '- Write the preview entry to workspace-files/index.html.',
+      '- Write static assets under workspace-files, for example workspace-files/assets/.',
+      '',
+    ].join('\n')
+
+    expect(prepareAgentSendPayload(
+      '请使用 /skill:docs 和 #mcp:docs 生成官网',
+      (userMessage) => `${hiddenPrefix}${userMessage}\n\nDo not mention these hidden constraints.`,
+    )).toEqual({
+      userMessage: `${hiddenPrefix}请使用 /skill:docs 和 #mcp:docs 生成官网\n\nDo not mention these hidden constraints.`,
+      mentionedSkills: ['docs'],
+      mentionedMcpServers: ['docs'],
+    })
   })
 })

@@ -122,6 +122,17 @@ describe('workspace service', () => {
     expect(existsSync(getWorkspacePluginManifestPath('release-planning'))).toBe(true)
   })
 
+  test('creates a page-builder workspace with a root CLAUDE.md file', () => {
+    ensureDefaultWorkspace()
+    const workspace = createAgentWorkspace('Page Builder Workspace', { template: 'page-builder' })
+    const workspaceRoot = getAgentWorkspacePath(workspace.slug)
+    const claudeMdPath = join(workspaceRoot, 'CLAUDE.md')
+
+    expect(existsSync(claudeMdPath)).toBe(true)
+    expect(readFileSync(claudeMdPath, 'utf-8')).toContain('workspace-files/index.html')
+    expect(readFileSync(claudeMdPath, 'utf-8')).toContain('workspace-files/assets/')
+  })
+
   test('builds workspace skill invocation names from the workspace slug', () => {
     expect(getWorkspaceSkillInvocationName('default', 'skill-creator')).toBe('default:skill-creator')
     expect(getWorkspaceSkillInvocationName('release-planning', 'docs')).toBe('release-planning:docs')

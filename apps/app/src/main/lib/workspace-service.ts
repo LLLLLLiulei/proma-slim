@@ -34,6 +34,7 @@ import {
   getWorkspacePluginManifestPath,
   getWorkspaceSkillsDir,
 } from './config-paths'
+import { initializeWorkspaceTemplate, type WorkspaceTemplateName } from './workspace-template-service'
 
 export const DEFAULT_WORKSPACE_NAME = '默认工作区'
 export const DEFAULT_WORKSPACE_SLUG = 'default'
@@ -45,6 +46,10 @@ interface AgentWorkspacesIndex {
 
 interface WorkspaceConfig {
   attachedDirectories?: string[]
+}
+
+interface CreateWorkspaceOptions {
+  template?: WorkspaceTemplateName
 }
 
 const INDEX_VERSION = 1
@@ -300,7 +305,7 @@ export function ensureDefaultWorkspace(): AgentWorkspace {
   return workspace
 }
 
-export function createAgentWorkspace(name: string): AgentWorkspace {
+export function createAgentWorkspace(name: string, options?: CreateWorkspaceOptions): AgentWorkspace {
   const trimmedName = name.trim()
   if (!trimmedName) {
     throw new Error('工作区名称不能为空')
@@ -322,6 +327,9 @@ export function createAgentWorkspace(name: string): AgentWorkspace {
   index.workspaces.push(workspace)
   writeIndex(index)
   ensureWorkspaceStructure(workspace.slug)
+  if (options?.template === 'page-builder') {
+    initializeWorkspaceTemplate(workspace.slug, 'page-builder')
+  }
   copyDefaultSkills(workspace.slug)
   return workspace
 }

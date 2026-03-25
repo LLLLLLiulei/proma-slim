@@ -24,8 +24,11 @@ const session: AgentSessionMeta = {
 }
 
 describe('page builder project startup', () => {
-  test('creates the default workspace and the first session in sequence', async () => {
-    const createWorkspace = mock(async (name: string) => ({ ...workspace, name }))
+  test('creates a page-builder workspace and the first session in sequence', async () => {
+    const createWorkspace = mock(async (
+      name: string,
+      options?: { template?: 'page-builder' },
+    ) => ({ ...workspace, name, slug: options?.template === 'page-builder' ? 'page-builder-workspace' : workspace.slug }))
     const createSession = mock(async (_title?: string, workspaceId?: string) => ({
       ...session,
       workspaceId,
@@ -36,10 +39,16 @@ describe('page builder project startup', () => {
       createSession,
     })
 
-    expect(createWorkspace).toHaveBeenCalledWith(DEFAULT_PAGE_BUILDER_PROJECT_NAME)
+    expect(createWorkspace).toHaveBeenCalledWith(DEFAULT_PAGE_BUILDER_PROJECT_NAME, {
+      template: 'page-builder',
+    })
     expect(createSession).toHaveBeenCalledWith(undefined, workspace.id)
     expect(result).toEqual({
-      workspace: { ...workspace, name: DEFAULT_PAGE_BUILDER_PROJECT_NAME },
+      workspace: {
+        ...workspace,
+        name: DEFAULT_PAGE_BUILDER_PROJECT_NAME,
+        slug: 'page-builder-workspace',
+      },
       session: { ...session, workspaceId: workspace.id },
     })
   })

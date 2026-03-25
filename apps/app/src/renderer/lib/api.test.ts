@@ -149,6 +149,24 @@ describe('renderer api wrappers', () => {
     expect(workspace.slug).toBe('proma-docs')
   })
 
+  test('createWorkspace forwards the page-builder template when requested', async () => {
+    const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe('/api/workspaces')
+      expect(init?.method).toBe('POST')
+      expect(JSON.parse(String(init?.body))).toEqual({
+        name: '未命名项目',
+        template: 'page-builder',
+      })
+      return jsonResponse({ id: 'workspace-1', name: '未命名项目', slug: 'page-builder', createdAt: 1, updatedAt: 2 })
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const { api } = await import('./api')
+    const workspace = await api.createWorkspace('未命名项目', { template: 'page-builder' })
+
+    expect(workspace.slug).toBe('page-builder')
+  })
+
   test('updateWorkspace PATCHes the workspace endpoint', async () => {
     const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
       expect(String(input)).toBe('/api/workspaces/workspace-1')
@@ -254,6 +272,27 @@ describe('renderer api wrappers', () => {
 
     expect(result.entries[0]?.path).toBe('guide.md')
     expect(result.total).toBe(1)
+  })
+
+  test('getWorkspacePreviewState requests the preview-state endpoint', async () => {
+    const fetchMock = mock(async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe('/api/workspaces/workspace-1/preview-state')
+      return jsonResponse({
+        hasPreview: true,
+        entryUrl: '/api/workspaces/workspace-1/preview/',
+        revision: 'rev-1',
+      })
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const { api } = await import('./api')
+    const state = await api.getWorkspacePreviewState('workspace-1')
+
+    expect(state).toEqual({
+      hasPreview: true,
+      entryUrl: '/api/workspaces/workspace-1/preview/',
+      revision: 'rev-1',
+    })
   })
 
   test('createSession sends workspaceId in the request body when provided', async () => {

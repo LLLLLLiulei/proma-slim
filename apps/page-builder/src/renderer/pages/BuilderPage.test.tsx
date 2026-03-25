@@ -12,6 +12,12 @@ import {
 import { readBootstrapPayload, writeBootstrapPayload } from '@page-builder/lib/bootstrap-cache'
 import { DEFAULT_BUILDER_SPLIT_RATIO } from '@page-builder/lib/desktop-split'
 
+interface WorkspacePreviewState {
+  hasPreview: boolean
+  entryUrl: string | null
+  revision: string | null
+}
+
 function createMemoryStorage(initial: Record<string, string> = {}): Storage {
   const state = new Map(Object.entries(initial))
 
@@ -37,10 +43,16 @@ function createMemoryStorage(initial: Record<string, string> = {}): Storage {
   }
 }
 
-function installWindowHarness(): { localStorage: Storage; sessionStorage: Storage } {
+function installWindowHarness(): {
+  localStorage: Storage
+  sessionStorage: Storage
+  runIntervalsOnce: () => Promise<void>
+} {
   const sessionStorage = createMemoryStorage()
   const localStorage = createMemoryStorage()
   const listeners = new Map<string, Set<(event?: unknown) => void>>()
+  const intervals = new Map<number, () => void | Promise<void>>()
+  let nextIntervalId = 1
 
   Object.defineProperty(globalThis, 'window', {
     configurable: true,
@@ -55,17 +67,37 @@ function installWindowHarness(): { localStorage: Storage; sessionStorage: Storag
       },
       localStorage,
       sessionStorage,
+      setInterval(callback: () => void | Promise<void>) {
+        const id = nextIntervalId++
+        intervals.set(id, callback)
+        return id
+      },
+      clearInterval(id: number) {
+        intervals.delete(id)
+      },
     },
   })
 
-  return { localStorage, sessionStorage }
+  return {
+    localStorage,
+    sessionStorage,
+    async runIntervalsOnce() {
+      for (const callback of [...intervals.values()]) {
+        await callback()
+      }
+      await Promise.resolve()
+      await Promise.resolve()
+    },
+  }
 }
 
 async function loadBuilderPage(options: {
   sessions: AgentSessionMeta[]
   workspaces: AgentWorkspace[]
+  previewStates?: WorkspacePreviewState[]
 }) {
   let lastAgentViewProps: Record<string, unknown> | null = null
+  let previewStateIndex = 0
 
   mock.module('@/components/agent', () => ({
     AgentView(props: Record<string, unknown>) {
@@ -78,6 +110,12 @@ async function loadBuilderPage(options: {
     api: {
       listSessions: async () => options.sessions,
       listWorkspaces: async () => options.workspaces,
+      getWorkspacePreviewState: async () => {
+        const states = options.previewStates ?? [{ hasPreview: false, entryUrl: null, revision: null }]
+        const state = states[Math.min(previewStateIndex, states.length - 1)]!
+        previewStateIndex += 1
+        return state
+      },
     },
   }))
 
@@ -258,6 +296,7 @@ describe('BuilderPage', () => {
       showHeader: false,
       initialUserMessage: '生成一个企业官网',
     })
+    expect(getLastAgentViewProps()).not.toHaveProperty('messageDecorator')
 
     await act(async () => {
       const props = getLastAgentViewProps() as { onInitialUserMessageHandled?: () => void }
@@ -265,6 +304,114 @@ describe('BuilderPage', () => {
     })
 
     expect(readBootstrapPayload(sessionStorage, session.id)).toBeNull()
+  })
+
+  test('loads the workspace preview state and passes a cache-busted preview url into PreviewPane', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const { BuilderPage } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      previewStates: [{
+        hasPreview: true,
+        entryUrl: `/api/workspaces/${workspace.id}/preview/`,
+        revision: 'rev-1',
+      }],
+    })
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    const iframe = renderer.root.findByType('iframe')
+    expect(iframe.props.src).toBe(`/api/workspaces/${workspace.id}/preview/?v=rev-1`)
+  })
+
+  test('polls for preview updates and clears the preview when the workspace no longer has an entry page', async () => {
+    const { runIntervalsOnce } = installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const { BuilderPage } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      previewStates: [
+        {
+          hasPreview: true,
+          entryUrl: `/api/workspaces/${workspace.id}/preview/`,
+          revision: 'rev-1',
+        },
+        {
+          hasPreview: true,
+          entryUrl: `/api/workspaces/${workspace.id}/preview/`,
+          revision: 'rev-2',
+        },
+        {
+          hasPreview: false,
+          entryUrl: null,
+          revision: null,
+        },
+      ],
+    })
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(renderer.root.findByType('iframe').props.src).toBe(`/api/workspaces/${workspace.id}/preview/?v=rev-1`)
+
+    await act(async () => {
+      await runIntervalsOnce()
+    })
+
+    expect(renderer.root.findByType('iframe').props.src).toBe(`/api/workspaces/${workspace.id}/preview/?v=rev-2`)
+
+    await act(async () => {
+      await runIntervalsOnce()
+    })
+
+    expect(renderer.root.findAllByType('iframe')).toHaveLength(0)
+    expect(JSON.stringify(renderer.toJSON())).toContain('预览尚未生成')
   })
 
   test('drops a stale bootstrap prompt when it belongs to another workspace', async () => {
@@ -309,6 +456,7 @@ describe('BuilderPage', () => {
       showHeader: false,
       initialUserMessage: null,
     })
+    expect(getLastAgentViewProps()).not.toHaveProperty('messageDecorator')
     expect(readBootstrapPayload(sessionStorage, session.id)).toBeNull()
   })
 })

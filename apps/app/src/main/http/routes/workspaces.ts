@@ -9,25 +9,48 @@ import {
   searchWorkspaceFiles,
   updateAgentWorkspace,
 } from '../../lib/workspace-service'
+import {
+  createWorkspacePreviewResponse,
+  getWorkspacePreviewState,
+} from '../../lib/workspace-preview-service'
 import { listAgentSessions } from '../../lib/agent-session-manager'
 import { HttpError } from '../errors'
-import { noContent, readJsonBody } from '../responses'
+import { json, noContent, readJsonBody } from '../responses'
 import type { HttpAppEnv } from '../types'
 import { workspaceMiddleware } from '../middleware/workspace'
 
 export const workspaceRoutes = new Hono<HttpAppEnv>()
+
+function getWorkspacePreviewRequestPath(url: string, workspaceId: string): string {
+  const pathname = new URL(url).pathname
+  const prefix = `/api/workspaces/${encodeURIComponent(workspaceId)}/preview`
+  const suffix = pathname.startsWith(prefix) ? pathname.slice(prefix.length) : '/'
+
+  return suffix || '/'
+}
 
 workspaceRoutes.get('/', (c) => {
   return c.json(listAgentWorkspaces())
 })
 
 workspaceRoutes.post('/', async (c) => {
-  const body = await readJsonBody<{ name?: string }>(c.req.raw)
+  const body = await readJsonBody<{ name?: string; template?: string }>(c.req.raw)
   if (!body.name || !body.name.trim()) {
     throw new HttpError(400, '工作区名称不能为空')
   }
 
-  return c.json(createAgentWorkspace(body.name.trim()), 201)
+  if (body.template && body.template !== 'page-builder') {
+    throw new HttpError(400, '不支持的工作区模板')
+  }
+
+  const template = body.template === 'page-builder'
+    ? 'page-builder'
+    : undefined
+
+  return c.json(createAgentWorkspace(
+    body.name.trim(),
+    template ? { template } : undefined,
+  ), 201)
 })
 
 workspaceRoutes.use('/:workspaceId', workspaceMiddleware)
@@ -63,6 +86,19 @@ workspaceRoutes.get('/:workspaceId/capabilities', (c) => {
 workspaceRoutes.get('/:workspaceId/directory-context', (c) => {
   return c.json(getWorkspaceDirectoryContext(c.var.workspace.id))
 })
+
+workspaceRoutes.get('/:workspaceId/preview-state', (c) => {
+  return json(getWorkspacePreviewState(c.var.workspace))
+})
+
+const handleWorkspacePreview = (c: { req: { raw: Request }; var: { workspace: HttpAppEnv['Variables']['workspace'] } }) => {
+  const requestPath = getWorkspacePreviewRequestPath(c.req.raw.url, c.var.workspace.id)
+  return createWorkspacePreviewResponse(c.var.workspace, requestPath)
+}
+
+workspaceRoutes.get('/:workspaceId/preview', handleWorkspacePreview)
+workspaceRoutes.get('/:workspaceId/preview/', handleWorkspacePreview)
+workspaceRoutes.get('/:workspaceId/preview/*', handleWorkspacePreview)
 
 workspaceRoutes.get('/:workspaceId/file-search', (c) => {
   const query = c.req.query('q') ?? ''

@@ -73,12 +73,18 @@ export function PreviewPane({
           className="flex h-full min-h-[480px] overflow-hidden rounded-xl border border-border/70 bg-background"
         >
           {previewUrl ? (
-            <iframe key={frameKey} className="h-full w-full border-0 bg-background" src={previewUrl} title="网页预览" />
+            <iframe
+              key={frameKey}
+              className="h-full w-full border-0 bg-background"
+              sandbox="allow-forms allow-scripts"
+              src={previewUrl}
+              title="网页预览"
+            />
           ) : (
             <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-muted/35 text-center text-sm text-muted-foreground">
-              <p className="font-medium text-foreground/75">预览容器已就绪</p>
+              <p className="font-medium text-foreground/75">预览尚未生成</p>
               <p className="max-w-[36ch] leading-6">
-                当前阶段先提供 iframe 外壳，后续生成链路接入后将在这里显示真实页面。
+                在右侧继续描述或修改网页需求，生成结果写入工作区后会自动显示在这里。
               </p>
             </div>
           )}

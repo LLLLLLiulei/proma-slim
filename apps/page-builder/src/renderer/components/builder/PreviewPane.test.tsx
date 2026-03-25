@@ -25,4 +25,15 @@ describe('PreviewPane', () => {
     expect(json).toContain('实时预览')
     expect(json).not.toContain('第一阶段使用精简 iframe 容器承载页面预览。')
   })
+
+  test('renders the preview iframe with a restricted sandbox and falls back to an empty state when no preview is available', () => {
+    const readyRenderer = create(<PreviewPane previewUrl="https://example.com/preview?v=rev-1" />)
+    const iframe = readyRenderer.root.findByType('iframe')
+    expect(iframe.props.src).toBe('https://example.com/preview?v=rev-1')
+    expect(iframe.props.sandbox).toBe('allow-forms allow-scripts')
+
+    const emptyRenderer = create(<PreviewPane previewUrl={null} />)
+    const emptyJson = JSON.stringify(emptyRenderer.toJSON())
+    expect(emptyJson).toContain('预览尚未生成')
+  })
 })
