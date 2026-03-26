@@ -117,6 +117,7 @@ function StatusNotice({ status }: { status: AppStatus }): React.ReactElement | n
 export interface AgentViewProps {
   sessionId: string
   showHeader?: boolean
+  showComposerMeta?: boolean
   initialUserMessage?: string | null
   onInitialUserMessageHandled?: () => void
   messageDecorator?: AgentMessageDecorator
@@ -177,6 +178,7 @@ export function prepareAgentSendPayload(
 export function AgentView({
   sessionId,
   showHeader = true,
+  showComposerMeta = true,
   initialUserMessage = null,
   onInitialUserMessageHandled,
   messageDecorator,
@@ -454,18 +456,22 @@ export function AgentView({
 
           <div className="flex h-[40px] items-center justify-between gap-4 px-2 py-[5px]">
             <div className="flex min-w-0 flex-1 items-center gap-2 px-1 text-xs text-muted-foreground">
-              <span className="rounded-full bg-muted px-2.5 py-1 text-[11px] font-medium text-foreground/75">
-                Agent
-              </span>
-              {(workspaceContext?.workspaceName || sessionWorkspace?.name) && (
-                <span className="rounded-full bg-muted px-2.5 py-1 text-[11px] font-medium text-foreground/75">
-                  {workspaceContext?.workspaceName ?? sessionWorkspace?.name}
-                </span>
-              )}
-              {latestAssistantModel && (
-                <span className="truncate text-[11px] text-muted-foreground/80">
-                  {latestAssistantModel}
-                </span>
+              {showComposerMeta && (
+                <>
+                  <span className="rounded-full bg-muted px-2.5 py-1 text-[11px] font-medium text-foreground/75">
+                    Agent
+                  </span>
+                  {(workspaceContext?.workspaceName || sessionWorkspace?.name) && (
+                    <span className="rounded-full bg-muted px-2.5 py-1 text-[11px] font-medium text-foreground/75">
+                      {workspaceContext?.workspaceName ?? sessionWorkspace?.name}
+                    </span>
+                  )}
+                  {latestAssistantModel && (
+                    <span className="truncate text-[11px] text-muted-foreground/80">
+                      {latestAssistantModel}
+                    </span>
+                  )}
+                </>
               )}
               <span className="truncate">
                 {streaming

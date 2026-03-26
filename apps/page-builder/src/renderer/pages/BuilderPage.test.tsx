@@ -294,6 +294,7 @@ describe('BuilderPage', () => {
     expect(getLastAgentViewProps()).toMatchObject({
       sessionId: session.id,
       showHeader: false,
+      showComposerMeta: false,
       initialUserMessage: '生成一个企业官网',
     })
     expect(getLastAgentViewProps()).not.toHaveProperty('messageDecorator')

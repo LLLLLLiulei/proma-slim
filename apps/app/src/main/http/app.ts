@@ -7,6 +7,7 @@ import { settingsRoutes } from './routes/settings'
 import { sessionRoutes } from './routes/sessions'
 import { statusRoutes } from './routes/status'
 import { userProfileRoutes } from './routes/user-profile'
+import { pageBuilderRoutes } from './routes/page-builder'
 import { workspaceRoutes } from './routes/workspaces'
 
 export function createHttpApp(options: HttpAppOptions) {
@@ -15,6 +16,7 @@ export function createHttpApp(options: HttpAppOptions) {
   app.route('/api/status', statusRoutes)
   app.route('/api/settings', settingsRoutes)
   app.route('/api/user-profile', userProfileRoutes)
+  app.route('/api/page-builder', pageBuilderRoutes)
   app.route('/api/workspaces', workspaceRoutes)
   app.route('/api/sessions', sessionRoutes)
 

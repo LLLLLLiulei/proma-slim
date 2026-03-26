@@ -5,6 +5,7 @@ import type {
   AgentWorkspace,
   AskUserResponse,
   FileSearchResult,
+  PageBuilderProjectSummary,
   PermissionResponse,
   RuntimeStatus,
   WorkspaceCapabilities,
@@ -153,6 +154,16 @@ export const api = {
 
   deleteWorkspace(workspaceId: string): Promise<void> {
     return request<void>(`/api/workspaces/${encodeURIComponent(workspaceId)}`, {
+      method: 'DELETE',
+    })
+  },
+
+  listPageBuilderProjects(): Promise<PageBuilderProjectSummary[]> {
+    return request<PageBuilderProjectSummary[]>('/api/page-builder/projects')
+  },
+
+  deletePageBuilderProject(workspaceId: string): Promise<void> {
+    return request<void>(`/api/page-builder/projects/${encodeURIComponent(workspaceId)}`, {
       method: 'DELETE',
     })
   },

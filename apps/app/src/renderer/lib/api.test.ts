@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
+import type { PageBuilderProjectSummary } from '@proma/shared'
 
 const originalFetch = globalThis.fetch
 
@@ -192,6 +193,42 @@ describe('renderer api wrappers', () => {
 
     const { api } = await import('./api')
     await api.deleteWorkspace('workspace-1')
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  test('listPageBuilderProjects requests the page-builder history endpoint', async () => {
+    const project: PageBuilderProjectSummary = {
+      workspaceId: 'workspace-1',
+      workspaceName: 'History Project',
+      workspaceSlug: 'history-project',
+      createdAt: 1,
+      lastActiveAt: 2,
+      latestSessionId: 'session-1',
+      previewUrl: '/api/workspaces/workspace-1/preview/',
+    }
+    const fetchMock = mock(async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe('/api/page-builder/projects')
+      return jsonResponse([project])
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const { api } = await import('./api')
+    const projects = await api.listPageBuilderProjects()
+
+    expect(projects).toEqual([project])
+  })
+
+  test('deletePageBuilderProject sends DELETE to the page-builder project endpoint', async () => {
+    const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe('/api/page-builder/projects/workspace-1')
+      expect(init?.method).toBe('DELETE')
+      return new Response(null, { status: 204 })
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const { api } = await import('./api')
+    await api.deletePageBuilderProject('workspace-1')
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })

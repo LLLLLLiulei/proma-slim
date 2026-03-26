@@ -48,6 +48,23 @@ export interface AgentWorkspace {
   updatedAt: number
 }
 
+export interface PageBuilderProjectSummary {
+  /** page-builder 工作区 ID */
+  workspaceId: string
+  /** 工作区显示名称 */
+  workspaceName: string
+  /** 工作区 slug */
+  workspaceSlug: string
+  /** 工作区创建时间 */
+  createdAt: number
+  /** 最近一次活跃时间 */
+  lastActiveAt: number
+  /** 最近会话 ID，不存在时为 null */
+  latestSessionId: string | null
+  /** 当前可用预览入口，不存在时为 null */
+  previewUrl: string | null
+}
+
 // ===== SDK 新增类型声明（0.2.52 ~ 0.2.63） =====
 
 /**

@@ -307,6 +307,7 @@ export function BuilderPage({
               initialUserMessage={loadState.initialUserMessage}
               onInitialUserMessageHandled={handleInitialUserMessageHandled}
               sessionId={sessionId}
+              showComposerMeta={false}
               showHeader={false}
             />
           </div>

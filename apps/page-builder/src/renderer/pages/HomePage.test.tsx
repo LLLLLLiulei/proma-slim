@@ -106,6 +106,14 @@ async function loadHomePage(options: {
     },
   }))
 
+  mock.module('@page-builder/components/home/PageBuilderHistorySection', () => ({
+    PageBuilderHistorySection() {
+      return React.createElement('div', {
+        'data-testid': 'page-builder-history-section',
+      }, 'history-section')
+    },
+  }))
+
   mock.module('@page-builder/lib/project-start', () => ({
     DEFAULT_PAGE_BUILDER_PROJECT_NAME: '未命名项目',
     PageBuilderProjectStartError: MockPageBuilderProjectStartError,
@@ -129,7 +137,7 @@ afterEach(() => {
 })
 
 describe('HomePage', () => {
-  test('keeps the existing centered layout while adding ambient visual layers', async () => {
+  test('keeps the hero content inside a viewport-tall stage while placing history below the fold', async () => {
     installWindowHarness()
     const workspace: AgentWorkspace = {
       id: 'workspace-1',
@@ -156,6 +164,22 @@ describe('HomePage', () => {
       renderer = create(React.createElement(HomePage))
     })
 
+    const shell = renderer.root.find((node) =>
+      typeof node.props.className === 'string'
+      && node.props.className.includes('page-builder-home-shell')
+    )
+    const scroll = renderer.root.find((node) =>
+      typeof node.props.className === 'string'
+      && node.props.className.includes('page-builder-home-scroll')
+    )
+    const stage = renderer.root.find((node) =>
+      typeof node.props.className === 'string'
+      && node.props.className.includes('page-builder-home-stage')
+    )
+    const historyShell = renderer.root.find((node) =>
+      typeof node.props.className === 'string'
+      && node.props.className.includes('page-builder-home-history-shell')
+    )
     const ambient = renderer.root.find((node) =>
       typeof node.props.className === 'string'
       && node.props.className.includes('page-builder-home-ambient')
@@ -169,6 +193,14 @@ describe('HomePage', () => {
       && node.props.className.includes('page-builder-home-ambient-animated')
     )
 
+    expect(shell.props.className).toContain('h-[100dvh]')
+    expect(shell.props.className).toContain('overflow-y-auto')
+    expect(shell.props.className).toContain('overflow-x-hidden')
+    expect(scroll.props.className).toContain('page-builder-home-scroll')
+    expect(stage.props.className).toContain('min-h-[100dvh]')
+    expect(stage.props.className).toContain('items-center')
+    expect(stage.props.className).toContain('justify-center')
+    expect(historyShell.props.className).toContain('page-builder-home-history-shell')
     expect(ambient.props['aria-hidden']).toBe(true)
     expect(animatedAmbient.props.className).toContain('page-builder-home-ambient')
     expect(surface.props.className).toContain('page-builder-home-panel-flat')
@@ -204,6 +236,48 @@ describe('HomePage', () => {
     const json = JSON.stringify(renderer.toJSON())
     expect(json).toContain('输入你想要的网页效果，回车后即可创建项目并进入构建页继续完善。')
     expect(json).not.toContain('提交后会创建“未命名项目”工作区与首个对话，并自动开始生成。')
+  })
+
+  test('mounts the independent history section below the viewport-tall hero stage', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const { HomePage } = await loadHomePage({
+      createPageBuilderProjectImpl: async () => ({ workspace, session }),
+      retryPageBuilderSessionImpl: async () => session,
+    })
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(React.createElement(HomePage))
+    })
+
+    const stage = renderer.root.find((node) =>
+      typeof node.props.className === 'string'
+      && node.props.className.includes('page-builder-home-stage')
+    )
+    const historyShell = renderer.root.find((node) =>
+      typeof node.props.className === 'string'
+      && node.props.className.includes('page-builder-home-history-shell')
+    )
+    const historySection = renderer.root.find((node) => node.props['data-testid'] === 'page-builder-history-section')
+
+    expect(stage.findAll((node) => node.props['data-testid'] === 'page-builder-history-section')).toHaveLength(0)
+    expect(historyShell.findAll((node) => node.props['data-testid'] === 'page-builder-history-section')).toHaveLength(1)
+    expect(historySection.children).toContain('history-section')
   })
 
   test('creates a project, stores the bootstrap prompt, and navigates to the builder page', async () => {
