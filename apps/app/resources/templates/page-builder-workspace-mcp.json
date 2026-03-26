@@ -1,0 +1,26 @@
+{
+  "servers": {
+    "playwright": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "@playwright/mcp@latest",
+        "--headless",
+        "--browser",
+        "chrome"
+      ],
+      "enabled": true,
+      "timeout": 30
+    },
+    "server-sequential-thinking": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-sequential-thinking@latest"
+      ],
+      "enabled": true,
+      "timeout": 30
+    }
+  }
+}

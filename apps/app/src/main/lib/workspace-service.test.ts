@@ -133,6 +133,45 @@ describe('workspace service', () => {
     expect(readFileSync(claudeMdPath, 'utf-8')).toContain('workspace-files/assets/')
   })
 
+  test('creates a page-builder workspace with default MCP servers', () => {
+    ensureDefaultWorkspace()
+    const workspace = createAgentWorkspace('Page Builder MCP Workspace', { template: 'page-builder' })
+    const mcpConfig = JSON.parse(readFileSync(getWorkspaceMcpPath(workspace.slug), 'utf-8')) as {
+      servers: Record<string, {
+        type: string
+        command?: string
+        args?: string[]
+        enabled: boolean
+        timeout?: number
+      }>
+    }
+
+    expect(mcpConfig.servers.playwright).toEqual({
+      type: 'stdio',
+      command: 'npx',
+      args: ['@playwright/mcp@latest', '--headless', '--browser', 'chrome'],
+      enabled: true,
+      timeout: 30,
+    })
+    expect(mcpConfig.servers['server-sequential-thinking']).toEqual({
+      type: 'stdio',
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-sequential-thinking@latest'],
+      enabled: true,
+      timeout: 30,
+    })
+  })
+
+  test('does not write page-builder default MCP servers for regular workspaces', () => {
+    ensureDefaultWorkspace()
+    const workspace = createAgentWorkspace('Regular MCP Workspace')
+    const mcpConfig = JSON.parse(readFileSync(getWorkspaceMcpPath(workspace.slug), 'utf-8')) as {
+      servers: Record<string, unknown>
+    }
+
+    expect(mcpConfig.servers).toEqual({})
+  })
+
   test('persists the page-builder template only for page-builder workspaces', () => {
     ensureDefaultWorkspace()
     const pageBuilderWorkspace = createAgentWorkspace('Builder Docs', { template: 'page-builder' })
@@ -148,6 +187,107 @@ describe('workspace service', () => {
     expect(regularWorkspace.template).toBeUndefined()
     expect(index.workspaces.find((entry) => entry.id === pageBuilderWorkspace.id)?.template).toBe('page-builder')
     expect(index.workspaces.find((entry) => entry.id === regularWorkspace.id)?.template).toBeUndefined()
+  })
+
+  test('migrates existing page-builder workspaces by filling missing default MCP servers', () => {
+    const now = Date.now()
+    const indexPath = getAgentWorkspacesIndexPath()
+
+    writeFileSync(indexPath, JSON.stringify({
+      version: 1,
+      workspaces: [
+        {
+          id: 'workspace-default',
+          name: DEFAULT_WORKSPACE_NAME,
+          slug: DEFAULT_WORKSPACE_SLUG,
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: 'workspace-page-builder',
+          name: 'Legacy Builder Docs',
+          slug: 'legacy-builder-docs',
+          template: 'page-builder',
+          createdAt: now,
+          updatedAt: now,
+        },
+      ],
+    }, null, 2), 'utf-8')
+
+    const legacyMcpPath = getWorkspaceMcpPath('legacy-builder-docs')
+    writeFileSync(legacyMcpPath, JSON.stringify({
+      servers: {
+        playwright: {
+          type: 'stdio',
+          command: 'node',
+          args: ['custom-playwright.js'],
+          enabled: true,
+          timeout: 88,
+        },
+      },
+    }, null, 2), 'utf-8')
+
+    const workspaces = listAgentWorkspaces()
+    const migratedConfig = JSON.parse(readFileSync(legacyMcpPath, 'utf-8')) as {
+      servers: Record<string, {
+        type: string
+        command?: string
+        args?: string[]
+        enabled: boolean
+        timeout?: number
+      }>
+    }
+
+    expect(workspaces.some((workspace) => workspace.id === 'workspace-page-builder')).toBe(true)
+    expect(migratedConfig.servers.playwright).toEqual({
+      type: 'stdio',
+      command: 'node',
+      args: ['custom-playwright.js'],
+      enabled: true,
+      timeout: 88,
+    })
+    expect(migratedConfig.servers['server-sequential-thinking']).toEqual({
+      type: 'stdio',
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-sequential-thinking@latest'],
+      enabled: true,
+      timeout: 30,
+    })
+  })
+
+  test('does not migrate regular historical workspaces without the page-builder template', () => {
+    const now = Date.now()
+    const indexPath = getAgentWorkspacesIndexPath()
+
+    writeFileSync(indexPath, JSON.stringify({
+      version: 1,
+      workspaces: [
+        {
+          id: 'workspace-default',
+          name: DEFAULT_WORKSPACE_NAME,
+          slug: DEFAULT_WORKSPACE_SLUG,
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: 'workspace-regular',
+          name: 'Legacy Regular Docs',
+          slug: 'legacy-regular-docs',
+          createdAt: now,
+          updatedAt: now,
+        },
+      ],
+    }, null, 2), 'utf-8')
+
+    const regularMcpPath = getWorkspaceMcpPath('legacy-regular-docs')
+    writeFileSync(regularMcpPath, JSON.stringify({ servers: {} }, null, 2), 'utf-8')
+
+    listAgentWorkspaces()
+
+    const config = JSON.parse(readFileSync(regularMcpPath, 'utf-8')) as {
+      servers: Record<string, unknown>
+    }
+    expect(config.servers).toEqual({})
   })
 
   test('builds workspace skill invocation names from the workspace slug', () => {

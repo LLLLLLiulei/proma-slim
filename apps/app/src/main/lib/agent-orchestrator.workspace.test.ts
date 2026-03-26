@@ -186,7 +186,7 @@ describe('AgentOrchestrator workspace runtime', () => {
     ])
   })
 
-  test('passes workspace scoped mcp servers to the adapter query options', async () => {
+  test('passes workspace scoped mcp servers to the adapter query options with stable startup fields', async () => {
     const adapter = new RecordingAdapter()
     const orchestrator = new AgentOrchestrator(adapter, new AgentEventBus())
     const workspace = createAgentWorkspace('MCP Docs')
@@ -198,7 +198,20 @@ describe('AgentOrchestrator workspace runtime', () => {
           type: 'stdio',
           command: 'node',
           args: ['server.js'],
+          env: { FOO: 'bar' },
+          timeout: 45,
           enabled: true,
+        },
+        browser: {
+          type: 'sse',
+          url: 'https://example.com/browser',
+          headers: { Authorization: 'Bearer token' },
+          enabled: true,
+        },
+        disabled: {
+          type: 'http',
+          url: 'https://example.com/disabled',
+          enabled: false,
         },
       },
     })
@@ -223,6 +236,18 @@ describe('AgentOrchestrator workspace runtime', () => {
         type: 'stdio',
         command: 'node',
         args: ['server.js'],
+        env: {
+          PATH: process.env.PATH,
+          FOO: 'bar',
+        },
+        startup_timeout_sec: 45,
+        required: false,
+      },
+      browser: {
+        type: 'sse',
+        url: 'https://example.com/browser',
+        headers: { Authorization: 'Bearer token' },
+        required: false,
       },
     })
   })

@@ -77,11 +77,17 @@ function buildWorkspaceMcpServers(workspaceSlug: string): Record<string, Record<
     if (!entry.enabled) continue
 
     if (entry.type === 'stdio' && entry.command) {
+      const mergedEnv: Record<string, string> = {
+        ...(process.env.PATH ? { PATH: process.env.PATH } : {}),
+        ...(entry.env ?? {}),
+      }
       mcpServers[name] = {
         type: 'stdio',
         command: entry.command,
         ...(entry.args && entry.args.length > 0 && { args: entry.args }),
-        ...(entry.env && Object.keys(entry.env).length > 0 && { env: entry.env }),
+        ...(Object.keys(mergedEnv).length > 0 && { env: mergedEnv }),
+        required: false,
+        startup_timeout_sec: entry.timeout ?? 30,
       }
       continue
     }
@@ -91,6 +97,7 @@ function buildWorkspaceMcpServers(workspaceSlug: string): Record<string, Record<
         type: entry.type,
         url: entry.url,
         ...(entry.headers && Object.keys(entry.headers).length > 0 && { headers: entry.headers }),
+        required: false,
       }
     }
   }

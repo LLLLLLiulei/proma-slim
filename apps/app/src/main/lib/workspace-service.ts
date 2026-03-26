@@ -34,7 +34,8 @@ import {
   getWorkspacePluginManifestPath,
   getWorkspaceSkillsDir,
 } from './config-paths'
-import { initializeWorkspaceTemplate, type WorkspaceTemplateName } from './workspace-template-service'
+import { initializePageBuilderWorkspace } from './page-builder-workspace-bootstrap'
+import type { WorkspaceTemplateName } from './workspace-template-service'
 
 export const DEFAULT_WORKSPACE_NAME = '默认工作区'
 export const DEFAULT_WORKSPACE_SLUG = 'default'
@@ -223,6 +224,14 @@ function copyDefaultSkills(workspaceSlug: string): void {
   }
 }
 
+function ensureWorkspaceTemplateArtifacts(workspace: AgentWorkspace): AgentWorkspace {
+  if (workspace.template === 'page-builder') {
+    initializePageBuilderWorkspace(workspace.slug)
+  }
+
+  return workspace
+}
+
 function parseSkillFrontmatter(content: string, slug: string, enabled: boolean): SkillMeta {
   const meta: SkillMeta = { slug, name: slug, enabled }
   const frontmatter = content.match(/^---\s*\n([\s\S]*?)\n---/)
@@ -272,15 +281,19 @@ function scanSkillsInDir(dir: string, enabled: boolean): SkillMeta[] {
 
 export function listAgentWorkspaces(): AgentWorkspace[] {
   ensureDefaultWorkspace()
-  return readIndex().workspaces.sort((a, b) => b.updatedAt - a.updatedAt)
+  return readIndex().workspaces
+    .map(ensureWorkspaceTemplateArtifacts)
+    .sort((a, b) => b.updatedAt - a.updatedAt)
 }
 
 export function getAgentWorkspace(id: string): AgentWorkspace | undefined {
-  return readIndex().workspaces.find((workspace) => workspace.id === id)
+  const workspace = readIndex().workspaces.find((entry) => entry.id === id)
+  return workspace ? ensureWorkspaceTemplateArtifacts(workspace) : undefined
 }
 
 export function getAgentWorkspaceBySlug(slug: string): AgentWorkspace | undefined {
-  return readIndex().workspaces.find((workspace) => workspace.slug === slug)
+  const workspace = readIndex().workspaces.find((entry) => entry.slug === slug)
+  return workspace ? ensureWorkspaceTemplateArtifacts(workspace) : undefined
 }
 
 export function ensureDefaultWorkspace(): AgentWorkspace {
@@ -301,6 +314,7 @@ export function ensureDefaultWorkspace(): AgentWorkspace {
   }
 
   ensureWorkspaceStructure(workspace.slug)
+  ensureWorkspaceTemplateArtifacts(workspace)
   copyDefaultSkills(workspace.slug)
   return workspace
 }
@@ -328,9 +342,7 @@ export function createAgentWorkspace(name: string, options?: CreateWorkspaceOpti
   index.workspaces.push(workspace)
   writeIndex(index)
   ensureWorkspaceStructure(workspace.slug)
-  if (options?.template === 'page-builder') {
-    initializeWorkspaceTemplate(workspace.slug, 'page-builder')
-  }
+  ensureWorkspaceTemplateArtifacts(workspace)
   copyDefaultSkills(workspace.slug)
   return workspace
 }
