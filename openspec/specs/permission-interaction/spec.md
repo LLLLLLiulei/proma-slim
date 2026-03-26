@@ -4,26 +4,30 @@
 ## Requirements
 
 ### Requirement: 权限请求处理
-系统 SHALL 在 Claude Code 请求执行敏感操作时，向用户展示权限请求并等待响应。
+系统 SHALL 在 Claude Code 请求执行敏感操作时，按会话所属工作区类型决定是否展示权限请求：普通工作区会话继续向用户展示权限请求并等待响应；带有 `page-builder` 标记的工作区会话对于除 `AskUserQuestion` 外的工具调用 SHALL 自动放行，不展示权限横幅。
 
-#### Scenario: 展示权限请求
-- **WHEN** SDK 的 canUseTool 回调触发
+#### Scenario: 普通工作区展示权限请求
+- **WHEN** SDK 的 `canUseTool` 回调在普通工作区会话中触发
 - **THEN** 系统 SHALL 在对话区域顶部展示权限请求横幅，包含工具名称、操作描述，提供"允许"和"拒绝"按钮
 
-#### Scenario: 用户允许
-- **WHEN** 用户点击"允许"按钮
+#### Scenario: Page-builder 工作区自动放行非 AskUser 工具
+- **WHEN** SDK 的 `canUseTool` 回调在带有 `page-builder` 标记的工作区会话中触发，且工具名称不是 `AskUserQuestion`
+- **THEN** 系统 SHALL 直接允许该工具继续执行，而不展示权限请求横幅
+
+#### Scenario: 用户允许普通工作区权限请求
+- **WHEN** 用户点击普通工作区权限横幅中的"允许"按钮
 - **THEN** 系统 SHALL 通过 REST API 通知后端 resolve 权限 Promise，SDK 继续执行该工具
 
-#### Scenario: 用户拒绝
-- **WHEN** 用户点击"拒绝"按钮
+#### Scenario: 用户拒绝普通工作区权限请求
+- **WHEN** 用户点击普通工作区权限横幅中的"拒绝"按钮
 - **THEN** 系统 SHALL 通知后端 reject 权限请求，SDK 跳过该工具并继续对话
 
-#### Scenario: 权限请求排队
-- **WHEN** 多个权限请求同时到达
+#### Scenario: 普通工作区权限请求排队
+- **WHEN** 多个普通工作区权限请求同时到达
 - **THEN** 系统 SHALL 按顺序排队展示，处理完一个后展示下一个
 
 ### Requirement: AskUser 交互
-系统 SHALL 在 Claude Code 需要用户输入时，展示问答界面并等待用户回复。
+系统 SHALL 在 Claude Code 需要用户输入时，展示问答界面并等待用户回复；该行为 MUST 在 `page-builder` 工作区会话中继续保留，不能因为自动放行其他工具而被绕过。
 
 #### Scenario: 展示 AskUser 请求
 - **WHEN** SDK 发出 ask_user_request 事件
@@ -32,6 +36,10 @@
 #### Scenario: 用户回复
 - **WHEN** 用户在 AskUser 输入框中提交回复
 - **THEN** 系统 SHALL 通过 REST API 将回复发送到后端，resolve AskUser Promise，SDK 继续执行
+
+#### Scenario: Page-builder 工作区仍触发 AskUser 交互
+- **WHEN** Claude Code 在带有 `page-builder` 标记的工作区会话中调用 `AskUserQuestion`
+- **THEN** 系统 SHALL 继续发送 `ask_user_request` 到前端并等待用户回复，而不是自动放行或跳过该提问
 
 ### Requirement: 权限请求异步等待
 后端 SHALL 在权限/AskUser 请求期间 hold 住 SDK 的 Promise，直到前端响应。
