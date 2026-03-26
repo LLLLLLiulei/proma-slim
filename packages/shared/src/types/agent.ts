@@ -40,6 +40,8 @@ export interface AgentWorkspace {
   name: string
   /** URL-safe 目录名（创建后不可变） */
   slug: string
+  /** 工作区模板（仅特定产品入口使用） */
+  template?: 'page-builder'
   /** 创建时间戳 */
   createdAt: number
   /** 更新时间戳 */

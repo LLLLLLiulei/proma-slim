@@ -133,6 +133,23 @@ describe('workspace service', () => {
     expect(readFileSync(claudeMdPath, 'utf-8')).toContain('workspace-files/assets/')
   })
 
+  test('persists the page-builder template only for page-builder workspaces', () => {
+    ensureDefaultWorkspace()
+    const pageBuilderWorkspace = createAgentWorkspace('Builder Docs', { template: 'page-builder' })
+    const regularWorkspace = createAgentWorkspace('Regular Docs')
+    const index = JSON.parse(readFileSync(getAgentWorkspacesIndexPath(), 'utf-8')) as {
+      workspaces: Array<{
+        id: string
+        template?: 'page-builder'
+      }>
+    }
+
+    expect(pageBuilderWorkspace.template).toBe('page-builder')
+    expect(regularWorkspace.template).toBeUndefined()
+    expect(index.workspaces.find((entry) => entry.id === pageBuilderWorkspace.id)?.template).toBe('page-builder')
+    expect(index.workspaces.find((entry) => entry.id === regularWorkspace.id)?.template).toBeUndefined()
+  })
+
   test('builds workspace skill invocation names from the workspace slug', () => {
     expect(getWorkspaceSkillInvocationName('default', 'skill-creator')).toBe('default:skill-creator')
     expect(getWorkspaceSkillInvocationName('release-planning', 'docs')).toBe('release-planning:docs')

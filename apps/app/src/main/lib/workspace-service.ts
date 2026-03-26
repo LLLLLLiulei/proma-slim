@@ -320,6 +320,7 @@ export function createAgentWorkspace(name: string, options?: CreateWorkspaceOpti
     id: randomUUID(),
     name: trimmedName,
     slug,
+    ...(options?.template ? { template: options.template } : {}),
     createdAt: now,
     updatedAt: now,
   }

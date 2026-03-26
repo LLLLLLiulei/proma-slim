@@ -763,9 +763,13 @@ export class AgentOrchestrator {
       // 12. 读取应用设置 + 获取权限模式
       const appSettings = getSettings()
       const permissionMode: PromaPermissionMode = appSettings.agentPermissionMode ?? 'smart'
-      console.log(`[Agent 编排] 权限模式: ${permissionMode}`)
+      const isPageBuilderWorkspace = workspaceRuntime.workspace.template === 'page-builder'
+      const keepsAskUserInteractive = isPageBuilderWorkspace
+      const bypassPermissions = permissionMode === 'auto' && !keepsAskUserInteractive
+      const promptPermissionMode: PromaPermissionMode = bypassPermissions ? permissionMode : 'smart'
+      console.log(`[Agent 编排] 权限模式: ${permissionMode}${isPageBuilderWorkspace ? ' (page-builder 工作区策略已接管)' : ''}`)
 
-      const baseCanUseTool = permissionMode !== 'auto'
+      const baseCanUseTool = !bypassPermissions
         ? permissionService.createCanUseTool(
             sessionId,
             permissionMode,
@@ -784,6 +788,9 @@ export class AgentOrchestrator {
             },
             (requestId) => {
               this.eventBus.emit(sessionId, { type: 'ask_user_resolved', requestId })
+            },
+            {
+              autoAllowAllNonAskUser: keepsAskUserInteractive,
             },
           )
         : undefined
@@ -871,19 +878,19 @@ export class AgentOrchestrator {
         executableArgs,
         env: sdkEnv,
         ...(maxTurns != null && { maxTurns }),
-        sdkPermissionMode: permissionMode === 'auto' ? 'bypassPermissions' : 'default',
+        sdkPermissionMode: bypassPermissions ? 'bypassPermissions' : 'default',
         // 仅在 auto/bypass 模式下才显式跳过权限。
         // 交互模式必须保留 canUseTool 链路，否则 scratch subagent guardrail 无法生效。
-        allowDangerouslySkipPermissions: permissionMode === 'auto',
+        allowDangerouslySkipPermissions: bypassPermissions,
         ...(canUseTool && { canUseTool }),
         ...(hooks && { hooks }),
-        ...(permissionMode !== 'auto' && { allowedTools: [...SAFE_TOOLS] }),
+        ...(!bypassPermissions && permissionMode !== 'auto' && { allowedTools: [...SAFE_TOOLS] }),
         systemPrompt: {
           type: 'preset',
           preset: 'claude_code',
           append: buildSystemPromptAppend({
             sessionId,
-            permissionMode,
+            permissionMode: promptPermissionMode,
             workspaceName: workspaceRuntime.workspace.name,
             workspaceSlug,
           }),

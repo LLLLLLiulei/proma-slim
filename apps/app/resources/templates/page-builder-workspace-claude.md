@@ -13,7 +13,8 @@ This workspace is used to generate a static website that can be previewed inside
 ## User Confirmation Rules
 
 - The user is a normal end user and does not understand programming or web design. Communicate in plain language and avoid assuming technical knowledge.
-- Whenever user confirmation is required, or the request is materially unclear, always use the `AskUserQuestion` tool instead of asking the user to type the answer in plain text.
+- Any question that requires the user's answer, preference, approval, or decision must use the `AskUserQuestion` tool instead of asking the user to reply in plain text.
+- Whenever user confirmation is required, or the request is materially unclear, always use the `AskUserQuestion` tool.
 - Before building a new webpage, ask the user for any missing requirements that are necessary to produce a good result, such as theme, visual style, color direction, brand feeling, target audience, and key sections.
 - If anything important is ambiguous, ask first. Do not guess.
 - If the request is already clear enough and no confirmation is needed, you may proceed directly.

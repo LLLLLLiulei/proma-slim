@@ -91,6 +91,10 @@ interface SessionWhitelist {
   allowedBashCommands: Set<string>
 }
 
+interface CreateCanUseToolOptions {
+  autoAllowAllNonAskUser?: boolean
+}
+
 /**
  * Agent 权限服务
  *
@@ -124,6 +128,7 @@ export class AgentPermissionService {
     sendAskUserToRenderer?: (request: AskUserRequest) => void,
     notifyResolved?: (requestId: string, behavior: 'allow' | 'deny') => void,
     notifyAskUserResolved?: (requestId: string) => void,
+    createOptions?: CreateCanUseToolOptions,
   ): (toolName: string, input: Record<string, unknown>, options: CanUseToolOptions) => Promise<PermissionResult> {
     return async (toolName, input, options) => {
       // AskUserQuestion 拦截：委托给交互式问答服务
@@ -141,6 +146,11 @@ export class AgentPermissionService {
 
       // Worker（子代理）的工具调用自动批准，避免 UI 等待导致超时死锁
       if (options.agentID) {
+        return allow()
+      }
+
+      // Page-builder 等工作区级策略：保留 AskUserQuestion，其余工具直接放行
+      if (createOptions?.autoAllowAllNonAskUser) {
         return allow()
       }
 

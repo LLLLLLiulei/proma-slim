@@ -2,15 +2,17 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import type { AgentEvent, AgentQueryInput, AgentProviderAdapter } from '@proma/shared'
+import type { AgentEvent, AgentQueryInput, AgentProviderAdapter, AskUserRequest } from '@proma/shared'
 import { AgentEventBus } from './agent-event-bus'
 import { AgentOrchestrator } from './agent-orchestrator'
+import { askUserService } from './agent-ask-user-service'
 import {
   createAgentSession,
   getAgentSessionMeta,
   moveSessionToWorkspace,
   updateAgentSessionMeta,
 } from './agent-session-manager'
+import { updateSettings } from './settings-service'
 import {
   attachWorkspaceDirectory,
   createAgentWorkspace,
@@ -320,6 +322,115 @@ describe('AgentOrchestrator workspace runtime', () => {
       run_in_background: false,
       subagent_type: 'general-purpose',
     })
+  })
+
+  test('keeps page-builder sessions on canUseTool in global auto mode and preserves AskUserQuestion', async () => {
+    updateSettings({ agentPermissionMode: 'auto' })
+
+    const adapter = new RecordingAdapter()
+    const eventBus = new AgentEventBus()
+    const askUserRequests: AskUserRequest[] = []
+    eventBus.on((_sessionId, event) => {
+      if (event.type === 'ask_user_request') {
+        askUserRequests.push(event.request)
+      }
+    })
+
+    const orchestrator = new AgentOrchestrator(adapter, eventBus)
+    const workspace = createAgentWorkspace('Page Builder Docs', { template: 'page-builder' })
+    const session = createAgentSession('Page Builder Session', undefined, workspace.id)
+
+    await orchestrator.sendMessage(
+      {
+        sessionId: session.id,
+        userMessage: '请帮我做一个页面',
+        channelId: '',
+      },
+      {
+        onError: (message) => {
+          throw new Error(message)
+        },
+        onComplete: () => {},
+        onTitleUpdated: () => {},
+      },
+    )
+
+    expect(adapter.lastInput?.sdkPermissionMode).toBe('default')
+    expect(adapter.lastInput?.allowDangerouslySkipPermissions).toBe(false)
+    expect(adapter.lastInput?.canUseTool).toBeDefined()
+
+    const writeResult = await adapter.lastInput?.canUseTool?.(
+      'Write',
+      {
+        file_path: 'workspace-files/index.html',
+        content: '<html><body>hello</body></html>',
+      },
+      {
+        signal: new AbortController().signal,
+        toolUseID: 'tool-write-1',
+      },
+    )
+
+    expect(writeResult?.behavior).toBe('allow')
+    expect(askUserRequests).toHaveLength(0)
+
+    const askInput = {
+      questions: [{
+        header: '风格',
+        question: '你想要什么网页风格？',
+        options: [{ label: '极简', description: '留白多，信息清晰' }],
+      }],
+    }
+    const askPromise = adapter.lastInput?.canUseTool?.(
+      'AskUserQuestion',
+      askInput,
+      {
+        signal: new AbortController().signal,
+        toolUseID: 'tool-ask-1',
+      },
+    )
+
+    expect(askUserRequests).toHaveLength(1)
+    const request = askUserRequests[0]!
+    expect(request.sessionId).toBe(session.id)
+    expect(request.questions[0]?.question).toBe('你想要什么网页风格？')
+
+    expect(askUserService.respondToAskUser(request.requestId, { 0: '极简' })).toBe(session.id)
+    const askResult = await askPromise
+
+    expect(askResult?.behavior).toBe('allow')
+    expect(askResult?.updatedInput).toEqual({
+      ...askInput,
+      answers: { 0: '极简' },
+    })
+  })
+
+  test('keeps ordinary workspaces on SDK bypass in global auto mode', async () => {
+    updateSettings({ agentPermissionMode: 'auto' })
+
+    const adapter = new RecordingAdapter()
+    const orchestrator = new AgentOrchestrator(adapter, new AgentEventBus())
+    const workspace = createAgentWorkspace('Auto Docs')
+    const session = createAgentSession('Auto Session', undefined, workspace.id)
+
+    await orchestrator.sendMessage(
+      {
+        sessionId: session.id,
+        userMessage: '读取一下目录',
+        channelId: '',
+      },
+      {
+        onError: (message) => {
+          throw new Error(message)
+        },
+        onComplete: () => {},
+        onTitleUpdated: () => {},
+      },
+    )
+
+    expect(adapter.lastInput?.sdkPermissionMode).toBe('bypassPermissions')
+    expect(adapter.lastInput?.allowDangerouslySkipPermissions).toBe(true)
+    expect(adapter.lastInput?.canUseTool).toBeUndefined()
   })
 
   test('registers a PreToolUse hook that rewrites scratch Agent worktree requests', async () => {
