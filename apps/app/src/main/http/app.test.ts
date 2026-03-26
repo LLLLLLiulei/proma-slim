@@ -74,6 +74,32 @@ describe('createHttpApp', () => {
     expect(await getResponse.json()).toEqual(getSettings())
   })
 
+  test('settings routes persist askUserTimeoutMs and treat 0 as no timeout', async () => {
+    const app = createApp()
+
+    const patchResponse = await app.fetch(new Request('http://localhost/api/settings', {
+      method: 'PATCH',
+      body: JSON.stringify({ askUserTimeoutMs: 1500 }),
+      headers: {
+        'content-type': 'application/json',
+      },
+    }))
+
+    expect(patchResponse.status).toBe(200)
+    expect(await patchResponse.json()).toEqual(updateSettings({ askUserTimeoutMs: 1500 }))
+
+    const resetResponse = await app.fetch(new Request('http://localhost/api/settings', {
+      method: 'PATCH',
+      body: JSON.stringify({ askUserTimeoutMs: 0 }),
+      headers: {
+        'content-type': 'application/json',
+      },
+    }))
+
+    expect(resetResponse.status).toBe(200)
+    expect(await resetResponse.json()).toEqual(updateSettings({ askUserTimeoutMs: 0 }))
+  })
+
   test('user profile routes preserve existing GET and PATCH behavior', async () => {
     const app = createApp()
 

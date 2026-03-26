@@ -7,8 +7,14 @@
 
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { getSettingsPath } from './config-paths'
-import { DEFAULT_THEME_MODE } from '../../types'
+import { DEFAULT_ASK_USER_TIMEOUT_MS, DEFAULT_THEME_MODE } from '../../types'
 import type { AppSettings } from '../../types'
+
+function normalizeAskUserTimeoutMs(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? value
+    : DEFAULT_ASK_USER_TIMEOUT_MS
+}
 
 /**
  * 获取应用设置
@@ -24,6 +30,7 @@ export function getSettings(): AppSettings {
       onboardingCompleted: false,
       environmentCheckSkipped: false,
       notificationsEnabled: true,
+      askUserTimeoutMs: DEFAULT_ASK_USER_TIMEOUT_MS,
     }
   }
 
@@ -36,6 +43,7 @@ export function getSettings(): AppSettings {
       onboardingCompleted: data.onboardingCompleted ?? false,
       environmentCheckSkipped: data.environmentCheckSkipped ?? false,
       notificationsEnabled: data.notificationsEnabled ?? true,
+      askUserTimeoutMs: normalizeAskUserTimeoutMs(data.askUserTimeoutMs),
     }
   } catch (error) {
     console.error('[设置] 读取失败:', error)
@@ -44,6 +52,7 @@ export function getSettings(): AppSettings {
       onboardingCompleted: false,
       environmentCheckSkipped: false,
       notificationsEnabled: true,
+      askUserTimeoutMs: DEFAULT_ASK_USER_TIMEOUT_MS,
     }
   }
 }
@@ -58,6 +67,7 @@ export function updateSettings(updates: Partial<AppSettings>): AppSettings {
   const updated: AppSettings = {
     ...current,
     ...updates,
+    askUserTimeoutMs: normalizeAskUserTimeoutMs(updates.askUserTimeoutMs ?? current.askUserTimeoutMs),
   }
 
   const filePath = getSettingsPath()

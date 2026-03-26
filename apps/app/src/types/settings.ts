@@ -12,6 +12,9 @@ export type ThemeMode = 'light' | 'dark' | 'system'
 /** 默认主题模式 */
 export const DEFAULT_THEME_MODE: ThemeMode = 'light'
 
+/** AskUserQuestion 默认超时（毫秒，0 = 不超时） */
+export const DEFAULT_ASK_USER_TIMEOUT_MS = 0
+
 /** 应用设置 */
 export interface AppSettings {
   /** 主题模式 */
@@ -42,6 +45,8 @@ export interface AppSettings {
   agentMaxBudgetUsd?: number
   /** Agent 最大轮次（0 或 undefined = SDK 默认） */
   agentMaxTurns?: number
+  /** AskUserQuestion 等待用户响应的超时（毫秒，0 = 不超时） */
+  askUserTimeoutMs?: number
   /** 教程推荐横幅是否已关闭 */
   tutorialBannerDismissed?: boolean
 }
