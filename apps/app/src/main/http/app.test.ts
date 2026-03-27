@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { getSettings, updateSettings } from '../lib/settings-service'
 import { getUserProfile, updateUserProfile } from '../lib/user-profile-service'
-import { createAgentSession, getAgentSessionMeta, updateAgentSessionMeta } from '../lib/agent-session-manager'
+import { appendAgentMessage, createAgentSession, getAgentSessionMeta, updateAgentSessionMeta } from '../lib/agent-session-manager'
 import { createAgentWorkspace, ensureDefaultWorkspace } from '../lib/workspace-service'
 import { createHttpApp } from './app'
 
@@ -390,6 +390,66 @@ describe('createHttpApp', () => {
 
     expect(response.status).toBe(400)
     expect(await response.json()).toEqual({ error: '消息内容不能为空' })
+  })
+
+  test('send route accepts multipart payloads for attachment-backed Builder messages', async () => {
+    const app = createApp()
+    const workspace = createAgentWorkspace('Attachment Runtime')
+    const session = createAgentSession('Send With Attachment', undefined, workspace.id)
+    const formData = new FormData()
+
+    formData.set('payload', JSON.stringify({
+      userMessage: '参考附件生成页面',
+      workspaceId: workspace.id,
+    }))
+    formData.append('attachments', new File(['image-binary'], 'reference.png', { type: 'image/png' }))
+
+    const response = await app.fetch(new Request(`http://localhost/api/sessions/${session.id}/send`, {
+      method: 'POST',
+      body: formData,
+    }))
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toContain('text/event-stream')
+  })
+
+  test('attachment content route serves structured session attachments', async () => {
+    const app = createApp()
+    const workspace = createAgentWorkspace('Attachment Preview')
+    const session = createAgentSession('Attachment Session', undefined, workspace.id)
+    const attachmentDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, session.id, 'attachments')
+
+    mkdirSync(attachmentDir, { recursive: true })
+    writeFileSync(join(attachmentDir, 'attachment-1.png'), 'preview-bytes', 'utf-8')
+    appendAgentMessage(session.id, {
+      id: 'message-1',
+      role: 'user',
+      content: '请参考这张图',
+      createdAt: Date.now(),
+      attachments: [{
+        id: 'attachment-1',
+        filename: 'reference.png',
+        mediaType: 'image/png',
+        localPath: 'attachments/attachment-1.png',
+        size: 13,
+      }],
+    })
+
+    const response = await app.fetch(new Request(`http://localhost/api/sessions/${session.id}/attachments/attachment-1/content`))
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toContain('image/png')
+    expect(await response.text()).toBe('preview-bytes')
+  })
+
+  test('attachment content route returns 404 when the attachment cannot be resolved', async () => {
+    const app = createApp()
+    const session = createAgentSession('Attachment Missing')
+
+    const response = await app.fetch(new Request(`http://localhost/api/sessions/${session.id}/attachments/missing/content`))
+
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({ error: '附件不存在: missing' })
   })
 
   test('production static handling serves files and falls back to index.html for non-api paths', async () => {

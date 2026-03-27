@@ -304,6 +304,7 @@ export function BuilderPage({
           <ProjectTitleBar workspaceId={workspaceId} />
           <div className="min-h-0 flex-1 overflow-hidden bg-background/40">
             <AgentView
+              allowAttachments
               initialUserMessage={loadState.initialUserMessage}
               onInitialUserMessageHandled={handleInitialUserMessageHandled}
               sessionId={sessionId}

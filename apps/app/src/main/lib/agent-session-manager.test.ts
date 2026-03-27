@@ -5,6 +5,7 @@ import { homedir } from 'node:os'
 import {
   appendAgentMessage,
   createAgentSession,
+  deleteAgentSession,
   getAgentSessionMessages,
   getAgentSessionMeta,
   listAgentSessions,
@@ -15,6 +16,7 @@ import {
   ensureDefaultWorkspace,
 } from './workspace-service'
 import {
+  getAgentSessionAttachmentsDir,
   getAgentSessionWorkspacePath,
   getAgentSessionsIndexPath,
 } from './config-paths'
@@ -73,8 +75,10 @@ describe('agent session workspace ownership', () => {
     const targetWorkspace = createAgentWorkspace('Proma Docs')
     const session = createAgentSession('可迁移会话', undefined, defaultWorkspace.id)
     const sourceDir = getAgentSessionWorkspacePath(defaultWorkspace.slug, session.id)
+    const sourceAttachmentDir = getAgentSessionAttachmentsDir(defaultWorkspace.slug, session.id)
 
     writeFileSync(join(sourceDir, 'notes.txt'), 'workspace-bound file', 'utf-8')
+    writeFileSync(join(sourceAttachmentDir, 'attachment.png'), 'image-data', 'utf-8')
     appendAgentMessage(session.id, {
       id: 'message-1',
       role: 'user',
@@ -91,5 +95,21 @@ describe('agent session workspace ownership', () => {
     expect(getAgentSessionMessages(session.id)).toHaveLength(1)
     expect(existsSync(join(sourceDir, 'notes.txt'))).toBe(false)
     expect(existsSync(join(getAgentSessionWorkspacePath(targetWorkspace.slug, session.id), 'notes.txt'))).toBe(true)
+    expect(existsSync(join(sourceAttachmentDir, 'attachment.png'))).toBe(false)
+    expect(existsSync(join(getAgentSessionAttachmentsDir(targetWorkspace.slug, session.id), 'attachment.png'))).toBe(true)
+  })
+
+  test('deletes the entire session directory including attachments when a session is removed', () => {
+    const workspace = createAgentWorkspace('Delete Docs')
+    const session = createAgentSession('待删除会话', undefined, workspace.id)
+    const sessionDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, session.id)
+    const attachmentDir = getAgentSessionAttachmentsDir(workspace.slug, session.id)
+
+    writeFileSync(join(attachmentDir, 'attachment.png'), 'image-data', 'utf-8')
+
+    deleteAgentSession(session.id)
+
+    expect(getAgentSessionMeta(session.id)).toBeUndefined()
+    expect(existsSync(sessionDir)).toBe(false)
   })
 })

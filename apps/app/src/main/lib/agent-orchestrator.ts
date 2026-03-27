@@ -29,6 +29,7 @@ import { AgentEventBus } from './agent-event-bus'
 import { getFetchFn } from './proxy-fetch'
 import { getEffectiveProxyUrl } from './proxy-settings-service'
 import { appendAgentMessage, updateAgentSessionMeta, getAgentSessionMeta, getAgentSessionMessages } from './agent-session-manager'
+import { deleteAgentSessionAttachments } from './agent-attachment-service'
 import {
   getAgentSessionWorkspacePath,
   getAgentWorkspacePath,
@@ -370,13 +371,43 @@ function extractToolSummary(events: import('@proma/shared').AgentEvent[]): strin
     : joined
 }
 
+function buildAttachedFilesPrompt(
+  attachments: AgentMessage['attachments'] | AgentSendInput['attachments'],
+  agentCwd: string,
+): string {
+  if (!attachments || attachments.length === 0) {
+    return ''
+  }
+
+  const lines = attachments.map((attachment) => (
+    `- ${attachment.filename}: ${join(agentCwd, attachment.localPath)}`
+  ))
+
+  return `<attached_files>\n${lines.join('\n')}\n</attached_files>`
+}
+
+function buildPromptMessageContent(
+  content: string,
+  attachments: AgentMessage['attachments'] | AgentSendInput['attachments'],
+  agentCwd: string,
+): string {
+  const attachmentPrompt = buildAttachedFilesPrompt(attachments, agentCwd)
+  if (!attachmentPrompt) {
+    return content
+  }
+
+  return content
+    ? `${content}\n\n${attachmentPrompt}`
+    : attachmentPrompt
+}
+
 /**
  * 构建带历史上下文的 prompt
  *
  * 当 resume 不可用时，将最近消息拼接为上下文注入 prompt，
  * 让新 SDK 会话保留对话记忆。包含文本内容和工具活动摘要。
  */
-function buildContextPrompt(sessionId: string, currentUserMessage: string): string {
+function buildContextPrompt(sessionId: string, currentUserMessage: string, agentCwd: string): string {
   const allMessages = getAgentSessionMessages(sessionId)
   if (allMessages.length === 0) return currentUserMessage
 
@@ -385,9 +416,10 @@ function buildContextPrompt(sessionId: string, currentUserMessage: string): stri
 
   const recent = history.slice(-MAX_CONTEXT_MESSAGES)
   const lines = recent
-    .filter((m) => (m.role === 'user' || m.role === 'assistant') && m.content)
+    .filter((m) => (m.role === 'user' || m.role === 'assistant') && (m.content || m.attachments?.length))
     .map((m) => {
-      let line = `[${m.role}]: ${m.content}`
+      const promptContent = buildPromptMessageContent(m.content, m.attachments, agentCwd)
+      let line = `[${m.role}]: ${promptContent}`
       // assistant 消息附带工具活动摘要，减少迁移后的"失忆"感
       if (m.role === 'assistant' && m.events && m.events.length > 0) {
         const toolSummary = extractToolSummary(m.events)
@@ -577,8 +609,25 @@ export class AgentOrchestrator {
       customMcpServers,
       mentionedSkills,
       mentionedMcpServers,
+      attachments,
     } = input
     const stderrChunks: string[] = []
+    const workspaceRuntime = resolveWorkspaceRuntimeContext(sessionId, {
+      workspaceId,
+      additionalDirectories,
+    })
+    const workspaceSlug = workspaceRuntime.workspace.slug
+    const rollbackPendingAttachments = () => {
+      if (!attachments || attachments.length === 0) {
+        return
+      }
+
+      deleteAgentSessionAttachments({
+        sessionId,
+        workspaceId: workspaceRuntime.workspace.id,
+        attachments,
+      })
+    }
 
     // 0. 并发保护
     if (this.activeSessions.has(sessionId)) {
@@ -605,6 +654,7 @@ export class AgentOrchestrator {
 
 安装完成后请重启应用。`
 
+        rollbackPendingAttachments()
         callbacks.onError(errorMsg)
         return
       }
@@ -613,6 +663,7 @@ export class AgentOrchestrator {
     // 2. 直接从环境变量读取 API Key（不再依赖渠道系统）
     const apiKey = process.env.ANTHROPIC_API_KEY?.trim()
     if (!apiKey) {
+      rollbackPendingAttachments()
       callbacks.onError('未检测到 ANTHROPIC_API_KEY 环境变量，请先在终端配置后再发送消息')
       return
     }
@@ -630,21 +681,54 @@ export class AgentOrchestrator {
       process.env.ANTHROPIC_BASE_URL = normalizeAnthropicBaseUrlForSdk(baseUrl)
     }
 
-    const sdkEnv = await this.buildSdkEnv(apiKey, baseUrl)
+    let sdkEnv: Record<string, string | undefined>
+    let sdk: typeof import('@anthropic-ai/claude-agent-sdk')
+    try {
+      sdkEnv = await this.buildSdkEnv(apiKey, baseUrl)
+      sdk = await import('@anthropic-ai/claude-agent-sdk')
+    } catch (error) {
+      rollbackPendingAttachments()
+      throw error
+    }
 
     // 4. 读取已有的 SDK session ID（用于 resume）
     const sessionMeta = getAgentSessionMeta(sessionId)
     let existingSdkSessionId = sessionMeta?.sdkSessionId
     console.log(`[Agent 编排] 会话 resume 状态: sdkSessionId=${existingSdkSessionId || '无'}`)
 
-    // 5. 持久化用户消息
+    const cliPath = resolveSDKCliPath()
+    const nullDevice = process.platform === 'win32' ? 'NUL' : '/dev/null'
+
+    // 5. 预检 SDK CLI 和运行时，再持久化用户消息
+    const agentExec = getAgentExecutable()
+
+    if (!existsSync(cliPath)) {
+      const errMsg = `SDK CLI 文件不存在: ${cliPath}`
+      console.error(`[Agent 编排] ${errMsg}`)
+      rollbackPendingAttachments()
+      callbacks.onError(errMsg)
+      return
+    }
+
+    ensureRipgrepAvailable(cliPath)
+
+    console.log(
+      `[Agent 编排] 启动 SDK — CLI: ${cliPath}, 运行时: ${agentExec.type} (${agentExec.path}), resume: ${existingSdkSessionId ?? '无'}`,
+    )
+
     const userMsg: AgentMessage = {
       id: randomUUID(),
       role: 'user',
       content: userMessage,
       createdAt: Date.now(),
+      ...(attachments && attachments.length > 0 ? { attachments } : {}),
     }
-    appendAgentMessage(sessionId, userMsg)
+    try {
+      appendAgentMessage(sessionId, userMsg)
+    } catch (error) {
+      rollbackPendingAttachments()
+      throw error
+    }
 
     // 6. 注册活跃会话
     this.activeSessions.add(sessionId)
@@ -653,45 +737,16 @@ export class AgentOrchestrator {
     let accumulatedText = ''
     const accumulatedEvents: AgentEvent[] = []
     let resolvedModel = DEFAULT_MODEL_ID
-    let agentExec: { type: 'node' | 'bun'; path: string } | undefined
-    let agentCwd: string | undefined
-    let pluginPath: string | undefined
-    let resolvedAdditionalDirectories: string[] = []
-    let resolvedMcpServers: Record<string, Record<string, unknown>> = {}
+    let agentCwd = workspaceRuntime.agentCwd
+    let pluginPath = workspaceRuntime.pluginPath
+    let resolvedAdditionalDirectories: string[] = [...workspaceRuntime.additionalDirectories]
+    let resolvedMcpServers: Record<string, Record<string, unknown>> = {
+      ...workspaceRuntime.mcpServers,
+    }
 
     try {
-      // 8. 动态导入 SDK
-      const sdk = await import('@anthropic-ai/claude-agent-sdk')
-
-      // 9. 构建 SDK query
-      const cliPath = resolveSDKCliPath()
-      agentExec = getAgentExecutable()
-
-      if (!existsSync(cliPath)) {
-        const errMsg = `SDK CLI 文件不存在: ${cliPath}`
-        console.error(`[Agent 编排] ${errMsg}`)
-        callbacks.onError(errMsg)
-        return
-      }
-
-      ensureRipgrepAvailable(cliPath)
-
-      console.log(
-        `[Agent 编排] 启动 SDK — CLI: ${cliPath}, 运行时: ${agentExec.type} (${agentExec.path}), resume: ${existingSdkSessionId ?? '无'}`,
-      )
-
-      const nullDevice = process.platform === 'win32' ? 'NUL' : '/dev/null'
+      // 8. 构建 SDK query
       const executableArgs = agentExec.type === 'bun' ? [`--env-file=${nullDevice}`] : []
-
-      const workspaceRuntime = resolveWorkspaceRuntimeContext(sessionId, {
-        workspaceId,
-        additionalDirectories,
-      })
-      agentCwd = workspaceRuntime.agentCwd
-      pluginPath = workspaceRuntime.pluginPath
-      resolvedAdditionalDirectories = workspaceRuntime.additionalDirectories
-      resolvedMcpServers = workspaceRuntime.mcpServers
-      const workspaceSlug = workspaceRuntime.workspace.slug
 
       if (customMcpServers) {
         Object.assign(resolvedMcpServers, customMcpServers)
@@ -752,6 +807,8 @@ export class AgentOrchestrator {
         console.log(`[Agent 编排] 注入 mentioned_tools: ${mentionedSkills?.length ?? 0} skills, ${mentionedMcpServers?.length ?? 0} MCP`)
       }
 
+      enrichedMessage = buildPromptMessageContent(enrichedMessage, attachments, agentCwd)
+
       const contextualMessage = `${dynamicCtx}\n\n${enrichedMessage}`
 
       const isCompactCommand = userMessage.trim() === '/compact'
@@ -759,7 +816,7 @@ export class AgentOrchestrator {
         ? '/compact'
         : existingSdkSessionId
           ? contextualMessage
-          : buildContextPrompt(sessionId, contextualMessage)
+          : buildContextPrompt(sessionId, contextualMessage, agentCwd)
 
       if (existingSdkSessionId) {
         console.log(`[Agent 编排] 使用 resume 模式，SDK session ID: ${existingSdkSessionId}`)

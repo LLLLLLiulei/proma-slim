@@ -231,4 +231,39 @@ describe('AgentMessages transient assistant rendering', () => {
     expect(markup).toContain('这是正在流式输出的部分内容。')
     expect(markup).toContain('正在输出...')
   })
+
+  test('renders structured user attachments through the session-scoped content route', () => {
+    const markup = renderToStaticMarkup(
+      React.createElement(AgentMessages, {
+        sessionId: 'session-attachments',
+        messages: [{
+          id: 'user-1',
+          role: 'user',
+          content: '请参考这张图和附件文档',
+          createdAt: 1,
+          attachments: [
+            {
+              id: 'attachment-image',
+              filename: 'reference.png',
+              mediaType: 'image/png',
+              localPath: 'attachments/reference.png',
+              size: 128,
+            },
+            {
+              id: 'attachment-doc',
+              filename: 'brief.pdf',
+              mediaType: 'application/pdf',
+              localPath: 'attachments/brief.pdf',
+              size: 256,
+            },
+          ],
+        }],
+        streaming: false,
+      })
+    )
+
+    expect(markup).toContain('/api/sessions/session-attachments/attachments/attachment-image/content')
+    expect(markup).toContain('/api/sessions/session-attachments/attachments/attachment-doc/content')
+    expect(markup).toContain('brief.pdf')
+  })
 })

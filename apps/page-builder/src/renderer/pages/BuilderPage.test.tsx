@@ -293,6 +293,7 @@ describe('BuilderPage', () => {
     expect(store.get(currentAgentWorkspaceIdAtom)).toBe(workspace.id)
     expect(getLastAgentViewProps()).toMatchObject({
       sessionId: session.id,
+      allowAttachments: true,
       showHeader: false,
       showComposerMeta: false,
       initialUserMessage: '生成一个企业官网',

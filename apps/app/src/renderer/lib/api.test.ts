@@ -121,6 +121,49 @@ describe('renderer api wrappers', () => {
     expect(response.headers.get('content-type')).toContain('text/event-stream')
   })
 
+  test('sendMessage forwards multipart payloads without forcing JSON headers', async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.close()
+      },
+    })
+
+    const attachment = new File(['binary-preview'], 'reference.png', { type: 'image/png' })
+
+    const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe('/api/sessions/session-1/send')
+      expect(init?.method).toBe('POST')
+      expect(init?.body).toBeInstanceOf(FormData)
+
+      const formData = init?.body as FormData
+      expect(formData.get('payload')).toBe(JSON.stringify({ userMessage: 'Use this screenshot', workspaceId: 'workspace-1' }))
+      expect(formData.getAll('attachments')).toHaveLength(1)
+      const forwardedAttachment = formData.getAll('attachments')[0] as File
+      expect(forwardedAttachment.name).toBe(attachment.name)
+      expect(forwardedAttachment.type).toBe(attachment.type)
+      expect(forwardedAttachment.size).toBe(attachment.size)
+      expect(new Headers(init?.headers).get('content-type')).toBeNull()
+
+      return new Response(stream, {
+        status: 200,
+        headers: {
+          'content-type': 'text/event-stream; charset=utf-8',
+        },
+      })
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const { api } = await import('./api')
+    const response = await api.sendMessage('session-1', {
+      userMessage: 'Use this screenshot',
+      workspaceId: 'workspace-1',
+      attachmentFiles: [attachment],
+    })
+
+    expect(response.body).not.toBeNull()
+    expect(response.headers.get('content-type')).toContain('text/event-stream')
+  })
+
   test('listWorkspaces requests /api/workspaces', async () => {
     const fetchMock = mock(async (input: RequestInfo | URL) => {
       expect(String(input)).toBe('/api/workspaces')

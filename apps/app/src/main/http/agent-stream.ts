@@ -77,7 +77,7 @@ export async function createSendResponse(
     )
   }
 
-  if (!body.userMessage || !body.userMessage.trim()) {
+  if (!body.userMessage?.trim() && !body.attachments?.length) {
     throw new HttpError(400, '消息内容不能为空')
   }
 
@@ -93,6 +93,7 @@ export async function createSendResponse(
     ...(body.permissionModeOverride && { permissionModeOverride: body.permissionModeOverride }),
     ...(body.mentionedSkills && { mentionedSkills: body.mentionedSkills }),
     ...(body.mentionedMcpServers && { mentionedMcpServers: body.mentionedMcpServers }),
+    ...(body.attachments && { attachments: body.attachments }),
   }
 
   const response = sseManager.createResponse(sessionId)

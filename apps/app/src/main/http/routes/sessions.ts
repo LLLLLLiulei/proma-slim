@@ -2,9 +2,15 @@ import { Hono } from 'hono'
 import type {
   AgentSendInput,
   AskUserResponse,
+  FileAttachment,
   PermissionResponse,
 } from '@proma/shared'
 import { askUserService } from '../../lib/agent-ask-user-service'
+import {
+  deleteAgentSessionAttachments,
+  getAgentSessionAttachmentContent,
+  saveAgentSessionAttachments,
+} from '../../lib/agent-attachment-service'
 import { isAgentSessionActive, stopAgent } from '../../lib/agent-service'
 import { permissionService } from '../../lib/agent-permission-service'
 import {
@@ -23,6 +29,63 @@ import type { HttpAppEnv } from '../types'
 import { sessionMiddleware } from '../middleware/session'
 
 export const sessionRoutes = new Hono<HttpAppEnv>()
+
+async function readSendRequestBody(
+  request: Request,
+  sessionId: string,
+  sessionWorkspaceId?: string,
+): Promise<{
+  body: Pick<AgentSendInput, 'userMessage'> & Partial<AgentSendInput>
+  attachments: FileAttachment[]
+}> {
+  const contentType = request.headers.get('content-type') ?? ''
+  if (!contentType.includes('multipart/form-data')) {
+    return {
+      body: await readJsonBody<Pick<AgentSendInput, 'userMessage'> & Partial<AgentSendInput>>(request),
+      attachments: [],
+    }
+  }
+
+  let formData: FormData
+  try {
+    formData = await request.formData()
+  } catch {
+    throw new HttpError(400, '请求体必须是合法的 multipart/form-data')
+  }
+
+  const rawPayload = formData.get('payload')
+  if (typeof rawPayload !== 'string') {
+    throw new HttpError(400, 'multipart 请求缺少 payload 字段')
+  }
+
+  let parsedPayload: Record<string, unknown>
+  try {
+    const value = JSON.parse(rawPayload) as unknown
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      throw new Error('invalid payload')
+    }
+    parsedPayload = value as Record<string, unknown>
+  } catch {
+    throw new HttpError(400, 'payload 必须是合法的 JSON 对象')
+  }
+
+  const files = formData
+    .getAll('attachments')
+    .filter((entry): entry is File => entry instanceof File)
+  const attachments = await saveAgentSessionAttachments({
+    sessionId,
+    workspaceId: sessionWorkspaceId,
+    files,
+  })
+
+  const body: Pick<AgentSendInput, 'userMessage'> & Partial<AgentSendInput> = {
+    ...(parsedPayload as Pick<AgentSendInput, 'userMessage'> & Partial<AgentSendInput>),
+    ...(sessionWorkspaceId ? { workspaceId: sessionWorkspaceId } : {}),
+    ...(attachments.length > 0 ? { attachments } : {}),
+  }
+
+  return { body, attachments }
+}
 
 sessionRoutes.get('/', (c) => {
   return c.json(listAgentSessions())
@@ -56,6 +119,26 @@ sessionRoutes.patch('/:sessionId', async (c) => {
 
 sessionRoutes.get('/:sessionId/messages', (c) => {
   return c.json(getAgentSessionMessages(c.var.sessionMeta.id))
+})
+
+sessionRoutes.get('/:sessionId/attachments/:attachmentId/content', (c) => {
+  const rawAttachmentId = c.req.param('attachmentId')
+  if (!rawAttachmentId) {
+    throw new HttpError(404, '附件不存在')
+  }
+
+  const { attachment, body } = getAgentSessionAttachmentContent(
+    c.var.sessionMeta.id,
+    decodeURIComponent(rawAttachmentId),
+  )
+  const payload = body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength) as ArrayBuffer
+
+  return new Response(payload, {
+    headers: {
+      'content-type': attachment.mediaType,
+      'content-disposition': `inline; filename*=UTF-8''${encodeURIComponent(attachment.filename)}`,
+    },
+  })
 })
 
 sessionRoutes.post('/:sessionId/move-workspace', async (c) => {
@@ -101,6 +184,30 @@ sessionRoutes.post('/:sessionId/ask-user-respond', async (c) => {
 })
 
 sessionRoutes.post('/:sessionId/send', async (c) => {
-  const body = await readJsonBody<Pick<AgentSendInput, 'userMessage'> & Partial<AgentSendInput>>(c.req.raw)
-  return createSendResponse(c.var.sessionMeta.id, body)
+  const { body, attachments } = await readSendRequestBody(
+    c.req.raw,
+    c.var.sessionMeta.id,
+    c.var.sessionMeta.workspaceId,
+  )
+
+  try {
+    const response = await createSendResponse(c.var.sessionMeta.id, body)
+    if (!response.ok && attachments.length > 0) {
+      deleteAgentSessionAttachments({
+        sessionId: c.var.sessionMeta.id,
+        workspaceId: c.var.sessionMeta.workspaceId,
+        attachments,
+      })
+    }
+    return response
+  } catch (error) {
+    if (attachments.length > 0) {
+      deleteAgentSessionAttachments({
+        sessionId: c.var.sessionMeta.id,
+        workspaceId: c.var.sessionMeta.workspaceId,
+        attachments,
+      })
+    }
+    throw error
+  }
 })

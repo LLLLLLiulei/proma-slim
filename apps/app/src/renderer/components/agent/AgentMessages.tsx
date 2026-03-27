@@ -10,6 +10,7 @@ import { useAtomValue } from 'jotai'
 import { Bot, FileText, FileImage, RotateCw, AlertTriangle, ChevronDown, ChevronRight, Plus, Minimize2 } from 'lucide-react'
 import {
   Message,
+  MessageAttachments,
   MessageHeader,
   MessageContent,
   MessageActions,
@@ -455,13 +456,20 @@ function RetryAttemptItem({
 
 /** AgentMessageItem 属性接口 */
 interface AgentMessageItemProps {
+  sessionId: string
   message: AgentMessage
   onRetry?: () => void
   onRetryInNewSession?: () => void
   onCompact?: () => void
 }
 
-function AgentMessageItem({ message, onRetry, onRetryInNewSession, onCompact }: AgentMessageItemProps): React.ReactElement | null {
+function AgentMessageItem({
+  sessionId,
+  message,
+  onRetry,
+  onRetryInNewSession,
+  onCompact,
+}: AgentMessageItemProps): React.ReactElement | null {
   const userProfile = useAtomValue(userProfileAtom)
 
   if (message.role === 'user') {
@@ -477,7 +485,9 @@ function AgentMessageItem({ message, onRetry, onRetryInNewSession, onCompact }: 
           </div>
         </div>
         <MessageContent>
-          {attachedFiles.length > 0 && (
+          {message.attachments && message.attachments.length > 0 ? (
+            <MessageAttachments attachments={message.attachments} sessionId={sessionId} />
+          ) : attachedFiles.length > 0 && (
             <div className="flex flex-wrap gap-1.5 mb-2">
               {attachedFiles.map((file) => (
                 <AttachedFileChip key={file.path} file={file} />
@@ -633,6 +643,7 @@ export function AgentMessages({ sessionId, messages, streaming, streamState, onR
             {messages.map((msg: AgentMessage) => (
               <div key={msg.id} data-message-id={msg.id}>
                 <AgentMessageItem
+                  sessionId={sessionId}
                   message={msg}
                   onRetry={onRetry}
                   onRetryInNewSession={onRetryInNewSession}

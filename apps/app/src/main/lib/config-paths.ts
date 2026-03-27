@@ -6,7 +6,7 @@
  */
 
 import { fileURLToPath } from 'node:url'
-import { join } from 'node:path'
+import { isAbsolute, join, normalize } from 'node:path'
 import { mkdirSync, existsSync, cpSync, readdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 
@@ -337,6 +337,49 @@ export function getAgentSessionWorkspacePath(workspaceSlug: string, sessionId: s
   }
 
   return dir
+}
+
+/**
+ * 获取指定 Agent 会话的附件目录路径
+ *
+ * @param workspaceSlug 工作区 slug
+ * @param sessionId 会话 ID
+ * @returns ~/.proma/agent-workspaces/{slug}/{sessionId}/attachments/
+ */
+export function getAgentSessionAttachmentsDir(workspaceSlug: string, sessionId: string): string {
+  const dir = join(getAgentSessionWorkspacePath(workspaceSlug, sessionId), 'attachments')
+
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true })
+  }
+
+  return dir
+}
+
+/**
+ * 解析会话附件相对路径为完整路径
+ *
+ * localPath 必须是 session cwd 下的相对路径，并且当前仅允许
+ * `attachments/` 子目录中的文件。
+ *
+ * @param workspaceSlug 工作区 slug
+ * @param sessionId 会话 ID
+ * @param localPath 相对路径，例如 attachments/uuid.png
+ * @returns 完整路径 ~/.proma/agent-workspaces/{slug}/{sessionId}/attachments/uuid.png
+ */
+export function resolveAgentSessionAttachmentPath(
+  workspaceSlug: string,
+  sessionId: string,
+  localPath: string,
+): string {
+  const trimmedPath = localPath.trim()
+  const normalizedPath = normalize(trimmedPath).replace(/\\/g, '/')
+
+  if (!normalizedPath || isAbsolute(trimmedPath) || normalizedPath.startsWith('../') || !normalizedPath.startsWith('attachments/')) {
+    throw new Error(`非法的会话附件路径: ${localPath}`)
+  }
+
+  return join(getAgentSessionWorkspacePath(workspaceSlug, sessionId), normalizedPath)
 }
 
 /**

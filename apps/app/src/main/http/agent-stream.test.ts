@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
-import type { AgentSendInput } from '@proma/shared'
+import type { AgentSendInput, FileAttachment } from '@proma/shared'
 import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
@@ -138,6 +138,67 @@ describe('createSendResponse', () => {
     expect(decoder.decode(connectedChunk.value)).toContain(': connected')
 
     sseManager.closeSession('session-1')
+  })
+
+  test('forwards structured attachments into the agent run input', async () => {
+    const runAgent = mock(async (_input: AgentSendInput) => {})
+    const attachments: FileAttachment[] = [{
+      id: 'attachment-1',
+      filename: 'reference.png',
+      mediaType: 'image/png',
+      localPath: 'attachments/reference.png',
+      size: 128,
+    }]
+
+    const response = await createSendResponse('session-attachments', {
+      userMessage: 'Use the attached screenshot',
+      attachments,
+      workspaceId: 'workspace-1',
+    }, {
+      isAgentSessionActive: () => false,
+      runAgent,
+      generateTitle: mock(async () => null),
+    })
+
+    expect(response.status).toBe(200)
+    expect(runAgent).toHaveBeenCalledTimes(1)
+    expect(runAgent.mock.calls[0]?.[0]).toMatchObject({
+      sessionId: 'session-attachments',
+      userMessage: 'Use the attached screenshot',
+      workspaceId: 'workspace-1',
+      attachments,
+    })
+
+    sseManager.closeSession('session-attachments')
+  })
+
+  test('allows attachment-only sends while keeping blank text-only sends invalid', async () => {
+    const runAgent = mock(async (_input: AgentSendInput) => {})
+    const attachments: FileAttachment[] = [{
+      id: 'attachment-1',
+      filename: 'reference.png',
+      mediaType: 'image/png',
+      localPath: 'attachments/reference.png',
+      size: 128,
+    }]
+
+    const response = await createSendResponse('session-attachment-only', {
+      userMessage: '   ',
+      attachments,
+    }, {
+      isAgentSessionActive: () => false,
+      runAgent,
+      generateTitle: mock(async () => null),
+    })
+
+    expect(response.status).toBe(200)
+    expect(runAgent).toHaveBeenCalledTimes(1)
+    expect(runAgent.mock.calls[0]?.[0]).toMatchObject({
+      sessionId: 'session-attachment-only',
+      attachments,
+    })
+
+    sseManager.closeSession('session-attachment-only')
   })
 
   test('disconnecting the response does not implicitly stop the running agent', async () => {

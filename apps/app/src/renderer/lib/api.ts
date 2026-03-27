@@ -35,12 +35,48 @@ interface RequestOptions extends Omit<RequestInit, 'body'> {
   body?: unknown
 }
 
-function buildHeaders(headers?: HeadersInit, hasBody = false): Headers {
+type SendMessagePayload = Partial<AgentSendInput> & {
+  userMessage: string
+  attachmentFiles?: File[]
+}
+
+function isFormDataBody(body: unknown): body is FormData {
+  return typeof FormData !== 'undefined' && body instanceof FormData
+}
+
+function buildHeaders(headers?: HeadersInit, body?: unknown): Headers {
   const next = new Headers(headers)
-  if (hasBody && !next.has('content-type')) {
+  if (body !== undefined && !isFormDataBody(body) && !next.has('content-type')) {
     next.set('content-type', 'application/json')
   }
   return next
+}
+
+function buildRequestBody(body: unknown): BodyInit | undefined {
+  if (body === undefined) {
+    return undefined
+  }
+
+  if (isFormDataBody(body)) {
+    return body
+  }
+
+  return JSON.stringify(body)
+}
+
+function buildSendMessageBody(payload: SendMessagePayload): FormData | Omit<SendMessagePayload, 'attachmentFiles'> {
+  const { attachmentFiles, ...jsonPayload } = payload
+  if (!attachmentFiles || attachmentFiles.length === 0) {
+    return jsonPayload
+  }
+
+  const formData = new FormData()
+  formData.set('payload', JSON.stringify(jsonPayload))
+  for (const file of attachmentFiles) {
+    formData.append('attachments', file)
+  }
+
+  return formData
 }
 
 async function readErrorMessage(response: Response): Promise<string> {
@@ -64,11 +100,10 @@ async function readErrorMessage(response: Response): Promise<string> {
 }
 
 async function request<T>(url: string, options: RequestOptions = {}): Promise<T> {
-  const hasBody = options.body !== undefined
   const response = await fetch(url, {
     ...options,
-    headers: buildHeaders(options.headers, hasBody),
-    body: hasBody ? JSON.stringify(options.body) : undefined,
+    headers: buildHeaders(options.headers, options.body),
+    body: buildRequestBody(options.body),
   })
 
   if (!response.ok) {
@@ -83,11 +118,10 @@ async function request<T>(url: string, options: RequestOptions = {}): Promise<T>
 }
 
 async function requestStream(url: string, options: RequestOptions = {}): Promise<Response> {
-  const hasBody = options.body !== undefined
   const response = await fetch(url, {
     ...options,
-    headers: buildHeaders(options.headers, hasBody),
-    body: hasBody ? JSON.stringify(options.body) : undefined,
+    headers: buildHeaders(options.headers, options.body),
+    body: buildRequestBody(options.body),
   })
 
   if (!response.ok) {
@@ -234,12 +268,12 @@ export const api = {
 
   sendMessage(
     sessionId: string,
-    payload: Pick<AgentSendInput, 'userMessage'> & Partial<AgentSendInput>,
+    payload: SendMessagePayload,
     init?: Pick<RequestInit, 'signal'>,
   ): Promise<Response> {
     return requestStream(`/api/sessions/${encodeURIComponent(sessionId)}/send`, {
       method: 'POST',
-      body: payload,
+      body: buildSendMessageBody(payload),
       signal: init?.signal,
     })
   },

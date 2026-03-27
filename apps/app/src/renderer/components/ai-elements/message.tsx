@@ -470,11 +470,25 @@ export function MessageStopped({ className, ...props }: MessageStoppedProps): Re
 interface MessageAttachmentsProps extends HTMLAttributes<HTMLDivElement> {
   /** 附件列表 */
   attachments: FileAttachment[]
+  sessionId: string
+}
+
+function resolveAttachmentUrl(sessionId: string, attachment: FileAttachment): string | null {
+  if (!attachment.localPath) {
+    return null
+  }
+
+  if (/^(blob:|data:|https?:\/\/|\/)/.test(attachment.localPath)) {
+    return attachment.localPath
+  }
+
+  return `/api/sessions/${encodeURIComponent(sessionId)}/attachments/${encodeURIComponent(attachment.id)}/content`
 }
 
 /** 消息附件容器 */
 export function MessageAttachments({
   attachments,
+  sessionId,
   className,
   ...props
 }: MessageAttachmentsProps): React.ReactElement {
@@ -488,7 +502,12 @@ export function MessageAttachments({
       {imageAttachments.length > 0 && (
         <div className="flex flex-wrap gap-2.5">
           {imageAttachments.map((att) => (
-            <MessageAttachmentImage key={att.id} attachment={att} isSingle={isSingleImage} />
+            <MessageAttachmentImage
+              key={att.id}
+              attachment={att}
+              attachmentUrl={resolveAttachmentUrl(sessionId, att)}
+              isSingle={isSingleImage}
+            />
           ))}
         </div>
       )}
@@ -496,7 +515,11 @@ export function MessageAttachments({
       {fileAttachments.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {fileAttachments.map((att) => (
-            <MessageAttachmentFile key={att.id} attachment={att} />
+            <MessageAttachmentFile
+              key={att.id}
+              attachment={att}
+              attachmentUrl={resolveAttachmentUrl(sessionId, att)}
+            />
           ))}
         </div>
       )}
@@ -508,13 +531,18 @@ export function MessageAttachments({
 
 interface MessageAttachmentImageProps {
   attachment: FileAttachment
+  attachmentUrl: string | null
   /** 是否为唯一附件（单图模式） */
   isSingle?: boolean
 }
 
 /** 图片附件展示（单图: max 500px，多图: 280px 方块） */
-function MessageAttachmentImage({ attachment, isSingle = false }: MessageAttachmentImageProps): React.ReactElement {
-  const imageSrc = attachment.localPath
+function MessageAttachmentImage({
+  attachment,
+  attachmentUrl,
+  isSingle = false,
+}: MessageAttachmentImageProps): React.ReactElement {
+  const imageSrc = attachmentUrl
 
   if (!imageSrc) {
     return (
@@ -525,18 +553,22 @@ function MessageAttachmentImage({ attachment, isSingle = false }: MessageAttachm
     )
   }
 
-  return isSingle ? (
-    <img
-      src={imageSrc}
-      alt={attachment.filename}
-      className="max-w-[500px] max-h-[min(500px,50vh)] rounded-lg object-contain"
-    />
-  ) : (
-    <img
-      src={imageSrc}
-      alt={attachment.filename}
-      className="size-[280px] rounded-lg object-cover shrink-0"
-    />
+  return (
+    <a href={imageSrc} rel="noreferrer" target="_blank">
+      {isSingle ? (
+        <img
+          src={imageSrc}
+          alt={attachment.filename}
+          className="max-w-[500px] max-h-[min(500px,50vh)] rounded-lg object-contain"
+        />
+      ) : (
+        <img
+          src={imageSrc}
+          alt={attachment.filename}
+          className="size-[280px] rounded-lg object-cover shrink-0"
+        />
+      )}
+    </a>
   )
 }
 
@@ -544,20 +576,31 @@ function MessageAttachmentImage({ attachment, isSingle = false }: MessageAttachm
 
 interface MessageAttachmentFileProps {
   attachment: FileAttachment
+  attachmentUrl: string | null
 }
 
 /** 文件附件展示（标签样式，teal 色调） */
-function MessageAttachmentFile({ attachment }: MessageAttachmentFileProps): React.ReactElement {
+function MessageAttachmentFile({ attachment, attachmentUrl }: MessageAttachmentFileProps): React.ReactElement {
   /** 截断文件名 */
   const displayName = attachment.filename.length > 20
     ? attachment.filename.slice(0, 17) + '...'
     : attachment.filename
 
-  return (
+  const content = (
     <div className="flex items-center gap-2 rounded-lg bg-[#37a5aa]/10 border border-[#37a5aa]/20 px-3 py-1.5 text-[13px] text-[#37a5aa] shrink-0">
       <Paperclip className="size-4" />
       <span>{displayName}</span>
     </div>
+  )
+
+  if (!attachmentUrl) {
+    return content
+  }
+
+  return (
+    <a href={attachmentUrl} rel="noreferrer" target="_blank">
+      {content}
+    </a>
   )
 }
 

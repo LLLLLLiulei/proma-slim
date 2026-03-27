@@ -279,24 +279,84 @@ export function useAgentSSE() {
     const controller = new AbortController()
     controllersRef.current.set(sessionId, controller)
 
-    try {
-      const response = await api.sendMessage(sessionId, payload, { signal: controller.signal })
-      const reader = response.body?.getReader()
-      if (!reader) {
-        throw new Error('未收到流式响应')
+    const cleanupSessionRefs = () => {
+      controllersRef.current.delete(sessionId)
+      detachedSessionsRef.current.delete(sessionId)
+      stoppingSessionsRef.current.delete(sessionId)
+      stopSucceededSessionsRef.current.delete(sessionId)
+    }
+
+    const handleStreamFailure = (error: unknown): string | null => {
+      if (detachedSessionsRef.current.has(sessionId)) return null
+
+      if (stopSucceededSessionsRef.current.has(sessionId)) {
+        finalizeStream(store, sessionId)
+        return null
       }
 
-      const decoder = new TextDecoder()
-      let remainder = ''
+      if (stoppingSessionsRef.current.has(sessionId)) {
+        return null
+      }
 
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
+      const message = error instanceof Error ? error.message : '连接已断开'
+      finalizeStream(store, sessionId, { error: message || '连接已断开' })
+      return message || '连接已断开'
+    }
 
-        remainder += decoder.decode(value, { stream: true })
+    let response: Response
+    try {
+      response = await api.sendMessage(sessionId, payload, { signal: controller.signal })
+    } catch (error) {
+      const message = handleStreamFailure(error)
+      cleanupSessionRefs()
+      if (message) {
+        throw error instanceof Error ? error : new Error(message)
+      }
+      return
+    }
+
+    const reader = response.body?.getReader()
+    if (!reader) {
+      const error = new Error('未收到流式响应')
+      const message = handleStreamFailure(error)
+      cleanupSessionRefs()
+      if (message) {
+        throw error
+      }
+      return
+    }
+
+    void (async () => {
+      try {
+        const decoder = new TextDecoder()
+        let remainder = ''
+
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+
+          remainder += decoder.decode(value, { stream: true })
+          const parsed = extractSSEFrames(remainder)
+          remainder = parsed.remainder
+
+          for (const frame of parsed.frames) {
+            try {
+              applyStreamFrame(store, {
+                event: frame.event,
+                data: JSON.parse(frame.data),
+              })
+            } catch (error) {
+              console.warn('[SSE] 解析事件失败:', error)
+            }
+          }
+        }
+
+        const tail = decoder.decode()
+        if (tail) {
+          remainder += tail
+        }
+
         const parsed = extractSSEFrames(remainder)
-        remainder = parsed.remainder
-
         for (const frame of parsed.frames) {
           try {
             applyStreamFrame(store, {
@@ -304,47 +364,17 @@ export function useAgentSSE() {
               data: JSON.parse(frame.data),
             })
           } catch (error) {
-            console.warn('[SSE] 解析事件失败:', error)
+            console.warn('[SSE] 解析尾部事件失败:', error)
           }
         }
-      }
 
-      const tail = decoder.decode()
-      if (tail) {
-        remainder += tail
-      }
-
-      const parsed = extractSSEFrames(remainder)
-      for (const frame of parsed.frames) {
-        try {
-          applyStreamFrame(store, {
-            event: frame.event,
-            data: JSON.parse(frame.data),
-          })
-        } catch (error) {
-          console.warn('[SSE] 解析尾部事件失败:', error)
-        }
-      }
-
-      finalizeStream(store, sessionId)
-    } catch (error) {
-      if (detachedSessionsRef.current.has(sessionId)) return
-
-      if (stopSucceededSessionsRef.current.has(sessionId)) {
         finalizeStream(store, sessionId)
-        return
+      } catch (error) {
+        handleStreamFailure(error)
+      } finally {
+        cleanupSessionRefs()
       }
-
-      if (!stoppingSessionsRef.current.has(sessionId)) {
-        const message = error instanceof Error ? error.message : '连接已断开'
-        finalizeStream(store, sessionId, { error: message || '连接已断开' })
-      }
-    } finally {
-      controllersRef.current.delete(sessionId)
-      detachedSessionsRef.current.delete(sessionId)
-      stoppingSessionsRef.current.delete(sessionId)
-      stopSucceededSessionsRef.current.delete(sessionId)
-    }
+    })()
   }, [store])
 
   return {

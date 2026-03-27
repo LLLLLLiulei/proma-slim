@@ -1,12 +1,19 @@
 import * as React from 'react'
 import { useAtomValue, useSetAtom } from 'jotai'
-import { AlertTriangle, CornerDownLeft, Square } from 'lucide-react'
+import { AlertTriangle, CornerDownLeft, Paperclip, Square } from 'lucide-react'
 import { toast } from 'sonner'
 import { AgentHeader } from './AgentHeader'
+import { AgentPendingAttachments } from './AgentPendingAttachments'
 import { AgentMessages } from './AgentMessages'
 import { AskUserBanner } from './AskUserBanner'
 import { loadSessionMessagesWithCatchup } from './message-catchup'
 import { PermissionBanner } from './PermissionBanner'
+import {
+  mergePendingAgentAttachments,
+  releasePendingAgentAttachment,
+  releasePendingAgentAttachments,
+  type PendingAgentAttachment,
+} from './agent-attachments'
 import { RichTextInput } from '@/components/ai-elements/rich-text-input'
 import { Button } from '@/components/ui/button'
 import {
@@ -118,6 +125,7 @@ export interface AgentViewProps {
   sessionId: string
   showHeader?: boolean
   showComposerMeta?: boolean
+  allowAttachments?: boolean
   initialUserMessage?: string | null
   onInitialUserMessageHandled?: () => void
   messageDecorator?: AgentMessageDecorator
@@ -175,10 +183,39 @@ export function prepareAgentSendPayload(
   }
 }
 
+export function createOptimisticUserMessage({
+  userMessage,
+  pendingAttachments,
+  messageId,
+  createdAt,
+}: {
+  userMessage: string
+  pendingAttachments: ReadonlyArray<PendingAgentAttachment>
+  messageId: string
+  createdAt: number
+}): AgentMessage {
+  const attachments = pendingAttachments.map((attachment) => ({
+    id: attachment.id,
+    filename: attachment.file.name,
+    mediaType: attachment.file.type || 'application/octet-stream',
+    localPath: attachment.previewUrl ?? '',
+    size: attachment.file.size,
+  }))
+
+  return {
+    id: messageId,
+    role: 'user',
+    content: userMessage,
+    createdAt,
+    ...(attachments.length > 0 ? { attachments } : {}),
+  }
+}
+
 export function AgentView({
   sessionId,
   showHeader = true,
   showComposerMeta = true,
+  allowAttachments = false,
   initialUserMessage = null,
   onInitialUserMessageHandled,
   messageDecorator,
@@ -186,6 +223,8 @@ export function AgentView({
   const [messagesBySession, setMessagesBySession] = React.useState<Map<string, AgentMessage[]>>(() => new Map())
   const [status, setStatus] = React.useState<AppStatus | null>(null)
   const [initialMessageLoaded, setInitialMessageLoaded] = React.useState(false)
+  const [pendingAttachments, setPendingAttachments] = React.useState<PendingAgentAttachment[]>([])
+  const [isDragOver, setIsDragOver] = React.useState(false)
   const streamingState = useAtomValue(agentStreamingStatesAtom).get(sessionId)
   const streamError = useAtomValue(agentStreamErrorsAtom).get(sessionId) ?? null
   const refreshVersion = useAtomValue(agentMessageRefreshAtom).get(sessionId) ?? 0
@@ -199,6 +238,9 @@ export function AgentView({
   const setDraftsMap = useSetAtom(agentSessionDraftsAtom)
   const { sendMessage, stopSession } = useGlobalAgentListeners()
   const initialMessageTriggeredRef = React.useRef(false)
+  const pendingAttachmentsRef = React.useRef(pendingAttachments)
+  pendingAttachmentsRef.current = pendingAttachments
+  const fileInputRef = React.useRef<HTMLInputElement>(null)
   const messages = React.useMemo(
     () => getMessagesForSession(messagesBySession, sessionId),
     [messagesBySession, sessionId],
@@ -216,6 +258,7 @@ export function AgentView({
     () => [...messages].reverse().find((message) => message.role === 'assistant')?.model ?? null,
     [messages],
   )
+  const canSend = (inputValue.trim().length > 0 || pendingAttachments.length > 0) && !(status && !status.ok)
   const attachedDirectories = React.useMemo(
     () => Array.from(new Set([
       ...(workspaceContext?.attachedDirectories ?? []),
@@ -258,7 +301,15 @@ export function AgentView({
   React.useEffect(() => {
     initialMessageTriggeredRef.current = false
     setInitialMessageLoaded(false)
+    setPendingAttachments((current) => {
+      releasePendingAgentAttachments(current)
+      return []
+    })
   }, [sessionId])
+
+  React.useEffect(() => () => {
+    releasePendingAgentAttachments(pendingAttachmentsRef.current)
+  }, [])
 
   React.useEffect(() => {
     let cancelled = false
@@ -307,7 +358,7 @@ export function AgentView({
 
   const sendDraftMessage = React.useCallback(async (nextUserMessage: string): Promise<boolean> => {
     const userMessage = nextUserMessage.trim()
-    if (!userMessage) return false
+    if (!userMessage && pendingAttachments.length === 0) return false
     if (streaming) return false
 
     if (status && !status.ok) {
@@ -315,15 +366,16 @@ export function AgentView({
       return false
     }
 
-    const optimisticMessage: AgentMessage = {
-      id: `local-${Date.now()}`,
-      role: 'user',
-      content: userMessage,
-      createdAt: Date.now(),
+    const optimisticCreatedAt = Date.now()
+    if (userMessage || pendingAttachments.length > 0) {
+      const optimisticMessage = createOptimisticUserMessage({
+        userMessage,
+        pendingAttachments,
+        messageId: `local-${optimisticCreatedAt}`,
+        createdAt: optimisticCreatedAt,
+      })
+      setMessagesBySession((prev) => appendMessageForSession(prev, sessionId, optimisticMessage))
     }
-
-    setMessagesBySession((prev) => appendMessageForSession(prev, sessionId, optimisticMessage))
-    setInputValue('')
     setStreamErrors((prev) => {
       const map = new Map(prev)
       map.delete(sessionId)
@@ -342,10 +394,16 @@ export function AgentView({
 
       await sendMessage(sessionId, {
         userMessage: payload.userMessage,
+        ...(pendingAttachments.length > 0 ? { attachmentFiles: pendingAttachments.map((attachment) => attachment.file) } : {}),
         ...(sessionWorkspaceId && { workspaceId: sessionWorkspaceId }),
         ...(attachedDirectories.length > 0 && { additionalDirectories: attachedDirectories }),
         ...(payload.mentionedSkills.length > 0 && { mentionedSkills: payload.mentionedSkills }),
         ...(payload.mentionedMcpServers.length > 0 && { mentionedMcpServers: payload.mentionedMcpServers }),
+      })
+      setInputValue('')
+      setPendingAttachments((current) => {
+        releasePendingAgentAttachments(current)
+        return []
       })
       return true
     } catch (error) {
@@ -367,11 +425,64 @@ export function AgentView({
     status,
     streaming,
     messageDecorator,
+    pendingAttachments,
   ])
 
   const handleSend = React.useCallback(async (): Promise<void> => {
     await sendDraftMessage(inputValue)
   }, [inputValue, sendDraftMessage])
+
+  const handleAddFiles = React.useCallback((files: File[]): void => {
+    if (!allowAttachments || files.length === 0) return
+
+    const result = mergePendingAgentAttachments(pendingAttachments, files)
+    setPendingAttachments(result.attachments)
+
+    for (const error of result.errors) {
+      toast.error(error)
+    }
+  }, [allowAttachments, pendingAttachments])
+
+  const handleOpenFilePicker = React.useCallback((): void => {
+    fileInputRef.current?.click()
+  }, [])
+
+  const handleFileInputChange = React.useCallback((event: React.ChangeEvent<HTMLInputElement>): void => {
+    handleAddFiles(Array.from(event.target.files ?? []))
+    event.target.value = ''
+  }, [handleAddFiles])
+
+  const handleRemoveAttachment = React.useCallback((attachmentId: string): void => {
+    setPendingAttachments((current) => {
+      const attachment = current.find((item) => item.id === attachmentId)
+      if (attachment) {
+        releasePendingAgentAttachment(attachment)
+      }
+      return current.filter((item) => item.id !== attachmentId)
+    })
+  }, [])
+
+  const handleDragOver = React.useCallback((event: React.DragEvent<HTMLDivElement>): void => {
+    if (!allowAttachments || event.dataTransfer.files.length === 0) return
+    event.preventDefault()
+    event.stopPropagation()
+    setIsDragOver(true)
+  }, [allowAttachments])
+
+  const handleDragLeave = React.useCallback((event: React.DragEvent<HTMLDivElement>): void => {
+    if (!allowAttachments) return
+    event.preventDefault()
+    event.stopPropagation()
+    setIsDragOver(false)
+  }, [allowAttachments])
+
+  const handleDrop = React.useCallback((event: React.DragEvent<HTMLDivElement>): void => {
+    if (!allowAttachments) return
+    event.preventDefault()
+    event.stopPropagation()
+    setIsDragOver(false)
+    handleAddFiles(Array.from(event.dataTransfer.files))
+  }, [allowAttachments, handleAddFiles])
 
   React.useEffect(() => {
     const shouldAutoSend = resolveShouldAutoSendInitialMessage({
@@ -440,11 +551,33 @@ export function AgentView({
       <AskUserBanner sessionId={sessionId} />
 
       <div className="px-2.5 pb-2.5 pt-2 md:px-[18px] md:pb-[18px]">
-        <div className="rounded-[17px] border-[0.5px] border-border bg-background/70 pt-2 backdrop-blur-sm transition-all duration-200 focus-within:border-foreground/20">
+        <div
+          className={cn(
+            'rounded-[17px] border-[0.5px] border-border bg-background/70 pt-2 backdrop-blur-sm transition-all duration-200 focus-within:border-foreground/20',
+            allowAttachments && isDragOver && 'border-[2px] border-dashed border-primary/45 bg-primary/[0.04]',
+          )}
+          onDragLeave={handleDragLeave}
+          onDragOver={handleDragOver}
+          onDrop={handleDrop}
+        >
+          <input
+            ref={fileInputRef}
+            className="hidden"
+            multiple
+            onChange={handleFileInputChange}
+            type="file"
+          />
+          {allowAttachments && (
+            <AgentPendingAttachments
+              attachments={pendingAttachments}
+              onRemove={handleRemoveAttachment}
+            />
+          )}
           <RichTextInput
             value={inputValue}
             onChange={setInputValue}
             onSubmit={() => { void handleSend() }}
+            onPasteFiles={allowAttachments ? handleAddFiles : undefined}
             disabled={streaming || Boolean(status && !status.ok)}
             autoFocusTrigger={sessionId}
             placeholder={status && !status.ok ? '请先修复后端状态，再发送消息' : '输入消息...'}
@@ -456,6 +589,17 @@ export function AgentView({
 
           <div className="flex h-[40px] items-center justify-between gap-4 px-2 py-[5px]">
             <div className="flex min-w-0 flex-1 items-center gap-2 px-1 text-xs text-muted-foreground">
+              {allowAttachments && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-7 rounded-full text-muted-foreground hover:bg-muted"
+                  onClick={handleOpenFilePicker}
+                >
+                  <Paperclip className="size-4" />
+                </Button>
+              )}
               {showComposerMeta && (
                 <>
                   <span className="rounded-full bg-muted px-2.5 py-1 text-[11px] font-medium text-foreground/75">
@@ -498,12 +642,12 @@ export function AgentView({
                   size="icon"
                   className={cn(
                     'size-[30px] rounded-full',
-                    inputValue.trim() && !(status && !status.ok)
+                    canSend
                       ? 'text-primary hover:bg-primary/10'
                       : 'cursor-not-allowed text-foreground/30',
                   )}
                   onClick={() => { void handleSend() }}
-                  disabled={!inputValue.trim() || Boolean(status && !status.ok)}
+                  disabled={!canSend}
                 >
                   <CornerDownLeft className="size-[22px]" />
                 </Button>

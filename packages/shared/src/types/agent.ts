@@ -4,6 +4,8 @@
  * 包含 Agent SDK 集成所需的事件类型、会话管理、消息持久化和 IPC 通道常量。
  */
 
+import type { FileAttachment } from './chat'
+
 // ===== 记忆配置 =====
 
 /** 全局记忆配置（MemOS Cloud） */
@@ -374,6 +376,8 @@ export interface AgentMessage {
   createdAt: number
   /** 使用的模型 ID（assistant 消息） */
   model?: string
+  /** 结构化附件列表 */
+  attachments?: FileAttachment[]
   /** 工具活动数据（agent 事件列表，用于回放工具调用） */
   events?: AgentEvent[]
   /** 错误代码（status 消息，role='status' 时使用） */
@@ -495,6 +499,8 @@ export interface AgentSendInput {
   mentionedSkills?: string[]
   /** 用户通过 #mcp:xxx 引用的 MCP 服务器名称列表 */
   mentionedMcpServers?: string[]
+  /** 结构化附件列表 */
+  attachments?: FileAttachment[]
 }
 
 // ===== 会话迁移输入 =====

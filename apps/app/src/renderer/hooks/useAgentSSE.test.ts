@@ -38,6 +38,11 @@ function createAbortError(): Error {
   return error
 }
 
+interface TestStreamController {
+  enqueue(chunk: Uint8Array): void
+  close(): void
+}
+
 function createHookHarness() {
   const store = createStore()
   let controls: ReturnType<typeof useAgentSSE> | null = null
@@ -294,5 +299,60 @@ describe('useAgentSSE helpers', () => {
     expect(harness.store.get(agentStreamingStatesAtom).get('session-1')?.running).toBe(true)
     expect(harness.store.get(agentStreamErrorsAtom).get('session-1')).toBeUndefined()
     expect(harness.store.get(agentMessageRefreshAtom).get('session-1')).toBeUndefined()
+  })
+
+  test('sendMessage resolves after the SSE stream is established and continues consuming frames in the background', async () => {
+    const encoder = new TextEncoder()
+    let streamController: TestStreamController | null = null
+    const response = new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        streamController = controller as unknown as TestStreamController
+      },
+    }))
+
+    const sendMessageMock = mock(async () => response)
+    api.sendMessage = sendMessageMock
+
+    const harness = createHookHarness()
+
+    await harness.controls.sendMessage('session-1', { userMessage: 'hello' })
+
+    expect(harness.store.get(agentStreamingStatesAtom).get('session-1')?.running).toBe(true)
+    expect(harness.store.get(agentMessageRefreshAtom).get('session-1')).toBeUndefined()
+
+    if (!streamController) {
+      throw new Error('stream controller unavailable')
+    }
+
+    const activeStreamController = streamController as TestStreamController
+
+    activeStreamController.enqueue(encoder.encode([
+      'event: text_delta',
+      'data: {"sessionId":"session-1","event":{"type":"text_delta","text":"你好"}}',
+      '',
+      '',
+    ].join('\n')))
+    activeStreamController.close()
+
+    await Promise.resolve()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(harness.store.get(agentStreamingStatesAtom).get('session-1')?.content).toBe('你好')
+    expect(harness.store.get(agentStreamingStatesAtom).get('session-1')?.running).toBe(false)
+    expect(harness.store.get(agentMessageRefreshAtom).get('session-1')).toBe(1)
+  })
+
+  test('sendMessage rethrows request-start failures so callers can preserve composer state', async () => {
+    const sendMessageMock = mock(async () => {
+      throw new Error('payload rejected')
+    })
+    api.sendMessage = sendMessageMock
+
+    const harness = createHookHarness()
+
+    await expect(harness.controls.sendMessage('session-1', { userMessage: 'hello' })).rejects.toThrow('payload rejected')
+
+    expect(harness.store.get(agentStreamingStatesAtom).get('session-1')?.running).toBe(false)
+    expect(harness.store.get(agentStreamErrorsAtom).get('session-1')).toBe('payload rejected')
   })
 })

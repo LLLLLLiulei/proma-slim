@@ -1,12 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import type { AgentEvent, AgentQueryInput, AgentProviderAdapter, AskUserRequest } from '@proma/shared'
 import { AgentEventBus } from './agent-event-bus'
+import { saveAgentSessionAttachments } from './agent-attachment-service'
 import { AgentOrchestrator } from './agent-orchestrator'
 import { askUserService } from './agent-ask-user-service'
 import {
+  getAgentSessionMessages,
   createAgentSession,
   getAgentSessionMeta,
   moveSessionToWorkspace,
@@ -19,6 +21,7 @@ import {
   saveWorkspaceMcpConfig,
 } from './workspace-service'
 import {
+  resolveAgentSessionAttachmentPath,
   getAgentSessionWorkspacePath,
   getAgentWorkspacePath,
   getWorkspaceMemoryFilePath,
@@ -289,6 +292,78 @@ describe('AgentOrchestrator workspace runtime', () => {
     expect(adapter.lastInput?.prompt).toContain('<workspace_runtime_mode>scratch</workspace_runtime_mode>')
     expect(adapter.lastInput?.prompt).toContain('纯研究、搜索、总结、规划类 subagent 默认不要请求 worktree isolation')
     expect(adapter.lastInput?.systemPrompt?.append).toContain('只有在真实 git 仓库中执行代码修改类任务时，才考虑使用 worktree isolation')
+  })
+
+  test('injects structured attachments into the runtime prompt while keeping persisted user content clean', async () => {
+    const adapter = new RecordingAdapter()
+    const orchestrator = new AgentOrchestrator(adapter, new AgentEventBus())
+    const workspace = createAgentWorkspace('Attachment Prompt Docs')
+    const session = createAgentSession('Attachment Prompt Session', undefined, workspace.id)
+    const attachments = await saveAgentSessionAttachments({
+      sessionId: session.id,
+      workspaceId: workspace.id,
+      files: [new File(['preview'], 'reference.png', { type: 'image/png' })],
+    })
+
+    await orchestrator.sendMessage(
+      {
+        sessionId: session.id,
+        userMessage: '请按照附件里的视觉风格生成页面',
+        channelId: '',
+        attachments,
+      },
+      {
+        onError: (message) => {
+          throw new Error(message)
+        },
+        onComplete: () => {},
+        onTitleUpdated: () => {},
+      },
+    )
+
+    const persistedUserMessage = getAgentSessionMessages(session.id).find((message) => message.role === 'user')
+
+    expect(persistedUserMessage?.content).toBe('请按照附件里的视觉风格生成页面')
+    expect(persistedUserMessage?.attachments).toEqual(attachments)
+    expect(adapter.lastInput?.prompt).toContain('<attached_files>')
+    expect(adapter.lastInput?.prompt).toContain(attachments[0]!.filename)
+    expect(adapter.lastInput?.prompt).toContain(resolveAgentSessionAttachmentPath(workspace.slug, session.id, attachments[0]!.localPath))
+  })
+
+  test('rolls back saved attachments when preflight fails before the user message is persisted', async () => {
+    const adapter = new RecordingAdapter()
+    const orchestrator = new AgentOrchestrator(adapter, new AgentEventBus())
+    const workspace = createAgentWorkspace('Attachment Rollback Docs')
+    const session = createAgentSession('Attachment Rollback Session', undefined, workspace.id)
+    const attachments = await saveAgentSessionAttachments({
+      sessionId: session.id,
+      workspaceId: workspace.id,
+      files: [new File(['preview'], 'reference.png', { type: 'image/png' })],
+    })
+    const attachmentPath = resolveAgentSessionAttachmentPath(workspace.slug, session.id, attachments[0]!.localPath)
+
+    delete process.env.ANTHROPIC_API_KEY
+
+    const onErrors: string[] = []
+    await orchestrator.sendMessage(
+      {
+        sessionId: session.id,
+        userMessage: '请参考附件',
+        channelId: '',
+        attachments,
+      },
+      {
+        onError: (message) => {
+          onErrors.push(message)
+        },
+        onComplete: () => {},
+        onTitleUpdated: () => {},
+      },
+    )
+
+    expect(onErrors).toEqual(['未检测到 ANTHROPIC_API_KEY 环境变量，请先在终端配置后再发送消息'])
+    expect(getAgentSessionMessages(session.id)).toEqual([])
+    expect(existsSync(attachmentPath)).toBe(false)
   })
 
   test('keeps smart-mode sessions on the canUseTool path instead of bypassing permissions entirely', async () => {

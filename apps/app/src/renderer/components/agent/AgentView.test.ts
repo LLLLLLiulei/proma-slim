@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import type { AgentMessage } from '@proma/shared'
 import {
   appendMessageForSession,
+  createOptimisticUserMessage,
   getMessagesForSession,
   prepareAgentSendPayload,
   replaceMessagesForSession,
@@ -48,6 +49,37 @@ describe('AgentView session-scoped message state', () => {
 
     expect(getMessagesForSession(state, 'session-a').map((message) => message.content)).toEqual(['A optimistic'])
     expect(getMessagesForSession(state, 'session-b').map((message) => message.content)).toEqual(['B persisted'])
+  })
+
+  test('creates an optimistic user message that keeps pending attachments visible during streaming', () => {
+    const attachmentFile = new File(['image-bytes'], 'reference.png', { type: 'image/png' })
+
+    expect(createOptimisticUserMessage({
+      userMessage: '请参考附件',
+      pendingAttachments: [
+        {
+          id: 'pending-attachment',
+          file: attachmentFile,
+          previewUrl: 'blob:preview-reference',
+        },
+      ],
+      messageId: 'local-1',
+      createdAt: 123,
+    })).toEqual({
+      id: 'local-1',
+      role: 'user',
+      content: '请参考附件',
+      createdAt: 123,
+      attachments: [
+        {
+          id: 'pending-attachment',
+          filename: 'reference.png',
+          mediaType: 'image/png',
+          localPath: 'blob:preview-reference',
+          size: attachmentFile.size,
+        },
+      ],
+    })
   })
 
   test('syncSessionMessages emits persisted history immediately before tail catchup finishes', async () => {
