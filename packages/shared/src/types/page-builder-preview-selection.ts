@@ -1,0 +1,33 @@
+export const PAGE_BUILDER_PREVIEW_PARENT_SOURCE = 'page-builder-preview-parent'
+export const PAGE_BUILDER_PREVIEW_BRIDGE_SOURCE = 'page-builder-preview-bridge'
+
+export type PageBuilderPreviewParentMessage =
+  | {
+    source: typeof PAGE_BUILDER_PREVIEW_PARENT_SOURCE
+    type: 'selection-mode'
+    enabled: boolean
+  }
+  | {
+    source: typeof PAGE_BUILDER_PREVIEW_PARENT_SOURCE
+    type: 'selection-clear'
+  }
+
+export type PageBuilderPreviewBridgeMessage =
+  | {
+    source: typeof PAGE_BUILDER_PREVIEW_BRIDGE_SOURCE
+    type: 'ready'
+  }
+  | {
+    source: typeof PAGE_BUILDER_PREVIEW_BRIDGE_SOURCE
+    type: 'hover'
+    selector: string | null
+  }
+  | {
+    source: typeof PAGE_BUILDER_PREVIEW_BRIDGE_SOURCE
+    type: 'selected'
+    selector: string
+  }
+  | {
+    source: typeof PAGE_BUILDER_PREVIEW_BRIDGE_SOURCE
+    type: 'reset'
+  }

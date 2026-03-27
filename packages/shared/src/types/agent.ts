@@ -483,6 +483,8 @@ export interface AgentSendInput {
   sessionId: string
   /** 用户消息内容 */
   userMessage: string
+  /** 仅供 Agent 运行时消费的组合消息，不写入可见消息历史 */
+  composedUserMessage?: string
   /** 渠道 ID（用于获取 API Key） */
   channelId: string
   /** 模型 ID */

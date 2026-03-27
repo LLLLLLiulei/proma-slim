@@ -129,12 +129,15 @@ export interface AgentViewProps {
   initialUserMessage?: string | null
   onInitialUserMessageHandled?: () => void
   messageDecorator?: AgentMessageDecorator
+  composerLeadingActions?: React.ReactNode
+  onMessageSent?: (userMessage: string) => void
 }
 
 export type AgentMessageDecorator = (userMessage: string) => string
 
 export interface PreparedAgentSendPayload {
   userMessage: string
+  composedUserMessage?: string
   mentionedSkills: string[]
   mentionedMcpServers: string[]
 }
@@ -169,6 +172,7 @@ export function prepareAgentSendPayload(
   userMessage: string,
   messageDecorator?: AgentMessageDecorator,
 ): PreparedAgentSendPayload {
+  const composedUserMessage = messageDecorator ? messageDecorator(userMessage) : undefined
   const mentionedSkills = [...userMessage.matchAll(/\/skill:(\S+)/g)]
     .map((match) => match[1])
     .filter(Boolean) as string[]
@@ -177,7 +181,10 @@ export function prepareAgentSendPayload(
     .filter(Boolean) as string[]
 
   return {
-    userMessage: messageDecorator ? messageDecorator(userMessage) : userMessage,
+    userMessage,
+    ...(composedUserMessage && composedUserMessage !== userMessage
+      ? { composedUserMessage }
+      : {}),
     mentionedSkills,
     mentionedMcpServers,
   }
@@ -219,6 +226,8 @@ export function AgentView({
   initialUserMessage = null,
   onInitialUserMessageHandled,
   messageDecorator,
+  composerLeadingActions,
+  onMessageSent,
 }: AgentViewProps): React.ReactElement {
   const [messagesBySession, setMessagesBySession] = React.useState<Map<string, AgentMessage[]>>(() => new Map())
   const [status, setStatus] = React.useState<AppStatus | null>(null)
@@ -394,6 +403,7 @@ export function AgentView({
 
       await sendMessage(sessionId, {
         userMessage: payload.userMessage,
+        ...(payload.composedUserMessage ? { composedUserMessage: payload.composedUserMessage } : {}),
         ...(pendingAttachments.length > 0 ? { attachmentFiles: pendingAttachments.map((attachment) => attachment.file) } : {}),
         ...(sessionWorkspaceId && { workspaceId: sessionWorkspaceId }),
         ...(attachedDirectories.length > 0 && { additionalDirectories: attachedDirectories }),
@@ -405,6 +415,7 @@ export function AgentView({
         releasePendingAgentAttachments(current)
         return []
       })
+      onMessageSent?.(userMessage)
       return true
     } catch (error) {
       console.error('[AgentView] 发送消息失败:', error)
@@ -425,6 +436,7 @@ export function AgentView({
     status,
     streaming,
     messageDecorator,
+    onMessageSent,
     pendingAttachments,
   ])
 
@@ -589,6 +601,7 @@ export function AgentView({
 
           <div className="flex h-[40px] items-center justify-between gap-4 px-2 py-[5px]">
             <div className="flex min-w-0 flex-1 items-center gap-2 px-1 text-xs text-muted-foreground">
+              {composerLeadingActions}
               {allowAttachments && (
                 <Button
                   type="button"

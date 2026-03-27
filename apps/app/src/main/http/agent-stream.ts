@@ -86,6 +86,7 @@ export async function createSendResponse(
   const input: AgentSendInput = {
     sessionId,
     userMessage: body.userMessage,
+    ...(body.composedUserMessage ? { composedUserMessage: body.composedUserMessage } : {}),
     channelId: '',
     ...(body.workspaceId && { workspaceId: body.workspaceId }),
     ...(body.additionalDirectories && { additionalDirectories: body.additionalDirectories }),

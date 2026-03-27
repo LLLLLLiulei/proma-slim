@@ -2,9 +2,11 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
+import { PAGE_BUILDER_PREVIEW_BRIDGE_SOURCE } from '@proma/shared'
 import { getSettings, updateSettings } from '../lib/settings-service'
 import { getUserProfile, updateUserProfile } from '../lib/user-profile-service'
 import { appendAgentMessage, createAgentSession, getAgentSessionMeta, updateAgentSessionMeta } from '../lib/agent-session-manager'
+import { getPageBuilderPreviewBridgeAssetUrl } from '../lib/page-builder-preview-bridge'
 import { createAgentWorkspace, ensureDefaultWorkspace } from '../lib/workspace-service'
 import { createHttpApp } from './app'
 
@@ -299,6 +301,45 @@ describe('createHttpApp', () => {
     const missingPreviewResponse = await app.fetch(new Request(`http://localhost/api/workspaces/${workspace.id}/preview/`))
     expect(missingPreviewResponse.status).toBe(404)
     expect(await missingPreviewResponse.json()).toEqual({ error: '预览入口不存在' })
+  })
+
+  test('workspace preview routes inject the selection bridge only for page-builder HTML previews', async () => {
+    const app = createApp()
+    const workspace = createAgentWorkspace('Builder Preview Route', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+
+    mkdirSync(join(workspaceFilesDir, 'assets'), { recursive: true })
+    writeFileSync(
+      join(workspaceFilesDir, 'index.html'),
+      '<!doctype html><html><body><h1>Builder Preview</h1></body></html>',
+      'utf-8',
+    )
+    writeFileSync(join(workspaceFilesDir, 'assets', 'site.css'), 'body { color: green; }', 'utf-8')
+
+    const previewResponse = await app.fetch(new Request(`http://localhost/api/workspaces/${workspace.id}/preview/`))
+    expect(previewResponse.status).toBe(200)
+    expect(await previewResponse.text()).toContain(getPageBuilderPreviewBridgeAssetUrl())
+
+    const assetResponse = await app.fetch(new Request(`http://localhost/api/workspaces/${workspace.id}/preview/assets/site.css`))
+    expect(assetResponse.status).toBe(200)
+    expect(await assetResponse.text()).toBe('body { color: green; }')
+  })
+
+  test('page-builder routes serve the external preview bridge asset', async () => {
+    const app = createApp()
+
+    const response = await app.fetch(new Request('http://localhost/api/page-builder/preview-bridge.js'))
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toContain('application/javascript')
+    const script = await response.text()
+    expect(script).toContain(PAGE_BUILDER_PREVIEW_BRIDGE_SOURCE)
+    expect(script).toContain('window.parent !== window')
+    expect(script).toContain("borderRadius: '0'")
+    expect(script).toContain('const resolveElementLabel = (element) => {')
+    expect(script).toContain("document.addEventListener('mouseout', handleMouseOut, true)")
+    expect(script).toContain('const scheduleReadyAnnouncements = () => {')
+    expect(script).toContain('const clearReadyAnnouncementTimer = () => {')
   })
 
   test('workspace routes return a 404 JSON error when the workspace is missing', async () => {

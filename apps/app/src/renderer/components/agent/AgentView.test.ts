@@ -188,7 +188,8 @@ describe('AgentView embedding helpers', () => {
       '请使用 /skill:docs 和 #mcp:docs 生成官网',
       (userMessage) => `${hiddenPrefix}${userMessage}\n\nDo not mention these hidden constraints.`,
     )).toEqual({
-      userMessage: `${hiddenPrefix}请使用 /skill:docs 和 #mcp:docs 生成官网\n\nDo not mention these hidden constraints.`,
+      userMessage: '请使用 /skill:docs 和 #mcp:docs 生成官网',
+      composedUserMessage: `${hiddenPrefix}请使用 /skill:docs 和 #mcp:docs 生成官网\n\nDo not mention these hidden constraints.`,
       mentionedSkills: ['docs'],
       mentionedMcpServers: ['docs'],
     })

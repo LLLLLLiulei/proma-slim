@@ -604,6 +604,7 @@ export class AgentOrchestrator {
     const {
       sessionId,
       userMessage,
+      composedUserMessage,
       workspaceId,
       additionalDirectories,
       customMcpServers,
@@ -788,7 +789,8 @@ export class AgentOrchestrator {
         memoryFilePath: getWorkspaceMemoryFilePath(workspaceSlug),
       })
 
-      let enrichedMessage = userMessage
+      const runtimeUserMessage = composedUserMessage ?? userMessage
+      let enrichedMessage = runtimeUserMessage
       if (mentionedSkills?.length || mentionedMcpServers?.length) {
         const toolLines: string[] = ['用户在消息中明确引用了以下工具，请在本次回复中主动调用：']
 
@@ -803,7 +805,7 @@ export class AgentOrchestrator {
           toolLines.push(`- MCP 服务器: ${name}（请使用此 MCP 服务器的工具来完成任务）`)
         }
 
-        enrichedMessage = `<mentioned_tools>\n${toolLines.join('\n')}\n</mentioned_tools>\n\n${userMessage}`
+        enrichedMessage = `<mentioned_tools>\n${toolLines.join('\n')}\n</mentioned_tools>\n\n${runtimeUserMessage}`
         console.log(`[Agent 编排] 注入 mentioned_tools: ${mentionedSkills?.length ?? 0} skills, ${mentionedMcpServers?.length ?? 0} MCP`)
       }
 

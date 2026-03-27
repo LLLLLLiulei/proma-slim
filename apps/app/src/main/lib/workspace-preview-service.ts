@@ -1,9 +1,13 @@
 import { createHash } from 'node:crypto'
-import { existsSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, resolve, sep } from 'node:path'
 import type { AgentWorkspace } from '@proma/shared'
 import { HttpError } from '../http/errors'
 import { getWorkspaceFilesDir } from './config-paths'
+import {
+  injectPageBuilderPreviewBridge,
+  shouldInjectPageBuilderPreviewBridge,
+} from './page-builder-preview-bridge'
 
 export interface WorkspacePreviewState {
   hasPreview: boolean
@@ -84,6 +88,18 @@ export function createWorkspacePreviewResponse(
 
   if (!existsSync(resolvedPath)) {
     throw new HttpError(404, isEntryRequest ? '预览入口不存在' : '预览文件不存在')
+  }
+
+  if (shouldInjectPageBuilderPreviewBridge(workspace, resolvedPath)) {
+    return new Response(
+      injectPageBuilderPreviewBridge(readFileSync(resolvedPath, 'utf-8')),
+      {
+        headers: {
+          'cache-control': 'no-store',
+          'content-type': 'text/html; charset=utf-8',
+        },
+      },
+    )
   }
 
   return new Response(Bun.file(resolvedPath), {

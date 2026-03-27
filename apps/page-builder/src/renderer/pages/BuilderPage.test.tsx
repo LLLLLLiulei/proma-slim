@@ -95,8 +95,10 @@ async function loadBuilderPage(options: {
   sessions: AgentSessionMeta[]
   workspaces: AgentWorkspace[]
   previewStates?: WorkspacePreviewState[]
+  mockPreviewPane?: boolean
 }) {
   let lastAgentViewProps: Record<string, unknown> | null = null
+  let lastPreviewPaneProps: Record<string, unknown> | null = null
   let previewStateIndex = 0
 
   mock.module('@/components/agent', () => ({
@@ -105,6 +107,15 @@ async function loadBuilderPage(options: {
       return React.createElement('div', { 'data-testid': 'agent-view' })
     },
   }))
+
+  if (options.mockPreviewPane) {
+    mock.module('@page-builder/components/builder/PreviewPane', () => ({
+      PreviewPane(props: Record<string, unknown>) {
+        lastPreviewPaneProps = props
+        return React.createElement('div', { 'data-testid': 'preview-pane' })
+      },
+    }))
+  }
 
   mock.module('@/lib/api', () => ({
     api: {
@@ -126,7 +137,30 @@ async function loadBuilderPage(options: {
     getLastAgentViewProps() {
       return lastAgentViewProps
     },
+    getLastPreviewPaneProps() {
+      return lastPreviewPaneProps
+    },
   }
+}
+
+function getComposerActionElement(agentViewProps: Record<string, unknown> | null): React.ReactElement | null {
+  const action = agentViewProps?.composerLeadingActions
+  return React.isValidElement(action) ? action : null
+}
+
+function getComposerActionLabel(agentViewProps: Record<string, unknown> | null): string | null {
+  const action = getComposerActionElement(agentViewProps)
+  if (!action) return null
+
+  return React.Children.toArray(action.props.children)
+    .filter((child): child is string => typeof child === 'string')
+    .join('')
+    .trim() || null
+}
+
+function getComposerActionClassName(agentViewProps: Record<string, unknown> | null): string {
+  const action = getComposerActionElement(agentViewProps)
+  return typeof action?.props.className === 'string' ? action.props.className : ''
 }
 
 afterEach(() => {
@@ -460,5 +494,174 @@ describe('BuilderPage', () => {
     })
     expect(getLastAgentViewProps()).not.toHaveProperty('messageDecorator')
     expect(readBootstrapPayload(sessionStorage, session.id)).toBeNull()
+  })
+
+  test('cycles the shared selection action through idle, armed, selected, and back to idle states', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const { BuilderPage, getLastAgentViewProps, getLastPreviewPaneProps } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      mockPreviewPane: true,
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      selectionModeEnabled: false,
+    })
+    expect(getComposerActionLabel(getLastAgentViewProps())).toBe('选择进行编辑')
+    expect(getComposerActionClassName(getLastAgentViewProps())).toContain('border-transparent')
+    expect(getLastAgentViewProps()).not.toHaveProperty('messageDecorator')
+
+    await act(async () => {
+      getComposerActionElement(getLastAgentViewProps())?.props.onClick()
+    })
+
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      selectionModeEnabled: true,
+    })
+    expect(getComposerActionLabel(getLastAgentViewProps())).toBe('从页面中选择')
+    expect(getComposerActionClassName(getLastAgentViewProps())).toContain('border-primary/35')
+    expect(getComposerActionClassName(getLastAgentViewProps())).toContain('ring-1')
+    expect(getLastAgentViewProps()).not.toHaveProperty('messageDecorator')
+
+    await act(async () => {
+      getComposerActionElement(getLastAgentViewProps())?.props.onClick()
+    })
+
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      selectionModeEnabled: false,
+    })
+    expect(getComposerActionLabel(getLastAgentViewProps())).toBe('选择进行编辑')
+    expect(getLastAgentViewProps()).not.toHaveProperty('messageDecorator')
+
+    await act(async () => {
+      getComposerActionElement(getLastAgentViewProps())?.props.onClick()
+    })
+
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      selectionModeEnabled: true,
+    })
+    expect(getComposerActionLabel(getLastAgentViewProps())).toBe('从页面中选择')
+
+    await act(async () => {
+      (getLastPreviewPaneProps() as {
+        onSelectionEvent?: (event: { type: string; selector?: string }) => void
+      }).onSelectionEvent?.({
+        type: 'selected',
+        selector: '#hero',
+      })
+    })
+
+    expect(getComposerActionLabel(getLastAgentViewProps())).toBe('已选区域')
+    expect(getComposerActionClassName(getLastAgentViewProps())).toContain('bg-primary')
+    expect(getComposerActionClassName(getLastAgentViewProps())).toContain('ring-2')
+
+    const decorated = (getLastAgentViewProps() as {
+      messageDecorator?: (message: string) => string
+    }).messageDecorator?.('修改这里的标题')
+
+    expect(decorated).toContain('#hero')
+    expect(decorated).toContain('修改这里的标题')
+
+    await act(async () => {
+      getComposerActionElement(getLastAgentViewProps())?.props.onClick()
+    })
+
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      selectionModeEnabled: false,
+    })
+    expect(getComposerActionLabel(getLastAgentViewProps())).toBe('选择进行编辑')
+    expect(getLastAgentViewProps()).not.toHaveProperty('messageDecorator')
+  })
+
+  test('keeps the selected block for retry until a success callback or preview reset clears it', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const { BuilderPage, getLastAgentViewProps, getLastPreviewPaneProps } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      mockPreviewPane: true,
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      getComposerActionElement(getLastAgentViewProps())?.props.onClick()
+    })
+    await act(async () => {
+      (getLastPreviewPaneProps() as {
+        onSelectionEvent?: (event: { type: string; selector?: string }) => void
+      }).onSelectionEvent?.({
+        type: 'selected',
+        selector: '#pricing',
+      })
+    })
+
+    expect(getComposerActionLabel(getLastAgentViewProps())).toBe('已选区域')
+    expect((getLastAgentViewProps() as {
+      messageDecorator?: (message: string) => string
+    }).messageDecorator?.('改成更紧凑')).toContain('#pricing')
+
+    await act(async () => {
+      (getLastPreviewPaneProps() as {
+        onSelectionEvent?: (event: { type: string }) => void
+      }).onSelectionEvent?.({
+        type: 'reset',
+      })
+    })
+
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      selectionModeEnabled: false,
+    })
+    expect(getComposerActionLabel(getLastAgentViewProps())).toBe('选择进行编辑')
+    expect(getLastAgentViewProps()).not.toHaveProperty('messageDecorator')
   })
 })

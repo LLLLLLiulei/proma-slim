@@ -1,9 +1,19 @@
 import { Hono } from 'hono'
 import { deletePageBuilderProject, listPageBuilderProjects } from '../../lib/page-builder-project-service'
+import { readPageBuilderPreviewBridgeScript } from '../../lib/page-builder-preview-bridge'
 import { HttpError } from '../errors'
 import { noContent } from '../responses'
 
 export const pageBuilderRoutes = new Hono()
+
+pageBuilderRoutes.get('/preview-bridge.js', () => {
+  return new Response(readPageBuilderPreviewBridgeScript(), {
+    headers: {
+      'cache-control': 'no-store',
+      'content-type': 'application/javascript; charset=utf-8',
+    },
+  })
+})
 
 pageBuilderRoutes.get('/projects', (c) => {
   return c.json(listPageBuilderProjects())

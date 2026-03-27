@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { useSetAtom } from 'jotai'
-import { AlertTriangle, LoaderCircle } from 'lucide-react'
+import { AlertTriangle, LoaderCircle, MousePointerClick } from 'lucide-react'
 import { AgentView } from '@/components/agent'
 import {
   agentSessionsAtom,
@@ -27,6 +27,10 @@ import {
   areWorkspacePreviewStatesEqual,
   resolveWorkspacePreviewUrl,
 } from '@page-builder/lib/preview-state'
+import {
+  decoratePageBuilderSelectionMessage,
+  type PageBuilderPreviewSelectionEvent,
+} from '@page-builder/lib/preview-selection'
 import { PreviewPane } from '@page-builder/components/builder/PreviewPane'
 import { ProjectTitleBar } from '@page-builder/components/builder/ProjectTitleBar'
 import type { WorkspacePreviewState } from '@/lib/api'
@@ -35,6 +39,17 @@ type LoadState =
   | { status: 'loading' }
   | { status: 'error'; message: string }
   | { status: 'ready'; initialUserMessage: string | null }
+
+type SelectionActionState = 'idle' | 'armed' | 'selected'
+
+function logBuilderSelection(event: string, detail?: Record<string, unknown>): void {
+  if (detail) {
+    console.info('[PageBuilderSelection]', event, detail)
+    return
+  }
+
+  console.info('[PageBuilderSelection]', event)
+}
 
 export function BuilderPage({
   workspaceId,
@@ -56,6 +71,28 @@ export function BuilderPage({
     return readStoredBuilderSplitRatio(window.localStorage) ?? DEFAULT_BUILDER_SPLIT_RATIO
   })
   const [isDraggingSplit, setIsDraggingSplit] = React.useState(false)
+  const [selectionActionState, setSelectionActionState] = React.useState<SelectionActionState>('idle')
+  const [hoveredSelector, setHoveredSelector] = React.useState<string | null>(null)
+  const [selectedSelector, setSelectedSelector] = React.useState<string | null>(null)
+  const selectionActionStateRef = React.useRef(selectionActionState)
+  const hoveredSelectorRef = React.useRef(hoveredSelector)
+  const selectedSelectorRef = React.useRef(selectedSelector)
+  const selectionModeEnabled = selectionActionState !== 'idle'
+
+  selectionActionStateRef.current = selectionActionState
+  hoveredSelectorRef.current = hoveredSelector
+  selectedSelectorRef.current = selectedSelector
+
+  const clearSelection = React.useCallback(() => {
+    logBuilderSelection('clear-selection', {
+      previousState: selectionActionStateRef.current,
+      hoveredSelector: hoveredSelectorRef.current,
+      selectedSelector: selectedSelectorRef.current,
+    })
+    setSelectionActionState('idle')
+    setHoveredSelector(null)
+    setSelectedSelector(null)
+  }, [])
 
   const persistDesktopSplitRatio = React.useCallback((nextRatio: number) => {
     const containerWidth = desktopGridRef.current?.getBoundingClientRect().width
@@ -213,6 +250,50 @@ export function BuilderPage({
       : prev)
   }, [sessionId])
 
+  const handleSelectionEvent = React.useCallback((event: PageBuilderPreviewSelectionEvent) => {
+    if (event.type !== 'hover') {
+      logBuilderSelection('preview-event', {
+        type: event.type,
+        ...(event.type === 'selected' ? { selector: event.selector } : {}),
+      })
+    }
+
+    if (event.type === 'hover') {
+      setHoveredSelector(event.selector)
+      return
+    }
+
+    if (event.type === 'selected') {
+      setSelectedSelector(event.selector)
+      setSelectionActionState('selected')
+      return
+    }
+
+    clearSelection()
+  }, [clearSelection])
+
+  const handleToggleSelectionMode = React.useCallback(() => {
+    if (selectionActionState !== 'idle') {
+      logBuilderSelection('toggle-selection-off', { state: selectionActionState })
+      clearSelection()
+      return
+    }
+
+    logBuilderSelection('toggle-selection-on')
+    setSelectionActionState('armed')
+    setHoveredSelector(null)
+    setSelectedSelector(null)
+  }, [clearSelection, selectionActionState])
+
+  const handleMessageSent = React.useCallback(() => {
+    if (selectionActionState === 'idle') return
+    logBuilderSelection('message-sent-clear', {
+      state: selectionActionState,
+      selectedSelector,
+    })
+    clearSelection()
+  }, [clearSelection, selectedSelector, selectionActionState])
+
   const handleSplitPointerDown = React.useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return
     event.preventDefault()
@@ -247,6 +328,41 @@ export function BuilderPage({
     () => resolveWorkspacePreviewUrl(previewState),
     [previewState],
   )
+  React.useEffect(() => {
+    logBuilderSelection('preview-url-reset-selection', { previewUrl })
+    clearSelection()
+  }, [clearSelection, previewUrl])
+  const messageDecorator = React.useMemo(() => {
+    if (!selectedSelector) return undefined
+
+    return (userMessage: string) => decoratePageBuilderSelectionMessage(userMessage, {
+      selector: selectedSelector,
+    })
+  }, [selectedSelector])
+  const selectionActionLabel = selectionActionState === 'idle'
+    ? '选择进行编辑'
+    : selectionActionState === 'selected'
+      ? '已选区域'
+      : '从页面中选择'
+  const selectionActionClassName = selectionActionState === 'selected'
+    ? 'h-7 rounded-full border border-primary/70 bg-primary px-2.5 text-[11px] font-semibold text-primary-foreground shadow-sm ring-2 ring-primary/20 ring-offset-1 ring-offset-background transition-all hover:bg-primary/92 hover:text-primary-foreground'
+    : selectionActionState === 'armed'
+      ? 'h-7 rounded-full border border-primary/35 bg-primary/10 px-2.5 text-[11px] font-medium text-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.35)] ring-1 ring-primary/15 ring-offset-1 ring-offset-background transition-all hover:border-primary/45 hover:bg-primary/14 hover:text-primary'
+      : 'h-7 rounded-full border border-transparent bg-transparent px-2.5 text-[11px] font-medium text-muted-foreground transition-all hover:border-border/60 hover:bg-muted/70 hover:text-foreground'
+  const composerLeadingActions = React.useMemo(() => (
+    <Button
+      aria-label={selectionActionLabel}
+      aria-pressed={selectionModeEnabled}
+      className={selectionActionClassName}
+      onClick={handleToggleSelectionMode}
+      size="sm"
+      type="button"
+      variant="ghost"
+    >
+      <MousePointerClick className="mr-1 size-3.5" />
+      {selectionActionLabel}
+    </Button>
+  ), [handleToggleSelectionMode, selectionActionClassName, selectionActionLabel, selectionModeEnabled])
 
   if (loadState.status === 'loading') {
     return (
@@ -283,7 +399,11 @@ export function BuilderPage({
         className="page-builder-builder-grid grid min-h-0 flex-1 grid-cols-1 gap-3 lg:h-full"
         style={desktopGridStyle}
       >
-        <PreviewPane previewUrl={previewUrl} />
+        <PreviewPane
+          onSelectionEvent={handleSelectionEvent}
+          previewUrl={previewUrl}
+          selectionModeEnabled={selectionModeEnabled}
+        />
 
         <div className="page-builder-split-rail hidden lg:flex" aria-hidden>
           <div
@@ -305,11 +425,14 @@ export function BuilderPage({
           <div className="min-h-0 flex-1 overflow-hidden bg-background/40">
             <AgentView
               allowAttachments
+              composerLeadingActions={composerLeadingActions}
               initialUserMessage={loadState.initialUserMessage}
+              onMessageSent={handleMessageSent}
               onInitialUserMessageHandled={handleInitialUserMessageHandled}
               sessionId={sessionId}
               showComposerMeta={false}
               showHeader={false}
+              {...(messageDecorator ? { messageDecorator } : {})}
             />
           </div>
         </section>

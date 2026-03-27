@@ -140,6 +140,35 @@ describe('createSendResponse', () => {
     sseManager.closeSession('session-1')
   })
 
+  test('forwards composedUserMessage to the agent runtime while keeping title generation on the visible input', async () => {
+    const session = createAgentSession()
+    const runAgent = mock(async (_input: AgentSendInput) => {})
+    const generateTitle = mock(async () => null)
+
+    const response = await createSendResponse(session.id, {
+      userMessage: '把标题改成产品首页',
+      composedUserMessage: '<page_builder_selection>\nselector: h1:nth-of-type(1)\n</page_builder_selection>\n\n把标题改成产品首页',
+    }, {
+      isAgentSessionActive: () => false,
+      runAgent,
+      generateTitle,
+    })
+
+    expect(response.status).toBe(200)
+    expect(generateTitle).toHaveBeenCalledWith(expect.objectContaining({
+      userMessage: '把标题改成产品首页',
+    }))
+    expect(runAgent).toHaveBeenCalledTimes(1)
+    expect(runAgent.mock.calls[0]?.[0]).toMatchObject({
+      sessionId: session.id,
+      userMessage: '把标题改成产品首页',
+      composedUserMessage: '<page_builder_selection>\nselector: h1:nth-of-type(1)\n</page_builder_selection>\n\n把标题改成产品首页',
+      channelId: '',
+    })
+
+    sseManager.closeSession(session.id)
+  })
+
   test('forwards structured attachments into the agent run input', async () => {
     const runAgent = mock(async (_input: AgentSendInput) => {})
     const attachments: FileAttachment[] = [{

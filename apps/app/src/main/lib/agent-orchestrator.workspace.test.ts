@@ -330,6 +330,44 @@ describe('AgentOrchestrator workspace runtime', () => {
     expect(adapter.lastInput?.prompt).toContain(resolveAgentSessionAttachmentPath(workspace.slug, session.id, attachments[0]!.localPath))
   })
 
+  test('keeps page-builder selection context out of persisted history while still injecting it into the runtime prompt', async () => {
+    const adapter = new RecordingAdapter()
+    const orchestrator = new AgentOrchestrator(adapter, new AgentEventBus())
+    const workspace = createAgentWorkspace('Selection Prompt Docs')
+    const session = createAgentSession('Selection Prompt Session', undefined, workspace.id)
+    const composedUserMessage = [
+      '<page_builder_selection>',
+      'selector: h1:nth-of-type(1)',
+      '</page_builder_selection>',
+      '',
+      '把标题改成产品首页',
+    ].join('\n')
+
+    await orchestrator.sendMessage(
+      {
+        sessionId: session.id,
+        userMessage: '把标题改成产品首页',
+        composedUserMessage,
+        channelId: '',
+      },
+      {
+        onError: (message) => {
+          throw new Error(message)
+        },
+        onComplete: () => {},
+        onTitleUpdated: () => {},
+      },
+    )
+
+    const persistedUserMessage = getAgentSessionMessages(session.id).find((message) => message.role === 'user')
+
+    expect(persistedUserMessage?.content).toBe('把标题改成产品首页')
+    expect(String(persistedUserMessage?.content)).not.toContain('<page_builder_selection>')
+    expect(adapter.lastInput?.prompt).toContain('<page_builder_selection>')
+    expect(adapter.lastInput?.prompt).toContain('selector: h1:nth-of-type(1)')
+    expect(adapter.lastInput?.prompt).toContain('把标题改成产品首页')
+  })
+
   test('rolls back saved attachments when preflight fails before the user message is persisted', async () => {
     const adapter = new RecordingAdapter()
     const orchestrator = new AgentOrchestrator(adapter, new AgentEventBus())
