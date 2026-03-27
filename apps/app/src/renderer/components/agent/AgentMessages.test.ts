@@ -266,4 +266,68 @@ describe('AgentMessages transient assistant rendering', () => {
     expect(markup).toContain('/api/sessions/session-attachments/attachments/attachment-doc/content')
     expect(markup).toContain('brief.pdf')
   })
+
+  test('renders multiple image attachments with max dimensions and proportional scaling instead of cropping', () => {
+    const markup = renderToStaticMarkup(
+      React.createElement(AgentMessages, {
+        sessionId: 'session-multi-image-attachments',
+        messages: [{
+          id: 'user-2',
+          role: 'user',
+          content: '请看这两张参考图',
+          createdAt: 2,
+          attachments: [
+            {
+              id: 'attachment-image-a',
+              filename: 'hero-reference.png',
+              mediaType: 'image/png',
+              localPath: 'attachments/hero-reference.png',
+              size: 512,
+            },
+            {
+              id: 'attachment-image-b',
+              filename: 'layout-reference.png',
+              mediaType: 'image/png',
+              localPath: 'attachments/layout-reference.png',
+              size: 768,
+            },
+          ],
+        }],
+        streaming: false,
+      })
+    )
+
+    expect(markup).toContain('max-w-[240px]')
+    expect(markup).toContain('max-h-[180px]')
+    expect(markup).toContain('object-contain')
+  })
+
+  test('renders a single image attachment with the same max dimensions as the multi-image layout', () => {
+    const markup = renderToStaticMarkup(
+      React.createElement(AgentMessages, {
+        sessionId: 'session-single-image-attachment',
+        messages: [{
+          id: 'user-3',
+          role: 'user',
+          content: '请参考这张图',
+          createdAt: 3,
+          attachments: [
+            {
+              id: 'attachment-image-single',
+              filename: 'single-reference.png',
+              mediaType: 'image/png',
+              localPath: 'attachments/single-reference.png',
+              size: 1024,
+            },
+          ],
+        }],
+        streaming: false,
+      })
+    )
+
+    expect(markup).toContain('max-w-[240px]')
+    expect(markup).toContain('max-h-[180px]')
+    expect(markup).toContain('object-contain')
+    expect(markup).not.toContain('sm:max-w-[500px]')
+  })
 })

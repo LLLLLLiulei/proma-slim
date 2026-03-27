@@ -494,7 +494,6 @@ export function MessageAttachments({
 }: MessageAttachmentsProps): React.ReactElement {
   const imageAttachments = attachments.filter((att) => att.mediaType.startsWith('image/'))
   const fileAttachments = attachments.filter((att) => !att.mediaType.startsWith('image/'))
-  const isSingleImage = imageAttachments.length === 1 && fileAttachments.length === 0
 
   return (
     <div className={cn('flex flex-col gap-2 mb-2', className)} {...props}>
@@ -506,7 +505,6 @@ export function MessageAttachments({
               key={att.id}
               attachment={att}
               attachmentUrl={resolveAttachmentUrl(sessionId, att)}
-              isSingle={isSingleImage}
             />
           ))}
         </div>
@@ -532,15 +530,12 @@ export function MessageAttachments({
 interface MessageAttachmentImageProps {
   attachment: FileAttachment
   attachmentUrl: string | null
-  /** 是否为唯一附件（单图模式） */
-  isSingle?: boolean
 }
 
-/** 图片附件展示（单图: max 500px，多图: 280px 方块） */
+/** 图片附件展示（统一按最大宽高等比缩放，避免放大和裁剪） */
 function MessageAttachmentImage({
   attachment,
   attachmentUrl,
-  isSingle = false,
 }: MessageAttachmentImageProps): React.ReactElement {
   const imageSrc = attachmentUrl
 
@@ -548,26 +543,18 @@ function MessageAttachmentImage({
     return (
       <div className={cn(
         'rounded-lg bg-muted/30 animate-pulse shrink-0',
-        isSingle ? 'w-[280px] h-[200px]' : 'size-[280px]'
+        'h-[180px] w-[240px]'
       )} />
     )
   }
 
   return (
     <a href={imageSrc} rel="noreferrer" target="_blank">
-      {isSingle ? (
-        <img
-          src={imageSrc}
-          alt={attachment.filename}
-          className="max-w-[500px] max-h-[min(500px,50vh)] rounded-lg object-contain"
-        />
-      ) : (
-        <img
-          src={imageSrc}
-          alt={attachment.filename}
-          className="size-[280px] rounded-lg object-cover shrink-0"
-        />
-      )}
+      <img
+        src={imageSrc}
+        alt={attachment.filename}
+        className="h-auto w-auto max-w-[240px] max-h-[180px] rounded-lg object-contain shrink-0"
+      />
     </a>
   )
 }
