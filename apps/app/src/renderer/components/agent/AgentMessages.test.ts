@@ -35,11 +35,11 @@ function createCompletedToolStreamState(content: string): AgentStreamState {
   }
 }
 
-function createStreamingState(content: string): AgentStreamState {
+function createStreamingState(content: string, model?: string): AgentStreamState {
   return {
     running: true,
     content,
-    model: 'claude-sonnet-4-6',
+    model: model ?? 'claude-sonnet-4-6',
     startedAt: 1,
     teammates: [],
     toolActivities: [],
@@ -230,6 +230,40 @@ describe('AgentMessages transient assistant rendering', () => {
 
     expect(markup).toContain('这是正在流式输出的部分内容。')
     expect(markup).toContain('正在输出...')
+  })
+
+  test('reuses the latest persisted assistant model for the transient streaming header before model_resolved arrives', () => {
+    const markup = renderToStaticMarkup(
+      React.createElement(AgentMessages, {
+        sessionId: 'session-streaming-model-fallback',
+        messages: [{
+          id: 'assistant-existing',
+          role: 'assistant',
+          content: '上一条回复',
+          createdAt: 1,
+          model: 'claude-sonnet-4-6',
+        }],
+        streaming: true,
+        streamState: { ...createStreamingState('新的流式回复'), model: undefined },
+      })
+    )
+
+    expect(countOccurrences(markup, 'claude-sonnet-4-6')).toBeGreaterThanOrEqual(2)
+    expect(countOccurrences(markup, 'alt="claude-sonnet-4-6"')).toBe(2)
+  })
+
+  test('falls back to the default Claude model for the transient streaming header in a brand-new session', () => {
+    const markup = renderToStaticMarkup(
+      React.createElement(AgentMessages, {
+        sessionId: 'session-streaming-model-default',
+        messages: [],
+        streaming: true,
+        streamState: { ...createStreamingState('首条流式回复'), model: undefined },
+      })
+    )
+
+    expect(markup).toContain('claude-sonnet-4-5-20250929')
+    expect(markup).toContain('alt="claude-sonnet-4-5-20250929"')
   })
 
   test('renders structured user attachments through the session-scoped content route', () => {

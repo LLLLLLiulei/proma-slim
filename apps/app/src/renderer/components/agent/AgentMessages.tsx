@@ -48,6 +48,8 @@ interface AgentMessagesProps {
   onCompact?: () => void
 }
 
+const DEFAULT_STREAMING_ASSISTANT_MODEL = 'claude-sonnet-4-5-20250929'
+
 function normalizeAssistantContent(content: string): string {
   return content.trim()
 }
@@ -69,6 +71,16 @@ function normalizeToolActivitiesForComparison(activities: ToolActivity[]): strin
       isBackground: Boolean(activity.isBackground),
     })),
   )
+}
+
+function resolveTransientAssistantModel(messages: AgentMessage[], streamingModel?: string): string {
+  if (streamingModel) return streamingModel
+
+  const lastAssistantModel = [...messages]
+    .reverse()
+    .find((message) => message.role === 'assistant' && message.model)?.model
+
+  return lastAssistantModel ?? DEFAULT_STREAMING_ASSISTANT_MODEL
 }
 
 export function shouldRenderTransientAssistantMessage({
@@ -594,7 +606,7 @@ export function AgentMessages({ sessionId, messages, streaming, streamState, onR
   // 从 streamState 属性中计算派生值
   const streamingContent = streamState?.content ?? ''
   const toolActivities = streamState?.toolActivities ?? []
-  const agentStreamingModel = streamState?.model
+  const agentStreamingModel = resolveTransientAssistantModel(messages, streamState?.model)
   const retrying = streamState?.retrying
   const startedAt = streamState?.startedAt
 
