@@ -46,6 +46,8 @@ function createMemoryStorage(initial: Record<string, string> = {}): Storage {
 function installWindowHarness(): {
   localStorage: Storage
   sessionStorage: Storage
+  dispatchWindowEvent: (type: string, event?: unknown) => void
+  getListenerCount: (type: string) => number
   runIntervalsOnce: () => Promise<void>
 } {
   const sessionStorage = createMemoryStorage()
@@ -81,6 +83,14 @@ function installWindowHarness(): {
   return {
     localStorage,
     sessionStorage,
+    dispatchWindowEvent(type: string, event?: unknown) {
+      for (const listener of listeners.get(type) ?? []) {
+        listener(event)
+      }
+    },
+    getListenerCount(type: string) {
+      return listeners.get(type)?.size ?? 0
+    },
     async runIntervalsOnce() {
       for (const callback of [...intervals.values()]) {
         await callback()
@@ -169,6 +179,58 @@ afterEach(() => {
 })
 
 describe('BuilderPage', () => {
+  test('registers a beforeunload guard that prevents accidental refresh or close on the builder page', async () => {
+    const { dispatchWindowEvent, getListenerCount } = installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const { BuilderPage } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+    })
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+    })
+
+    expect(getListenerCount('beforeunload')).toBe(1)
+
+    const preventDefault = mock(() => {})
+    const event = {
+      preventDefault,
+      returnValue: undefined as string | undefined,
+    }
+
+    dispatchWindowEvent('beforeunload', event)
+
+    expect(preventDefault).toHaveBeenCalledTimes(1)
+    expect(event.returnValue).toBe('')
+
+    await act(async () => {
+      renderer.unmount()
+    })
+
+    expect(getListenerCount('beforeunload')).toBe(0)
+  })
+
   test('keeps the desktop builder shell height-bounded so the embedded chat can scroll internally', async () => {
     installWindowHarness()
     const workspace: AgentWorkspace = {
@@ -381,7 +443,7 @@ describe('BuilderPage', () => {
     })
 
     const iframe = renderer.root.findByType('iframe')
-    expect(iframe.props.src).toBe(`/api/workspaces/${workspace.id}/preview/?v=rev-1`)
+    expect(iframe.props.src).toBe(`http://localhost/api/workspaces/${workspace.id}/preview/?v=rev-1&page-builder-bridge=1`)
   })
 
   test('polls for preview updates and clears the preview when the workspace no longer has an entry page', async () => {
@@ -434,13 +496,13 @@ describe('BuilderPage', () => {
       await Promise.resolve()
     })
 
-    expect(renderer.root.findByType('iframe').props.src).toBe(`/api/workspaces/${workspace.id}/preview/?v=rev-1`)
+    expect(renderer.root.findByType('iframe').props.src).toBe(`http://localhost/api/workspaces/${workspace.id}/preview/?v=rev-1&page-builder-bridge=1`)
 
     await act(async () => {
       await runIntervalsOnce()
     })
 
-    expect(renderer.root.findByType('iframe').props.src).toBe(`/api/workspaces/${workspace.id}/preview/?v=rev-2`)
+    expect(renderer.root.findByType('iframe').props.src).toBe(`http://localhost/api/workspaces/${workspace.id}/preview/?v=rev-2&page-builder-bridge=1`)
 
     await act(async () => {
       await runIntervalsOnce()

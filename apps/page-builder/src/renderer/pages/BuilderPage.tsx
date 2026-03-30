@@ -149,6 +149,18 @@ export function BuilderPage({
   }, [loadBuilderRuntime])
 
   React.useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [])
+
+  React.useEffect(() => {
     if (loadState.status !== 'ready' || typeof window === 'undefined') return
 
     let cancelled = false
