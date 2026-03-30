@@ -12,7 +12,7 @@
     "dev": "concurrently -k -n vite,server -c blue,green \"bun run dev:vite\" \"bun run dev:server\"",
     "dev:split": "bash scripts/dev-split.sh",
     "dev:vite": "vite dev",
-    "dev:server": "PROMA_CONFIG_DIR=\"${PROMA_CONFIG_DIR:-$HOME/.proma-dev}\" NODE_ENV=development bun --watch src/main/index.ts",
+    "dev:server": "PROMA_CONFIG_DIR=\"${PROMA_CONFIG_DIR:-$HOME/.proma-dev}\" NODE_ENV=development bun scripts/dev-server.ts --entry src/main/index.ts --log-name app-server.log",
     "build": "NODE_ENV=production vite build",
     "build:renderer": "vite build",
     "start": "NODE_ENV=production bun src/main/index.ts",

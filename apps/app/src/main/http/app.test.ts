@@ -303,7 +303,7 @@ describe('createHttpApp', () => {
     expect(await missingPreviewResponse.json()).toEqual({ error: '预览入口不存在' })
   })
 
-  test('workspace preview routes inject the selection bridge only for page-builder HTML previews', async () => {
+  test('workspace preview routes inject the selection bridge only when explicitly requested', async () => {
     const app = createApp()
     const workspace = createAgentWorkspace('Builder Preview Route', { template: 'page-builder' })
     const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
@@ -318,7 +318,11 @@ describe('createHttpApp', () => {
 
     const previewResponse = await app.fetch(new Request(`http://localhost/api/workspaces/${workspace.id}/preview/`))
     expect(previewResponse.status).toBe(200)
-    expect(await previewResponse.text()).toContain(getPageBuilderPreviewBridgeAssetUrl())
+    expect(await previewResponse.text()).not.toContain(getPageBuilderPreviewBridgeAssetUrl())
+
+    const bridgePreviewResponse = await app.fetch(new Request(`http://localhost/api/workspaces/${workspace.id}/preview/?page-builder-bridge=1`))
+    expect(bridgePreviewResponse.status).toBe(200)
+    expect(await bridgePreviewResponse.text()).toContain(getPageBuilderPreviewBridgeAssetUrl())
 
     const assetResponse = await app.fetch(new Request(`http://localhost/api/workspaces/${workspace.id}/preview/assets/site.css`))
     expect(assetResponse.status).toBe(200)

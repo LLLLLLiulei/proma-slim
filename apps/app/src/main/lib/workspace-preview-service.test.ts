@@ -37,7 +37,7 @@ describe('workspace preview service', () => {
     expect(state.revision?.length).toBeGreaterThan(0)
   })
 
-  test('injects the page-builder preview bridge into HTML responses only for page-builder workspaces', async () => {
+  test('injects the page-builder preview bridge only when the request explicitly enables it', async () => {
     const builderWorkspace = createAgentWorkspace('Builder Preview', { template: 'page-builder' })
     const regularWorkspace = createAgentWorkspace('Regular Preview')
     const builderWorkspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', builderWorkspace.slug, 'workspace-files')
@@ -48,7 +48,8 @@ describe('workspace preview service', () => {
     writeFileSync(join(builderWorkspaceFilesDir, 'index.html'), '<!doctype html><html><body><h1>Builder</h1></body></html>', 'utf-8')
     writeFileSync(join(regularWorkspaceFilesDir, 'index.html'), '<!doctype html><html><body><h1>Regular</h1></body></html>', 'utf-8')
 
-    const builderResponse = createWorkspacePreviewResponse(builderWorkspace, '/')
+    const builderResponse = createWorkspacePreviewResponse(builderWorkspace, '/', { enablePageBuilderBridge: true })
+    const builderWithoutBridgeResponse = createWorkspacePreviewResponse(builderWorkspace, '/')
     const regularResponse = createWorkspacePreviewResponse(regularWorkspace, '/')
 
     const builderHtml = await builderResponse.text()
@@ -57,6 +58,7 @@ describe('workspace preview service', () => {
     expect(builderHtml).toContain('data-page-builder-preview-bridge-loader="true"')
     expect(builderHtml).not.toContain('window.parent !== window')
     expect(builderHtml).not.toContain('const resolveElementLabel = (element) => {')
+    expect(await builderWithoutBridgeResponse.text()).not.toContain(getPageBuilderPreviewBridgeAssetUrl())
     expect(await regularResponse.text()).not.toContain(getPageBuilderPreviewBridgeAssetUrl())
   })
 

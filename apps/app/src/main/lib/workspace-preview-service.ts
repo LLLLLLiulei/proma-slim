@@ -15,6 +15,10 @@ export interface WorkspacePreviewState {
   revision: string | null
 }
 
+interface CreateWorkspacePreviewResponseOptions {
+  enablePageBuilderBridge?: boolean
+}
+
 function getWorkspacePreviewRoot(workspace: AgentWorkspace): string {
   return getWorkspaceFilesDir(workspace.slug)
 }
@@ -82,6 +86,7 @@ export function getWorkspacePreviewState(workspace: AgentWorkspace): WorkspacePr
 export function createWorkspacePreviewResponse(
   workspace: AgentWorkspace,
   requestPath: string,
+  options?: CreateWorkspacePreviewResponseOptions,
 ): Response {
   const resolvedPath = resolveWorkspacePreviewPath(workspace, requestPath)
   const isEntryRequest = requestPath === '' || requestPath === '/' || requestPath === 'index.html'
@@ -90,7 +95,7 @@ export function createWorkspacePreviewResponse(
     throw new HttpError(404, isEntryRequest ? '预览入口不存在' : '预览文件不存在')
   }
 
-  if (shouldInjectPageBuilderPreviewBridge(workspace, resolvedPath)) {
+  if (shouldInjectPageBuilderPreviewBridge(workspace, resolvedPath, options)) {
     return new Response(
       injectPageBuilderPreviewBridge(readFileSync(resolvedPath, 'utf-8')),
       {

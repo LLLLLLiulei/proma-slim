@@ -92,8 +92,11 @@ workspaceRoutes.get('/:workspaceId/preview-state', (c) => {
 })
 
 const handleWorkspacePreview = (c: { req: { raw: Request }; var: { workspace: HttpAppEnv['Variables']['workspace'] } }) => {
+  const url = new URL(c.req.raw.url)
   const requestPath = getWorkspacePreviewRequestPath(c.req.raw.url, c.var.workspace.id)
-  return createWorkspacePreviewResponse(c.var.workspace, requestPath)
+  const enablePageBuilderBridge = url.searchParams.get('page-builder-bridge') === '1'
+
+  return createWorkspacePreviewResponse(c.var.workspace, requestPath, { enablePageBuilderBridge })
 }
 
 workspaceRoutes.get('/:workspaceId/preview', handleWorkspacePreview)

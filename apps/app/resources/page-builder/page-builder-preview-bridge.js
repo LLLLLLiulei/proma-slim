@@ -23,14 +23,7 @@
   let readyAnnouncementAttempts = 0
   let readyAnnouncementTimer = null
 
-  const logBridge = (event, detail) => {
-    if (detail) {
-      console.info('[PageBuilderPreviewBridge]', event, detail)
-      return
-    }
-
-    console.info('[PageBuilderPreviewBridge]', event)
-  }
+  const logBridge = () => {}
 
   const cssEscape = (value) => {
     if (window.CSS && typeof window.CSS.escape === 'function') {

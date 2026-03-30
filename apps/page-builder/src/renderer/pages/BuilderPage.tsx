@@ -42,15 +42,6 @@ type LoadState =
 
 type SelectionActionState = 'idle' | 'armed' | 'selected'
 
-function logBuilderSelection(event: string, detail?: Record<string, unknown>): void {
-  if (detail) {
-    console.info('[PageBuilderSelection]', event, detail)
-    return
-  }
-
-  console.info('[PageBuilderSelection]', event)
-}
-
 export function BuilderPage({
   workspaceId,
   sessionId,
@@ -74,21 +65,9 @@ export function BuilderPage({
   const [selectionActionState, setSelectionActionState] = React.useState<SelectionActionState>('idle')
   const [hoveredSelector, setHoveredSelector] = React.useState<string | null>(null)
   const [selectedSelector, setSelectedSelector] = React.useState<string | null>(null)
-  const selectionActionStateRef = React.useRef(selectionActionState)
-  const hoveredSelectorRef = React.useRef(hoveredSelector)
-  const selectedSelectorRef = React.useRef(selectedSelector)
   const selectionModeEnabled = selectionActionState !== 'idle'
 
-  selectionActionStateRef.current = selectionActionState
-  hoveredSelectorRef.current = hoveredSelector
-  selectedSelectorRef.current = selectedSelector
-
   const clearSelection = React.useCallback(() => {
-    logBuilderSelection('clear-selection', {
-      previousState: selectionActionStateRef.current,
-      hoveredSelector: hoveredSelectorRef.current,
-      selectedSelector: selectedSelectorRef.current,
-    })
     setSelectionActionState('idle')
     setHoveredSelector(null)
     setSelectedSelector(null)
@@ -251,13 +230,6 @@ export function BuilderPage({
   }, [sessionId])
 
   const handleSelectionEvent = React.useCallback((event: PageBuilderPreviewSelectionEvent) => {
-    if (event.type !== 'hover') {
-      logBuilderSelection('preview-event', {
-        type: event.type,
-        ...(event.type === 'selected' ? { selector: event.selector } : {}),
-      })
-    }
-
     if (event.type === 'hover') {
       setHoveredSelector(event.selector)
       return
@@ -274,12 +246,10 @@ export function BuilderPage({
 
   const handleToggleSelectionMode = React.useCallback(() => {
     if (selectionActionState !== 'idle') {
-      logBuilderSelection('toggle-selection-off', { state: selectionActionState })
       clearSelection()
       return
     }
 
-    logBuilderSelection('toggle-selection-on')
     setSelectionActionState('armed')
     setHoveredSelector(null)
     setSelectedSelector(null)
@@ -287,12 +257,8 @@ export function BuilderPage({
 
   const handleMessageSent = React.useCallback(() => {
     if (selectionActionState === 'idle') return
-    logBuilderSelection('message-sent-clear', {
-      state: selectionActionState,
-      selectedSelector,
-    })
     clearSelection()
-  }, [clearSelection, selectedSelector, selectionActionState])
+  }, [clearSelection, selectionActionState])
 
   const handleSplitPointerDown = React.useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return
@@ -329,7 +295,6 @@ export function BuilderPage({
     [previewState],
   )
   React.useEffect(() => {
-    logBuilderSelection('preview-url-reset-selection', { previewUrl })
     clearSelection()
   }, [clearSelection, previewUrl])
   const messageDecorator = React.useMemo(() => {

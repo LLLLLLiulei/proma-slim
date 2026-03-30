@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "concurrently -k -n vite,server -c blue,green \"bun run dev:vite\" \"bun run dev:server\"",
     "dev:vite": "vite dev",
-    "dev:server": "PROMA_CONFIG_DIR=\"${PROMA_CONFIG_DIR:-$HOME/.proma-dev}\" NODE_ENV=development bun --watch ../app/src/main/index.ts",
+    "dev:server": "PROMA_CONFIG_DIR=\"${PROMA_CONFIG_DIR:-$HOME/.proma-dev}\" NODE_ENV=development bun ../app/scripts/dev-server.ts --entry ../app/src/main/index.ts --log-name page-builder-server.log",
     "build": "vite build",
     "typecheck": "tsc --noEmit"
   },

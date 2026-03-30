@@ -86,6 +86,24 @@ export function getAttachmentsDir(): string {
 }
 
 /**
+ * 获取日志目录路径
+ *
+ * 如果目录不存在则自动创建。
+ *
+ * @returns ~/.proma/logs/
+ */
+export function getLogsDir(): string {
+  const dir = join(getConfigDir(), 'logs')
+
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true })
+    console.log(`[配置] 已创建日志目录: ${dir}`)
+  }
+
+  return dir
+}
+
+/**
  * 获取指定对话的附件目录
  *
  * 如果目录不存在则自动创建。

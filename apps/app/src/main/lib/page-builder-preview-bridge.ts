@@ -57,8 +57,13 @@ function createPageBuilderPreviewBridgeLoaderTag(): string {
 export function shouldInjectPageBuilderPreviewBridge(
   workspace: AgentWorkspace,
   resolvedPath: string,
+  options?: {
+    enablePageBuilderBridge?: boolean
+  },
 ): boolean {
-  return workspace.template === 'page-builder' && resolvedPath.toLowerCase().endsWith('.html')
+  return Boolean(options?.enablePageBuilderBridge)
+    && workspace.template === 'page-builder'
+    && resolvedPath.toLowerCase().endsWith('.html')
 }
 
 export function injectPageBuilderPreviewBridge(html: string): string {

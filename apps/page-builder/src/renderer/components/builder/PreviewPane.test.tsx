@@ -43,12 +43,37 @@ describe('PreviewPane', () => {
     const { PreviewPane } = await loadPreviewPane()
     const readyRenderer = create(<PreviewPane previewUrl="https://example.com/preview?v=rev-1" />)
     const iframe = readyRenderer.root.findByType('iframe')
-    expect(iframe.props.src).toBe('https://example.com/preview?v=rev-1')
+    expect(iframe.props.src).toBe('https://example.com/preview?v=rev-1&page-builder-bridge=1')
     expect(iframe.props.sandbox).toBe('allow-forms allow-scripts')
 
     const emptyRenderer = create(<PreviewPane previewUrl={null} />)
     const emptyJson = JSON.stringify(emptyRenderer.toJSON())
     expect(emptyJson).toContain('预览尚未生成')
+  })
+
+  test('opens the plain preview URL in a new window without the bridge query flag', async () => {
+    const open = mock(() => {})
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: {
+        addEventListener() {},
+        removeEventListener() {},
+        open,
+      },
+    })
+
+    const { PreviewPane } = await loadPreviewPane()
+    const renderer = create(<PreviewPane previewUrl="https://example.com/preview?v=rev-1" />)
+
+    await act(async () => {
+      renderer.root.findAllByType('button')[2]!.props.onClick()
+    })
+
+    expect(open).toHaveBeenCalledWith(
+      'https://example.com/preview?v=rev-1',
+      '_blank',
+      'noopener,noreferrer',
+    )
   })
 
   test('emits a reset selection event when the user manually refreshes the preview', async () => {
