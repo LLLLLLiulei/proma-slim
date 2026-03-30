@@ -46,6 +46,21 @@ function createStreamingState(content: string, model?: string): AgentStreamState
   }
 }
 
+function createStreamingStateWithStatusNotice(message: string): AgentStreamState {
+  return {
+    running: true,
+    content: '',
+    model: 'claude-sonnet-4-6',
+    startedAt: 1,
+    teammates: [],
+    toolActivities: [],
+    statusNotice: {
+      level: 'warning',
+      message,
+    },
+  } as AgentStreamState
+}
+
 function createAssistantMessageWithToolEvents(content: string, includeEvents: boolean): AgentMessage {
   return {
     id: 'assistant-1',
@@ -264,6 +279,20 @@ describe('AgentMessages transient assistant rendering', () => {
 
     expect(markup).toContain('claude-sonnet-4-5-20250929')
     expect(markup).toContain('alt="claude-sonnet-4-5-20250929"')
+  })
+
+  test('renders a transient status notice while the sdk is waiting without assistant text yet', () => {
+    const markup = renderToStaticMarkup(
+      React.createElement(AgentMessages, {
+        sessionId: 'session-status-notice',
+        messages: [],
+        streaming: true,
+        streamState: createStreamingStateWithStatusNotice('正在等待 SDK 完成鉴权…'),
+      })
+    )
+
+    expect(markup).toContain('正在等待 SDK 完成鉴权…')
+    expect(markup).toContain('正在思考...')
   })
 
   test('renders structured user attachments through the session-scoped content route', () => {

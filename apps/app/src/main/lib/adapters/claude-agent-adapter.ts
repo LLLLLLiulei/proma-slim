@@ -77,12 +77,29 @@ interface SDKToolProgressMessage {
   task_id?: string
 }
 
+interface SDKAuthStatusMessage {
+  type: 'auth_status'
+  isAuthenticating?: boolean
+  status?: string
+  output?: string[]
+}
+
+interface SDKRateLimitEventMessage {
+  type: 'rate_limit_event'
+  rate_limit_info?: {
+    status?: 'allowed' | 'allowed_warning' | 'rejected'
+    resetsAt?: number
+  }
+}
+
 type SDKMessage =
   | SDKAssistantMessage
   | SDKUserMessage
   | SDKStreamEvent
   | SDKResultMessage
   | SDKToolProgressMessage
+  | SDKAuthStatusMessage
+  | SDKRateLimitEventMessage
   | { type: string; parent_tool_use_id?: string | null; [key: string]: unknown }
 
 // ============================================================================
@@ -365,6 +382,14 @@ export class ClaudeAgentAdapter implements AgentProviderAdapter {
         this.translateToolProgress(message as SDKToolProgressMessage, events, toolIndex, emittedToolStarts, activeParentTools, turnId)
         break
 
+      case 'auth_status':
+        this.translateAuthStatus(message as SDKAuthStatusMessage, events)
+        break
+
+      case 'rate_limit_event':
+        this.translateRateLimitEvent(message as SDKRateLimitEventMessage, events)
+        break
+
       case 'result':
         this.translateResult(message as SDKResultMessage, events, cachedContextWindow)
         break
@@ -559,6 +584,57 @@ export class ClaudeAgentAdapter implements AgentProviderAdapter {
     }
   }
 
+  private translateAuthStatus(
+    msg: SDKAuthStatusMessage,
+    events: AgentEvent[],
+  ): void {
+    if (msg.error?.trim()) {
+      events.push({
+        type: 'status_notice',
+        level: 'error',
+        message: msg.error.trim(),
+      })
+      return
+    }
+
+    if (!msg.isAuthenticating) {
+      return
+    }
+
+    const message = msg.output?.find((entry) => entry.trim())?.trim()
+      ?? '正在等待 SDK 完成鉴权…'
+
+    if (!message) {
+      return
+    }
+
+    events.push({
+      type: 'status_notice',
+      level: 'info',
+      message,
+    })
+  }
+
+  private translateRateLimitEvent(
+    msg: SDKRateLimitEventMessage,
+    events: AgentEvent[],
+  ): void {
+    const status = msg.rate_limit_info?.status
+    if (status === 'allowed' || !status) {
+      return
+    }
+
+    const message = status === 'allowed_warning'
+      ? '接近使用上限，请尽快完成当前操作。'
+      : '已触发使用频率限制，请稍后重试。'
+
+    events.push({
+      type: 'status_notice',
+      level: status === 'rejected' ? 'error' : 'warning',
+      message,
+    })
+  }
+
   /** 翻译 system 类型消息（之前在 runAgent 循环中直接处理） */
   private translateSystem(
     message: SDKMessage,
@@ -574,10 +650,16 @@ export class ClaudeAgentAdapter implements AgentProviderAdapter {
       summary?: string; output_file?: string
     }
 
+    if (msg.subtype === 'init') {
+      return
+    }
+
     if (msg.subtype === 'compact_boundary') {
       events.push({ type: 'compact_complete' })
-    } else if (msg.subtype === 'status' && msg.status === 'compacting') {
-      events.push({ type: 'compacting' })
+    } else if (msg.subtype === 'status') {
+      if (msg.status === 'compacting') {
+        events.push({ type: 'compacting' })
+      }
     } else if (msg.subtype === 'task_started' && msg.task_id) {
       events.push({
         type: 'task_started',
@@ -619,6 +701,8 @@ export class ClaudeAgentAdapter implements AgentProviderAdapter {
         } : undefined,
         turnId: turnId.value || undefined,
       })
+    } else if (msg.subtype) {
+      console.log(`[ClaudeAgentAdapter] 忽略内部 system 事件: ${msg.subtype}`)
     }
   }
 

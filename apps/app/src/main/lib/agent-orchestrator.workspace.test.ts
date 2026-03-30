@@ -79,10 +79,12 @@ interface CapturedQueryInput extends AgentQueryInput {
 }
 
 class RecordingAdapter implements AgentProviderAdapter {
+  inputs: CapturedQueryInput[] = []
   lastInput: CapturedQueryInput | null = null
 
   async *query(input: AgentQueryInput): AsyncIterable<AgentEvent> {
     this.lastInput = input as CapturedQueryInput
+    this.inputs.push(this.lastInput)
     yield { type: 'complete' }
   }
 
@@ -251,6 +253,116 @@ describe('AgentOrchestrator workspace runtime', () => {
         url: 'https://example.com/browser',
         headers: { Authorization: 'Bearer token' },
         required: false,
+      },
+    })
+  })
+
+  test('suppresses default page-builder MCP servers on the very first turn', async () => {
+    const adapter = new RecordingAdapter()
+    const orchestrator = new AgentOrchestrator(adapter, new AgentEventBus())
+    const workspace = createAgentWorkspace('Page Builder MCP First Turn', { template: 'page-builder' })
+    const session = createAgentSession('First turn session', undefined, workspace.id)
+
+    await orchestrator.sendMessage(
+      {
+        sessionId: session.id,
+        userMessage: '你好',
+        channelId: '',
+      },
+      {
+        onError: (message) => {
+          throw new Error(message)
+        },
+        onComplete: () => {},
+        onTitleUpdated: () => {},
+      },
+    )
+
+    expect(adapter.lastInput?.mcpServers).toBeUndefined()
+  })
+
+  test('restores default page-builder MCP servers after the first turn completes', async () => {
+    const adapter = new RecordingAdapter()
+    const orchestrator = new AgentOrchestrator(adapter, new AgentEventBus())
+    const workspace = createAgentWorkspace('Page Builder MCP Follow-up', { template: 'page-builder' })
+    const session = createAgentSession('Follow-up session', undefined, workspace.id)
+
+    await orchestrator.sendMessage(
+      {
+        sessionId: session.id,
+        userMessage: '你好',
+        channelId: '',
+      },
+      {
+        onError: (message) => {
+          throw new Error(message)
+        },
+        onComplete: () => {},
+        onTitleUpdated: () => {},
+      },
+    )
+
+    await orchestrator.sendMessage(
+      {
+        sessionId: session.id,
+        userMessage: '帮我生成一个极简首页',
+        channelId: '',
+      },
+      {
+        onError: (message) => {
+          throw new Error(message)
+        },
+        onComplete: () => {},
+        onTitleUpdated: () => {},
+      },
+    )
+
+    expect(adapter.inputs).toHaveLength(2)
+    expect(adapter.inputs[0]?.mcpServers).toBeUndefined()
+    expect(adapter.inputs[1]?.mcpServers).toMatchObject({
+      playwright: {
+        type: 'stdio',
+        command: 'npx',
+      },
+      'server-sequential-thinking': {
+        type: 'stdio',
+        command: 'npx',
+      },
+    })
+  })
+
+  test('allows an explicitly mentioned MCP server on the first page-builder turn', async () => {
+    const adapter = new RecordingAdapter()
+    const orchestrator = new AgentOrchestrator(adapter, new AgentEventBus())
+    const workspace = createAgentWorkspace('Page Builder MCP Mention', { template: 'page-builder' })
+    const session = createAgentSession('Mention session', undefined, workspace.id)
+
+    await orchestrator.sendMessage(
+      {
+        sessionId: session.id,
+        userMessage: '请使用浏览器检查预览',
+        channelId: '',
+        mentionedMcpServers: ['playwright'],
+      },
+      {
+        onError: (message) => {
+          throw new Error(message)
+        },
+        onComplete: () => {},
+        onTitleUpdated: () => {},
+      },
+    )
+
+    expect(adapter.lastInput?.mcpServers).toEqual({
+      playwright: {
+        type: 'stdio',
+        command: 'npx',
+        args: ['@playwright/mcp@latest', '--headless', '--browser', 'chrome'],
+        env: {
+          PATH: process.env.PATH,
+        },
+        required: false,
+        startup_timeout_sec: 30,
       },
     })
   })
@@ -668,6 +780,55 @@ describe('AgentOrchestrator workspace runtime', () => {
       { type: 'local', path: getAgentWorkspacePath(targetWorkspace.slug) },
     ])
     expect(adapter.lastInput?.resumeSessionId).toBeUndefined()
+  })
+
+  test('persists a repeated sdk session id only once', async () => {
+    class RepeatedSessionIdAdapter implements AgentProviderAdapter {
+      async *query(input: AgentQueryInput): AsyncIterable<AgentEvent> {
+        const captured = input as CapturedQueryInput & {
+          onSessionId?: (sessionId: string) => void
+        }
+        captured.onSessionId?.('sdk-repeat-session')
+        captured.onSessionId?.('sdk-repeat-session')
+        yield { type: 'complete' }
+      }
+
+      abort(): void {}
+
+      dispose(): void {}
+    }
+
+    const originalConsoleLog = console.log
+    const logLines: string[] = []
+    console.log = (...args: unknown[]) => {
+      logLines.push(args.map((entry) => String(entry)).join(' '))
+    }
+
+    try {
+      const orchestrator = new AgentOrchestrator(new RepeatedSessionIdAdapter(), new AgentEventBus())
+      const workspace = createAgentWorkspace('Repeated SDK Session Docs')
+      const session = createAgentSession('Repeated SDK Session', undefined, workspace.id)
+
+      await orchestrator.sendMessage(
+        {
+          sessionId: session.id,
+          userMessage: 'hello',
+          channelId: '',
+        },
+        {
+          onError: (message) => {
+            throw new Error(message)
+          },
+          onComplete: () => {},
+          onTitleUpdated: () => {},
+        },
+      )
+
+      expect(getAgentSessionMeta(session.id)?.sdkSessionId).toBe('sdk-repeat-session')
+      expect(logLines.filter((line) => line.includes('已保存 SDK session_id: sdk-repeat-session'))).toHaveLength(1)
+    } finally {
+      console.log = originalConsoleLog
+    }
   })
 
   test('prefers team inbox output when auto-resuming teammate results', async () => {

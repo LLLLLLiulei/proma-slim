@@ -106,6 +106,22 @@ function buildWorkspaceMcpServers(workspaceSlug: string): Record<string, Record<
   return mcpServers
 }
 
+function pickMcpServersByName(
+  servers: Record<string, Record<string, unknown>>,
+  names: readonly string[],
+): Record<string, Record<string, unknown>> {
+  const selected: Record<string, Record<string, unknown>> = {}
+
+  for (const name of names) {
+    const server = servers[name]
+    if (server) {
+      selected[name] = server
+    }
+  }
+
+  return selected
+}
+
 export function resolveWorkspaceRuntimeContext(
   sessionId: string,
   overrides?: Pick<AgentSendInput, 'workspaceId' | 'additionalDirectories'>,
@@ -618,6 +634,9 @@ export class AgentOrchestrator {
       additionalDirectories,
     })
     const workspaceSlug = workspaceRuntime.workspace.slug
+    const isPageBuilderWorkspace = workspaceRuntime.workspace.template === 'page-builder'
+    const priorMessages = getAgentSessionMessages(sessionId)
+    const isFirstUserTurn = !priorMessages.some((message) => message.role === 'user')
     const rollbackPendingAttachments = () => {
       if (!attachments || attachments.length === 0) {
         return
@@ -741,13 +760,20 @@ export class AgentOrchestrator {
     let agentCwd = workspaceRuntime.agentCwd
     let pluginPath = workspaceRuntime.pluginPath
     let resolvedAdditionalDirectories: string[] = [...workspaceRuntime.additionalDirectories]
-    let resolvedMcpServers: Record<string, Record<string, unknown>> = {
-      ...workspaceRuntime.mcpServers,
-    }
+    const suppressedDefaultPageBuilderMcp = isPageBuilderWorkspace && isFirstUserTurn
+    let resolvedMcpServers: Record<string, Record<string, unknown>> = suppressedDefaultPageBuilderMcp
+      ? pickMcpServersByName(workspaceRuntime.mcpServers, mentionedMcpServers ?? [])
+      : { ...workspaceRuntime.mcpServers }
 
     try {
       // 8. 构建 SDK query
       const executableArgs = agentExec.type === 'bun' ? [`--env-file=${nullDevice}`] : []
+
+      if (suppressedDefaultPageBuilderMcp) {
+        console.log(
+          `[Agent 编排] page-builder 首轮消息延后挂载默认 MCP（显式提及: ${mentionedMcpServers?.join(', ') || '无'}）`,
+        )
+      }
 
       if (customMcpServers) {
         Object.assign(resolvedMcpServers, customMcpServers)
@@ -829,7 +855,6 @@ export class AgentOrchestrator {
       // 12. 读取应用设置 + 获取权限模式
       const appSettings = getSettings()
       const permissionMode: PromaPermissionMode = appSettings.agentPermissionMode ?? 'smart'
-      const isPageBuilderWorkspace = workspaceRuntime.workspace.template === 'page-builder'
       const keepsAskUserInteractive = isPageBuilderWorkspace
       const bypassPermissions = permissionMode === 'auto' && !keepsAskUserInteractive
       const promptPermissionMode: PromaPermissionMode = bypassPermissions ? permissionMode : 'smart'
@@ -977,13 +1002,17 @@ export class AgentOrchestrator {
         },
         onSessionId: (sdkSessionId: string) => {
           capturedSdkSessionId = sdkSessionId
-          if (sdkSessionId !== existingSdkSessionId) {
-            try {
-              updateAgentSessionMeta(sessionId, { sdkSessionId })
-              console.log(`[Agent 编排] 已保存 SDK session_id: ${sdkSessionId}`)
-            } catch {
-              // 索引更新失败不影响主流程
-            }
+          if (sdkSessionId === persistedSdkSessionId) {
+            return
+          }
+
+          try {
+            updateAgentSessionMeta(sessionId, { sdkSessionId })
+            existingSdkSessionId = sdkSessionId
+            persistedSdkSessionId = sdkSessionId
+            console.log(`[Agent 编排] 已保存 SDK session_id: ${sdkSessionId}`)
+          } catch {
+            // 索引更新失败不影响主流程
           }
         },
         onModelResolved: (model: string) => {
@@ -1010,6 +1039,8 @@ export class AgentOrchestrator {
       const taskNotificationSummaries: TaskNotificationSummary[] = []
       /** 捕获到的 SDK session ID（用于 auto-resume 的 inbox 查找） */
       let capturedSdkSessionId = existingSdkSessionId
+      /** 已落盘的 SDK session ID（用于去重写入/日志） */
+      let persistedSdkSessionId = existingSdkSessionId
       /** Watchdog 触发标记（死锁被检测到时设为 true） */
       let abortedByWatchdog = false
 

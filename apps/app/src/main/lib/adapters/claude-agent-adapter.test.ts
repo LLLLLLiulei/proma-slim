@@ -159,4 +159,225 @@ describe('ClaudeAgentAdapter SDK option pass-through', () => {
       },
     })
   })
+
+  test('emits a visible status notice for auth_status messages', async () => {
+    mock.module('@anthropic-ai/claude-agent-sdk', () => ({
+      query: async function* () {
+        yield {
+          type: 'auth_status',
+          isAuthenticating: true,
+          output: ['Waiting for authentication'],
+        }
+        yield {
+          type: 'result',
+          subtype: 'success',
+          usage: {
+            input_tokens: 1,
+            output_tokens: 1,
+          },
+        }
+      },
+    }))
+
+    const { ClaudeAgentAdapter } = await import('./claude-agent-adapter')
+    const adapter = new ClaudeAgentAdapter()
+    const events = []
+
+    for await (const event of adapter.query({
+      sessionId: 'session-auth-status',
+      prompt: 'Inspect auth status',
+      cwd: '/tmp/workspace/session-auth-status',
+      sdkCliPath: '/tmp/claude.js',
+      executable: { type: 'node', path: '/usr/bin/node' },
+      executableArgs: [],
+      env: {},
+      sdkPermissionMode: 'default',
+      allowDangerouslySkipPermissions: false,
+      systemPrompt: { type: 'preset', preset: 'claude_code', append: '' },
+    } as ClaudeAgentQueryOptions)) {
+      events.push(event)
+    }
+
+    expect(events).toContainEqual({
+      type: 'status_notice',
+      level: 'info',
+      message: 'Waiting for authentication',
+    })
+  })
+
+  test('does not surface internal hook system subtypes as visible status notices', async () => {
+    mock.module('@anthropic-ai/claude-agent-sdk', () => ({
+      query: async function* () {
+        yield {
+          type: 'system',
+          subtype: 'hook_started',
+        }
+        yield {
+          type: 'result',
+          subtype: 'success',
+          usage: {
+            input_tokens: 1,
+            output_tokens: 1,
+          },
+        }
+      },
+    }))
+
+    const { ClaudeAgentAdapter } = await import('./claude-agent-adapter')
+    const adapter = new ClaudeAgentAdapter()
+    const events = []
+
+    for await (const event of adapter.query({
+      sessionId: 'session-system-status',
+      prompt: 'Inspect system status',
+      cwd: '/tmp/workspace/session-system-status',
+      sdkCliPath: '/tmp/claude.js',
+      executable: { type: 'node', path: '/usr/bin/node' },
+      executableArgs: [],
+      env: {},
+      sdkPermissionMode: 'default',
+      allowDangerouslySkipPermissions: false,
+      systemPrompt: { type: 'preset', preset: 'claude_code', append: '' },
+    } as ClaudeAgentQueryOptions)) {
+      events.push(event)
+    }
+
+    expect(events.some((event) => (
+      event.type === 'status_notice'
+      && event.message.includes('hook_started')
+    ))).toBe(false)
+  })
+
+  test('does not surface the normal system init event as a visible status notice', async () => {
+    mock.module('@anthropic-ai/claude-agent-sdk', () => ({
+      query: async function* () {
+        yield {
+          type: 'system',
+          subtype: 'init',
+          model: 'claude-sonnet-4-6',
+        }
+        yield {
+          type: 'result',
+          subtype: 'success',
+          usage: {
+            input_tokens: 1,
+            output_tokens: 1,
+          },
+        }
+      },
+    }))
+
+    const { ClaudeAgentAdapter } = await import('./claude-agent-adapter')
+    const adapter = new ClaudeAgentAdapter()
+    const events = []
+
+    for await (const event of adapter.query({
+      sessionId: 'session-system-init',
+      prompt: 'Inspect system init',
+      cwd: '/tmp/workspace/session-system-init',
+      sdkCliPath: '/tmp/claude.js',
+      executable: { type: 'node', path: '/usr/bin/node' },
+      executableArgs: [],
+      env: {},
+      sdkPermissionMode: 'default',
+      allowDangerouslySkipPermissions: false,
+      systemPrompt: { type: 'preset', preset: 'claude_code', append: '' },
+    } as ClaudeAgentQueryOptions)) {
+      events.push(event)
+    }
+
+    expect(events).not.toContainEqual({
+      type: 'status_notice',
+      level: 'warning',
+      message: '收到未处理的 SDK system 事件: init',
+    })
+  })
+
+  test('emits a visible warning when rate limit status enters warning mode', async () => {
+    mock.module('@anthropic-ai/claude-agent-sdk', () => ({
+      query: async function* () {
+        yield {
+          type: 'rate_limit_event',
+          rate_limit_info: {
+            status: 'allowed_warning',
+          },
+        }
+        yield {
+          type: 'result',
+          subtype: 'success',
+          usage: {
+            input_tokens: 1,
+            output_tokens: 1,
+          },
+        }
+      },
+    }))
+
+    const { ClaudeAgentAdapter } = await import('./claude-agent-adapter')
+    const adapter = new ClaudeAgentAdapter()
+    const events = []
+
+    for await (const event of adapter.query({
+      sessionId: 'session-rate-limit-warning',
+      prompt: 'Inspect rate limit warning',
+      cwd: '/tmp/workspace/session-rate-limit-warning',
+      sdkCliPath: '/tmp/claude.js',
+      executable: { type: 'node', path: '/usr/bin/node' },
+      executableArgs: [],
+      env: {},
+      sdkPermissionMode: 'default',
+      allowDangerouslySkipPermissions: false,
+      systemPrompt: { type: 'preset', preset: 'claude_code', append: '' },
+    } as ClaudeAgentQueryOptions)) {
+      events.push(event)
+    }
+
+    expect(events).toContainEqual({
+      type: 'status_notice',
+      level: 'warning',
+      message: '接近使用上限，请尽快完成当前操作。',
+    })
+  })
+
+  test('keeps normal rate limit updates off the user-facing status area', async () => {
+    mock.module('@anthropic-ai/claude-agent-sdk', () => ({
+      query: async function* () {
+        yield {
+          type: 'rate_limit_event',
+          rate_limit_info: {
+            status: 'allowed',
+          },
+        }
+        yield {
+          type: 'result',
+          subtype: 'success',
+          usage: {
+            input_tokens: 1,
+            output_tokens: 1,
+          },
+        }
+      },
+    }))
+
+    const { ClaudeAgentAdapter } = await import('./claude-agent-adapter')
+    const adapter = new ClaudeAgentAdapter()
+    const events = []
+
+    for await (const event of adapter.query({
+      sessionId: 'session-rate-limit-allowed',
+      prompt: 'Inspect rate limit allowed',
+      cwd: '/tmp/workspace/session-rate-limit-allowed',
+      sdkCliPath: '/tmp/claude.js',
+      executable: { type: 'node', path: '/usr/bin/node' },
+      executableArgs: [],
+      env: {},
+      sdkPermissionMode: 'default',
+      allowDangerouslySkipPermissions: false,
+      systemPrompt: { type: 'preset', preset: 'claude_code', append: '' },
+    } as ClaudeAgentQueryOptions)) {
+      events.push(event)
+    }
+
+    expect(events.some((event) => event.type === 'status_notice')).toBe(false)
+  })
 })

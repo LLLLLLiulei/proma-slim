@@ -325,6 +325,8 @@ export type AgentEvent =
   | { type: 'ask_user_resolved'; requestId: string }
   // 提示建议
   | { type: 'prompt_suggestion'; suggestion: string }
+  // SDK 状态提示（如鉴权、限流、未处理系统事件）
+  | { type: 'status_notice'; level: 'info' | 'warning' | 'error'; message: string }
   // 模型确认（SDK 确认实际使用的模型）
   | { type: 'model_resolved'; model: string }
   // Auto-Resume（Teams 完成后自动收集结果）

@@ -373,6 +373,23 @@ function RetryingNotice({ retrying }: { retrying: NonNullable<AgentStreamState['
   )
 }
 
+function StatusNotice({ notice }: { notice: NonNullable<AgentStreamState['statusNotice']> }): React.ReactElement {
+  return (
+    <div
+      className={cn(
+        'mb-3 rounded-lg border px-3 py-2 text-sm',
+        notice.level === 'error'
+          ? 'border-red-200 bg-red-50/70 text-red-900 dark:border-red-900/60 dark:bg-red-950/20 dark:text-red-100'
+          : notice.level === 'warning'
+            ? 'border-amber-200 bg-amber-50/70 text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-100'
+            : 'border-sky-200 bg-sky-50/70 text-sky-900 dark:border-sky-900/60 dark:bg-sky-950/20 dark:text-sky-100',
+      )}
+    >
+      {notice.message}
+    </div>
+  )
+}
+
 /** 单条重试尝试记录 */
 function RetryAttemptItem({
   attempt,
@@ -608,6 +625,7 @@ export function AgentMessages({ sessionId, messages, streaming, streamState, onR
   const toolActivities = streamState?.toolActivities ?? []
   const agentStreamingModel = resolveTransientAssistantModel(messages, streamState?.model)
   const retrying = streamState?.retrying
+  const statusNotice = streamState?.statusNotice
   const startedAt = streamState?.startedAt
 
   const { displayedContent: smoothContent } = useSmoothStream({
@@ -626,7 +644,7 @@ export function AgentMessages({ sessionId, messages, streaming, streamState, onR
     streaming,
     toolActivities,
   })
-  const shouldShowTransientShell = streaming || shouldShowTransientToolBlock || Boolean(retrying) || shouldShowTransientAssistant
+  const shouldShowTransientShell = streaming || shouldShowTransientToolBlock || Boolean(retrying) || Boolean(statusNotice) || shouldShowTransientAssistant
   const loadingLabel = shouldShowTransientAssistant
     ? '正在输出...'
     : toolActivities.length > 0
@@ -673,6 +691,7 @@ export function AgentMessages({ sessionId, messages, streaming, streamState, onR
                 />
                 <MessageContent>
                   {retrying && <RetryingNotice retrying={retrying} />}
+                  {statusNotice && <StatusNotice notice={statusNotice} />}
                   {shouldShowTransientToolBlock && (
                     <div className="mb-3">
                       <ToolActivityList activities={toolActivities} animate />

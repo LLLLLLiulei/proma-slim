@@ -92,6 +92,10 @@ export interface AgentStreamState {
   content: string
   toolActivities: ToolActivity[]
   model?: string
+  statusNotice?: {
+    level: 'info' | 'warning' | 'error'
+    message: string
+  }
   /** 当前输入 token 数（上下文使用量） */
   inputTokens?: number
   /** 模型上下文窗口大小 */
@@ -247,11 +251,11 @@ export function applyAgentEvent(
   switch (event.type) {
     case 'text_delta':
       // 开始接收文本 - 清除重试状态（重试成功）
-      return { ...prev, content: prev.content + event.text, retrying: undefined }
+      return { ...prev, content: prev.content + event.text, retrying: undefined, statusNotice: undefined }
 
     case 'text_complete':
       // 用完整文本替换增量累积的文本（用于回放场景：只需 text_complete 即可重建文本状态）
-      return { ...prev, content: event.text }
+      return { ...prev, content: event.text, statusNotice: undefined }
 
     case 'tool_start': {
       const existing = prev.toolActivities.find((t) => t.toolUseId === event.toolUseId)
@@ -265,6 +269,7 @@ export function applyAgentEvent(
           ),
           // 开始工具调用 - 清除重试状态（重试成功）
           retrying: undefined,
+          statusNotice: undefined,
         }
       }
       return {
@@ -280,12 +285,14 @@ export function applyAgentEvent(
         }],
         // 开始工具调用 - 清除重试状态（重试成功）
         retrying: undefined,
+        statusNotice: undefined,
       }
     }
 
     case 'tool_result':
       return {
         ...prev,
+        statusNotice: undefined,
         toolActivities: prev.toolActivities.map((t) =>
           t.toolUseId === event.toolUseId
             ? { ...t, result: event.result, isError: event.isError, done: true }
@@ -332,13 +339,14 @@ export function applyAgentEvent(
           }
           const nextTeammates = [...prev.teammates]
           nextTeammates[tmIdx] = updatedTm
-          return { ...prev, teammates: nextTeammates }
+          return { ...prev, teammates: nextTeammates, statusNotice: undefined }
         }
       }
       // 普通 tool 计时语义（仅当有真实 elapsedSeconds 时更新）
       if (event.elapsedSeconds != null) {
         return {
           ...prev,
+          statusNotice: undefined,
           toolActivities: prev.toolActivities.map((t) =>
             t.toolUseId === event.toolUseId
               ? { ...t, elapsedSeconds: event.elapsedSeconds! }
@@ -378,6 +386,7 @@ export function applyAgentEvent(
       }
       return {
         ...prev,
+        statusNotice: undefined,
         toolActivities: nextActivities,
         teammates: [...prev.teammates, newTeammate],
       }
@@ -425,7 +434,7 @@ export function applyAgentEvent(
         currentToolElapsedSeconds: undefined,
         currentToolUseId: undefined,
       }
-      return { ...prev, teammates: nextTeammates }
+      return { ...prev, teammates: nextTeammates, statusNotice: undefined }
     }
 
     case 'tool_use_summary':
@@ -433,10 +442,10 @@ export function applyAgentEvent(
       return prev
 
     case 'waiting_resume':
-      return { ...prev, waitingResume: true }
+      return { ...prev, waitingResume: true, statusNotice: undefined }
 
     case 'resume_start':
-      return { ...prev, waitingResume: false }
+      return { ...prev, waitingResume: false, statusNotice: undefined }
 
     case 'complete':
       // 成功完成 — 清除 retrying，但保持 running: true
@@ -446,6 +455,7 @@ export function applyAgentEvent(
       return {
         ...prev,
         retrying: undefined,
+        statusNotice: undefined,
         teammates: prev.teammates.map((tm) =>
           tm.status === 'running'
             ? { ...tm, status: 'stopped' as const, endedAt: Date.now(), currentToolName: undefined, currentToolElapsedSeconds: undefined, currentToolUseId: undefined }
@@ -456,12 +466,12 @@ export function applyAgentEvent(
     case 'typed_error':
       // 处理类型化错误（TypedError）
       // 停止运行，清除重试状态
-      return { ...prev, running: false, retrying: undefined }
+      return { ...prev, running: false, retrying: undefined, statusNotice: undefined }
 
     case 'error':
       // 改进：error 事件不再清除 retrying 状态
       // retrying 状态由专用事件控制
-      return { ...prev, running: false }
+      return { ...prev, running: false, statusNotice: undefined }
 
     case 'usage_update':
       return {
@@ -483,6 +493,7 @@ export function applyAgentEvent(
       // 向后兼容：保留原有的简单 retrying 事件
       return {
         ...prev,
+        statusNotice: undefined,
         retrying: prev.retrying ?? {
           currentAttempt: event.attempt,
           maxAttempts: event.maxAttempts,
@@ -496,6 +507,7 @@ export function applyAgentEvent(
       const currentHistory = prev.retrying?.history ?? []
       return {
         ...prev,
+        statusNotice: undefined,
         retrying: {
           currentAttempt: event.attemptData.attempt,
           maxAttempts: prev.retrying?.maxAttempts ?? 3,
@@ -507,7 +519,7 @@ export function applyAgentEvent(
 
     case 'retry_cleared':
       // 新增：重试成功，清除状态
-      return { ...prev, retrying: undefined }
+      return { ...prev, retrying: undefined, statusNotice: undefined }
 
     case 'retry_failed': {
       // 新增：重试失败，标记为 failed 但保留历史
@@ -515,6 +527,7 @@ export function applyAgentEvent(
       return {
         ...prev,
         running: false,
+        statusNotice: undefined,
         retrying: {
           currentAttempt: event.finalAttempt.attempt,
           maxAttempts: prev.retrying?.maxAttempts ?? 3,
@@ -523,6 +536,15 @@ export function applyAgentEvent(
         },
       }
     }
+
+    case 'status_notice':
+      return {
+        ...prev,
+        statusNotice: {
+          level: event.level,
+          message: event.message,
+        },
+      }
 
     case 'permission_request':
       // 权限请求事件由 PermissionBanner 处理，不影响流式状态
