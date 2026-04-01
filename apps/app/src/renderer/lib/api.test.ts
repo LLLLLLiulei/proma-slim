@@ -462,6 +462,45 @@ describe('renderer api wrappers', () => {
     })
   })
 
+  test('savePageBuilderInlineText posts the inline text payload to the workspace page-builder endpoint', async () => {
+    const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe('/api/workspaces/workspace-1/page-builder/inline-text')
+      expect(init?.method).toBe('POST')
+      expect(JSON.parse(String(init?.body))).toEqual({
+        selector: '#hero',
+        textTargetDescriptor: {
+          version: 1,
+          tagName: 'h1',
+          childPath: [0],
+        },
+        nextText: '新标题',
+      })
+      return jsonResponse({
+        hasPreview: true,
+        entryUrl: '/api/workspaces/workspace-1/preview/',
+        revision: 'rev-2',
+      })
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const { api } = await import('./api')
+    const state = await api.savePageBuilderInlineText('workspace-1', {
+      selector: '#hero',
+      textTargetDescriptor: {
+        version: 1,
+        tagName: 'h1',
+        childPath: [0],
+      },
+      nextText: '新标题',
+    })
+
+    expect(state).toEqual({
+      hasPreview: true,
+      entryUrl: '/api/workspaces/workspace-1/preview/',
+      revision: 'rev-2',
+    })
+  })
+
   test('createSession sends workspaceId in the request body when provided', async () => {
     const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
       expect(String(input)).toBe('/api/sessions')

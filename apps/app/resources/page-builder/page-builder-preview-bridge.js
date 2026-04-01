@@ -12,6 +12,9 @@
   const PARENT_SOURCE = __PAGE_BUILDER_PREVIEW_PARENT_SOURCE__
   const OVERLAY_ATTR = 'data-page-builder-preview-overlay'
   const BLOCKED_TAGS = new Set(['HTML', 'BODY', 'HEAD', 'SCRIPT', 'STYLE', 'META', 'LINK'])
+  const EDITABLE_TEXT_TAGS = new Set(['H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'P', 'A', 'BUTTON', 'SPAN', 'LABEL'])
+  const INLINE_EDITING_ATTR = 'data-page-builder-preview-inline-editing'
+  const INLINE_SAVING_ATTR = 'data-page-builder-preview-inline-saving'
   const LABEL_MAX_WIDTH = 220
   const READY_ANNOUNCEMENT_INTERVAL_MS = 250
   const READY_ANNOUNCEMENT_MAX_ATTEMPTS = 12
@@ -24,6 +27,9 @@
   let mutationObserver = null
   let readyAnnouncementAttempts = 0
   let readyAnnouncementTimer = null
+  let activeInlineEdit = null
+  let inlineSaveSequence = 0
+  const pendingInlineSaves = new Map()
 
   const logBridge = () => {}
 
@@ -448,6 +454,219 @@
     return segments.join(' > ')
   }
 
+  const hasVisibleDirectText = (element) => {
+    return Array.from(element.childNodes).some((node) =>
+      node.nodeType === Node.TEXT_NODE && Boolean(node.textContent && node.textContent.trim()),
+    )
+  }
+
+  const isEditableTextHost = (element) => {
+    if (!(element instanceof Element)) {
+      return false
+    }
+
+    if (!EDITABLE_TEXT_TAGS.has(element.tagName)) {
+      return false
+    }
+
+    if (element.children.length > 0) {
+      return false
+    }
+
+    return hasVisibleDirectText(element)
+  }
+
+  const buildChildPath = (root, element) => {
+    const path = []
+    let current = element
+
+    while (current && current !== root) {
+      const parent = current.parentElement
+      if (!parent) {
+        return null
+      }
+
+      const index = Array.from(parent.children).indexOf(current)
+      if (index < 0) {
+        return null
+      }
+
+      path.unshift(index)
+      current = parent
+    }
+
+    return current === root ? path : null
+  }
+
+  const resolveEditableTextTargetDescriptor = (root, element) => {
+    if (!root || !element || !root.contains(element) || !isEditableTextHost(element)) {
+      return null
+    }
+
+    const childPath = buildChildPath(root, element)
+    if (!childPath) {
+      return null
+    }
+
+    return {
+      version: 1,
+      tagName: element.tagName.toLowerCase(),
+      childPath,
+    }
+  }
+
+  const resolveEditableTextHost = (input) => {
+    if (!selectedElement) {
+      return null
+    }
+
+    let element = input instanceof Element ? input : null
+    while (element && selectedElement.contains(element)) {
+      if (isEditableTextHost(element)) {
+        const descriptor = resolveEditableTextTargetDescriptor(selectedElement, element)
+        if (descriptor) {
+          return element
+        }
+      }
+
+      if (element === selectedElement) {
+        break
+      }
+
+      element = element.parentElement
+    }
+
+    return null
+  }
+
+  const placeCaretAtEnd = (element) => {
+    const selection = window.getSelection()
+    if (!selection) {
+      return
+    }
+
+    const range = document.createRange()
+    range.selectNodeContents(element)
+    range.collapse(false)
+    selection.removeAllRanges()
+    selection.addRange(range)
+  }
+
+  const teardownInlineEdit = (context) => {
+    const { element } = context
+    element.removeEventListener('blur', handleInlineTextBlur)
+    element.removeAttribute(INLINE_EDITING_ATTR)
+
+    if (context.previousContentEditable === null) {
+      element.removeAttribute('contenteditable')
+    } else {
+      element.setAttribute('contenteditable', context.previousContentEditable)
+    }
+
+    if (context.previousTabIndex === null) {
+      element.removeAttribute('tabindex')
+    } else {
+      element.setAttribute('tabindex', context.previousTabIndex)
+    }
+  }
+
+  const discardActiveInlineEdit = () => {
+    if (!activeInlineEdit) {
+      return
+    }
+
+    teardownInlineEdit(activeInlineEdit)
+    activeInlineEdit = null
+  }
+
+  function handleInlineTextBlur(event) {
+    const context = activeInlineEdit
+    if (!context || event.currentTarget !== context.element) {
+      return
+    }
+
+    const nextText = context.element.textContent ?? ''
+    teardownInlineEdit(context)
+    activeInlineEdit = null
+
+    if (nextText === context.originalText) {
+      syncOverlays()
+      return
+    }
+
+    const requestId = 'inline-text-save-' + String(++inlineSaveSequence)
+    context.element.setAttribute(INLINE_SAVING_ATTR, 'true')
+    pendingInlineSaves.set(requestId, {
+      element: context.element,
+      previousText: context.originalText,
+      nextText,
+    })
+
+    postToParent({
+      type: 'inline-text-save-request',
+      requestId,
+      selector: context.selector,
+      textTargetDescriptor: context.descriptor,
+      previousText: context.originalText,
+      nextText,
+    })
+    syncOverlays()
+  }
+
+  const activateInlineEdit = (element) => {
+    if (!selectedElement || !selectedSelector) {
+      return false
+    }
+
+    const descriptor = resolveEditableTextTargetDescriptor(selectedElement, element)
+    if (!descriptor) {
+      return false
+    }
+
+    if (activeInlineEdit && activeInlineEdit.element === element) {
+      return true
+    }
+
+    discardActiveInlineEdit()
+
+    activeInlineEdit = {
+      element,
+      selector: selectedSelector,
+      descriptor,
+      originalText: element.textContent ?? '',
+      previousContentEditable: element.getAttribute('contenteditable'),
+      previousTabIndex: element.getAttribute('tabindex'),
+    }
+
+    element.setAttribute('contenteditable', 'true')
+    element.setAttribute('tabindex', '-1')
+    element.setAttribute(INLINE_EDITING_ATTR, 'true')
+    element.addEventListener('blur', handleInlineTextBlur)
+    element.focus()
+    placeCaretAtEnd(element)
+    return true
+  }
+
+  const handleInlineTextSaveResult = (message) => {
+    const pending = pendingInlineSaves.get(message.requestId)
+    if (!pending) {
+      return
+    }
+
+    pendingInlineSaves.delete(message.requestId)
+
+    if (!document.contains(pending.element)) {
+      return
+    }
+
+    pending.element.removeAttribute(INLINE_SAVING_ATTR)
+    if (!message.ok) {
+      pending.element.textContent = pending.previousText
+    }
+
+    syncOverlays()
+  }
+
   const clearHover = () => {
     hoveredElement = null
     hoveredSelector = null
@@ -457,6 +676,7 @@
   }
 
   const clearSelected = () => {
+    discardActiveInlineEdit()
     selectedElement = null
     selectedSelector = null
     clearPostedSelectionRect()
@@ -508,9 +728,19 @@
     syncOverlays()
   }
 
+  const shouldRetargetSelection = (target) => {
+    return Boolean(
+      selectedElement
+      && target
+      && selectedElement !== target
+      && selectedElement.contains(target),
+    )
+  }
+
   const handleMouseMove = (event) => {
     if (!selectionModeEnabled) return
-    updateHoveredElement(resolveSelectableElement(event.target))
+    const target = resolveSelectableElement(event.target)
+    updateHoveredElement(target)
   }
 
   const handleMouseOut = (event) => {
@@ -537,6 +767,35 @@
     event.stopPropagation()
     if (typeof event.stopImmediatePropagation === 'function') {
       event.stopImmediatePropagation()
+    }
+
+    if (shouldRetargetSelection(target)) {
+      if (activeInlineEdit && activeInlineEdit.element !== target) {
+        activeInlineEdit.element.blur()
+      }
+
+      updateHoveredElement(target)
+      selectElement(target)
+      return
+    }
+
+    if (selectedElement && selectedElement === target) {
+      if (activeInlineEdit && activeInlineEdit.element !== target) {
+        activeInlineEdit.element.blur()
+      }
+
+      updateHoveredElement(selectedElement)
+      const editableHost = resolveEditableTextHost(target)
+      if (editableHost) {
+        activateInlineEdit(editableHost)
+      } else {
+        syncOverlays()
+      }
+      return
+    }
+
+    if (activeInlineEdit && activeInlineEdit.element !== target) {
+      activeInlineEdit.element.blur()
     }
 
     updateHoveredElement(target)
@@ -566,6 +825,11 @@
       logBridge('parent-message', { type: data.type })
       selectionModeEnabled = false
       clearAll(false)
+      return
+    }
+
+    if (data.type === 'inline-text-save-result') {
+      handleInlineTextSaveResult(data)
     }
   }
 

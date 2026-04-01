@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import type { PageBuilderInlineTextSavePayload } from '@proma/shared'
 import {
   DEFAULT_WORKSPACE_SLUG,
   createAgentWorkspace,
@@ -13,6 +14,10 @@ import {
   createWorkspacePreviewResponse,
   getWorkspacePreviewState,
 } from '../../lib/workspace-preview-service'
+import {
+  PageBuilderInlineTextSaveError,
+  savePageBuilderInlineText,
+} from '../../lib/page-builder-inline-text-service'
 import { listAgentSessions } from '../../lib/agent-session-manager'
 import { HttpError } from '../errors'
 import { json, noContent, readJsonBody } from '../responses'
@@ -91,6 +96,29 @@ workspaceRoutes.get('/:workspaceId/preview-state', (c) => {
   return json(getWorkspacePreviewState(c.var.workspace))
 })
 
+workspaceRoutes.post('/:workspaceId/page-builder/inline-text', async (c) => {
+  const body = await readJsonBody<Partial<PageBuilderInlineTextSavePayload>>(c.req.raw)
+  const payload = readInlineTextSavePayload(body)
+
+  try {
+    return json(savePageBuilderInlineText(c.var.workspace, payload))
+  } catch (error) {
+    if (!(error instanceof PageBuilderInlineTextSaveError)) {
+      throw error
+    }
+
+    if (error.code === 'entry-missing') {
+      throw new HttpError(404, error.message)
+    }
+
+    if (error.code === 'invalid-descriptor') {
+      throw new HttpError(400, error.message)
+    }
+
+    throw new HttpError(409, error.message)
+  }
+})
+
 const handleWorkspacePreview = (c: { req: { raw: Request }; var: { workspace: HttpAppEnv['Variables']['workspace'] } }) => {
   const url = new URL(c.req.raw.url)
   const requestPath = getWorkspacePreviewRequestPath(c.req.raw.url, c.var.workspace.id)
@@ -111,3 +139,23 @@ workspaceRoutes.get('/:workspaceId/file-search', (c) => {
 
   return c.json(searchWorkspaceFiles(c.var.workspace.id, query, limit, extraDirectories))
 })
+
+function readInlineTextSavePayload(value: Partial<PageBuilderInlineTextSavePayload>): PageBuilderInlineTextSavePayload {
+  if (!value.selector || typeof value.selector !== 'string') {
+    throw new HttpError(400, 'selector 不能为空')
+  }
+
+  if (!value.textTargetDescriptor || typeof value.textTargetDescriptor !== 'object') {
+    throw new HttpError(400, 'textTargetDescriptor 不能为空')
+  }
+
+  if (typeof value.nextText !== 'string') {
+    throw new HttpError(400, 'nextText 必须是字符串')
+  }
+
+  return {
+    selector: value.selector,
+    textTargetDescriptor: value.textTargetDescriptor,
+    nextText: value.nextText,
+  }
+}

@@ -1,3 +1,8 @@
+import type {
+  PageBuilderInlineTextSaveRequest,
+  PageBuilderInlineTextSaveResult,
+} from './page-builder-inline-text'
+
 export const PAGE_BUILDER_PREVIEW_PARENT_SOURCE = 'page-builder-preview-parent'
 export const PAGE_BUILDER_PREVIEW_BRIDGE_SOURCE = 'page-builder-preview-bridge'
 
@@ -20,6 +25,10 @@ export type PageBuilderPreviewParentMessage =
     source: typeof PAGE_BUILDER_PREVIEW_PARENT_SOURCE
     type: 'selection-clear'
   }
+  | ({
+    source: typeof PAGE_BUILDER_PREVIEW_PARENT_SOURCE
+    type: 'inline-text-save-result'
+  } & PageBuilderInlineTextSaveResult)
 
 export type PageBuilderPreviewBridgeMessage =
   | {
@@ -41,3 +50,7 @@ export type PageBuilderPreviewBridgeMessage =
     source: typeof PAGE_BUILDER_PREVIEW_BRIDGE_SOURCE
     type: 'reset'
   }
+  | ({
+    source: typeof PAGE_BUILDER_PREVIEW_BRIDGE_SOURCE
+    type: 'inline-text-save-request'
+  } & PageBuilderInlineTextSaveRequest)

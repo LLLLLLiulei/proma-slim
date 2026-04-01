@@ -60,3 +60,23 @@ test('page-builder preview bridge filters mutation observer events triggered by 
   expect(script).toContain('const shouldSyncFromMutations = (mutations) => {')
   expect(script).toContain('if (!shouldSyncFromMutations(mutations)) {')
 })
+
+test('page-builder preview bridge bundled script includes inline text editing save protocol hooks', async () => {
+  const module = await importPreviewBridgeModule()
+
+  const script = module.readPageBuilderPreviewBridgeScript()
+
+  expect(script).toContain("type: 'inline-text-save-request'")
+  expect(script).toContain("inline-text-save-result")
+  expect(script).toContain('contenteditable')
+  expect(script).toContain('const resolveEditableTextTargetDescriptor = (root, element) => {')
+  expect(script).toContain('function handleInlineTextBlur(event) {')
+})
+
+test('page-builder preview bridge bundled script includes nested child selection retargeting before inline editing', async () => {
+  const module = await importPreviewBridgeModule()
+  const script = module.readPageBuilderPreviewBridgeScript()
+
+  expect(script).toContain('const shouldRetargetSelection = (target) => {')
+  expect(script).toContain('if (shouldRetargetSelection(target)) {')
+})

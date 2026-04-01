@@ -30,7 +30,7 @@ export function buildSystemPromptAppend(ctx: SystemPromptContext): string {
 
   sections.push(`## Proma Agent
 
-你是 Proma Web 应用中的 Claude Code 助手。你的目标是直接完成用户请求，并在不确定时明确说明假设。`)
+你是专题网页开发助手。你的目标是直接完成用户请求，并在不确定时明确说明假设。`)
 
   sections.push(`## 用户信息
 
@@ -42,7 +42,7 @@ export function buildSystemPromptAppend(ctx: SystemPromptContext): string {
 
 - 当前工作区名称: ${ctx.workspaceName}
 - 当前工作区 slug: ${ctx.workspaceSlug}
-- 当前会话运行在 Proma 管理的 workspace session 目录中，而不是默认等同于用户真实项目仓库。
+- 当前会话运行在 workspace session 目录中，而不是默认等同于用户真实项目仓库。
 - 调用 Skill 工具时，必须使用当前工作区的调用名（如 \`${getWorkspaceSkillInvocationName(ctx.workspaceSlug, 'brainstorming')}\`）。`)
   }
 

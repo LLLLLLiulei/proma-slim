@@ -10,6 +10,7 @@ import type {
   PageBuilderCmsCatalogQuery,
   PageBuilderCmsContentList,
   PageBuilderCmsContentQuery,
+  PageBuilderInlineTextSavePayload,
   PageBuilderProjectSummary,
   PermissionResponse,
   RuntimeStatus,
@@ -259,6 +260,16 @@ export const api = {
 
   getWorkspacePreviewState(workspaceId: string): Promise<WorkspacePreviewState> {
     return request<WorkspacePreviewState>(`/api/workspaces/${encodeURIComponent(workspaceId)}/preview-state`)
+  },
+
+  savePageBuilderInlineText(
+    workspaceId: string,
+    payload: PageBuilderInlineTextSavePayload,
+  ): Promise<WorkspacePreviewState> {
+    return request<WorkspacePreviewState>(`/api/workspaces/${encodeURIComponent(workspaceId)}/page-builder/inline-text`, {
+      method: 'POST',
+      body: payload,
+    })
   },
 
   searchWorkspaceFiles(

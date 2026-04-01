@@ -329,6 +329,48 @@ describe('createHttpApp', () => {
     expect(await assetResponse.text()).toBe('body { color: green; }')
   })
 
+  test('workspace routes persist page-builder inline text edits back to workspace-files/index.html', async () => {
+    const app = createApp()
+    const workspace = createAgentWorkspace('Builder Inline Text', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(
+      join(workspaceFilesDir, 'index.html'),
+      '<!doctype html><html><body><section id="hero"><h1>旧标题</h1><p>旧描述</p></section></body></html>',
+      'utf-8',
+    )
+
+    const response = await app.fetch(new Request(`http://localhost/api/workspaces/${workspace.id}/page-builder/inline-text`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json; charset=utf-8',
+      },
+      body: JSON.stringify({
+        selector: '#hero',
+        textTargetDescriptor: {
+          version: 1,
+          tagName: 'h1',
+          childPath: [0],
+        },
+        nextText: '新标题',
+      }),
+    }))
+
+    expect(response.status).toBe(200)
+    expect(readFileSync(join(workspaceFilesDir, 'index.html'), 'utf-8')).toContain('<h1>新标题</h1>')
+
+    const payload = await response.json() as {
+      hasPreview: boolean
+      entryUrl: string | null
+      revision: string | null
+    }
+    expect(payload.hasPreview).toBe(true)
+    expect(payload.entryUrl).toBe(`/api/workspaces/${workspace.id}/preview/`)
+    expect(typeof payload.revision).toBe('string')
+    expect(payload.revision?.length).toBeGreaterThan(0)
+  })
+
   test('page-builder routes serve the external preview bridge asset', async () => {
     const app = createApp()
 

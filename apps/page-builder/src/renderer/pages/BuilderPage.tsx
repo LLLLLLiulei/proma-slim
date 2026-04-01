@@ -1,9 +1,12 @@
 import * as React from 'react'
 import { useSetAtom } from 'jotai'
 import { AlertTriangle, LoaderCircle, MousePointerClick } from 'lucide-react'
+import { toast } from 'sonner'
 import type {
   PageBuilderCmsSelectionRequestContext,
   PageBuilderCmsSelectionResult,
+  PageBuilderInlineTextSaveRequest,
+  PageBuilderInlineTextSaveResult,
 } from '@proma/shared'
 import { AgentView } from '@/components/agent'
 import {
@@ -61,6 +64,7 @@ export function BuilderPage({
 }): React.ReactElement {
   const desktopGridRef = React.useRef<HTMLDivElement>(null)
   const hydratedPreviewWorkspaceRef = React.useRef(workspaceId)
+  const suppressedInlinePreviewRevisionsRef = React.useRef<Set<string>>(new Set())
   const setSessions = useSetAtom(agentSessionsAtom)
   const setWorkspaces = useSetAtom(agentWorkspacesAtom)
   const setCurrentSessionId = useSetAtom(currentAgentSessionIdAtom)
@@ -204,8 +208,18 @@ export function BuilderPage({
           clearWorkspacePreviewState(window.sessionStorage, workspaceId)
         }
 
+        const suppressedRevisions = suppressedInlinePreviewRevisionsRef.current
+
         setPreviewState((previous) => (
-          areWorkspacePreviewStatesEqual(previous, nextState) ? previous : nextState
+          nextState.revision && suppressedRevisions.has(nextState.revision)
+            ? previous
+            : (() => {
+                if (suppressedRevisions.size > 0) {
+                  suppressedRevisions.clear()
+                }
+
+                return areWorkspacePreviewStatesEqual(previous, nextState) ? previous : nextState
+              })()
         ))
       } catch (error) {
         if (!cancelled) {
@@ -225,6 +239,45 @@ export function BuilderPage({
       window.clearInterval(intervalId)
     }
   }, [loadState.status, workspaceId])
+
+  const handleInlineTextSaveRequest = React.useCallback(async (
+    request: PageBuilderInlineTextSaveRequest,
+  ): Promise<PageBuilderInlineTextSaveResult> => {
+    try {
+      const nextState = await api.savePageBuilderInlineText(workspaceId, {
+        selector: request.selector,
+        textTargetDescriptor: request.textTargetDescriptor,
+        nextText: request.nextText,
+      })
+
+      if (nextState.revision) {
+        suppressedInlinePreviewRevisionsRef.current.add(nextState.revision)
+      }
+
+      if (typeof window !== 'undefined') {
+        if (nextState.hasPreview && nextState.entryUrl && nextState.revision) {
+          writeWorkspacePreviewState(window.sessionStorage, workspaceId, nextState)
+        } else {
+          clearWorkspacePreviewState(window.sessionStorage, workspaceId)
+        }
+      }
+
+      return {
+        requestId: request.requestId,
+        ok: true,
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '内联文字保存失败'
+      console.error('[BuilderPage] 内联文字保存失败:', error)
+      toast.error(message)
+
+      return {
+        requestId: request.requestId,
+        ok: false,
+        error: message,
+      }
+    }
+  }, [workspaceId])
 
   React.useEffect(() => {
     const element = desktopGridRef.current
@@ -429,6 +482,7 @@ export function BuilderPage({
         style={desktopGridStyle}
       >
         <PreviewPane
+          onInlineTextSaveRequest={handleInlineTextSaveRequest}
           onRequestOpenCmsBrowser={() => setCmsBrowserOpen(true)}
           onSelectionEvent={handleSelectionEvent}
           previewUrl={previewUrl}

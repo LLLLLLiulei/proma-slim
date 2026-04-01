@@ -110,6 +110,7 @@ async function loadBuilderPage(options: {
   workspaces: AgentWorkspace[]
   previewStates?: WorkspacePreviewState[]
   getWorkspacePreviewStateImpl?: () => Promise<WorkspacePreviewState>
+  savePageBuilderInlineTextImpl?: (workspaceId: string, payload: unknown) => Promise<WorkspacePreviewState>
   mockPreviewPane?: boolean
   mockCmsBrowserDialog?: boolean
 }) {
@@ -152,6 +153,9 @@ async function loadBuilderPage(options: {
         const state = states[Math.min(previewStateIndex, states.length - 1)]!
         previewStateIndex += 1
         return state
+      }),
+      savePageBuilderInlineText: options.savePageBuilderInlineTextImpl ?? (async () => {
+        throw new Error('savePageBuilderInlineText 未在测试中模拟')
       }),
     },
   }))
@@ -662,6 +666,145 @@ describe('BuilderPage', () => {
 
     expect(getLastPreviewPaneProps()).toMatchObject({
       previewUrl: null,
+    })
+  })
+
+  test('keeps the current preview document mounted after inline text saves when polling observes suppressed saved revisions', async () => {
+    const { runIntervalsOnce } = installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const saveResponses = [
+      {
+        hasPreview: true,
+        entryUrl: `/api/workspaces/${workspace.id}/preview/`,
+        revision: 'rev-2',
+      },
+      {
+        hasPreview: true,
+        entryUrl: `/api/workspaces/${workspace.id}/preview/`,
+        revision: 'rev-3',
+      },
+    ] as const
+    let saveIndex = 0
+    const savePageBuilderInlineText = mock(async () => {
+      const next = saveResponses[Math.min(saveIndex, saveResponses.length - 1)]!
+      saveIndex += 1
+      return next
+    })
+
+    const { BuilderPage, getLastPreviewPaneProps } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      mockPreviewPane: true,
+      previewStates: [
+        {
+          hasPreview: true,
+          entryUrl: `/api/workspaces/${workspace.id}/preview/`,
+          revision: 'rev-1',
+        },
+        {
+          hasPreview: true,
+          entryUrl: `/api/workspaces/${workspace.id}/preview/`,
+          revision: 'rev-2',
+        },
+        {
+          hasPreview: true,
+          entryUrl: `/api/workspaces/${workspace.id}/preview/`,
+          revision: 'rev-3',
+        },
+      ],
+      savePageBuilderInlineTextImpl: savePageBuilderInlineText,
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      previewUrl: `/api/workspaces/${workspace.id}/preview/?v=rev-1`,
+    })
+
+    await act(async () => {
+      await (getLastPreviewPaneProps() as {
+        onInlineTextSaveRequest?: (request: {
+          requestId: string
+          selector: string
+          textTargetDescriptor: { version: number; tagName: string; childPath: number[] }
+          previousText: string
+          nextText: string
+        }) => Promise<unknown>
+      }).onInlineTextSaveRequest?.({
+        requestId: 'save-1',
+        selector: '#hero',
+        textTargetDescriptor: {
+          version: 1,
+          tagName: 'h1',
+          childPath: [0],
+        },
+        previousText: '旧标题',
+        nextText: '新标题',
+      })
+    })
+
+    expect(savePageBuilderInlineText).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      await runIntervalsOnce()
+    })
+
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      previewUrl: `/api/workspaces/${workspace.id}/preview/?v=rev-1`,
+    })
+
+    await act(async () => {
+      await (getLastPreviewPaneProps() as {
+        onInlineTextSaveRequest?: (request: {
+          requestId: string
+          selector: string
+          textTargetDescriptor: { version: number; tagName: string; childPath: number[] }
+          previousText: string
+          nextText: string
+        }) => Promise<unknown>
+      }).onInlineTextSaveRequest?.({
+        requestId: 'save-2',
+        selector: '#hero',
+        textTargetDescriptor: {
+          version: 1,
+          tagName: 'p',
+          childPath: [1],
+        },
+        previousText: '旧描述',
+        nextText: '新描述',
+      })
+    })
+
+    expect(savePageBuilderInlineText).toHaveBeenCalledTimes(2)
+
+    await act(async () => {
+      await runIntervalsOnce()
+    })
+
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      previewUrl: `/api/workspaces/${workspace.id}/preview/?v=rev-1`,
     })
   })
 

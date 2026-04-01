@@ -485,4 +485,89 @@ describe('PreviewPane', () => {
       && node.props['aria-label'] === '从 CMS 选择数据'
     )).toHaveLength(0)
   })
+
+  test('forwards inline text save requests to the host and posts the save result back to the iframe', async () => {
+    const listeners = new Map<string, Set<(event: unknown) => void>>()
+    const iframeWindow = {
+      postMessage: mock(() => {}),
+    }
+    const onInlineTextSaveRequest = mock(async () => ({
+      requestId: 'save-1',
+      ok: true,
+    }))
+
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: {
+        addEventListener(type: string, listener: (event: unknown) => void) {
+          const bucket = listeners.get(type) ?? new Set()
+          bucket.add(listener)
+          listeners.set(type, bucket)
+        },
+        removeEventListener(type: string, listener: (event: unknown) => void) {
+          listeners.get(type)?.delete(listener)
+        },
+        open: mock(() => {}),
+      },
+    })
+
+    const { PreviewPane } = await loadPreviewPane()
+
+    await act(async () => {
+      create(
+        <PreviewPane
+          onInlineTextSaveRequest={onInlineTextSaveRequest}
+          previewUrl="https://example.com/preview?v=rev-1"
+          selectionModeEnabled={true}
+        />,
+        {
+          createNodeMock(element) {
+            if (element.type === 'iframe') {
+              return { contentWindow: iframeWindow }
+            }
+            return {}
+          },
+        },
+      )
+    })
+
+    await act(async () => {
+      const messageHandler = [...(listeners.get('message') ?? [])][0]
+      messageHandler?.({
+        source: iframeWindow,
+        data: {
+          source: PAGE_BUILDER_PREVIEW_BRIDGE_SOURCE,
+          type: 'inline-text-save-request',
+          requestId: 'save-1',
+          selector: '#hero',
+          textTargetDescriptor: {
+            version: 1,
+            tagName: 'h1',
+            childPath: [0],
+          },
+          previousText: '旧标题',
+          nextText: '新标题',
+        },
+      })
+      await Promise.resolve()
+    })
+
+    expect(onInlineTextSaveRequest).toHaveBeenCalledWith({
+      requestId: 'save-1',
+      selector: '#hero',
+      textTargetDescriptor: {
+        version: 1,
+        tagName: 'h1',
+        childPath: [0],
+      },
+      previousText: '旧标题',
+      nextText: '新标题',
+    })
+    expect(iframeWindow.postMessage).toHaveBeenLastCalledWith({
+      source: PAGE_BUILDER_PREVIEW_PARENT_SOURCE,
+      type: 'inline-text-save-result',
+      requestId: 'save-1',
+      ok: true,
+    }, '*')
+  })
 })

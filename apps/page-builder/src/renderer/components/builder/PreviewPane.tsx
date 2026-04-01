@@ -3,6 +3,8 @@ import { Expand, ExternalLink, RefreshCw } from 'lucide-react'
 import type {
   PageBuilderPreviewAnchorRect,
   PageBuilderPreviewBridgeMessage,
+  PageBuilderInlineTextSaveRequest,
+  PageBuilderInlineTextSaveResult,
   PageBuilderPreviewParentMessage,
 } from '@proma/shared'
 import {
@@ -77,11 +79,13 @@ function resolveEmbeddedPreviewUrl(previewUrl: string): string {
 }
 
 export function PreviewPane({
+  onInlineTextSaveRequest,
   onRequestOpenCmsBrowser,
   previewUrl,
   selectionModeEnabled = false,
   onSelectionEvent,
 }: {
+  onInlineTextSaveRequest?: (request: PageBuilderInlineTextSaveRequest) => Promise<PageBuilderInlineTextSaveResult>
   onRequestOpenCmsBrowser?: () => void
   previewUrl: string | null
   selectionModeEnabled?: boolean
@@ -148,13 +152,63 @@ export function PreviewPane({
         return
       }
 
+      if (event.data.type === 'inline-text-save-request') {
+        const saveRequest = event.data
+        void (async () => {
+          const {
+            requestId,
+            selector,
+            textTargetDescriptor,
+            previousText,
+            nextText,
+          } = saveRequest
+
+          const result = await (async (): Promise<PageBuilderInlineTextSaveResult> => {
+            if (!onInlineTextSaveRequest) {
+              return {
+                requestId,
+                ok: false,
+                error: '未配置内联文字保存处理器',
+              }
+            }
+
+            try {
+              return await onInlineTextSaveRequest({
+                requestId,
+                selector,
+                textTargetDescriptor,
+                previousText,
+                nextText,
+              })
+            } catch (error) {
+              return {
+                requestId,
+                ok: false,
+                error: error instanceof Error ? error.message : '内联文字保存失败',
+              }
+            }
+          })()
+
+          const contentWindow = iframeRef.current?.contentWindow
+          if (!contentWindow) return
+
+          const responseMessage: PageBuilderPreviewParentMessage = {
+            source: PAGE_BUILDER_PREVIEW_PARENT_SOURCE,
+            type: 'inline-text-save-result',
+            ...result,
+          }
+          contentWindow.postMessage(responseMessage, '*')
+        })()
+        return
+      }
+
       setSelectedAnchor(null)
       onSelectionEvent?.({ type: 'reset' })
     }
 
     window.addEventListener('message', handleMessage)
     return () => window.removeEventListener('message', handleMessage)
-  }, [onSelectionEvent])
+  }, [onInlineTextSaveRequest, onSelectionEvent])
 
   React.useEffect(() => {
     if (!previewUrl) return
