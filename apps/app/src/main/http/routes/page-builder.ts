@@ -1,5 +1,7 @@
 import { Hono } from 'hono'
+import { CmsGateway, CmsGatewayError } from '../../lib/cms-gateway'
 import { deletePageBuilderProject, listPageBuilderProjects } from '../../lib/page-builder-project-service'
+import { resolvePageBuilderCmsConfig } from '../../lib/page-builder-cms-config'
 import { readPageBuilderPreviewBridgeScript } from '../../lib/page-builder-preview-bridge'
 import { HttpError } from '../errors'
 import { noContent } from '../responses'
@@ -31,3 +33,129 @@ pageBuilderRoutes.delete('/projects/:workspaceId', (c) => {
 
   return noContent()
 })
+
+pageBuilderRoutes.get('/cms/catalogs', async (c) => {
+  try {
+    const gateway = createCmsGateway()
+    return c.json(await gateway.listCatalogs({
+      contentType: readOptionalStringQuery(c.req.query('contentType')),
+      searchKeyword: readOptionalStringQuery(c.req.query('searchKeyword')),
+    }))
+  } catch (error) {
+    throw mapCmsGatewayError(error)
+  }
+})
+
+pageBuilderRoutes.get('/cms/catalogs/:catalogId', async (c) => {
+  const catalogId = readOptionalStringQuery(c.req.param('catalogId'))
+  if (!catalogId) {
+    throw new HttpError(400, 'catalogId 不能为空')
+  }
+
+  try {
+    const gateway = createCmsGateway()
+    return c.json(await gateway.getCatalogDetail(catalogId))
+  } catch (error) {
+    throw mapCmsGatewayError(error)
+  }
+})
+
+pageBuilderRoutes.get('/cms/contents', async (c) => {
+  const catalogId = readOptionalStringQuery(c.req.query('catalogId'))
+  if (!catalogId) {
+    throw new HttpError(400, 'catalogId 不能为空')
+  }
+
+  try {
+    const gateway = createCmsGateway()
+    return c.json(await gateway.listContents({
+      catalogId,
+      contentSelectType: readOptionalStringQuery(c.req.query('contentSelectType')),
+      keyword: readOptionalStringQuery(c.req.query('keyword')),
+      title: readOptionalStringQuery(c.req.query('title')),
+      pageIndex: readOptionalIntegerQuery(c.req.query('pageIndex'), {
+        min: 0,
+        label: 'pageIndex',
+      }),
+      pageSize: readOptionalIntegerQuery(c.req.query('pageSize'), {
+        min: 1,
+        label: 'pageSize',
+      }),
+    }))
+  } catch (error) {
+    throw mapCmsGatewayError(error)
+  }
+})
+
+pageBuilderRoutes.get('/cms/assets', async (c) => {
+  const assetUrl = readOptionalStringQuery(c.req.query('url'))
+  if (!assetUrl) {
+    throw new HttpError(400, 'url 不能为空')
+  }
+
+  try {
+    const gateway = createCmsGateway()
+    const response = await gateway.fetchAsset(assetUrl)
+
+    const headers = new Headers()
+    const contentType = response.headers.get('content-type')
+    if (contentType) {
+      headers.set('content-type', contentType)
+    }
+    headers.set('cache-control', 'private, no-store')
+
+    return new Response(response.body, {
+      status: response.status,
+      headers,
+    })
+  } catch (error) {
+    throw mapCmsGatewayError(error)
+  }
+})
+
+function createCmsGateway(): CmsGateway {
+  const config = resolvePageBuilderCmsConfig()
+  if (!config) {
+    throw new HttpError(503, 'CMS 浏览暂不可用，请先完成宿主 CMS 配置')
+  }
+
+  return new CmsGateway({ config })
+}
+
+function mapCmsGatewayError(error: unknown): Error {
+  if (error instanceof HttpError) {
+    return error
+  }
+
+  if (error instanceof CmsGatewayError) {
+    if (error.code === 'config') {
+      return new HttpError(503, error.message)
+    }
+
+    return new HttpError(502, error.message)
+  }
+
+  return error instanceof Error ? error : new Error(String(error))
+}
+
+function readOptionalStringQuery(value: string | undefined): string | undefined {
+  const next = value?.trim()
+  return next ? next : undefined
+}
+
+function readOptionalIntegerQuery(
+  value: string | undefined,
+  options: { min: number; label: string },
+): number | undefined {
+  const next = value?.trim()
+  if (!next) {
+    return undefined
+  }
+
+  const parsed = Number(next)
+  if (!Number.isInteger(parsed) || parsed < options.min) {
+    throw new HttpError(400, `${options.label} 必须是大于等于 ${options.min} 的整数`)
+  }
+
+  return parsed
+}

@@ -276,6 +276,93 @@ describe('renderer api wrappers', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
+  test('listPageBuilderCmsCatalogs requests the page-builder cms catalogs endpoint with query params', async () => {
+    const fetchMock = mock(async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe('/api/page-builder/cms/catalogs?contentType=Image&searchKeyword=%E9%A6%96%E9%A1%B5')
+      return jsonResponse({
+        items: [],
+        tree: [],
+      })
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const { api } = await import('./api')
+    const result = await api.listPageBuilderCmsCatalogs({
+      contentType: 'Image',
+      searchKeyword: '首页',
+    })
+
+    expect(result).toEqual({
+      items: [],
+      tree: [],
+    })
+  })
+
+  test('listPageBuilderCmsContents requests the page-builder cms contents endpoint with query params', async () => {
+    const fetchMock = mock(async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe('/api/page-builder/cms/contents?catalogId=101&pageIndex=1&pageSize=10&keyword=banner')
+      return jsonResponse({
+        pageIndex: 1,
+        pageSize: 10,
+        total: 0,
+        totalPages: 1,
+        items: [],
+      })
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const { api } = await import('./api')
+    const result = await api.listPageBuilderCmsContents({
+      catalogId: '101',
+      pageIndex: 1,
+      pageSize: 10,
+      keyword: 'banner',
+    })
+
+    expect(result).toEqual({
+      pageIndex: 1,
+      pageSize: 10,
+      total: 0,
+      totalPages: 1,
+      items: [],
+    })
+  })
+
+  test('getPageBuilderCmsCatalogDetail requests the page-builder cms catalog detail endpoint', async () => {
+    const fetchMock = mock(async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe('/api/page-builder/cms/catalogs/17765')
+      return jsonResponse({
+        id: '17765',
+        innerCode: '002676000004',
+        statusCode: 20,
+        statusLabel: '启用',
+        name: '文章',
+        alias: 'lbt_wz',
+        contentType: 'Article',
+        contentTypeName: '文章',
+        description: '栏目描述',
+        logoUrl: 'https://demo.zving.com/zcmstest/assets/images/addpicture.png',
+      })
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const { api } = await import('./api')
+    const result = await api.getPageBuilderCmsCatalogDetail('17765')
+
+    expect(result).toEqual({
+      id: '17765',
+      innerCode: '002676000004',
+      statusCode: 20,
+      statusLabel: '启用',
+      name: '文章',
+      alias: 'lbt_wz',
+      contentType: 'Article',
+      contentTypeName: '文章',
+      description: '栏目描述',
+      logoUrl: 'https://demo.zving.com/zcmstest/assets/images/addpicture.png',
+    })
+  })
+
   test('getWorkspaceCapabilities requests the capabilities endpoint', async () => {
     const fetchMock = mock(async (input: RequestInfo | URL) => {
       expect(String(input)).toBe('/api/workspaces/workspace-1/capabilities')

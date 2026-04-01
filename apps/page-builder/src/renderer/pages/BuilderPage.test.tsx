@@ -106,9 +106,11 @@ async function loadBuilderPage(options: {
   workspaces: AgentWorkspace[]
   previewStates?: WorkspacePreviewState[]
   mockPreviewPane?: boolean
+  mockCmsBrowserDialog?: boolean
 }) {
   let lastAgentViewProps: Record<string, unknown> | null = null
   let lastPreviewPaneProps: Record<string, unknown> | null = null
+  let lastCmsBrowserDialogProps: Record<string, unknown> | null = null
   let previewStateIndex = 0
 
   mock.module('@/components/agent', () => ({
@@ -123,6 +125,15 @@ async function loadBuilderPage(options: {
       PreviewPane(props: Record<string, unknown>) {
         lastPreviewPaneProps = props
         return React.createElement('div', { 'data-testid': 'preview-pane' })
+      },
+    }))
+  }
+
+  if (options.mockCmsBrowserDialog) {
+    mock.module('@page-builder/components/builder/CmsBrowserDialog', () => ({
+      CmsBrowserDialog(props: Record<string, unknown>) {
+        lastCmsBrowserDialogProps = props
+        return React.createElement('div', { 'data-testid': 'cms-browser-dialog', 'data-open': props.open === true })
       },
     }))
   }
@@ -150,22 +161,82 @@ async function loadBuilderPage(options: {
     getLastPreviewPaneProps() {
       return lastPreviewPaneProps
     },
+    getLastCmsBrowserDialogProps() {
+      return lastCmsBrowserDialogProps
+    },
   }
 }
 
-function getComposerActionElement(agentViewProps: Record<string, unknown> | null): React.ReactElement | null {
+function getComposerActionRoot(agentViewProps: Record<string, unknown> | null): React.ReactElement | null {
   const action = agentViewProps?.composerLeadingActions
   return React.isValidElement(action) ? action : null
+}
+
+function flattenElementText(node: React.ReactNode): string {
+  return React.Children.toArray(node).map((child) => {
+    if (typeof child === 'string') {
+      return child
+    }
+
+    if (typeof child === 'number') {
+      return String(child)
+    }
+
+    if (React.isValidElement(child)) {
+      return flattenElementText(child.props.children)
+    }
+
+    return ''
+  }).join('')
+}
+
+function findComposerActionElement(
+  agentViewProps: Record<string, unknown> | null,
+  matcher: (element: React.ReactElement) => boolean,
+): React.ReactElement | null {
+  const root = getComposerActionRoot(agentViewProps)
+  if (!root) return null
+
+  const queue: React.ReactElement[] = [root]
+  while (queue.length > 0) {
+    const current = queue.shift()!
+    if (matcher(current)) {
+      return current
+    }
+
+    for (const child of React.Children.toArray(current.props.children)) {
+      if (React.isValidElement(child)) {
+        queue.push(child)
+      }
+    }
+  }
+
+  return null
+}
+
+function getComposerActionElement(agentViewProps: Record<string, unknown> | null): React.ReactElement | null {
+  const selectionLabels = new Set(['选择进行编辑', '从页面中选择', '已选区域'])
+  return findComposerActionElement(agentViewProps, (element) =>
+    typeof element.props.onClick === 'function'
+      && selectionLabels.has(flattenElementText(element.props.children).trim()),
+  )
+}
+
+function getComposerActionElementByLabel(
+  agentViewProps: Record<string, unknown> | null,
+  label: string,
+): React.ReactElement | null {
+  return findComposerActionElement(agentViewProps, (element) =>
+    typeof element.props.onClick === 'function'
+      && flattenElementText(element.props.children).trim() === label,
+  )
 }
 
 function getComposerActionLabel(agentViewProps: Record<string, unknown> | null): string | null {
   const action = getComposerActionElement(agentViewProps)
   if (!action) return null
 
-  return React.Children.toArray(action.props.children)
-    .filter((child): child is string => typeof child === 'string')
-    .join('')
-    .trim() || null
+  return flattenElementText(action.props.children).trim() || null
 }
 
 function getComposerActionClassName(agentViewProps: Record<string, unknown> | null): string {
@@ -725,5 +796,58 @@ describe('BuilderPage', () => {
     })
     expect(getComposerActionLabel(getLastAgentViewProps())).toBe('选择进行编辑')
     expect(getLastAgentViewProps()).not.toHaveProperty('messageDecorator')
+  })
+
+  test('renders a dedicated browse-cms action and opens the cms browser dialog without changing selection mode', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const {
+      BuilderPage,
+      getLastAgentViewProps,
+      getLastCmsBrowserDialogProps,
+      getLastPreviewPaneProps,
+    } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      mockPreviewPane: true,
+      mockCmsBrowserDialog: true,
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(getComposerActionElementByLabel(getLastAgentViewProps(), '浏览 CMS')).not.toBeNull()
+    expect(getLastCmsBrowserDialogProps()).toMatchObject({ open: false })
+    expect(getLastPreviewPaneProps()).toMatchObject({ selectionModeEnabled: false })
+
+    await act(async () => {
+      getComposerActionElementByLabel(getLastAgentViewProps(), '浏览 CMS')?.props.onClick()
+    })
+
+    expect(getLastCmsBrowserDialogProps()).toMatchObject({ open: true })
+    expect(getLastPreviewPaneProps()).toMatchObject({ selectionModeEnabled: false })
+    expect(getComposerActionLabel(getLastAgentViewProps())).toBe('选择进行编辑')
   })
 })

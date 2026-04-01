@@ -5,6 +5,11 @@ import type {
   AgentWorkspace,
   AskUserResponse,
   FileSearchResult,
+  PageBuilderCmsCatalogList,
+  PageBuilderCmsCatalogDetail,
+  PageBuilderCmsCatalogQuery,
+  PageBuilderCmsContentList,
+  PageBuilderCmsContentQuery,
   PageBuilderProjectSummary,
   PermissionResponse,
   RuntimeStatus,
@@ -200,6 +205,48 @@ export const api = {
     return request<void>(`/api/page-builder/projects/${encodeURIComponent(workspaceId)}`, {
       method: 'DELETE',
     })
+  },
+
+  listPageBuilderCmsCatalogs(query: PageBuilderCmsCatalogQuery = {}): Promise<PageBuilderCmsCatalogList> {
+    const params = new URLSearchParams()
+    if (query.contentType) {
+      params.set('contentType', query.contentType)
+    }
+    if (query.searchKeyword) {
+      params.set('searchKeyword', query.searchKeyword)
+    }
+
+    const url = params.size > 0
+      ? `/api/page-builder/cms/catalogs?${params.toString()}`
+      : '/api/page-builder/cms/catalogs'
+
+    return request<PageBuilderCmsCatalogList>(url)
+  },
+
+  getPageBuilderCmsCatalogDetail(catalogId: string): Promise<PageBuilderCmsCatalogDetail> {
+    return request<PageBuilderCmsCatalogDetail>(`/api/page-builder/cms/catalogs/${encodeURIComponent(catalogId)}`)
+  },
+
+  listPageBuilderCmsContents(query: PageBuilderCmsContentQuery): Promise<PageBuilderCmsContentList> {
+    const params = new URLSearchParams()
+    params.set('catalogId', query.catalogId)
+    if (query.pageIndex !== undefined) {
+      params.set('pageIndex', String(query.pageIndex))
+    }
+    if (query.pageSize !== undefined) {
+      params.set('pageSize', String(query.pageSize))
+    }
+    if (query.keyword) {
+      params.set('keyword', query.keyword)
+    }
+    if (query.title) {
+      params.set('title', query.title)
+    }
+    if (query.contentSelectType) {
+      params.set('contentSelectType', query.contentSelectType)
+    }
+
+    return request<PageBuilderCmsContentList>(`/api/page-builder/cms/contents?${params.toString()}`)
   },
 
   getWorkspaceCapabilities(workspaceId: string): Promise<WorkspaceCapabilities> {

@@ -159,6 +159,15 @@ export function getProxySettingsPath(): string {
 }
 
 /**
+ * 获取 CMS 浏览配置文件路径
+ *
+ * @returns ~/.proma/cms-settings.json
+ */
+export function getCmsSettingsPath(): string {
+  return join(getConfigDir(), 'cms-settings.json')
+}
+
+/**
  * 获取 Agent 会话索引文件路径
  *
  * @returns ~/.proma/agent-sessions.json

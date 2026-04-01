@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { useSetAtom } from 'jotai'
-import { AlertTriangle, LoaderCircle, MousePointerClick } from 'lucide-react'
+import { AlertTriangle, Database, LoaderCircle, MousePointerClick } from 'lucide-react'
 import { AgentView } from '@/components/agent'
 import {
   agentSessionsAtom,
@@ -31,6 +31,7 @@ import {
   decoratePageBuilderSelectionMessage,
   type PageBuilderPreviewSelectionEvent,
 } from '@page-builder/lib/preview-selection'
+import { CmsBrowserDialog } from '@page-builder/components/builder/CmsBrowserDialog'
 import { PreviewPane } from '@page-builder/components/builder/PreviewPane'
 import { ProjectTitleBar } from '@page-builder/components/builder/ProjectTitleBar'
 import type { WorkspacePreviewState } from '@/lib/api'
@@ -65,6 +66,7 @@ export function BuilderPage({
   const [selectionActionState, setSelectionActionState] = React.useState<SelectionActionState>('idle')
   const [hoveredSelector, setHoveredSelector] = React.useState<string | null>(null)
   const [selectedSelector, setSelectedSelector] = React.useState<string | null>(null)
+  const [cmsBrowserOpen, setCmsBrowserOpen] = React.useState(false)
   const selectionModeEnabled = selectionActionState !== 'idle'
 
   const clearSelection = React.useCallback(() => {
@@ -327,18 +329,32 @@ export function BuilderPage({
       ? 'h-7 rounded-full border border-primary/35 bg-primary/10 px-2.5 text-[11px] font-medium text-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.35)] ring-1 ring-primary/15 ring-offset-1 ring-offset-background transition-all hover:border-primary/45 hover:bg-primary/14 hover:text-primary'
       : 'h-7 rounded-full border border-transparent bg-transparent px-2.5 text-[11px] font-medium text-muted-foreground transition-all hover:border-border/60 hover:bg-muted/70 hover:text-foreground'
   const composerLeadingActions = React.useMemo(() => (
-    <Button
-      aria-label={selectionActionLabel}
-      aria-pressed={selectionModeEnabled}
-      className={selectionActionClassName}
-      onClick={handleToggleSelectionMode}
-      size="sm"
-      type="button"
-      variant="ghost"
-    >
-      <MousePointerClick className="mr-1 size-3.5" />
-      {selectionActionLabel}
-    </Button>
+    <div className="flex items-center gap-1.5">
+      <Button
+        aria-label={selectionActionLabel}
+        aria-pressed={selectionModeEnabled}
+        className={selectionActionClassName}
+        onClick={handleToggleSelectionMode}
+        size="sm"
+        type="button"
+        variant="ghost"
+      >
+        <MousePointerClick className="mr-1 size-3.5" />
+        {selectionActionLabel}
+      </Button>
+
+      <Button
+        aria-label="浏览 CMS"
+        className="h-7 rounded-full border border-border/70 bg-background/80 px-2.5 text-[11px] font-medium text-foreground shadow-sm transition-all hover:border-border hover:bg-muted/80"
+        onClick={() => setCmsBrowserOpen(true)}
+        size="sm"
+        type="button"
+        variant="ghost"
+      >
+        <Database className="mr-1 size-3.5" />
+        浏览 CMS
+      </Button>
+    </div>
   ), [handleToggleSelectionMode, selectionActionClassName, selectionActionLabel, selectionModeEnabled])
 
   if (loadState.status === 'loading') {
@@ -414,6 +430,8 @@ export function BuilderPage({
           </div>
         </section>
       </div>
+
+      <CmsBrowserDialog onOpenChange={setCmsBrowserOpen} open={cmsBrowserOpen} />
     </div>
   )
 }
