@@ -1,12 +1,64 @@
 import * as React from 'react'
 import { Expand, ExternalLink, RefreshCw } from 'lucide-react'
-import type { PageBuilderPreviewBridgeMessage, PageBuilderPreviewParentMessage } from '@proma/shared'
+import type {
+  PageBuilderPreviewAnchorRect,
+  PageBuilderPreviewBridgeMessage,
+  PageBuilderPreviewParentMessage,
+} from '@proma/shared'
 import {
   PAGE_BUILDER_PREVIEW_BRIDGE_SOURCE,
   PAGE_BUILDER_PREVIEW_PARENT_SOURCE,
 } from '@proma/shared'
 import { Button } from '@/components/ui/button'
+import { PageBuilderBlockActionBar } from '@page-builder/components/builder/PageBuilderBlockActionBar'
 import type { PageBuilderPreviewSelectionEvent } from '@page-builder/lib/preview-selection'
+
+const BLOCK_ACTION_BAR_ESTIMATED_WIDTH = 176
+const BLOCK_ACTION_BAR_ESTIMATED_HEIGHT = 44
+const BLOCK_ACTION_BAR_GAP = 8
+const BLOCK_ACTION_BAR_PADDING = 12
+
+interface SelectedAnchorState {
+  rect: PageBuilderPreviewAnchorRect
+  selector: string
+}
+
+function clamp(value: number, min: number, max: number): number {
+  if (max < min) return min
+  return Math.min(Math.max(value, min), max)
+}
+
+function resolveBlockActionBarStyle(
+  anchor: SelectedAnchorState | null,
+  frameRect: DOMRect | null | undefined,
+): React.CSSProperties | null {
+  if (!anchor) return null
+
+  const hostWidth = frameRect?.width ?? Math.max(anchor.rect.right + BLOCK_ACTION_BAR_PADDING, anchor.rect.left + 1)
+  const hostHeight = frameRect?.height ?? Math.max(
+    anchor.rect.bottom + BLOCK_ACTION_BAR_ESTIMATED_HEIGHT + BLOCK_ACTION_BAR_GAP,
+    anchor.rect.top + 1,
+  )
+
+  const left = clamp(
+    anchor.rect.left,
+    BLOCK_ACTION_BAR_PADDING,
+    hostWidth - BLOCK_ACTION_BAR_ESTIMATED_WIDTH - BLOCK_ACTION_BAR_PADDING,
+  )
+
+  const canPlaceBelow = anchor.rect.bottom + BLOCK_ACTION_BAR_GAP + BLOCK_ACTION_BAR_ESTIMATED_HEIGHT
+    <= hostHeight - BLOCK_ACTION_BAR_PADDING
+
+  const top = canPlaceBelow
+    ? anchor.rect.bottom + BLOCK_ACTION_BAR_GAP
+    : clamp(
+        anchor.rect.top - BLOCK_ACTION_BAR_GAP - BLOCK_ACTION_BAR_ESTIMATED_HEIGHT,
+        BLOCK_ACTION_BAR_PADDING,
+        hostHeight - BLOCK_ACTION_BAR_ESTIMATED_HEIGHT - BLOCK_ACTION_BAR_PADDING,
+      )
+
+  return { left, top }
+}
 
 function isPreviewBridgeMessage(value: unknown): value is PageBuilderPreviewBridgeMessage {
   if (!value || typeof value !== 'object') return false
@@ -25,10 +77,12 @@ function resolveEmbeddedPreviewUrl(previewUrl: string): string {
 }
 
 export function PreviewPane({
+  onRequestOpenCmsBrowser,
   previewUrl,
   selectionModeEnabled = false,
   onSelectionEvent,
 }: {
+  onRequestOpenCmsBrowser?: () => void
   previewUrl: string | null
   selectionModeEnabled?: boolean
   onSelectionEvent?: (event: PageBuilderPreviewSelectionEvent) => void
@@ -37,6 +91,7 @@ export function PreviewPane({
   const iframeRef = React.useRef<HTMLIFrameElement>(null)
   const [frameKey, setFrameKey] = React.useState(0)
   const [bridgeReady, setBridgeReady] = React.useState(false)
+  const [selectedAnchor, setSelectedAnchor] = React.useState<SelectedAnchorState | null>(null)
   const embeddedPreviewUrl = React.useMemo(() => {
     if (!previewUrl) {
       return previewUrl
@@ -82,6 +137,10 @@ export function PreviewPane({
       }
 
       if (event.data.type === 'selected') {
+        setSelectedAnchor({
+          rect: event.data.rect,
+          selector: event.data.selector,
+        })
         onSelectionEvent?.({
           type: 'selected',
           selector: event.data.selector,
@@ -89,6 +148,7 @@ export function PreviewPane({
         return
       }
 
+      setSelectedAnchor(null)
       onSelectionEvent?.({ type: 'reset' })
     }
 
@@ -100,8 +160,14 @@ export function PreviewPane({
     if (!previewUrl) return
 
     setBridgeReady(false)
+    setSelectedAnchor(null)
     onSelectionEvent?.({ type: 'reset' })
   }, [onSelectionEvent, previewUrl])
+
+  React.useEffect(() => {
+    if (selectionModeEnabled) return
+    setSelectedAnchor(null)
+  }, [selectionModeEnabled])
 
   React.useEffect(() => {
     const contentWindow = iframeRef.current?.contentWindow
@@ -123,6 +189,11 @@ export function PreviewPane({
       contentWindow.postMessage(clearMessage, '*')
     }
   }, [bridgeReady, previewUrl, selectionModeEnabled])
+
+  const blockActionBarStyle = React.useMemo(
+    () => resolveBlockActionBarStyle(selectedAnchor, frameRef.current?.getBoundingClientRect()),
+    [selectedAnchor],
+  )
 
   return (
     <section className="page-builder-pane flex min-h-[560px] min-w-0 flex-col overflow-hidden rounded-2xl lg:h-full lg:min-h-0">
@@ -170,18 +241,28 @@ export function PreviewPane({
       <div className="min-h-0 flex-1 p-2.5">
         <div
           ref={frameRef}
-          className="flex h-full min-h-[480px] overflow-hidden rounded-xl border border-border/70 bg-background"
+          className="relative flex h-full min-h-[480px] overflow-hidden rounded-xl border border-border/70 bg-background"
         >
           {previewUrl ? (
-            <iframe
-              ref={iframeRef}
-              key={frameKey}
-              className="h-full w-full border-0 bg-background"
-              onLoad={() => setBridgeReady(false)}
-              sandbox="allow-forms allow-scripts"
-              src={embeddedPreviewUrl ?? undefined}
-              title="网页预览"
-            />
+            <>
+              <iframe
+                ref={iframeRef}
+                key={frameKey}
+                className="h-full w-full border-0 bg-background"
+                onLoad={() => setBridgeReady(false)}
+                sandbox="allow-forms allow-scripts"
+                src={embeddedPreviewUrl ?? undefined}
+                title="网页预览"
+              />
+              {selectedAnchor && blockActionBarStyle ? (
+                <div className="pointer-events-none absolute inset-0 z-10">
+                  <PageBuilderBlockActionBar
+                    onOpenCms={() => onRequestOpenCmsBrowser?.()}
+                    style={blockActionBarStyle}
+                  />
+                </div>
+              ) : null}
+            </>
           ) : (
             <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-muted/35 text-center text-sm text-muted-foreground">
               <p className="font-medium text-foreground/75">预览尚未生成</p>

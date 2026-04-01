@@ -105,6 +105,7 @@ async function loadBuilderPage(options: {
   sessions: AgentSessionMeta[]
   workspaces: AgentWorkspace[]
   previewStates?: WorkspacePreviewState[]
+  getWorkspacePreviewStateImpl?: () => Promise<WorkspacePreviewState>
   mockPreviewPane?: boolean
   mockCmsBrowserDialog?: boolean
 }) {
@@ -142,12 +143,12 @@ async function loadBuilderPage(options: {
     api: {
       listSessions: async () => options.sessions,
       listWorkspaces: async () => options.workspaces,
-      getWorkspacePreviewState: async () => {
+      getWorkspacePreviewState: options.getWorkspacePreviewStateImpl ?? (async () => {
         const states = options.previewStates ?? [{ hasPreview: false, entryUrl: null, revision: null }]
         const state = states[Math.min(previewStateIndex, states.length - 1)]!
         previewStateIndex += 1
         return state
-      },
+      }),
     },
   }))
 
@@ -511,10 +512,82 @@ describe('BuilderPage', () => {
       )
       await Promise.resolve()
       await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
     })
 
     const iframe = renderer.root.findByType('iframe')
     expect(iframe.props.src).toBe(`http://localhost/api/workspaces/${workspace.id}/preview/?v=rev-1&page-builder-bridge=1`)
+  })
+
+  test('rehydrates the last successful preview url across a full builder remount before preview-state polling resolves', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const previewState: WorkspacePreviewState = {
+      hasPreview: true,
+      entryUrl: `/api/workspaces/${workspace.id}/preview/`,
+      revision: 'rev-1',
+    }
+
+    const firstLoad = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      mockPreviewPane: true,
+      getWorkspacePreviewStateImpl: async () => previewState,
+    })
+
+    let firstRenderer!: ReturnType<typeof create>
+    await act(async () => {
+      firstRenderer = create(
+        <Provider store={createStore()}>
+          <firstLoad.BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(firstLoad.getLastPreviewPaneProps()).toMatchObject({
+      previewUrl: `/api/workspaces/${workspace.id}/preview/?v=rev-1`,
+    })
+
+    await act(async () => {
+      firstRenderer.unmount()
+    })
+
+    const secondLoad = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      mockPreviewPane: true,
+      getWorkspacePreviewStateImpl: () => new Promise<WorkspacePreviewState>(() => {}),
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <secondLoad.BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(secondLoad.getLastPreviewPaneProps()).toMatchObject({
+      previewUrl: `/api/workspaces/${workspace.id}/preview/?v=rev-1`,
+    })
   })
 
   test('polls for preview updates and clears the preview when the workspace no longer has an entry page', async () => {
@@ -534,9 +607,10 @@ describe('BuilderPage', () => {
       updatedAt: 1,
     }
 
-    const { BuilderPage } = await loadBuilderPage({
+    const { BuilderPage, getLastPreviewPaneProps } = await loadBuilderPage({
       sessions: [session],
       workspaces: [workspace],
+      mockPreviewPane: true,
       previewStates: [
         {
           hasPreview: true,
@@ -556,9 +630,8 @@ describe('BuilderPage', () => {
       ],
     })
 
-    let renderer!: ReturnType<typeof create>
     await act(async () => {
-      renderer = create(
+      create(
         <Provider store={createStore()}>
           <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
         </Provider>,
@@ -567,20 +640,25 @@ describe('BuilderPage', () => {
       await Promise.resolve()
     })
 
-    expect(renderer.root.findByType('iframe').props.src).toBe(`http://localhost/api/workspaces/${workspace.id}/preview/?v=rev-1&page-builder-bridge=1`)
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      previewUrl: `/api/workspaces/${workspace.id}/preview/?v=rev-1`,
+    })
 
     await act(async () => {
       await runIntervalsOnce()
     })
 
-    expect(renderer.root.findByType('iframe').props.src).toBe(`http://localhost/api/workspaces/${workspace.id}/preview/?v=rev-2&page-builder-bridge=1`)
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      previewUrl: `/api/workspaces/${workspace.id}/preview/?v=rev-2`,
+    })
 
     await act(async () => {
       await runIntervalsOnce()
     })
 
-    expect(renderer.root.findAllByType('iframe')).toHaveLength(0)
-    expect(JSON.stringify(renderer.toJSON())).toContain('预览尚未生成')
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      previewUrl: null,
+    })
   })
 
   test('drops a stale bootstrap prompt when it belongs to another workspace', async () => {
@@ -798,7 +876,7 @@ describe('BuilderPage', () => {
     expect(getLastAgentViewProps()).not.toHaveProperty('messageDecorator')
   })
 
-  test('renders a dedicated browse-cms action and opens the cms browser dialog without changing selection mode', async () => {
+  test('opens the cms browser dialog from preview block actions and removes the composer browse-cms entry', async () => {
     installWindowHarness()
     const workspace: AgentWorkspace = {
       id: 'workspace-1',
@@ -838,12 +916,17 @@ describe('BuilderPage', () => {
       await Promise.resolve()
     })
 
-    expect(getComposerActionElementByLabel(getLastAgentViewProps(), '浏览 CMS')).not.toBeNull()
+    expect(getComposerActionElementByLabel(getLastAgentViewProps(), '浏览 CMS')).toBeNull()
     expect(getLastCmsBrowserDialogProps()).toMatchObject({ open: false })
     expect(getLastPreviewPaneProps()).toMatchObject({ selectionModeEnabled: false })
+    expect(typeof (getLastPreviewPaneProps() as {
+      onRequestOpenCmsBrowser?: () => void
+    }).onRequestOpenCmsBrowser).toBe('function')
 
     await act(async () => {
-      getComposerActionElementByLabel(getLastAgentViewProps(), '浏览 CMS')?.props.onClick()
+      (getLastPreviewPaneProps() as {
+        onRequestOpenCmsBrowser?: () => void
+      }).onRequestOpenCmsBrowser?.()
     })
 
     expect(getLastCmsBrowserDialogProps()).toMatchObject({ open: true })

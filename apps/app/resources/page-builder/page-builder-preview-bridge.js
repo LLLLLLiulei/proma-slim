@@ -20,6 +20,8 @@
   let selectedElement = null
   let hoveredSelector = null
   let selectedSelector = null
+  let lastSelectedRectKey = null
+  let mutationObserver = null
   let readyAnnouncementAttempts = 0
   let readyAnnouncementTimer = null
 
@@ -41,6 +43,100 @@
       source: BRIDGE_SOURCE,
       ...message,
     }, '*')
+  }
+
+  const toBridgeRect = (rect) => ({
+    top: rect.top,
+    left: rect.left,
+    right: rect.right,
+    bottom: rect.bottom,
+    width: rect.width,
+    height: rect.height,
+  })
+
+  const resolveRectKey = (selector, rect) => {
+    if (!selector || !rect) return null
+    return [
+      selector,
+      rect.top,
+      rect.left,
+      rect.right,
+      rect.bottom,
+      rect.width,
+      rect.height,
+    ].join(':')
+  }
+
+  const resolveElementRect = (element) => {
+    if (!element || !document.contains(element)) {
+      return null
+    }
+
+    const rect = element.getBoundingClientRect()
+    if (rect.width <= 0 || rect.height <= 0) {
+      return null
+    }
+
+    return toBridgeRect(rect)
+  }
+
+  const clearPostedSelectionRect = () => {
+    lastSelectedRectKey = null
+  }
+
+  const isBridgeOverlayNode = (node) => {
+    return node instanceof Element && node.hasAttribute(OVERLAY_ATTR)
+  }
+
+  const shouldSyncFromMutations = (mutations) => {
+    return mutations.some((mutation) => {
+      if (isBridgeOverlayNode(mutation.target)) {
+        return false
+      }
+
+      if (mutation.type === 'childList') {
+        for (const node of mutation.addedNodes) {
+          if (!isBridgeOverlayNode(node)) {
+            return true
+          }
+        }
+
+        for (const node of mutation.removedNodes) {
+          if (!isBridgeOverlayNode(node)) {
+            return true
+          }
+        }
+
+        return false
+      }
+
+      return true
+    })
+  }
+
+  const postSelectedRect = () => {
+    if (!selectedElement || !selectedSelector) {
+      clearPostedSelectionRect()
+      return
+    }
+
+    const rect = resolveElementRect(selectedElement)
+    if (!rect) {
+      clearAll(true)
+      return
+    }
+
+    const nextKey = resolveRectKey(selectedSelector, rect)
+    if (nextKey && nextKey === lastSelectedRectKey) {
+      return
+    }
+
+    lastSelectedRectKey = nextKey
+    postToParent({
+      type: 'selected',
+      selector: selectedSelector,
+      rect,
+    })
   }
 
   const clearReadyAnnouncementTimer = () => {
@@ -273,6 +369,10 @@
     updateOverlayLabel(hoverLabel, effectiveHoverElement)
     updateOverlay(selectedOverlay, selectedElement)
     updateOverlayLabel(selectedLabel, selectedElement)
+
+    if (selectedElement) {
+      postSelectedRect()
+    }
   }
 
   const resolveSelectableElement = (input) => {
@@ -359,6 +459,7 @@
   const clearSelected = () => {
     selectedElement = null
     selectedSelector = null
+    clearPostedSelectionRect()
     selectedOverlay.style.display = 'none'
     selectedLabel.style.display = 'none'
     selectedLabel.textContent = ''
@@ -405,10 +506,6 @@
     selectedSelector = selector
     logBridge('select-element', { selector })
     syncOverlays()
-    postToParent({
-      type: 'selected',
-      selector,
-    })
   }
 
   const handleMouseMove = (event) => {
@@ -484,6 +581,20 @@
     window.addEventListener('message', handleParentMessage)
     window.addEventListener('scroll', syncOverlays, true)
     window.addEventListener('resize', syncOverlays)
+    if (typeof MutationObserver === 'function') {
+      mutationObserver = new MutationObserver((mutations) => {
+        if (!shouldSyncFromMutations(mutations)) {
+          return
+        }
+
+        syncOverlays()
+      })
+      mutationObserver.observe(document.documentElement, {
+        subtree: true,
+        childList: true,
+        attributes: true,
+      })
+    }
     scheduleReadyAnnouncements()
   }
 

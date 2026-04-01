@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { useSetAtom } from 'jotai'
-import { AlertTriangle, Database, LoaderCircle, MousePointerClick } from 'lucide-react'
+import { AlertTriangle, LoaderCircle, MousePointerClick } from 'lucide-react'
 import { AgentView } from '@/components/agent'
 import {
   agentSessionsAtom,
@@ -28,6 +28,11 @@ import {
   resolveWorkspacePreviewUrl,
 } from '@page-builder/lib/preview-state'
 import {
+  clearWorkspacePreviewState,
+  readWorkspacePreviewState,
+  writeWorkspacePreviewState,
+} from '@page-builder/lib/preview-state-cache'
+import {
   decoratePageBuilderSelectionMessage,
   type PageBuilderPreviewSelectionEvent,
 } from '@page-builder/lib/preview-selection'
@@ -51,12 +56,16 @@ export function BuilderPage({
   sessionId: string
 }): React.ReactElement {
   const desktopGridRef = React.useRef<HTMLDivElement>(null)
+  const hydratedPreviewWorkspaceRef = React.useRef(workspaceId)
   const setSessions = useSetAtom(agentSessionsAtom)
   const setWorkspaces = useSetAtom(agentWorkspacesAtom)
   const setCurrentSessionId = useSetAtom(currentAgentSessionIdAtom)
   const setCurrentWorkspaceId = useSetAtom(currentAgentWorkspaceIdAtom)
   const [loadState, setLoadState] = React.useState<LoadState>({ status: 'loading' })
-  const [previewState, setPreviewState] = React.useState<WorkspacePreviewState | null>(null)
+  const [previewState, setPreviewState] = React.useState<WorkspacePreviewState | null>(() => {
+    if (typeof window === 'undefined') return null
+    return readWorkspacePreviewState(window.sessionStorage, workspaceId)
+  })
   const [desktopGridWidth, setDesktopGridWidth] = React.useState(0)
   const [desktopSplitRatio, setDesktopSplitRatio] = React.useState(() => {
     if (typeof window === 'undefined') return DEFAULT_BUILDER_SPLIT_RATIO
@@ -96,7 +105,6 @@ export function BuilderPage({
 
   const loadBuilderRuntime = React.useCallback(async (): Promise<void> => {
     setLoadState({ status: 'loading' })
-    setPreviewState(null)
 
     try {
       const [sessions, workspaces] = await Promise.all([
@@ -151,6 +159,21 @@ export function BuilderPage({
   }, [loadBuilderRuntime])
 
   React.useEffect(() => {
+    if (hydratedPreviewWorkspaceRef.current === workspaceId) {
+      return
+    }
+
+    hydratedPreviewWorkspaceRef.current = workspaceId
+
+    if (typeof window === 'undefined') {
+      setPreviewState(null)
+      return
+    }
+
+    setPreviewState(readWorkspacePreviewState(window.sessionStorage, workspaceId))
+  }, [workspaceId])
+
+  React.useEffect(() => {
     if (typeof window === 'undefined') return
 
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
@@ -170,6 +193,12 @@ export function BuilderPage({
       try {
         const nextState = await api.getWorkspacePreviewState(workspaceId)
         if (cancelled) return
+
+        if (nextState.hasPreview && nextState.entryUrl && nextState.revision) {
+          writeWorkspacePreviewState(window.sessionStorage, workspaceId, nextState)
+        } else {
+          clearWorkspacePreviewState(window.sessionStorage, workspaceId)
+        }
 
         setPreviewState((previous) => (
           areWorkspacePreviewStatesEqual(previous, nextState) ? previous : nextState
@@ -342,18 +371,6 @@ export function BuilderPage({
         <MousePointerClick className="mr-1 size-3.5" />
         {selectionActionLabel}
       </Button>
-
-      <Button
-        aria-label="浏览 CMS"
-        className="h-7 rounded-full border border-border/70 bg-background/80 px-2.5 text-[11px] font-medium text-foreground shadow-sm transition-all hover:border-border hover:bg-muted/80"
-        onClick={() => setCmsBrowserOpen(true)}
-        size="sm"
-        type="button"
-        variant="ghost"
-      >
-        <Database className="mr-1 size-3.5" />
-        浏览 CMS
-      </Button>
     </div>
   ), [handleToggleSelectionMode, selectionActionClassName, selectionActionLabel, selectionModeEnabled])
 
@@ -393,6 +410,7 @@ export function BuilderPage({
         style={desktopGridStyle}
       >
         <PreviewPane
+          onRequestOpenCmsBrowser={() => setCmsBrowserOpen(true)}
           onSelectionEvent={handleSelectionEvent}
           previewUrl={previewUrl}
           selectionModeEnabled={selectionModeEnabled}

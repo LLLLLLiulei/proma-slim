@@ -39,3 +39,24 @@ test('page-builder preview bridge reads the latest script content and asset vers
     rmSync(tempDir, { recursive: true, force: true })
   }
 })
+
+test('page-builder preview bridge bundled script includes selected rect syncing behavior', async () => {
+  const module = await importPreviewBridgeModule()
+
+  const script = module.readPageBuilderPreviewBridgeScript()
+
+  expect(script).toContain("type: 'selected'")
+  expect(script).toContain('rect,')
+  expect(script).toContain('const postSelectedRect = () => {')
+  expect(script).toContain('clearAll(true)')
+})
+
+test('page-builder preview bridge filters mutation observer events triggered by its own overlays', async () => {
+  const module = await importPreviewBridgeModule()
+
+  const script = module.readPageBuilderPreviewBridgeScript()
+
+  expect(script).toContain('const isBridgeOverlayNode = (node) => {')
+  expect(script).toContain('const shouldSyncFromMutations = (mutations) => {')
+  expect(script).toContain('if (!shouldSyncFromMutations(mutations)) {')
+})
