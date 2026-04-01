@@ -63,6 +63,72 @@ describe('ClaudeAgentAdapter SDK option pass-through', () => {
     expect(sdkCall.options.plugins).toEqual([{ type: 'local', path: '/tmp/workspace' }])
   })
 
+  test('forwards streamed prompt inputs and runtime sdk mcp server configs to the SDK query options', async () => {
+    const queryMock = mock(async function* (input: { prompt: unknown; options: Record<string, unknown> }) {
+      yield {
+        type: 'result',
+        subtype: 'success',
+        usage: {
+          input_tokens: 3,
+          output_tokens: 5,
+        },
+      }
+    })
+
+    mock.module('@anthropic-ai/claude-agent-sdk', () => ({
+      query: queryMock,
+    }))
+
+    const streamedPrompt = (async function* () {
+      yield {
+        type: 'user' as const,
+        message: {
+          role: 'user' as const,
+          content: [{ type: 'text' as const, text: 'Inspect runtime CMS tools' }],
+        },
+        parent_tool_use_id: null,
+        session_id: 'sdk-session-1',
+      }
+    })()
+
+    const runtimeCmsServer = {
+      type: 'sdk',
+      name: 'cms',
+      instance: {
+        connect: () => Promise.resolve(),
+        close: () => Promise.resolve(),
+      },
+    }
+
+    const { ClaudeAgentAdapter } = await import('./claude-agent-adapter')
+    const adapter = new ClaudeAgentAdapter()
+
+    for await (const _event of adapter.query({
+      sessionId: 'session-streamed-prompt',
+      prompt: streamedPrompt,
+      cwd: '/tmp/workspace/session-streamed-prompt',
+      sdkCliPath: '/tmp/claude.js',
+      executable: { type: 'node', path: '/usr/bin/node' },
+      executableArgs: [],
+      env: {},
+      sdkPermissionMode: 'default',
+      allowDangerouslySkipPermissions: false,
+      systemPrompt: { type: 'preset', preset: 'claude_code', append: '' },
+      mcpServers: {
+        cms: runtimeCmsServer,
+      },
+    } as ClaudeAgentQueryOptions)) {
+      // consume the async iterable so the mocked SDK query executes fully
+    }
+
+    expect(queryMock).toHaveBeenCalledTimes(1)
+    const sdkCall = queryMock.mock.calls[0]?.[0] as { prompt: unknown; options: Record<string, unknown> }
+    expect(sdkCall.prompt).toBe(streamedPrompt)
+    expect(sdkCall.options.mcpServers).toEqual({
+      cms: runtimeCmsServer,
+    })
+  })
+
   test('translates known sdk login errors into a friendly typed error while preserving the raw message', async () => {
     mock.module('@anthropic-ai/claude-agent-sdk', () => ({
       query: async function* () {

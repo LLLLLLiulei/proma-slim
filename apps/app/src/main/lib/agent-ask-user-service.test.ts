@@ -15,9 +15,9 @@ describe('AgentAskUserService', () => {
 
     globalThis.setTimeout = (((_handler: TimerHandler, _timeout?: number) => {
       setTimeoutCalls += 1
-      return 0 as ReturnType<typeof setTimeout>
-    }) as typeof setTimeout)
-    globalThis.clearTimeout = (((_id?: ReturnType<typeof setTimeout>) => {}) as typeof clearTimeout)
+      return 0 as unknown as ReturnType<typeof setTimeout>
+    }) as unknown as typeof setTimeout)
+    globalThis.clearTimeout = (((_id?: ReturnType<typeof setTimeout>) => {}) as unknown as typeof clearTimeout)
 
     const service = new AgentAskUserService(() => 0)
     const abortController = new AbortController()
@@ -65,9 +65,9 @@ describe('AgentAskUserService', () => {
     globalThis.setTimeout = (((handler: TimerHandler, timeout?: number) => {
       capturedTimeoutMs = timeout
       timeoutHandler = handler as () => void
-      return 1 as ReturnType<typeof setTimeout>
-    }) as typeof setTimeout)
-    globalThis.clearTimeout = (((_id?: ReturnType<typeof setTimeout>) => {}) as typeof clearTimeout)
+      return 1 as unknown as ReturnType<typeof setTimeout>
+    }) as unknown as typeof setTimeout)
+    globalThis.clearTimeout = (((_id?: ReturnType<typeof setTimeout>) => {}) as unknown as typeof clearTimeout)
 
     const service = new AgentAskUserService(() => 1500)
     const abortController = new AbortController()
@@ -88,7 +88,8 @@ describe('AgentAskUserService', () => {
     expect(capturedTimeoutMs).toBe(1500)
     expect(timeoutHandler).toBeTruthy()
 
-    timeoutHandler?.()
+    const fireTimeout = timeoutHandler as unknown as () => void
+    fireTimeout()
     const result = await pending
 
     expect(result).toEqual({

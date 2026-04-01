@@ -8,6 +8,36 @@
 
 import type { AgentEvent } from './agent'
 
+export interface AgentSdkTextContentBlock {
+  type: 'text'
+  text: string
+}
+
+export interface AgentSdkMessageParam {
+  role: 'user'
+  content: string | AgentSdkTextContentBlock[]
+}
+
+export interface AgentSdkUserMessage {
+  type: 'user'
+  message: AgentSdkMessageParam
+  parent_tool_use_id: string | null
+  session_id: string
+  isSynthetic?: boolean
+  tool_use_result?: unknown
+  priority?: 'now' | 'next' | 'later'
+  uuid?: string
+}
+
+export interface AgentSdkMcpServerConfig {
+  type: 'sdk'
+  name: string
+  instance: unknown
+}
+
+export type AgentPromptInput = string | AsyncIterable<AgentSdkUserMessage>
+export type AgentMcpServerConfig = Record<string, unknown> | AgentSdkMcpServerConfig
+
 /**
  * Agent 查询输入（Provider 无关）
  *
@@ -18,7 +48,7 @@ export interface AgentQueryInput {
   /** 会话 ID */
   sessionId: string
   /** 用户 prompt（已包含上下文注入） */
-  prompt: string
+  prompt: AgentPromptInput
   /** 模型 ID */
   model?: string
   /** Agent 工作目录 */

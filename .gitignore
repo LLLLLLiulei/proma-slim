@@ -52,3 +52,4 @@ node_modules*
 .tmp-proma-test/
 prompt.txt
 .superpowers/brainstorm/
+.playwright-mcp/

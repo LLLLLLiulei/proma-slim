@@ -8,6 +8,7 @@
 
 import type {
   AgentEvent,
+  AgentMcpServerConfig,
   AgentQueryInput,
   AgentProviderAdapter,
   TypedError,
@@ -82,6 +83,7 @@ interface SDKAuthStatusMessage {
   isAuthenticating?: boolean
   status?: string
   output?: string[]
+  error?: string
 }
 
 interface SDKRateLimitEventMessage {
@@ -141,7 +143,7 @@ export interface ClaudeAgentQueryOptions extends AgentQueryInput {
   /** Agent 可访问的额外目录 */
   additionalDirectories?: string[]
   /** 工作区级 MCP 服务配置 */
-  mcpServers?: Record<string, Record<string, unknown>>
+  mcpServers?: Record<string, AgentMcpServerConfig>
   /** stderr 回调 */
   onStderr?: (data: string) => void
   /** SDK session ID 捕获回调 */
@@ -802,7 +804,9 @@ export class ClaudeAgentAdapter implements AgentProviderAdapter {
         ...(options.resumeSessionId ? { resume: options.resumeSessionId } : {}),
         ...(options.plugins && { plugins: options.plugins }),
         ...(options.additionalDirectories && { additionalDirectories: options.additionalDirectories }),
-        ...(options.mcpServers && { mcpServers: options.mcpServers }),
+        ...(options.mcpServers && {
+          mcpServers: options.mcpServers as import('@anthropic-ai/claude-agent-sdk').Options['mcpServers'],
+        }),
         ...(options.onStderr && { stderr: options.onStderr }),
 
         // ===== SDK 0.2.52+ 新增选项透传 =====
@@ -822,7 +826,7 @@ export class ClaudeAgentAdapter implements AgentProviderAdapter {
       } as import('@anthropic-ai/claude-agent-sdk').Options
 
       const queryIterator = sdk.query({
-        prompt: options.prompt,
+        prompt: options.prompt as string | AsyncIterable<import('@anthropic-ai/claude-agent-sdk').SDKUserMessage>,
         options: sdkOptions,
       })
 
