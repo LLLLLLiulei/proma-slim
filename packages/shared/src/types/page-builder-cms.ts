@@ -89,3 +89,48 @@ export interface PageBuilderCmsContentList {
   totalPages: number
   items: PageBuilderCmsContentSummary[]
 }
+
+export type PageBuilderCmsSelectionEntryPoint =
+  | 'block-toolbar'
+  | 'agent-flow'
+
+export interface PageBuilderCmsSelectionTargetBlock {
+  selector: string
+}
+
+export interface PageBuilderCmsSelectionRequestContext {
+  entryPoint?: PageBuilderCmsSelectionEntryPoint
+  targetBlock: PageBuilderCmsSelectionTargetBlock
+}
+
+export const PAGE_BUILDER_CMS_SELECTION_RESULT_VERSION = 1
+
+interface PageBuilderCmsSelectionResultBase {
+  version: typeof PAGE_BUILDER_CMS_SELECTION_RESULT_VERSION
+  targetBlock: PageBuilderCmsSelectionTargetBlock
+}
+
+export interface PageBuilderCmsCatalogSelectionResult extends PageBuilderCmsSelectionResultBase {
+  selectionKind: 'catalogs'
+  sourceType: 'catalogs'
+  selectionMode: 'single' | 'multiple'
+  catalogIds: string[]
+  snapshot: {
+    catalogs: PageBuilderCmsCatalog[]
+  }
+}
+
+export interface PageBuilderCmsFixedContentsSelectionResult extends PageBuilderCmsSelectionResultBase {
+  selectionKind: 'contents'
+  sourceType: 'contents-fixed'
+  selectionMode: 'fixed-items'
+  catalogIds: string[]
+  contentIds: string[]
+  snapshot: {
+    contents: PageBuilderCmsContentSummary[]
+  }
+}
+
+export type PageBuilderCmsSelectionResult =
+  | PageBuilderCmsCatalogSelectionResult
+  | PageBuilderCmsFixedContentsSelectionResult

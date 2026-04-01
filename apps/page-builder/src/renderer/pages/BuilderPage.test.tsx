@@ -2,7 +2,11 @@ import { afterEach, describe, expect, mock, test } from 'bun:test'
 import React from 'react'
 import { Provider, createStore } from 'jotai'
 import { act, create } from 'react-test-renderer'
-import type { AgentSessionMeta, AgentWorkspace } from '@proma/shared'
+import type {
+  AgentSessionMeta,
+  AgentWorkspace,
+  PageBuilderCmsSelectionResult,
+} from '@proma/shared'
 import {
   agentSessionsAtom,
   agentWorkspacesAtom,
@@ -876,7 +880,7 @@ describe('BuilderPage', () => {
     expect(getLastAgentViewProps()).not.toHaveProperty('messageDecorator')
   })
 
-  test('opens the cms browser dialog from preview block actions and removes the composer browse-cms entry', async () => {
+  test('opens the cms browser dialog from preview block actions with the selected block context', async () => {
     installWindowHarness()
     const workspace: AgentWorkspace = {
       id: 'workspace-1',
@@ -922,6 +926,18 @@ describe('BuilderPage', () => {
     expect(typeof (getLastPreviewPaneProps() as {
       onRequestOpenCmsBrowser?: () => void
     }).onRequestOpenCmsBrowser).toBe('function')
+    expect(typeof (getLastCmsBrowserDialogProps() as {
+      onConfirmSelection?: (selection: PageBuilderCmsSelectionResult) => void
+    }).onConfirmSelection).toBe('function')
+
+    await act(async () => {
+      (getLastPreviewPaneProps() as {
+        onSelectionEvent?: (event: { type: string; selector?: string }) => void
+      }).onSelectionEvent?.({
+        type: 'selected',
+        selector: '#hero-banner',
+      })
+    })
 
     await act(async () => {
       (getLastPreviewPaneProps() as {
@@ -929,8 +945,85 @@ describe('BuilderPage', () => {
       }).onRequestOpenCmsBrowser?.()
     })
 
-    expect(getLastCmsBrowserDialogProps()).toMatchObject({ open: true })
-    expect(getLastPreviewPaneProps()).toMatchObject({ selectionModeEnabled: false })
-    expect(getComposerActionLabel(getLastAgentViewProps())).toBe('选择进行编辑')
+    expect(getLastCmsBrowserDialogProps()).toMatchObject({
+      open: true,
+      requestContext: {
+        entryPoint: 'block-toolbar',
+        targetBlock: {
+          selector: '#hero-banner',
+        },
+      },
+    })
+    expect(getLastPreviewPaneProps()).toMatchObject({ selectionModeEnabled: true })
+    expect(getComposerActionLabel(getLastAgentViewProps())).toBe('已选区域')
+  })
+
+  test('logs the structured cms selection result when the dialog confirms', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const consoleInfo = mock(() => {})
+    const originalConsoleInfo = console.info
+    console.info = consoleInfo as typeof console.info
+
+    try {
+      const {
+        BuilderPage,
+        getLastCmsBrowserDialogProps,
+      } = await loadBuilderPage({
+        sessions: [session],
+        workspaces: [workspace],
+        mockCmsBrowserDialog: true,
+      })
+
+      await act(async () => {
+        create(
+          <Provider store={createStore()}>
+            <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+          </Provider>,
+        )
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+
+      const selection: PageBuilderCmsSelectionResult = {
+        version: 1,
+        targetBlock: {
+          selector: '#hero-banner',
+        },
+        selectionKind: 'contents',
+        sourceType: 'contents-fixed',
+        selectionMode: 'fixed-items',
+        catalogIds: ['101'],
+        contentIds: ['501', '502'],
+        snapshot: {
+          contents: [],
+        },
+      }
+
+      await act(async () => {
+        (getLastCmsBrowserDialogProps() as {
+          onConfirmSelection?: (value: PageBuilderCmsSelectionResult) => void
+        }).onConfirmSelection?.(selection)
+      })
+
+      expect(consoleInfo).toHaveBeenCalledTimes(1)
+      expect(consoleInfo).toHaveBeenCalledWith('[BuilderPage] CMS 选择结果:', selection)
+    } finally {
+      console.info = originalConsoleInfo
+    }
   })
 })

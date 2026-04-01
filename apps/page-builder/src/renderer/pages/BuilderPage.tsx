@@ -1,6 +1,10 @@
 import * as React from 'react'
 import { useSetAtom } from 'jotai'
 import { AlertTriangle, LoaderCircle, MousePointerClick } from 'lucide-react'
+import type {
+  PageBuilderCmsSelectionRequestContext,
+  PageBuilderCmsSelectionResult,
+} from '@proma/shared'
 import { AgentView } from '@/components/agent'
 import {
   agentSessionsAtom,
@@ -340,6 +344,21 @@ export function BuilderPage({
   React.useEffect(() => {
     clearSelection()
   }, [clearSelection, previewUrl])
+  const cmsSelectionRequestContext = React.useMemo<PageBuilderCmsSelectionRequestContext | undefined>(() => {
+    if (!selectedSelector) {
+      return undefined
+    }
+
+    return {
+      entryPoint: 'block-toolbar',
+      targetBlock: {
+        selector: selectedSelector,
+      },
+    }
+  }, [selectedSelector])
+  const handleCmsSelectionConfirm = React.useCallback((selection: PageBuilderCmsSelectionResult) => {
+    console.info('[BuilderPage] CMS 选择结果:', selection)
+  }, [])
   const messageDecorator = React.useMemo(() => {
     if (!selectedSelector) return undefined
 
@@ -449,7 +468,12 @@ export function BuilderPage({
         </section>
       </div>
 
-      <CmsBrowserDialog onOpenChange={setCmsBrowserOpen} open={cmsBrowserOpen} />
+      <CmsBrowserDialog
+        onConfirmSelection={handleCmsSelectionConfirm}
+        onOpenChange={setCmsBrowserOpen}
+        open={cmsBrowserOpen}
+        requestContext={cmsSelectionRequestContext}
+      />
     </div>
   )
 }

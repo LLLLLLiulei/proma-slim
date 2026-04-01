@@ -3,7 +3,10 @@ import { FolderTree, LayoutPanelLeft, RefreshCw } from 'lucide-react'
 import type {
   PageBuilderCmsCatalog,
   PageBuilderCmsContentSummary,
+  PageBuilderCmsSelectionRequestContext,
+  PageBuilderCmsSelectionResult,
 } from '@proma/shared'
+import { PAGE_BUILDER_CMS_SELECTION_RESULT_VERSION } from '@proma/shared'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -22,19 +25,10 @@ interface CmsBrowserDialogProps {
   open: boolean
   onConfirmSelection?: (selection: CmsBrowserDialogSelection) => void
   onOpenChange: (open: boolean) => void
+  requestContext?: PageBuilderCmsSelectionRequestContext
 }
 
-export type CmsBrowserDialogSelection =
-  | {
-    tab: 'catalogs'
-    catalogs: PageBuilderCmsCatalog[]
-    contents: []
-  }
-  | {
-    tab: 'contents'
-    catalogs: []
-    contents: PageBuilderCmsContentSummary[]
-  }
+export type CmsBrowserDialogSelection = PageBuilderCmsSelectionResult
 
 function CatalogPanelState(props: {
   message: string
@@ -59,7 +53,12 @@ function CatalogPanelState(props: {
 }
 
 export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactElement {
-  const { onConfirmSelection, open, onOpenChange } = props
+  const {
+    onConfirmSelection,
+    open,
+    onOpenChange,
+    requestContext,
+  } = props
   const {
     activeTab,
     catalogsState,
@@ -110,9 +109,14 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
       .filter((content): content is PageBuilderCmsContentSummary => content !== undefined),
     [checkedContentIds, checkedContentItemsById],
   )
+  const selectedContentCatalogIds = React.useMemo(
+    () => [...new Set(selectedContents.map((content) => content.catalogId).filter(Boolean))],
+    [selectedContents],
+  )
   const currentSelectionCount = activeTab === 'catalogs'
     ? selectedCatalogs.length
     : selectedContents.length
+  const canConfirmSelection = currentSelectionCount > 0 && Boolean(requestContext?.targetBlock.selector)
   const currentSelectionSummary = activeTab === 'catalogs'
     ? `已选 ${selectedCatalogs.length} 个栏目`
     : `已选 ${selectedContents.length} 条内容`
@@ -156,19 +160,32 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
   }, [])
 
   const handleConfirmSelection = React.useCallback(() => {
-    if (currentSelectionCount === 0) return
+    if (!requestContext?.targetBlock.selector || currentSelectionCount === 0) return
 
     if (activeTab === 'catalogs') {
       onConfirmSelection?.({
-        tab: 'catalogs',
-        catalogs: selectedCatalogs,
-        contents: [],
+        version: PAGE_BUILDER_CMS_SELECTION_RESULT_VERSION,
+        targetBlock: requestContext.targetBlock,
+        selectionKind: 'catalogs',
+        sourceType: 'catalogs',
+        selectionMode: selectedCatalogs.length === 1 ? 'single' : 'multiple',
+        catalogIds: selectedCatalogs.map((catalog) => catalog.id),
+        snapshot: {
+          catalogs: selectedCatalogs,
+        },
       })
     } else {
       onConfirmSelection?.({
-        tab: 'contents',
-        catalogs: [],
-        contents: selectedContents,
+        version: PAGE_BUILDER_CMS_SELECTION_RESULT_VERSION,
+        targetBlock: requestContext.targetBlock,
+        selectionKind: 'contents',
+        sourceType: 'contents-fixed',
+        selectionMode: 'fixed-items',
+        catalogIds: selectedContentCatalogIds,
+        contentIds: selectedContents.map((content) => content.id),
+        snapshot: {
+          contents: selectedContents,
+        },
       })
     }
 
@@ -178,7 +195,9 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
     currentSelectionCount,
     onConfirmSelection,
     onOpenChange,
+    requestContext,
     selectedCatalogs,
+    selectedContentCatalogIds,
     selectedContents,
   ])
 
@@ -318,7 +337,7 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
                 取消
               </Button>
               <Button
-                disabled={currentSelectionCount === 0}
+                disabled={!canConfirmSelection}
                 onClick={handleConfirmSelection}
                 size="sm"
                 type="button"
