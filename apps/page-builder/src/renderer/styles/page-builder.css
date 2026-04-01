@@ -541,6 +541,13 @@
   flex-direction: column;
 }
 
+.page-builder-cms-state-compact {
+  height: auto;
+  justify-content: flex-start;
+  align-items: stretch;
+  padding: 0.5rem 0.25rem;
+}
+
 @media (max-width: 768px) {
   .page-builder-cms-content-card-body {
     grid-template-columns: 1fr;

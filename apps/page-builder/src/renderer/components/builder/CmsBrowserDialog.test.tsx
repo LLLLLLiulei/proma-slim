@@ -516,6 +516,40 @@ describe('CmsBrowserDialog', () => {
     expect(JSON.stringify(renderer.toJSON())).toContain('当前栏目暂无内容')
   })
 
+  test('keeps the dialog shell in a flex column layout and uses a compact contents error state', async () => {
+    const { CmsBrowserDialog } = await loadCmsBrowserDialog({
+      listContents: mock(async () => {
+        throw new Error('CMS 内容鉴权失败')
+      }),
+    })
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <CmsBrowserDialog open onOpenChange={() => {}} />,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    const contentsTab = renderer.root.findAllByType('button')
+      .find((button) => flattenText(button.props.children).trim() === '内容')
+
+    await act(async () => {
+      contentsTab?.props.onClick()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    const dialogShell = renderer.root.findByType('section')
+    expect(String(dialogShell.props.className ?? '')).toContain('!flex')
+    expect(String(dialogShell.props.className ?? '')).toContain('!flex-col')
+
+    expect(renderer.root.findAllByProps({
+      className: 'page-builder-cms-state page-builder-cms-state-stack page-builder-cms-state-compact',
+    })).toHaveLength(1)
+  })
+
   test('requests another contents page when pagination changes', async () => {
     const { CmsBrowserDialog, listContents, getLastConfigProviderProps, getLastPaginationProps } = await loadCmsBrowserDialog({
       listContents: mock(async (query: PageBuilderCmsContentQuery) => ({

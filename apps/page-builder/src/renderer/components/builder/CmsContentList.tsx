@@ -174,7 +174,7 @@ export function CmsContentList(props: CmsContentListProps): React.ReactElement {
   if (state.status === 'error') {
     return (
       <ConfigProvider componentSize="small" locale={zhCN}>
-        <div className="page-builder-cms-state page-builder-cms-state-stack">
+        <div className="page-builder-cms-state page-builder-cms-state-stack page-builder-cms-state-compact">
           <Alert
             className="w-full"
             description={state.errorMessage}

@@ -247,7 +247,7 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
 
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
-      <DialogContent className="page-builder-cms-dialog h-[min(720px,85vh)] max-w-[1120px] gap-0 overflow-hidden rounded-[28px] border-border/70 bg-white p-0 shadow-2xl">
+      <DialogContent className="page-builder-cms-dialog !flex !flex-col h-[min(720px,85vh)] max-w-[1120px] gap-0 overflow-hidden rounded-[28px] border-border/70 bg-white p-0 shadow-2xl">
         <DialogHeader className="border-b border-border/70 px-5 pb-3 pt-5 text-left">
           <DialogTitle className="text-lg font-semibold">
             从 CMS 选择数据
