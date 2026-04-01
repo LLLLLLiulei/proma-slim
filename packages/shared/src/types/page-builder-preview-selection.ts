@@ -2,6 +2,7 @@ import type {
   PageBuilderInlineTextSaveRequest,
   PageBuilderInlineTextSaveResult,
 } from './page-builder-inline-text'
+import type { PageBuilderReplaceImageCapability } from './page-builder-image-replacement'
 
 export const PAGE_BUILDER_PREVIEW_PARENT_SOURCE = 'page-builder-preview-parent'
 export const PAGE_BUILDER_PREVIEW_BRIDGE_SOURCE = 'page-builder-preview-bridge'
@@ -13,6 +14,10 @@ export interface PageBuilderPreviewAnchorRect {
   bottom: number
   width: number
   height: number
+}
+
+export interface PageBuilderSelectedBlockCapabilities {
+  replaceImage?: PageBuilderReplaceImageCapability
 }
 
 export type PageBuilderPreviewParentMessage =
@@ -45,6 +50,7 @@ export type PageBuilderPreviewBridgeMessage =
     type: 'selected'
     selector: string
     rect: PageBuilderPreviewAnchorRect
+    capabilities?: PageBuilderSelectedBlockCapabilities
   }
   | {
     source: typeof PAGE_BUILDER_PREVIEW_BRIDGE_SOURCE

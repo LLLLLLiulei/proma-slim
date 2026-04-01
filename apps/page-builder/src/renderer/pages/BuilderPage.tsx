@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import type {
   PageBuilderCmsSelectionRequestContext,
   PageBuilderCmsSelectionResult,
+  PageBuilderImageReplacementPayload,
   PageBuilderInlineTextSaveRequest,
   PageBuilderInlineTextSaveResult,
 } from '@proma/shared'
@@ -63,7 +64,9 @@ export function BuilderPage({
   sessionId: string
 }): React.ReactElement {
   const desktopGridRef = React.useRef<HTMLDivElement>(null)
+  const imageFileInputRef = React.useRef<HTMLInputElement>(null)
   const hydratedPreviewWorkspaceRef = React.useRef(workspaceId)
+  const pendingImageReplacementRef = React.useRef<PageBuilderImageReplacementPayload | null>(null)
   const suppressedInlinePreviewRevisionsRef = React.useRef<Set<string>>(new Set())
   const setSessions = useSetAtom(agentSessionsAtom)
   const setWorkspaces = useSetAtom(agentWorkspacesAtom)
@@ -84,12 +87,14 @@ export function BuilderPage({
   const [hoveredSelector, setHoveredSelector] = React.useState<string | null>(null)
   const [selectedSelector, setSelectedSelector] = React.useState<string | null>(null)
   const [cmsBrowserOpen, setCmsBrowserOpen] = React.useState(false)
+  const [isReplacingImage, setIsReplacingImage] = React.useState(false)
   const selectionModeEnabled = selectionActionState !== 'idle'
 
   const clearSelection = React.useCallback(() => {
     setSelectionActionState('idle')
     setHoveredSelector(null)
     setSelectedSelector(null)
+    pendingImageReplacementRef.current = null
   }, [])
 
   const persistDesktopSplitRatio = React.useCallback((nextRatio: number) => {
@@ -278,6 +283,63 @@ export function BuilderPage({
       }
     }
   }, [workspaceId])
+
+  const writeNextPreviewState = React.useCallback((nextState: WorkspacePreviewState) => {
+    if (typeof window !== 'undefined') {
+      if (nextState.hasPreview && nextState.entryUrl && nextState.revision) {
+        writeWorkspacePreviewState(window.sessionStorage, workspaceId, nextState)
+      } else {
+        clearWorkspacePreviewState(window.sessionStorage, workspaceId)
+      }
+    }
+
+    setPreviewState((previous) => (
+      areWorkspacePreviewStatesEqual(previous, nextState) ? previous : nextState
+    ))
+  }, [workspaceId])
+
+  const handleRequestReplaceImage = React.useCallback((request: PageBuilderImageReplacementPayload) => {
+    pendingImageReplacementRef.current = request
+    const input = imageFileInputRef.current
+    if (!input) {
+      return
+    }
+
+    input.value = ''
+    input.click()
+  }, [])
+
+  const handleImageFileChange = React.useCallback(async (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ): Promise<void> => {
+    const target = pendingImageReplacementRef.current
+    const file = event.currentTarget.files?.[0] ?? null
+    event.currentTarget.value = ''
+
+    if (!target || !file) {
+      pendingImageReplacementRef.current = null
+      return
+    }
+
+    setIsReplacingImage(true)
+
+    try {
+      const nextState = await api.replacePageBuilderImage(workspaceId, {
+        ...target,
+        file,
+      })
+
+      pendingImageReplacementRef.current = null
+      writeNextPreviewState(nextState)
+      toast.success('图片替换成功')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '图片替换失败'
+      console.error('[BuilderPage] 图片替换失败:', error)
+      toast.error(message)
+    } finally {
+      setIsReplacingImage(false)
+    }
+  }, [workspaceId, writeNextPreviewState])
 
   React.useEffect(() => {
     const element = desktopGridRef.current
@@ -482,8 +544,10 @@ export function BuilderPage({
         style={desktopGridStyle}
       >
         <PreviewPane
+          imageReplacementPending={isReplacingImage}
           onInlineTextSaveRequest={handleInlineTextSaveRequest}
           onRequestOpenCmsBrowser={() => setCmsBrowserOpen(true)}
+          onRequestReplaceImage={handleRequestReplaceImage}
           onSelectionEvent={handleSelectionEvent}
           previewUrl={previewUrl}
           selectionModeEnabled={selectionModeEnabled}
@@ -521,6 +585,16 @@ export function BuilderPage({
           </div>
         </section>
       </div>
+
+      <input
+        ref={imageFileInputRef}
+        accept="image/*"
+        className="sr-only"
+        onChange={(event) => {
+          void handleImageFileChange(event)
+        }}
+        type="file"
+      />
 
       <CmsBrowserDialog
         onConfirmSelection={handleCmsSelectionConfirm}

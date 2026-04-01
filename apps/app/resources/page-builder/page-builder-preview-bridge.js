@@ -60,7 +60,19 @@
     height: rect.height,
   })
 
-  const resolveRectKey = (selector, rect) => {
+  const resolveReplaceImageCapabilityKey = (capability) => {
+    if (!capability || !capability.supported || !capability.targetDescriptor) {
+      return 'replace-image:none'
+    }
+
+    return [
+      'replace-image',
+      capability.targetDescriptor.tagName,
+      capability.targetDescriptor.childPath.join('.'),
+    ].join(':')
+  }
+
+  const resolveRectKey = (selector, rect, capabilities) => {
     if (!selector || !rect) return null
     return [
       selector,
@@ -70,6 +82,7 @@
       rect.bottom,
       rect.width,
       rect.height,
+      resolveReplaceImageCapabilityKey(capabilities?.replaceImage),
     ].join(':')
   }
 
@@ -132,7 +145,13 @@
       return
     }
 
-    const nextKey = resolveRectKey(selectedSelector, rect)
+    const replaceImage = resolveReplaceImageCapability(selectedElement)
+    const capabilities = replaceImage
+      ? {
+          replaceImage,
+        }
+      : undefined
+    const nextKey = resolveRectKey(selectedSelector, rect, capabilities)
     if (nextKey && nextKey === lastSelectedRectKey) {
       return
     }
@@ -142,6 +161,7 @@
       type: 'selected',
       selector: selectedSelector,
       rect,
+      ...(capabilities ? { capabilities } : {}),
     })
   }
 
@@ -496,6 +516,52 @@
     }
 
     return current === root ? path : null
+  }
+
+  const resolveReplaceImageTargetDescriptor = (root, element) => {
+    if (!root || !element || !root.contains(element) || element.tagName !== 'IMG') {
+      return null
+    }
+
+    const childPath = buildChildPath(root, element)
+    if (!childPath) {
+      return null
+    }
+
+    return {
+      version: 1,
+      tagName: element.tagName.toLowerCase(),
+      childPath,
+    }
+  }
+
+  const resolveReplaceImageCapability = (element) => {
+    if (!(element instanceof Element)) {
+      return null
+    }
+
+    if (element.tagName === 'IMG') {
+      const targetDescriptor = resolveReplaceImageTargetDescriptor(element, element)
+      return targetDescriptor
+        ? {
+            supported: true,
+            targetDescriptor,
+          }
+        : null
+    }
+
+    const imageElements = Array.from(element.querySelectorAll('img'))
+    if (imageElements.length !== 1) {
+      return null
+    }
+
+    const targetDescriptor = resolveReplaceImageTargetDescriptor(element, imageElements[0])
+    return targetDescriptor
+      ? {
+          supported: true,
+          targetDescriptor,
+        }
+      : null
   }
 
   const resolveEditableTextTargetDescriptor = (root, element) => {

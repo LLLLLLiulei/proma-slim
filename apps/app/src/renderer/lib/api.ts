@@ -10,6 +10,7 @@ import type {
   PageBuilderCmsCatalogQuery,
   PageBuilderCmsContentList,
   PageBuilderCmsContentQuery,
+  PageBuilderImageReplacementPayload,
   PageBuilderInlineTextSavePayload,
   PageBuilderProjectSummary,
   PermissionResponse,
@@ -39,6 +40,10 @@ interface CreateWorkspaceOptions {
 
 interface RequestOptions extends Omit<RequestInit, 'body'> {
   body?: unknown
+}
+
+interface PageBuilderImageReplacementRequest extends PageBuilderImageReplacementPayload {
+  file: File
 }
 
 type SendMessagePayload = Partial<AgentSendInput> & {
@@ -82,6 +87,16 @@ function buildSendMessageBody(payload: SendMessagePayload): FormData | Omit<Send
     formData.append('attachments', file)
   }
 
+  return formData
+}
+
+function buildPageBuilderImageReplacementBody(payload: PageBuilderImageReplacementRequest): FormData {
+  const formData = new FormData()
+  formData.set('payload', JSON.stringify({
+    selector: payload.selector,
+    imageTargetDescriptor: payload.imageTargetDescriptor,
+  }))
+  formData.set('file', payload.file)
   return formData
 }
 
@@ -269,6 +284,16 @@ export const api = {
     return request<WorkspacePreviewState>(`/api/workspaces/${encodeURIComponent(workspaceId)}/page-builder/inline-text`, {
       method: 'POST',
       body: payload,
+    })
+  },
+
+  replacePageBuilderImage(
+    workspaceId: string,
+    payload: PageBuilderImageReplacementRequest,
+  ): Promise<WorkspacePreviewState> {
+    return request<WorkspacePreviewState>(`/api/workspaces/${encodeURIComponent(workspaceId)}/page-builder/image`, {
+      method: 'POST',
+      body: buildPageBuilderImageReplacementBody(payload),
     })
   },
 

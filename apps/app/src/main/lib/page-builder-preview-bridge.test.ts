@@ -80,3 +80,13 @@ test('page-builder preview bridge bundled script includes nested child selection
   expect(script).toContain('const shouldRetargetSelection = (target) => {')
   expect(script).toContain('if (shouldRetargetSelection(target)) {')
 })
+
+test('page-builder preview bridge bundled script includes replace-image capability discovery in selected payloads', async () => {
+  const module = await importPreviewBridgeModule()
+  const script = module.readPageBuilderPreviewBridgeScript()
+
+  expect(script).toContain('const resolveReplaceImageCapability = (element) => {')
+  expect(script).toContain('replaceImage')
+  expect(script).toContain('targetDescriptor')
+  expect(script).toContain("querySelectorAll('img')")
+})

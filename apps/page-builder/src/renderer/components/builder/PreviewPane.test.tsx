@@ -376,12 +376,130 @@ describe('PreviewPane', () => {
     expect(actionButton).toBeTruthy()
     expect(deleteButton).toBeTruthy()
     expect(deleteButton.props.disabled).toBe(true)
+    expect(renderer.root.findAll((node) =>
+      node.type === 'button'
+      && node.props['aria-label'] === '替换图片'
+    )).toHaveLength(0)
 
     await act(async () => {
       actionButton.props.onClick()
     })
 
     expect(onRequestOpenCmsBrowser).toHaveBeenCalledTimes(1)
+  })
+
+  test('renders a replace-image action only when the selected block declares replaceImage capability', async () => {
+    const listeners = new Map<string, Set<(event: unknown) => void>>()
+    const iframeWindow = {
+      postMessage: mock(() => {}),
+    }
+    const onRequestReplaceImage = mock(() => {})
+
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: {
+        addEventListener(type: string, listener: (event: unknown) => void) {
+          const bucket = listeners.get(type) ?? new Set()
+          bucket.add(listener)
+          listeners.set(type, bucket)
+        },
+        removeEventListener(type: string, listener: (event: unknown) => void) {
+          listeners.get(type)?.delete(listener)
+        },
+        open: mock(() => {}),
+      },
+    })
+
+    const { PreviewPane } = await loadPreviewPane()
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <PreviewPane
+          onRequestReplaceImage={onRequestReplaceImage}
+          previewUrl="https://example.com/preview?v=rev-1"
+          selectionModeEnabled={true}
+        />,
+        {
+          createNodeMock(element) {
+            if (element.type === 'iframe') {
+              return { contentWindow: iframeWindow }
+            }
+
+            if (
+              element.type === 'div'
+              && typeof element.props.className === 'string'
+              && element.props.className.includes('rounded-xl border border-border/70 bg-background')
+            ) {
+              return {
+                getBoundingClientRect() {
+                  return {
+                    top: 0,
+                    left: 0,
+                    width: 960,
+                    height: 640,
+                    right: 960,
+                    bottom: 640,
+                  }
+                },
+              }
+            }
+
+            return {}
+          },
+        },
+      )
+    })
+
+    await act(async () => {
+      const messageHandler = [...(listeners.get('message') ?? [])][0]
+      messageHandler?.({
+        source: iframeWindow,
+        data: {
+          source: PAGE_BUILDER_PREVIEW_BRIDGE_SOURCE,
+          type: 'selected',
+          selector: '#hero-image',
+          rect: {
+            top: 160,
+            left: 100,
+            right: 360,
+            bottom: 320,
+            width: 260,
+            height: 160,
+          },
+          capabilities: {
+            replaceImage: {
+              supported: true,
+              targetDescriptor: {
+                version: 1,
+                tagName: 'img',
+                childPath: [],
+              },
+            },
+          },
+        },
+      })
+    })
+
+    const replaceImageButton = renderer.root.find((node) =>
+      node.type === 'button'
+      && node.props['aria-label'] === '替换图片'
+    )
+
+    expect(replaceImageButton).toBeTruthy()
+
+    await act(async () => {
+      replaceImageButton.props.onClick()
+    })
+
+    expect(onRequestReplaceImage).toHaveBeenCalledTimes(1)
+    expect(onRequestReplaceImage).toHaveBeenCalledWith({
+      selector: '#hero-image',
+      imageTargetDescriptor: {
+        version: 1,
+        tagName: 'img',
+        childPath: [],
+      },
+    })
   })
 
   test('hides the block toolbar when the bridge resets the current selection', async () => {

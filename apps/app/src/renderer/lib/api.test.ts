@@ -240,6 +240,64 @@ describe('renderer api wrappers', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
+  test('replacePageBuilderImage forwards multipart payloads without forcing JSON headers', async () => {
+    const replacement = new File(['new-image'], 'replacement.png', { type: 'image/png' })
+    const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe('/api/workspaces/workspace-1/page-builder/image')
+      expect(init?.method).toBe('POST')
+      expect(init?.body).toBeInstanceOf(FormData)
+      expect(new Headers(init?.headers).get('content-type')).toBeNull()
+
+      const formData = init?.body as FormData
+      expect(formData.get('payload')).toBe(JSON.stringify({
+        selector: '#hero-image',
+        imageTargetDescriptor: {
+          version: 1,
+          tagName: 'img',
+          childPath: [],
+        },
+      }))
+      const file = formData.get('file')
+      expect(file).toBeInstanceOf(File)
+      expect((file as File).name).toBe(replacement.name)
+      expect((file as File).type).toBe(replacement.type)
+
+      return jsonResponse({
+        hasPreview: true,
+        entryUrl: '/api/workspaces/workspace-1/preview/',
+        revision: 'rev-2',
+      })
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const { api } = await import('./api')
+    const previewState = await (api as unknown as {
+      replacePageBuilderImage: (
+        workspaceId: string,
+        payload: {
+          selector: string
+          imageTargetDescriptor: {
+            version: number
+            tagName: string
+            childPath: number[]
+          }
+          file: File
+        },
+      ) => Promise<{ revision: string | null }>
+    }).replacePageBuilderImage('workspace-1', {
+      selector: '#hero-image',
+      imageTargetDescriptor: {
+        version: 1,
+        tagName: 'img',
+        childPath: [],
+      },
+      file: replacement,
+    })
+
+    expect(previewState.revision).toBe('rev-2')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
   test('listPageBuilderProjects requests the page-builder history endpoint', async () => {
     const project: PageBuilderProjectSummary = {
       workspaceId: 'workspace-1',

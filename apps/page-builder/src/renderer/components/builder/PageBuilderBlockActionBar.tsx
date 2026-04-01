@@ -1,15 +1,19 @@
 import * as React from 'react'
-import { Database, Trash2 } from 'lucide-react'
+import { Database, Image, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
 export function PageBuilderBlockActionBar({
   className,
   onOpenCms,
+  onReplaceImage,
+  replaceImageDisabled = false,
   style,
 }: {
   className?: string
   onOpenCms: () => void
+  onReplaceImage?: () => void
+  replaceImageDisabled?: boolean
   style?: React.CSSProperties
 }): React.ReactElement {
   return (
@@ -20,6 +24,20 @@ export function PageBuilderBlockActionBar({
       )}
       style={style}
     >
+      {onReplaceImage ? (
+        <Button
+          aria-label="替换图片"
+          className="h-7 min-w-[112px] justify-start rounded-sm px-2.5 text-[11px] font-medium text-foreground shadow-none hover:bg-muted/70"
+          disabled={replaceImageDisabled}
+          onClick={onReplaceImage}
+          size="sm"
+          type="button"
+          variant="ghost"
+        >
+          <Image className="size-3.25" />
+          替换图片
+        </Button>
+      ) : null}
       <Button
         aria-label="从 CMS 选择数据"
         className="h-7 min-w-[148px] justify-start rounded-sm px-2.5 text-[11px] font-medium text-foreground shadow-none hover:bg-muted/70"

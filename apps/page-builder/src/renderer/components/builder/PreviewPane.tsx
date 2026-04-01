@@ -3,6 +3,8 @@ import { Expand, ExternalLink, RefreshCw } from 'lucide-react'
 import type {
   PageBuilderPreviewAnchorRect,
   PageBuilderPreviewBridgeMessage,
+  PageBuilderImageReplacementPayload,
+  PageBuilderImageTargetDescriptor,
   PageBuilderInlineTextSaveRequest,
   PageBuilderInlineTextSaveResult,
   PageBuilderPreviewParentMessage,
@@ -16,11 +18,13 @@ import { PageBuilderBlockActionBar } from '@page-builder/components/builder/Page
 import type { PageBuilderPreviewSelectionEvent } from '@page-builder/lib/preview-selection'
 
 const BLOCK_ACTION_BAR_ESTIMATED_WIDTH = 176
+const BLOCK_ACTION_BAR_WITH_IMAGE_ACTION_ESTIMATED_WIDTH = 296
 const BLOCK_ACTION_BAR_ESTIMATED_HEIGHT = 44
 const BLOCK_ACTION_BAR_GAP = 8
 const BLOCK_ACTION_BAR_PADDING = 12
 
 interface SelectedAnchorState {
+  imageTargetDescriptor: PageBuilderImageTargetDescriptor | null
   rect: PageBuilderPreviewAnchorRect
   selector: string
 }
@@ -36,6 +40,9 @@ function resolveBlockActionBarStyle(
 ): React.CSSProperties | null {
   if (!anchor) return null
 
+  const estimatedWidth = anchor.imageTargetDescriptor
+    ? BLOCK_ACTION_BAR_WITH_IMAGE_ACTION_ESTIMATED_WIDTH
+    : BLOCK_ACTION_BAR_ESTIMATED_WIDTH
   const hostWidth = frameRect?.width ?? Math.max(anchor.rect.right + BLOCK_ACTION_BAR_PADDING, anchor.rect.left + 1)
   const hostHeight = frameRect?.height ?? Math.max(
     anchor.rect.bottom + BLOCK_ACTION_BAR_ESTIMATED_HEIGHT + BLOCK_ACTION_BAR_GAP,
@@ -45,7 +52,7 @@ function resolveBlockActionBarStyle(
   const left = clamp(
     anchor.rect.left,
     BLOCK_ACTION_BAR_PADDING,
-    hostWidth - BLOCK_ACTION_BAR_ESTIMATED_WIDTH - BLOCK_ACTION_BAR_PADDING,
+    hostWidth - estimatedWidth - BLOCK_ACTION_BAR_PADDING,
   )
 
   const canPlaceBelow = anchor.rect.bottom + BLOCK_ACTION_BAR_GAP + BLOCK_ACTION_BAR_ESTIMATED_HEIGHT
@@ -81,12 +88,16 @@ function resolveEmbeddedPreviewUrl(previewUrl: string): string {
 export function PreviewPane({
   onInlineTextSaveRequest,
   onRequestOpenCmsBrowser,
+  onRequestReplaceImage,
+  imageReplacementPending = false,
   previewUrl,
   selectionModeEnabled = false,
   onSelectionEvent,
 }: {
   onInlineTextSaveRequest?: (request: PageBuilderInlineTextSaveRequest) => Promise<PageBuilderInlineTextSaveResult>
   onRequestOpenCmsBrowser?: () => void
+  onRequestReplaceImage?: (request: PageBuilderImageReplacementPayload) => void
+  imageReplacementPending?: boolean
   previewUrl: string | null
   selectionModeEnabled?: boolean
   onSelectionEvent?: (event: PageBuilderPreviewSelectionEvent) => void
@@ -141,7 +152,11 @@ export function PreviewPane({
       }
 
       if (event.data.type === 'selected') {
+        const replaceImageTargetDescriptor = event.data.capabilities?.replaceImage?.supported
+          ? event.data.capabilities.replaceImage.targetDescriptor
+          : null
         setSelectedAnchor({
+          imageTargetDescriptor: replaceImageTargetDescriptor,
           rect: event.data.rect,
           selector: event.data.selector,
         })
@@ -312,6 +327,13 @@ export function PreviewPane({
                 <div className="pointer-events-none absolute inset-0 z-10">
                   <PageBuilderBlockActionBar
                     onOpenCms={() => onRequestOpenCmsBrowser?.()}
+                    onReplaceImage={selectedAnchor.imageTargetDescriptor
+                      ? () => onRequestReplaceImage?.({
+                          selector: selectedAnchor.selector,
+                          imageTargetDescriptor: selectedAnchor.imageTargetDescriptor,
+                        })
+                      : undefined}
+                    replaceImageDisabled={imageReplacementPending}
                     style={blockActionBarStyle}
                   />
                 </div>

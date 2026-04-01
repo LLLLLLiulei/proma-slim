@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { PAGE_BUILDER_PREVIEW_BRIDGE_SOURCE } from '@proma/shared'
@@ -369,6 +369,54 @@ describe('createHttpApp', () => {
     expect(payload.entryUrl).toBe(`/api/workspaces/${workspace.id}/preview/`)
     expect(typeof payload.revision).toBe('string')
     expect(payload.revision?.length).toBeGreaterThan(0)
+  })
+
+  test('workspace routes accept page-builder image replacement uploads and rewrite the targeted img src', async () => {
+    const app = createApp()
+    const workspace = createAgentWorkspace('Builder Image Replacement', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+
+    mkdirSync(join(workspaceFilesDir, 'assets'), { recursive: true })
+    writeFileSync(
+      join(workspaceFilesDir, 'index.html'),
+      '<!doctype html><html><body><section id="hero"><img src="./assets/original.png" alt="Hero"></section></body></html>',
+      'utf-8',
+    )
+    writeFileSync(join(workspaceFilesDir, 'assets', 'original.png'), 'old-image', 'utf-8')
+
+    const formData = new FormData()
+    formData.set('payload', JSON.stringify({
+      selector: '#hero',
+      imageTargetDescriptor: {
+        version: 1,
+        tagName: 'img',
+        childPath: [0],
+      },
+    }))
+    formData.set('file', new File(['new-image'], 'replacement.png', { type: 'image/png' }))
+
+    const response = await app.fetch(new Request(`http://localhost/api/workspaces/${workspace.id}/page-builder/image`, {
+      method: 'POST',
+      body: formData,
+    }))
+
+    expect(response.status).toBe(200)
+
+    const payload = await response.json() as {
+      hasPreview: boolean
+      entryUrl: string | null
+      revision: string | null
+    }
+    expect(payload.hasPreview).toBe(true)
+    expect(payload.entryUrl).toBe(`/api/workspaces/${workspace.id}/preview/`)
+    expect(typeof payload.revision).toBe('string')
+
+    const updatedHtml = readFileSync(join(workspaceFilesDir, 'index.html'), 'utf-8')
+    expect(updatedHtml).not.toContain('./assets/original.png')
+    const nextSrcMatch = updatedHtml.match(/src="([^"]+)"/)
+    expect(nextSrcMatch).not.toBeNull()
+    expect(nextSrcMatch?.[1]).toContain('./assets/')
+    expect(existsSync(join(workspaceFilesDir, nextSrcMatch![1]!))).toBe(true)
   })
 
   test('page-builder routes serve the external preview bridge asset', async () => {

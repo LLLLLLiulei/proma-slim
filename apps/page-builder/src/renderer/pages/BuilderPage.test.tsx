@@ -22,6 +22,16 @@ interface WorkspacePreviewState {
   revision: string | null
 }
 
+interface PageBuilderImageReplacementPayload {
+  selector: string
+  imageTargetDescriptor: {
+    version: number
+    tagName: string
+    childPath: number[]
+  }
+  file: File
+}
+
 function createMemoryStorage(initial: Record<string, string> = {}): Storage {
   const state = new Map(Object.entries(initial))
 
@@ -111,13 +121,21 @@ async function loadBuilderPage(options: {
   previewStates?: WorkspacePreviewState[]
   getWorkspacePreviewStateImpl?: () => Promise<WorkspacePreviewState>
   savePageBuilderInlineTextImpl?: (workspaceId: string, payload: unknown) => Promise<WorkspacePreviewState>
+  replacePageBuilderImageImpl?: (
+    workspaceId: string,
+    payload: PageBuilderImageReplacementPayload,
+  ) => Promise<WorkspacePreviewState>
   mockPreviewPane?: boolean
   mockCmsBrowserDialog?: boolean
+  toastErrorImpl?: (message: string) => void
+  toastSuccessImpl?: (message: string) => void
 }) {
   let lastAgentViewProps: Record<string, unknown> | null = null
   let lastPreviewPaneProps: Record<string, unknown> | null = null
   let lastCmsBrowserDialogProps: Record<string, unknown> | null = null
   let previewStateIndex = 0
+  const toastError = options.toastErrorImpl ?? mock(() => {})
+  const toastSuccess = options.toastSuccessImpl ?? mock(() => {})
 
   mock.module('@/components/agent', () => ({
     AgentView(props: Record<string, unknown>) {
@@ -144,6 +162,13 @@ async function loadBuilderPage(options: {
     }))
   }
 
+  mock.module('sonner', () => ({
+    toast: {
+      error: toastError,
+      success: toastSuccess,
+    },
+  }))
+
   mock.module('@/lib/api', () => ({
     api: {
       listSessions: async () => options.sessions,
@@ -156,6 +181,9 @@ async function loadBuilderPage(options: {
       }),
       savePageBuilderInlineText: options.savePageBuilderInlineTextImpl ?? (async () => {
         throw new Error('savePageBuilderInlineText 未在测试中模拟')
+      }),
+      replacePageBuilderImage: options.replacePageBuilderImageImpl ?? (async () => {
+        throw new Error('replacePageBuilderImage 未在测试中模拟')
       }),
     },
   }))
@@ -172,6 +200,12 @@ async function loadBuilderPage(options: {
     },
     getLastCmsBrowserDialogProps() {
       return lastCmsBrowserDialogProps
+    },
+    getToastError() {
+      return toastError
+    },
+    getToastSuccess() {
+      return toastSuccess
     },
   }
 }
@@ -1168,5 +1202,319 @@ describe('BuilderPage', () => {
     } finally {
       console.info = originalConsoleInfo
     }
+  })
+
+  test('opens an image-only file picker for replace-image actions and ignores canceled selections', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const replacePageBuilderImage = mock(async () => ({
+      hasPreview: true,
+      entryUrl: `/api/workspaces/${workspace.id}/preview/`,
+      revision: 'rev-2',
+    }))
+    const fileInputNode = {
+      click: mock(() => {}),
+      value: '',
+    }
+
+    const { BuilderPage, getLastPreviewPaneProps } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      mockPreviewPane: true,
+      previewStates: [{
+        hasPreview: true,
+        entryUrl: `/api/workspaces/${workspace.id}/preview/`,
+        revision: 'rev-1',
+      }],
+      replacePageBuilderImageImpl: replacePageBuilderImage,
+    })
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+        {
+          createNodeMock(element) {
+            if (element.type === 'input' && element.props.type === 'file') {
+              return fileInputNode
+            }
+
+            return {}
+          },
+        },
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      (getLastPreviewPaneProps() as {
+        onRequestReplaceImage?: (request: {
+          selector: string
+          imageTargetDescriptor: { version: number; tagName: string; childPath: number[] }
+        }) => void
+      }).onRequestReplaceImage?.({
+        selector: '#hero-image',
+        imageTargetDescriptor: {
+          version: 1,
+          tagName: 'img',
+          childPath: [],
+        },
+      })
+    })
+
+    expect(fileInputNode.click).toHaveBeenCalledTimes(1)
+
+    const fileInput = renderer.root.find((node) =>
+      node.type === 'input'
+      && node.props.type === 'file'
+    )
+
+    expect(fileInput.props.accept).toBe('image/*')
+    expect(fileInput.props.multiple).not.toBe(true)
+
+    await act(async () => {
+      fileInput.props.onChange({
+        currentTarget: {
+          files: null,
+          value: 'C:/fakepath/banner.png',
+        },
+      })
+    })
+
+    expect(replacePageBuilderImage).toHaveBeenCalledTimes(0)
+  })
+
+  test('uploads the selected image and refreshes PreviewPane to the new revision on success', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const nextPreviewState = {
+      hasPreview: true,
+      entryUrl: `/api/workspaces/${workspace.id}/preview/`,
+      revision: 'rev-2',
+    } satisfies WorkspacePreviewState
+    const replacePageBuilderImage = mock(async (_workspaceId: string, payload: PageBuilderImageReplacementPayload) => {
+      expect(payload.selector).toBe('#hero-image')
+      expect(payload.imageTargetDescriptor).toEqual({
+        version: 1,
+        tagName: 'img',
+        childPath: [],
+      })
+      expect(payload.file.name).toBe('replacement.png')
+      expect(payload.file.type).toBe('image/png')
+      return nextPreviewState
+    })
+    const fileInputNode = {
+      click: mock(() => {}),
+      value: '',
+    }
+
+    const {
+      BuilderPage,
+      getLastPreviewPaneProps,
+      getToastError,
+      getToastSuccess,
+    } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      mockPreviewPane: true,
+      previewStates: [{
+        hasPreview: true,
+        entryUrl: `/api/workspaces/${workspace.id}/preview/`,
+        revision: 'rev-1',
+      }],
+      replacePageBuilderImageImpl: replacePageBuilderImage,
+    })
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+        {
+          createNodeMock(element) {
+            if (element.type === 'input' && element.props.type === 'file') {
+              return fileInputNode
+            }
+
+            return {}
+          },
+        },
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      (getLastPreviewPaneProps() as {
+        onRequestReplaceImage?: (request: {
+          selector: string
+          imageTargetDescriptor: { version: number; tagName: string; childPath: number[] }
+        }) => void
+      }).onRequestReplaceImage?.({
+        selector: '#hero-image',
+        imageTargetDescriptor: {
+          version: 1,
+          tagName: 'img',
+          childPath: [],
+        },
+      })
+    })
+
+    const fileInput = renderer.root.find((node) =>
+      node.type === 'input'
+      && node.props.type === 'file'
+    )
+    const file = new File(['new-image'], 'replacement.png', { type: 'image/png' })
+
+    await act(async () => {
+      await fileInput.props.onChange({
+        currentTarget: {
+          files: [file],
+          value: 'C:/fakepath/replacement.png',
+        },
+      })
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(replacePageBuilderImage).toHaveBeenCalledTimes(1)
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      previewUrl: `/api/workspaces/${workspace.id}/preview/?v=rev-2`,
+    })
+    expect(getToastError()).toHaveBeenCalledTimes(0)
+    expect(getToastSuccess()).toHaveBeenCalledTimes(1)
+    expect(getToastSuccess()).toHaveBeenCalledWith('图片替换成功')
+  })
+
+  test('shows a failure toast and keeps the previous preview revision when image replacement fails', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const replacePageBuilderImage = mock(async () => {
+      throw new Error('图片上传失败')
+    })
+    const toastError = mock(() => {})
+    const fileInputNode = {
+      click: mock(() => {}),
+      value: '',
+    }
+
+    const { BuilderPage, getLastPreviewPaneProps } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      mockPreviewPane: true,
+      previewStates: [{
+        hasPreview: true,
+        entryUrl: `/api/workspaces/${workspace.id}/preview/`,
+        revision: 'rev-1',
+      }],
+      replacePageBuilderImageImpl: replacePageBuilderImage,
+      toastErrorImpl: toastError,
+    })
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+        {
+          createNodeMock(element) {
+            if (element.type === 'input' && element.props.type === 'file') {
+              return fileInputNode
+            }
+
+            return {}
+          },
+        },
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      (getLastPreviewPaneProps() as {
+        onRequestReplaceImage?: (request: {
+          selector: string
+          imageTargetDescriptor: { version: number; tagName: string; childPath: number[] }
+        }) => void
+      }).onRequestReplaceImage?.({
+        selector: '#hero-image',
+        imageTargetDescriptor: {
+          version: 1,
+          tagName: 'img',
+          childPath: [],
+        },
+      })
+    })
+
+    const fileInput = renderer.root.find((node) =>
+      node.type === 'input'
+      && node.props.type === 'file'
+    )
+    const file = new File(['new-image'], 'replacement.png', { type: 'image/png' })
+
+    await act(async () => {
+      await fileInput.props.onChange({
+        currentTarget: {
+          files: [file],
+          value: 'C:/fakepath/replacement.png',
+        },
+      })
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(replacePageBuilderImage).toHaveBeenCalledTimes(1)
+    expect(toastError).toHaveBeenCalledTimes(1)
+    expect(toastError).toHaveBeenCalledWith('图片上传失败')
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      previewUrl: `/api/workspaces/${workspace.id}/preview/?v=rev-1`,
+    })
   })
 })

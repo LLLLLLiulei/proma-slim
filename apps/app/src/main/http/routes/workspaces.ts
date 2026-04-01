@@ -1,5 +1,8 @@
 import { Hono } from 'hono'
-import type { PageBuilderInlineTextSavePayload } from '@proma/shared'
+import type {
+  PageBuilderImageReplacementPayload,
+  PageBuilderInlineTextSavePayload,
+} from '@proma/shared'
 import {
   DEFAULT_WORKSPACE_SLUG,
   createAgentWorkspace,
@@ -18,6 +21,10 @@ import {
   PageBuilderInlineTextSaveError,
   savePageBuilderInlineText,
 } from '../../lib/page-builder-inline-text-service'
+import {
+  PageBuilderImageReplacementError,
+  savePageBuilderImageReplacement,
+} from '../../lib/page-builder-image-replacement-service'
 import { listAgentSessions } from '../../lib/agent-session-manager'
 import { HttpError } from '../errors'
 import { json, noContent, readJsonBody } from '../responses'
@@ -119,6 +126,28 @@ workspaceRoutes.post('/:workspaceId/page-builder/inline-text', async (c) => {
   }
 })
 
+workspaceRoutes.post('/:workspaceId/page-builder/image', async (c) => {
+  const { payload, file } = await readPageBuilderImageReplacementRequest(c.req.raw)
+
+  try {
+    return json(await savePageBuilderImageReplacement(c.var.workspace, payload, file))
+  } catch (error) {
+    if (!(error instanceof PageBuilderImageReplacementError)) {
+      throw error
+    }
+
+    if (error.code === 'entry-missing') {
+      throw new HttpError(404, error.message)
+    }
+
+    if (error.code === 'invalid-descriptor' || error.code === 'invalid-file') {
+      throw new HttpError(400, error.message)
+    }
+
+    throw new HttpError(409, error.message)
+  }
+})
+
 const handleWorkspacePreview = (c: { req: { raw: Request }; var: { workspace: HttpAppEnv['Variables']['workspace'] } }) => {
   const url = new URL(c.req.raw.url)
   const requestPath = getWorkspacePreviewRequestPath(c.req.raw.url, c.var.workspace.id)
@@ -157,5 +186,65 @@ function readInlineTextSavePayload(value: Partial<PageBuilderInlineTextSavePaylo
     selector: value.selector,
     textTargetDescriptor: value.textTargetDescriptor,
     nextText: value.nextText,
+  }
+}
+
+async function readPageBuilderImageReplacementRequest(request: Request): Promise<{
+  payload: PageBuilderImageReplacementPayload
+  file: File
+}> {
+  const contentType = request.headers.get('content-type') ?? ''
+  if (!contentType.includes('multipart/form-data')) {
+    throw new HttpError(400, '请求体必须是合法的 multipart/form-data')
+  }
+
+  let formData: FormData
+  try {
+    formData = await request.formData()
+  } catch {
+    throw new HttpError(400, '请求体必须是合法的 multipart/form-data')
+  }
+
+  const rawPayload = formData.get('payload')
+  if (typeof rawPayload !== 'string') {
+    throw new HttpError(400, 'multipart 请求缺少 payload 字段')
+  }
+
+  let parsedPayload: Record<string, unknown>
+  try {
+    const value = JSON.parse(rawPayload) as unknown
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      throw new Error('invalid payload')
+    }
+    parsedPayload = value as Record<string, unknown>
+  } catch {
+    throw new HttpError(400, 'payload 必须是合法的 JSON 对象')
+  }
+
+  const file = formData.get('file')
+  if (!(file instanceof File)) {
+    throw new HttpError(400, 'multipart 请求缺少 file 字段')
+  }
+
+  return {
+    payload: readPageBuilderImageReplacementPayload(parsedPayload as Partial<PageBuilderImageReplacementPayload>),
+    file,
+  }
+}
+
+function readPageBuilderImageReplacementPayload(
+  value: Partial<PageBuilderImageReplacementPayload>,
+): PageBuilderImageReplacementPayload {
+  if (!value.selector || typeof value.selector !== 'string') {
+    throw new HttpError(400, 'selector 不能为空')
+  }
+
+  if (!value.imageTargetDescriptor || typeof value.imageTargetDescriptor !== 'object') {
+    throw new HttpError(400, 'imageTargetDescriptor 不能为空')
+  }
+
+  return {
+    selector: value.selector,
+    imageTargetDescriptor: value.imageTargetDescriptor,
   }
 }
