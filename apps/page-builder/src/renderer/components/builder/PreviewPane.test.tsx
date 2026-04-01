@@ -368,8 +368,14 @@ describe('PreviewPane', () => {
       node.type === 'button'
       && node.props['aria-label'] === '从 CMS 选择数据'
     )
+    const deleteButton = renderer.root.find((node) =>
+      node.type === 'button'
+      && node.props['aria-label'] === '删除'
+    )
 
     expect(actionButton).toBeTruthy()
+    expect(deleteButton).toBeTruthy()
+    expect(deleteButton.props.disabled).toBe(true)
 
     await act(async () => {
       actionButton.props.onClick()
