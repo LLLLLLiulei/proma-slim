@@ -87,6 +87,7 @@ function resolveEmbeddedPreviewUrl(previewUrl: string): string {
 
 export function PreviewPane({
   onInlineTextSaveRequest,
+  onRequestDeleteBlock,
   onRequestOpenCmsBrowser,
   onRequestReplaceImage,
   imageReplacementPending = false,
@@ -95,6 +96,7 @@ export function PreviewPane({
   onSelectionEvent,
 }: {
   onInlineTextSaveRequest?: (request: PageBuilderInlineTextSaveRequest) => Promise<PageBuilderInlineTextSaveResult>
+  onRequestDeleteBlock?: (selector: string) => void
   onRequestOpenCmsBrowser?: () => void
   onRequestReplaceImage?: (request: PageBuilderImageReplacementPayload) => void
   imageReplacementPending?: boolean
@@ -263,6 +265,7 @@ export function PreviewPane({
     () => resolveBlockActionBarStyle(selectedAnchor, frameRef.current?.getBoundingClientRect()),
     [selectedAnchor],
   )
+  const selectedImageTargetDescriptor = selectedAnchor?.imageTargetDescriptor ?? null
 
   return (
     <section className="page-builder-pane flex min-h-[560px] min-w-0 flex-col overflow-hidden rounded-2xl lg:h-full lg:min-h-0">
@@ -326,11 +329,12 @@ export function PreviewPane({
               {selectedAnchor && blockActionBarStyle ? (
                 <div className="pointer-events-none absolute inset-0 z-10">
                   <PageBuilderBlockActionBar
+                    onDelete={() => onRequestDeleteBlock?.(selectedAnchor.selector)}
                     onOpenCms={() => onRequestOpenCmsBrowser?.()}
-                    onReplaceImage={selectedAnchor.imageTargetDescriptor
+                    onReplaceImage={selectedImageTargetDescriptor
                       ? () => onRequestReplaceImage?.({
                           selector: selectedAnchor.selector,
-                          imageTargetDescriptor: selectedAnchor.imageTargetDescriptor,
+                          imageTargetDescriptor: selectedImageTargetDescriptor,
                         })
                       : undefined}
                     replaceImageDisabled={imageReplacementPending}

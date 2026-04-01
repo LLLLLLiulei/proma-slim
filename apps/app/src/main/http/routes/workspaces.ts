@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import type {
+  PageBuilderBlockDeletionPayload,
   PageBuilderImageReplacementPayload,
   PageBuilderInlineTextSavePayload,
 } from '@proma/shared'
@@ -18,13 +19,14 @@ import {
   getWorkspacePreviewState,
 } from '../../lib/workspace-preview-service'
 import {
+  PageBuilderBlockDeletionError,
+  savePageBuilderBlockDeletion,
+} from '../../lib/page-builder-block-deletion-service'
+import {
   PageBuilderInlineTextSaveError,
   savePageBuilderInlineText,
 } from '../../lib/page-builder-inline-text-service'
-import {
-  PageBuilderImageReplacementError,
-  savePageBuilderImageReplacement,
-} from '../../lib/page-builder-image-replacement-service'
+import { PageBuilderImageReplacementError, savePageBuilderImageReplacement } from '../../lib/page-builder-image-replacement-service'
 import { listAgentSessions } from '../../lib/agent-session-manager'
 import { HttpError } from '../errors'
 import { json, noContent, readJsonBody } from '../responses'
@@ -126,6 +128,25 @@ workspaceRoutes.post('/:workspaceId/page-builder/inline-text', async (c) => {
   }
 })
 
+workspaceRoutes.post('/:workspaceId/page-builder/block-delete', async (c) => {
+  const body = await readJsonBody<Partial<PageBuilderBlockDeletionPayload>>(c.req.raw)
+  const payload = readPageBuilderBlockDeletionPayload(body)
+
+  try {
+    return json(savePageBuilderBlockDeletion(c.var.workspace, payload))
+  } catch (error) {
+    if (!(error instanceof PageBuilderBlockDeletionError)) {
+      throw error
+    }
+
+    if (error.code === 'entry-missing') {
+      throw new HttpError(404, error.message)
+    }
+
+    throw new HttpError(409, error.message)
+  }
+})
+
 workspaceRoutes.post('/:workspaceId/page-builder/image', async (c) => {
   const { payload, file } = await readPageBuilderImageReplacementRequest(c.req.raw)
 
@@ -186,6 +207,18 @@ function readInlineTextSavePayload(value: Partial<PageBuilderInlineTextSavePaylo
     selector: value.selector,
     textTargetDescriptor: value.textTargetDescriptor,
     nextText: value.nextText,
+  }
+}
+
+function readPageBuilderBlockDeletionPayload(
+  value: Partial<PageBuilderBlockDeletionPayload>,
+): PageBuilderBlockDeletionPayload {
+  if (!value.selector || typeof value.selector !== 'string') {
+    throw new HttpError(400, 'selector 不能为空')
+  }
+
+  return {
+    selector: value.selector,
   }
 }
 

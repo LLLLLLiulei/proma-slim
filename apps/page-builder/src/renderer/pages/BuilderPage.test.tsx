@@ -32,6 +32,10 @@ interface PageBuilderImageReplacementPayload {
   file: File
 }
 
+interface PageBuilderBlockDeletionPayload {
+  selector: string
+}
+
 function createMemoryStorage(initial: Record<string, string> = {}): Storage {
   const state = new Map(Object.entries(initial))
 
@@ -121,6 +125,10 @@ async function loadBuilderPage(options: {
   previewStates?: WorkspacePreviewState[]
   getWorkspacePreviewStateImpl?: () => Promise<WorkspacePreviewState>
   savePageBuilderInlineTextImpl?: (workspaceId: string, payload: unknown) => Promise<WorkspacePreviewState>
+  deletePageBuilderBlockImpl?: (
+    workspaceId: string,
+    payload: PageBuilderBlockDeletionPayload,
+  ) => Promise<WorkspacePreviewState>
   replacePageBuilderImageImpl?: (
     workspaceId: string,
     payload: PageBuilderImageReplacementPayload,
@@ -143,6 +151,27 @@ async function loadBuilderPage(options: {
       return React.createElement('div', { 'data-testid': 'agent-view' })
     },
   }))
+
+  mock.module('@/components/ui/alert-dialog', () => {
+    const passthrough = ({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) =>
+      React.createElement('div', props, children)
+
+    return {
+      AlertDialog: passthrough,
+      AlertDialogAction: ({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) =>
+        React.createElement('button', props, children),
+      AlertDialogCancel: ({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) =>
+        React.createElement('button', props, children),
+      AlertDialogContent: passthrough,
+      AlertDialogDescription: ({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) =>
+        React.createElement('p', props, children),
+      AlertDialogFooter: passthrough,
+      AlertDialogHeader: passthrough,
+      AlertDialogTitle: ({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) =>
+        React.createElement('h2', props, children),
+      AlertDialogTrigger: passthrough,
+    }
+  })
 
   if (options.mockPreviewPane) {
     mock.module('@page-builder/components/builder/PreviewPane', () => ({
@@ -178,6 +207,9 @@ async function loadBuilderPage(options: {
         const state = states[Math.min(previewStateIndex, states.length - 1)]!
         previewStateIndex += 1
         return state
+      }),
+      deletePageBuilderBlock: options.deletePageBuilderBlockImpl ?? (async () => {
+        throw new Error('deletePageBuilderBlock 未在测试中模拟')
       }),
       savePageBuilderInlineText: options.savePageBuilderInlineTextImpl ?? (async () => {
         throw new Error('savePageBuilderInlineText 未在测试中模拟')
@@ -285,6 +317,13 @@ function getComposerActionLabel(agentViewProps: Record<string, unknown> | null):
 function getComposerActionClassName(agentViewProps: Record<string, unknown> | null): string {
   const action = getComposerActionElement(agentViewProps)
   return typeof action?.props.className === 'string' ? action.props.className : ''
+}
+
+function findButtonByText(renderer: ReturnType<typeof create>, label: string) {
+  return renderer.root.find((node) =>
+    node.type === 'button'
+    && flattenElementText(node.props.children).trim() === label,
+  )
 }
 
 afterEach(() => {
@@ -1516,5 +1555,242 @@ describe('BuilderPage', () => {
     expect(getLastPreviewPaneProps()).toMatchObject({
       previewUrl: `/api/workspaces/${workspace.id}/preview/?v=rev-1`,
     })
+  })
+
+  test('opens a deletion confirmation dialog and keeps the current selection when deletion is canceled', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const deletePageBuilderBlock = mock(async () => ({
+      hasPreview: true,
+      entryUrl: `/api/workspaces/${workspace.id}/preview/`,
+      revision: 'rev-2',
+    }))
+
+    const { BuilderPage, getLastAgentViewProps, getLastPreviewPaneProps } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      mockPreviewPane: true,
+      previewStates: [{
+        hasPreview: true,
+        entryUrl: `/api/workspaces/${workspace.id}/preview/`,
+        revision: 'rev-1',
+      }],
+      deletePageBuilderBlockImpl: deletePageBuilderBlock,
+    })
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      (getLastPreviewPaneProps() as {
+        onSelectionEvent?: (event: { type: 'selected'; selector: string }) => void
+      }).onSelectionEvent?.({
+        type: 'selected',
+        selector: '#hero',
+      })
+    })
+
+    expect(getComposerActionLabel(getLastAgentViewProps())).toBe('已选区域')
+
+    await act(async () => {
+      (getLastPreviewPaneProps() as {
+        onRequestDeleteBlock?: (selector: string) => void
+      }).onRequestDeleteBlock?.('#hero')
+    })
+
+    expect(JSON.stringify(renderer.toJSON())).toContain('删除区块')
+
+    await act(async () => {
+      findButtonByText(renderer, '取消').props.onClick()
+    })
+
+    expect(deletePageBuilderBlock).toHaveBeenCalledTimes(0)
+    expect(JSON.stringify(renderer.toJSON())).not.toContain('删除区块')
+    expect(getComposerActionLabel(getLastAgentViewProps())).toBe('已选区域')
+  })
+
+  test('deletes the selected block after confirmation and clears the current selection', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const deletePageBuilderBlock = mock(async () => ({
+      hasPreview: true,
+      entryUrl: `/api/workspaces/${workspace.id}/preview/`,
+      revision: 'rev-2',
+    }))
+
+    const {
+      BuilderPage,
+      getLastAgentViewProps,
+      getLastPreviewPaneProps,
+      getToastError,
+      getToastSuccess,
+    } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      mockPreviewPane: true,
+      previewStates: [{
+        hasPreview: true,
+        entryUrl: `/api/workspaces/${workspace.id}/preview/`,
+        revision: 'rev-1',
+      }],
+      deletePageBuilderBlockImpl: deletePageBuilderBlock,
+    })
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      (getLastPreviewPaneProps() as {
+        onSelectionEvent?: (event: { type: 'selected'; selector: string }) => void
+      }).onSelectionEvent?.({
+        type: 'selected',
+        selector: '#hero',
+      })
+    })
+
+    await act(async () => {
+      (getLastPreviewPaneProps() as {
+        onRequestDeleteBlock?: (selector: string) => void
+      }).onRequestDeleteBlock?.('#hero')
+    })
+
+    await act(async () => {
+      await findButtonByText(renderer, '确认删除').props.onClick()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(deletePageBuilderBlock).toHaveBeenCalledTimes(1)
+    expect(deletePageBuilderBlock).toHaveBeenCalledWith(workspace.id, { selector: '#hero' })
+    expect(getToastError()).toHaveBeenCalledTimes(0)
+    expect(getToastSuccess()).toHaveBeenCalledTimes(1)
+    expect(getToastSuccess()).toHaveBeenCalledWith('区块删除成功')
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      previewUrl: `/api/workspaces/${workspace.id}/preview/?v=rev-2`,
+      selectionModeEnabled: false,
+    })
+    expect(getComposerActionLabel(getLastAgentViewProps())).toBe('选择进行编辑')
+  })
+
+  test('shows an error toast and preserves the current selection when block deletion fails', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const deletePageBuilderBlock = mock(async () => {
+      throw new Error('区块删除失败')
+    })
+    const toastError = mock(() => {})
+
+    const { BuilderPage, getLastAgentViewProps, getLastPreviewPaneProps } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      mockPreviewPane: true,
+      previewStates: [{
+        hasPreview: true,
+        entryUrl: `/api/workspaces/${workspace.id}/preview/`,
+        revision: 'rev-1',
+      }],
+      deletePageBuilderBlockImpl: deletePageBuilderBlock,
+      toastErrorImpl: toastError,
+    })
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      (getLastPreviewPaneProps() as {
+        onSelectionEvent?: (event: { type: 'selected'; selector: string }) => void
+      }).onSelectionEvent?.({
+        type: 'selected',
+        selector: '#hero',
+      })
+    })
+
+    await act(async () => {
+      (getLastPreviewPaneProps() as {
+        onRequestDeleteBlock?: (selector: string) => void
+      }).onRequestDeleteBlock?.('#hero')
+    })
+
+    await act(async () => {
+      await findButtonByText(renderer, '确认删除').props.onClick()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(deletePageBuilderBlock).toHaveBeenCalledTimes(1)
+    expect(deletePageBuilderBlock).toHaveBeenCalledWith(workspace.id, { selector: '#hero' })
+    expect(toastError).toHaveBeenCalledTimes(1)
+    expect(toastError).toHaveBeenCalledWith('区块删除失败')
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      previewUrl: `/api/workspaces/${workspace.id}/preview/?v=rev-1`,
+      selectionModeEnabled: true,
+    })
+    expect(getComposerActionLabel(getLastAgentViewProps())).toBe('已选区域')
   })
 })

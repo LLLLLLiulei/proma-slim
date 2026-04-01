@@ -5,12 +5,14 @@ import { cn } from '@/lib/utils'
 
 export function PageBuilderBlockActionBar({
   className,
+  onDelete,
   onOpenCms,
   onReplaceImage,
   replaceImageDisabled = false,
   style,
 }: {
   className?: string
+  onDelete?: () => void
   onOpenCms: () => void
   onReplaceImage?: () => void
   replaceImageDisabled?: boolean
@@ -52,7 +54,8 @@ export function PageBuilderBlockActionBar({
       <Button
         aria-label="删除"
         className="h-7 min-w-[68px] justify-start rounded-sm px-2.5 text-[11px] font-medium text-destructive shadow-none hover:bg-muted/70 hover:text-destructive"
-        disabled
+        disabled={!onDelete}
+        onClick={onDelete}
         size="sm"
         type="button"
         variant="ghost"

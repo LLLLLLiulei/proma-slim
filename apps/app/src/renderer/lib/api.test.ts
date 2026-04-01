@@ -559,6 +559,33 @@ describe('renderer api wrappers', () => {
     })
   })
 
+  test('deletePageBuilderBlock posts the selected block selector to the workspace page-builder endpoint', async () => {
+    const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe('/api/workspaces/workspace-1/page-builder/block-delete')
+      expect(init?.method).toBe('POST')
+      expect(JSON.parse(String(init?.body))).toEqual({
+        selector: '#hero',
+      })
+      return jsonResponse({
+        hasPreview: true,
+        entryUrl: '/api/workspaces/workspace-1/preview/',
+        revision: 'rev-3',
+      })
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const { api } = await import('./api')
+    const state = await api.deletePageBuilderBlock('workspace-1', {
+      selector: '#hero',
+    })
+
+    expect(state).toEqual({
+      hasPreview: true,
+      entryUrl: '/api/workspaces/workspace-1/preview/',
+      revision: 'rev-3',
+    })
+  })
+
   test('createSession sends workspaceId in the request body when provided', async () => {
     const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
       expect(String(input)).toBe('/api/sessions')

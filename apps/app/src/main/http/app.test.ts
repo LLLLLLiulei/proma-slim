@@ -419,6 +419,46 @@ describe('createHttpApp', () => {
     expect(existsSync(join(workspaceFilesDir, nextSrcMatch![1]!))).toBe(true)
   })
 
+  test('workspace routes accept page-builder block deletion requests and remove the selected element', async () => {
+    const app = createApp()
+    const workspace = createAgentWorkspace('Builder Block Deletion', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(
+      join(workspaceFilesDir, 'index.html'),
+      '<!doctype html><html><body><section id="hero"><h1>旧标题</h1></section><section id="features"><p>保留内容</p></section></body></html>',
+      'utf-8',
+    )
+
+    const response = await app.fetch(new Request(`http://localhost/api/workspaces/${workspace.id}/page-builder/block-delete`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json; charset=utf-8',
+      },
+      body: JSON.stringify({
+        selector: '#hero',
+      }),
+    }))
+
+    expect(response.status).toBe(200)
+
+    const payload = await response.json() as {
+      hasPreview: boolean
+      entryUrl: string | null
+      revision: string | null
+    }
+    expect(payload.hasPreview).toBe(true)
+    expect(payload.entryUrl).toBe(`/api/workspaces/${workspace.id}/preview/`)
+    expect(typeof payload.revision).toBe('string')
+    expect(payload.revision?.length).toBeGreaterThan(0)
+
+    const updatedHtml = readFileSync(join(workspaceFilesDir, 'index.html'), 'utf-8')
+    expect(updatedHtml).not.toContain('id="hero"')
+    expect(updatedHtml).toContain('id="features"')
+    expect(updatedHtml).toContain('保留内容')
+  })
+
   test('page-builder routes serve the external preview bridge asset', async () => {
     const app = createApp()
 

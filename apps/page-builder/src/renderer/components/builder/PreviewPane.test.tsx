@@ -275,13 +275,14 @@ describe('PreviewPane', () => {
     }, '*')
   })
 
-  test('renders a block toolbar for selected messages with anchor rect and opens cms on click', async () => {
+  test('renders CMS and delete actions for selected blocks', async () => {
     const listeners = new Map<string, Set<(event: unknown) => void>>()
     const iframeWindow = {
       postMessage: mock(() => {}),
     }
     const onSelectionEvent = mock(() => {})
     const onRequestOpenCmsBrowser = mock(() => {})
+    const onRequestDeleteBlock = mock(() => {})
 
     Object.defineProperty(globalThis, 'window', {
       configurable: true,
@@ -303,6 +304,7 @@ describe('PreviewPane', () => {
     await act(async () => {
       renderer = create(
         <PreviewPane
+          onRequestDeleteBlock={onRequestDeleteBlock}
           onRequestOpenCmsBrowser={onRequestOpenCmsBrowser}
           onSelectionEvent={onSelectionEvent}
           previewUrl="https://example.com/preview?v=rev-1"
@@ -375,7 +377,7 @@ describe('PreviewPane', () => {
 
     expect(actionButton).toBeTruthy()
     expect(deleteButton).toBeTruthy()
-    expect(deleteButton.props.disabled).toBe(true)
+    expect(deleteButton.props.disabled).toBe(false)
     expect(renderer.root.findAll((node) =>
       node.type === 'button'
       && node.props['aria-label'] === '替换图片'
@@ -386,6 +388,13 @@ describe('PreviewPane', () => {
     })
 
     expect(onRequestOpenCmsBrowser).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      deleteButton.props.onClick()
+    })
+
+    expect(onRequestDeleteBlock).toHaveBeenCalledTimes(1)
+    expect(onRequestDeleteBlock).toHaveBeenCalledWith('#hero')
   })
 
   test('renders a replace-image action only when the selected block declares replaceImage capability', async () => {

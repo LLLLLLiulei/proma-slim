@@ -5,6 +5,7 @@ import type {
   AgentWorkspace,
   AskUserResponse,
   FileSearchResult,
+  PageBuilderBlockDeletionPayload,
   PageBuilderCmsCatalogList,
   PageBuilderCmsCatalogDetail,
   PageBuilderCmsCatalogQuery,
@@ -282,6 +283,16 @@ export const api = {
     payload: PageBuilderInlineTextSavePayload,
   ): Promise<WorkspacePreviewState> {
     return request<WorkspacePreviewState>(`/api/workspaces/${encodeURIComponent(workspaceId)}/page-builder/inline-text`, {
+      method: 'POST',
+      body: payload,
+    })
+  },
+
+  deletePageBuilderBlock(
+    workspaceId: string,
+    payload: PageBuilderBlockDeletionPayload,
+  ): Promise<WorkspacePreviewState> {
+    return request<WorkspacePreviewState>(`/api/workspaces/${encodeURIComponent(workspaceId)}/page-builder/block-delete`, {
       method: 'POST',
       body: payload,
     })

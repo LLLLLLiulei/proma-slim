@@ -3,6 +3,7 @@ import { useSetAtom } from 'jotai'
 import { AlertTriangle, LoaderCircle, MousePointerClick } from 'lucide-react'
 import { toast } from 'sonner'
 import type {
+  PageBuilderBlockDeletionPayload,
   PageBuilderCmsSelectionRequestContext,
   PageBuilderCmsSelectionResult,
   PageBuilderImageReplacementPayload,
@@ -16,6 +17,16 @@ import {
   currentAgentSessionIdAtom,
   currentAgentWorkspaceIdAtom,
 } from '@/atoms/agent-atoms'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { api } from '@/lib/api'
 import { clearBootstrapPayload, readBootstrapPayload } from '@page-builder/lib/bootstrap-cache'
@@ -86,7 +97,9 @@ export function BuilderPage({
   const [selectionActionState, setSelectionActionState] = React.useState<SelectionActionState>('idle')
   const [hoveredSelector, setHoveredSelector] = React.useState<string | null>(null)
   const [selectedSelector, setSelectedSelector] = React.useState<string | null>(null)
+  const [pendingDeleteSelector, setPendingDeleteSelector] = React.useState<string | null>(null)
   const [cmsBrowserOpen, setCmsBrowserOpen] = React.useState(false)
+  const [isDeletingBlock, setIsDeletingBlock] = React.useState(false)
   const [isReplacingImage, setIsReplacingImage] = React.useState(false)
   const selectionModeEnabled = selectionActionState !== 'idle'
 
@@ -308,6 +321,43 @@ export function BuilderPage({
     input.value = ''
     input.click()
   }, [])
+
+  const handleRequestDeleteBlock = React.useCallback((selector: string) => {
+    setPendingDeleteSelector(selector)
+  }, [])
+
+  const handleDeleteDialogOpenChange = React.useCallback((open: boolean) => {
+    if (!open) {
+      setPendingDeleteSelector(null)
+    }
+  }, [])
+
+  const handleConfirmDeleteBlock = React.useCallback(async (): Promise<void> => {
+    const selector = pendingDeleteSelector
+    if (!selector) {
+      return
+    }
+
+    setIsDeletingBlock(true)
+
+    try {
+      const nextState = await api.deletePageBuilderBlock(workspaceId, {
+        selector,
+      } satisfies PageBuilderBlockDeletionPayload)
+
+      setPendingDeleteSelector(null)
+      clearSelection()
+      writeNextPreviewState(nextState)
+      toast.success('区块删除成功')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '区块删除失败'
+      console.error('[BuilderPage] 区块删除失败:', error)
+      setPendingDeleteSelector(null)
+      toast.error(message)
+    } finally {
+      setIsDeletingBlock(false)
+    }
+  }, [clearSelection, pendingDeleteSelector, workspaceId, writeNextPreviewState])
 
   const handleImageFileChange = React.useCallback(async (
     event: React.ChangeEvent<HTMLInputElement>,
@@ -546,6 +596,7 @@ export function BuilderPage({
         <PreviewPane
           imageReplacementPending={isReplacingImage}
           onInlineTextSaveRequest={handleInlineTextSaveRequest}
+          onRequestDeleteBlock={handleRequestDeleteBlock}
           onRequestOpenCmsBrowser={() => setCmsBrowserOpen(true)}
           onRequestReplaceImage={handleRequestReplaceImage}
           onSelectionEvent={handleSelectionEvent}
@@ -595,6 +646,41 @@ export function BuilderPage({
         }}
         type="file"
       />
+
+      <AlertDialog
+        onOpenChange={handleDeleteDialogOpenChange}
+        open={pendingDeleteSelector !== null}
+      >
+        {pendingDeleteSelector ? (
+          <AlertDialogContent className="rounded-[24px] border-border/60">
+            <AlertDialogHeader>
+              <AlertDialogTitle>删除区块</AlertDialogTitle>
+              <AlertDialogDescription>
+                删除后该区块会立即从当前页面移除，且无法恢复。确认继续吗？
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel
+                disabled={isDeletingBlock}
+                onClick={() => {
+                  setPendingDeleteSelector(null)
+                }}
+              >
+                取消
+              </AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                disabled={isDeletingBlock}
+                onClick={async () => {
+                  await handleConfirmDeleteBlock()
+                }}
+              >
+                {isDeletingBlock ? '删除中...' : '确认删除'}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        ) : null}
+      </AlertDialog>
 
       <CmsBrowserDialog
         onConfirmSelection={handleCmsSelectionConfirm}
