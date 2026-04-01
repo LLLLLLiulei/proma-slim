@@ -28,9 +28,11 @@ import {
   getWorkspaceFilesDir,
 } from './config-paths'
 
-interface CapturedQueryInput extends AgentQueryInput {
+type CapturedQueryInput = Omit<AgentQueryInput, 'prompt'> & {
+  prompt: AgentQueryInput['prompt'] | AsyncIterable<unknown>
   additionalDirectories?: string[]
   mcpServers?: Record<string, unknown>
+  allowedTools?: string[]
   plugins?: Array<{ type: 'local'; path: string }>
   resumeSessionId?: string
   sdkPermissionMode?: 'bypassPermissions' | 'default'
@@ -99,6 +101,9 @@ describe('AgentOrchestrator workspace runtime', () => {
   let originalApiKey: string | undefined
   let originalBaseUrl: string | undefined
   let originalClaudeHome: string | undefined
+  let originalCmsBaseUrl: string | undefined
+  let originalCmsZusid: string | undefined
+  let originalCmsCurrentSite: string | undefined
 
   beforeEach(() => {
     configDir = mkdtempSync(join(tmpdir(), 'proma-orchestrator-workspace-'))
@@ -108,6 +113,9 @@ describe('AgentOrchestrator workspace runtime', () => {
     process.env.PROMA_CLAUDE_HOME = claudeHomeDir
     originalApiKey = process.env.ANTHROPIC_API_KEY
     originalBaseUrl = process.env.ANTHROPIC_BASE_URL
+    originalCmsBaseUrl = process.env.PROMA_CMS_BASE_URL
+    originalCmsZusid = process.env.PROMA_CMS_ZUSID
+    originalCmsCurrentSite = process.env.PROMA_CMS_CURRENT_SITE
     process.env.ANTHROPIC_API_KEY = 'test-api-key'
     process.env.ANTHROPIC_BASE_URL = 'https://api.anthropic.com'
   })
@@ -128,6 +136,21 @@ describe('AgentOrchestrator workspace runtime', () => {
       delete process.env.ANTHROPIC_BASE_URL
     } else {
       process.env.ANTHROPIC_BASE_URL = originalBaseUrl
+    }
+    if (originalCmsBaseUrl === undefined) {
+      delete process.env.PROMA_CMS_BASE_URL
+    } else {
+      process.env.PROMA_CMS_BASE_URL = originalCmsBaseUrl
+    }
+    if (originalCmsZusid === undefined) {
+      delete process.env.PROMA_CMS_ZUSID
+    } else {
+      process.env.PROMA_CMS_ZUSID = originalCmsZusid
+    }
+    if (originalCmsCurrentSite === undefined) {
+      delete process.env.PROMA_CMS_CURRENT_SITE
+    } else {
+      process.env.PROMA_CMS_CURRENT_SITE = originalCmsCurrentSite
     }
     rmSync(configDir, { recursive: true, force: true })
     rmSync(claudeHomeDir, { recursive: true, force: true })
@@ -365,6 +388,99 @@ describe('AgentOrchestrator workspace runtime', () => {
         startup_timeout_sec: 30,
       },
     })
+  })
+
+  test('does not auto-inject runtime cms sdk tools into page-builder queries', async () => {
+    process.env.PROMA_CMS_BASE_URL = 'https://demo.zving.com/zcmstest'
+    process.env.PROMA_CMS_ZUSID = 'test-zusid'
+    process.env.PROMA_CMS_CURRENT_SITE = '277'
+
+    const adapter = new RecordingAdapter()
+    const orchestrator = new AgentOrchestrator(adapter, new AgentEventBus())
+    const workspace = createAgentWorkspace('Page Builder CMS Runtime', { template: 'page-builder' })
+    const session = createAgentSession('CMS runtime session', undefined, workspace.id)
+
+    await orchestrator.sendMessage(
+      {
+        sessionId: session.id,
+        userMessage: '读取 CMS 栏目',
+        channelId: '',
+      },
+      {
+        onError: (message) => {
+          throw new Error(message)
+        },
+        onComplete: () => {},
+        onTitleUpdated: () => {},
+      },
+    )
+
+    expect(adapter.lastInput?.mcpServers).toBeUndefined()
+    expect(adapter.lastInput?.allowedTools).not.toEqual(expect.arrayContaining([
+      'mcp__cms__list_catalogs',
+      'mcp__cms__list_contents',
+    ]))
+  })
+
+  test('keeps page-builder queries on the existing string prompt path even when cms env is configured', async () => {
+    process.env.PROMA_CMS_BASE_URL = 'https://demo.zving.com/zcmstest'
+    process.env.PROMA_CMS_ZUSID = 'test-zusid'
+    process.env.PROMA_CMS_CURRENT_SITE = '277'
+
+    const adapter = new RecordingAdapter()
+    const orchestrator = new AgentOrchestrator(adapter, new AgentEventBus())
+    const workspace = createAgentWorkspace('Page Builder CMS Prompt', { template: 'page-builder' })
+    const session = createAgentSession('CMS prompt session', undefined, workspace.id)
+
+    await orchestrator.sendMessage(
+      {
+        sessionId: session.id,
+        userMessage: '给我一条 CMS 内容摘要',
+        channelId: '',
+      },
+      {
+        onError: (message) => {
+          throw new Error(message)
+        },
+        onComplete: () => {},
+        onTitleUpdated: () => {},
+      },
+    )
+
+    expect(typeof adapter.lastInput?.prompt).toBe('string')
+  })
+
+  test('keeps ordinary workspaces on the existing string prompt path without cms runtime tools', async () => {
+    process.env.PROMA_CMS_BASE_URL = 'https://demo.zving.com/zcmstest'
+    process.env.PROMA_CMS_ZUSID = 'test-zusid'
+    process.env.PROMA_CMS_CURRENT_SITE = '277'
+
+    const adapter = new RecordingAdapter()
+    const orchestrator = new AgentOrchestrator(adapter, new AgentEventBus())
+    const workspace = createAgentWorkspace('Regular Workspace')
+    const session = createAgentSession('Regular session', undefined, workspace.id)
+
+    await orchestrator.sendMessage(
+      {
+        sessionId: session.id,
+        userMessage: '读取一下工作区信息',
+        channelId: '',
+      },
+      {
+        onError: (message) => {
+          throw new Error(message)
+        },
+        onComplete: () => {},
+        onTitleUpdated: () => {},
+      },
+    )
+
+    expect(typeof adapter.lastInput?.prompt).toBe('string')
+    expect(adapter.lastInput?.mcpServers).toBeUndefined()
+    expect(adapter.lastInput?.allowedTools).not.toEqual(expect.arrayContaining([
+      'mcp__cms__list_catalogs',
+      'mcp__cms__list_contents',
+    ]))
   })
 
   test('injects mentioned skill and MCP references into the prompt for the current workspace', async () => {

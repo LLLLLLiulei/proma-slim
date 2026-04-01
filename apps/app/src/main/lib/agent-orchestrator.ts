@@ -19,15 +19,22 @@ import { join, dirname } from 'node:path'
 import { existsSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { createRequire } from 'node:module'
-import type { AgentSendInput, AgentEvent, AgentMessage, AgentGenerateTitleInput, AgentProviderAdapter, TypedError, RetryAttempt } from '@proma/shared'
+import type {
+  AgentSendInput,
+  AgentEvent,
+  AgentMessage,
+  AgentGenerateTitleInput,
+  AgentMcpServerConfig,
+  AgentProviderAdapter,
+  TypedError,
+  RetryAttempt,
+} from '@proma/shared'
 import { SAFE_TOOLS } from '@proma/shared'
 import type { PermissionRequest, PromaPermissionMode, AskUserRequest } from '@proma/shared'
 import type { HookCallbackMatcher, PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk'
 import type { ClaudeAgentQueryOptions } from './adapters/claude-agent-adapter'
 import { isPromptTooLongError } from './adapters/claude-agent-adapter'
 import { AgentEventBus } from './agent-event-bus'
-import { getFetchFn } from './proxy-fetch'
-import { getEffectiveProxyUrl } from './proxy-settings-service'
 import { appendAgentMessage, updateAgentSessionMeta, getAgentSessionMeta, getAgentSessionMessages } from './agent-session-manager'
 import { deleteAgentSessionAttachments } from './agent-attachment-service'
 import {
@@ -39,6 +46,7 @@ import {
 } from './config-paths'
 import { getRuntimeStatus } from './runtime-init'
 import { getSettings } from './settings-service'
+import { getEffectiveProxyUrl } from './proxy-settings-service'
 import { buildSystemPromptAppend, buildDynamicContext } from './agent-prompt-builder'
 import { permissionService } from './agent-permission-service'
 import { askUserService } from './agent-ask-user-service'
@@ -62,16 +70,18 @@ import {
   getWorkspaceMcpConfig,
 } from './workspace-service'
 
+type AgentMcpServerMap = Record<string, AgentMcpServerConfig>
+
 interface ResolvedWorkspaceRuntime {
   workspace: import('@proma/shared').AgentWorkspace
   agentCwd: string
   pluginPath: string
   additionalDirectories: string[]
-  mcpServers: Record<string, Record<string, unknown>>
+  mcpServers: AgentMcpServerMap
 }
 
-function buildWorkspaceMcpServers(workspaceSlug: string): Record<string, Record<string, unknown>> {
-  const mcpServers: Record<string, Record<string, unknown>> = {}
+function buildWorkspaceMcpServers(workspaceSlug: string): AgentMcpServerMap {
+  const mcpServers: AgentMcpServerMap = {}
   const mcpConfig = getWorkspaceMcpConfig(workspaceSlug)
 
   for (const [name, entry] of Object.entries(mcpConfig.servers ?? {})) {
@@ -107,10 +117,10 @@ function buildWorkspaceMcpServers(workspaceSlug: string): Record<string, Record<
 }
 
 function pickMcpServersByName(
-  servers: Record<string, Record<string, unknown>>,
+  servers: AgentMcpServerMap,
   names: readonly string[],
-): Record<string, Record<string, unknown>> {
-  const selected: Record<string, Record<string, unknown>> = {}
+): AgentMcpServerMap {
+  const selected: AgentMcpServerMap = {}
 
   for (const name of names) {
     const server = servers[name]
@@ -761,7 +771,7 @@ export class AgentOrchestrator {
     let pluginPath = workspaceRuntime.pluginPath
     let resolvedAdditionalDirectories: string[] = [...workspaceRuntime.additionalDirectories]
     const suppressedDefaultPageBuilderMcp = isPageBuilderWorkspace && isFirstUserTurn
-    let resolvedMcpServers: Record<string, Record<string, unknown>> = suppressedDefaultPageBuilderMcp
+    let resolvedMcpServers: AgentMcpServerMap = suppressedDefaultPageBuilderMcp
       ? pickMcpServersByName(workspaceRuntime.mcpServers, mentionedMcpServers ?? [])
       : { ...workspaceRuntime.mcpServers }
 
@@ -960,6 +970,9 @@ export class AgentOrchestrator {
       const maxTurns = appSettings.agentMaxTurns && appSettings.agentMaxTurns > 0
         ? appSettings.agentMaxTurns
         : undefined
+      const allowedTools = !bypassPermissions && permissionMode !== 'auto'
+        ? [...SAFE_TOOLS]
+        : undefined
       const queryOptions: ClaudeAgentQueryOptions = {
         sessionId,
         prompt: finalPrompt,
@@ -975,7 +988,7 @@ export class AgentOrchestrator {
         allowDangerouslySkipPermissions: bypassPermissions,
         ...(canUseTool && { canUseTool }),
         ...(hooks && { hooks }),
-        ...(!bypassPermissions && permissionMode !== 'auto' && { allowedTools: [...SAFE_TOOLS] }),
+        ...(allowedTools && { allowedTools }),
         systemPrompt: {
           type: 'preset',
           preset: 'claude_code',
