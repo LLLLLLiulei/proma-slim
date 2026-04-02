@@ -54,6 +54,26 @@ If `blockTypeHint` is missing, do not fail immediately. Use a conservative fallb
    - `needs-clarification`: one critical ambiguity remains and can be resolved with a short structured question
    - `incompatible`: unsupported block kind, mismatched selection, page reflow, unsupported runtime, or unsupported strategy
 
+## Execution Flow In The Current Workspace
+
+After classifying the request, continue in the same turn instead of stopping at an abstract contract summary:
+
+1. If the result is `incompatible`, explain the blocking reason plainly and stop.
+2. If the result is `needs-clarification`, ask exactly one short structured question through `AskUserQuestion`, then wait for the answer.
+3. If the result is `ready`, continue with the existing workspace editing flow. Do not reply that the skill is only a template or that a later module is still missing.
+4. When continuing from `ready`, inspect the current block as needed, then update the preview source files directly.
+
+For Phase 1A, prefer this write target order:
+
+- First choice: `workspace-files/index.html`
+- Secondary choice: other files under `workspace-files/` only when the current block cannot be updated safely inside `index.html`
+
+After the edits are complete:
+
+- summarize what was changed in plain language
+- keep the explanation scoped to the current target block
+- do not claim success before the file edits are actually finished
+
 ## Clarification Guardrails
 
 - Use short, structured clarification only.

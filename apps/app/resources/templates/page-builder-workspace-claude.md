@@ -31,6 +31,8 @@ This workspace is used to generate a static website that can be previewed inside
 - Use `cms-binding-apply` only after CMS browsing and selection are already complete. Do not use it to browse CMS data or to replace the CMS picker.
 - Limit Phase 1A decisions to `ready`, `needs-clarification`, or `incompatible`.
 - Treat Phase 1A as `replace-current` only and keep any proposed changes scoped to the current target block.
+- If `cms-binding-apply` reaches `ready`, continue in the same turn and edit the current workspace preview files directly instead of stopping at a contract summary.
+- Prefer updating `workspace-files/index.html` first. Only touch other files under `workspace-files/` when the target block cannot be updated safely in place.
 
 ## Working Notes
 

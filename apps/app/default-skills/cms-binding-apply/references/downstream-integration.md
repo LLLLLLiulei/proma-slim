@@ -1,6 +1,6 @@
 # Downstream Integration Notes
 
-This skill does not execute the later runtime steps by itself. It only normalizes the decision boundary for them.
+This skill does not add a separate runtime executor by itself. It normalizes the decision boundary first, and then the same agent should continue with the existing workspace editing flow when the outcome is `ready`.
 
 ## Auto handoff prerequisite
 
@@ -12,7 +12,7 @@ If the selector and block hint are not enough to decide safely, the later snapsh
 
 ## HTML apply prerequisite
 
-The later local HTML apply module should consume only `ready` decisions. It should not try to interpret `needs-clarification` or `incompatible` as direct write instructions.
+In the current page-builder workflow, a `ready` result should lead directly to block-scoped edits in the existing workspace files. The important boundary is that only `ready` may proceed to file changes; `needs-clarification` and `incompatible` must not be treated as direct write instructions.
 
 ## Phase 1A boundary
 

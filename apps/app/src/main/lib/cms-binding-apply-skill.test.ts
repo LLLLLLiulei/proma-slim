@@ -21,6 +21,14 @@ describe('cms-binding-apply skill contract docs', () => {
     expect(skill).toContain('contents` favor `content-list`')
   })
 
+  test('documents that ready decisions should continue with workspace file edits', () => {
+    const skill = readRelativeText('../../../default-skills/cms-binding-apply/SKILL.md')
+
+    expect(skill).toContain('If the result is `ready`, continue with the existing workspace editing flow')
+    expect(skill).toContain('workspace-files/index.html')
+    expect(skill).toContain('Do not reply that the skill is only a template')
+  })
+
   test('includes contract examples for missing blockTypeHint and malformed payload', () => {
     const examples = readRelativeText('../../../default-skills/cms-binding-apply/references/contract-examples.md')
 
