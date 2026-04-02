@@ -1,14 +1,18 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
 import React from 'react'
 import { Provider, createStore } from 'jotai'
+import { useHydrateAtoms } from 'jotai/utils'
 import { act, create } from 'react-test-renderer'
 import type {
   AgentSessionMeta,
   AgentWorkspace,
+  PageBuilderCmsAutoAgentHandoffSettledResult,
   PageBuilderCmsSelectionResult,
 } from '@proma/shared'
 import {
+  type AgentStreamState,
   agentSessionsAtom,
+  agentStreamingStatesAtom,
   agentWorkspacesAtom,
   currentAgentSessionIdAtom,
   currentAgentWorkspaceIdAtom,
@@ -324,6 +328,25 @@ function findButtonByText(renderer: ReturnType<typeof create>, label: string) {
     node.type === 'button'
     && flattenElementText(node.props.children).trim() === label,
   )
+}
+
+function HydrateBuilderPageState({
+  children,
+  streamingStates,
+}: {
+  children: React.ReactNode
+  streamingStates?: Map<string, AgentStreamState>
+}): React.ReactElement {
+  const values = React.useMemo(() => {
+    if (!streamingStates) {
+      return new Map()
+    }
+
+    return new Map([[agentStreamingStatesAtom, streamingStates]])
+  }, [streamingStates])
+
+  useHydrateAtoms(values)
+  return <>{children}</>
 }
 
 afterEach(() => {
@@ -1174,7 +1197,7 @@ describe('BuilderPage', () => {
     expect(getComposerActionLabel(getLastAgentViewProps())).toBe('已选区域')
   })
 
-  test('logs the structured cms selection result when the dialog confirms', async () => {
+  test('creates a programmatic CMS handoff request and closes the dialog only after send settles successfully', async () => {
     installWindowHarness()
     const workspace: AgentWorkspace = {
       id: 'workspace-1',
@@ -1191,56 +1214,272 @@ describe('BuilderPage', () => {
       createdAt: 1,
       updatedAt: 1,
     }
-    const consoleInfo = mock(() => {})
-    const originalConsoleInfo = console.info
-    console.info = consoleInfo as typeof console.info
 
-    try {
-      const {
-        BuilderPage,
-        getLastCmsBrowserDialogProps,
-      } = await loadBuilderPage({
-        sessions: [session],
-        workspaces: [workspace],
-        mockCmsBrowserDialog: true,
-      })
+    const {
+      BuilderPage,
+      getLastAgentViewProps,
+      getLastCmsBrowserDialogProps,
+      getLastPreviewPaneProps,
+    } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      mockCmsBrowserDialog: true,
+      mockPreviewPane: true,
+    })
 
-      await act(async () => {
-        create(
-          <Provider store={createStore()}>
-            <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
-          </Provider>,
-        )
-        await Promise.resolve()
-        await Promise.resolve()
-      })
+    const store = createStore()
+    await act(async () => {
+      create(
+        <Provider store={store}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
 
-      const selection: PageBuilderCmsSelectionResult = {
-        version: 1,
-        targetBlock: {
-          selector: '#hero-banner',
-        },
-        selectionKind: 'contents',
-        sourceType: 'contents-fixed',
-        selectionMode: 'fixed-items',
-        catalogIds: ['101'],
-        contentIds: ['501', '502'],
-        snapshot: {
-          contents: [],
-        },
-      }
+    await act(async () => {
+      (getLastPreviewPaneProps() as {
+        onSelectionEvent?: (event: { type: string; selector?: string }) => void
+      }).onSelectionEvent?.({ type: 'selected', selector: '#hero-banner' })
+    })
 
-      await act(async () => {
-        (getLastCmsBrowserDialogProps() as {
-          onConfirmSelection?: (value: PageBuilderCmsSelectionResult) => void
-        }).onConfirmSelection?.(selection)
-      })
+    await act(async () => {
+      (getLastPreviewPaneProps() as {
+        onRequestOpenCmsBrowser?: () => void
+      }).onRequestOpenCmsBrowser?.()
+    })
 
-      expect(consoleInfo).toHaveBeenCalledTimes(1)
-      expect(consoleInfo).toHaveBeenCalledWith('[BuilderPage] CMS 选择结果:', selection)
-    } finally {
-      console.info = originalConsoleInfo
+    const selection: PageBuilderCmsSelectionResult = {
+      version: 1,
+      targetBlock: {
+        selector: '#hero-banner',
+      },
+      selectionKind: 'contents',
+      sourceType: 'contents-fixed',
+      selectionMode: 'fixed-items',
+      catalogIds: ['101'],
+      contentIds: ['501'],
+      snapshot: {
+        contents: [],
+      },
     }
+
+    await act(async () => {
+      await (getLastCmsBrowserDialogProps() as {
+        onConfirmSelection?: (value: PageBuilderCmsSelectionResult) => void
+      }).onConfirmSelection?.(selection)
+    })
+
+    const request = (getLastAgentViewProps()?.programmaticSendRequest ?? null) as { requestId: string } | null
+    expect(request?.requestId).toBeTruthy()
+    expect(getLastAgentViewProps()).toMatchObject({
+      programmaticSendRequest: expect.objectContaining({
+        userMessage: '请根据刚确认的 CMS 选择结果，判断如何应用到当前区块。',
+        mentionedSkills: ['cms-binding-apply'],
+      }),
+    })
+    expect(getLastCmsBrowserDialogProps()).toMatchObject({
+      open: true,
+      confirming: true,
+    })
+
+    await act(async () => {
+      (getLastAgentViewProps() as {
+        onProgrammaticSendSettled?: (result: PageBuilderCmsAutoAgentHandoffSettledResult) => void
+      }).onProgrammaticSendSettled?.({
+        requestId: request!.requestId,
+        status: 'sent',
+      })
+    })
+
+    expect(getLastCmsBrowserDialogProps()).toMatchObject({
+      open: false,
+      confirming: false,
+    })
+    expect(getComposerActionLabel(getLastAgentViewProps())).toBe('已选区域')
+  })
+
+  test('blocks auto handoff while the current session is streaming and keeps the dialog open', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const {
+      BuilderPage,
+      getLastAgentViewProps,
+      getLastCmsBrowserDialogProps,
+      getLastPreviewPaneProps,
+      getToastError,
+    } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      mockCmsBrowserDialog: true,
+      mockPreviewPane: true,
+    })
+
+    const store = createStore()
+    const streamingStates = new Map<string, AgentStreamState>([
+      [session.id, { running: true, content: '', toolActivities: [], teammates: [], startedAt: 1 }],
+    ])
+
+    await act(async () => {
+      create(
+        <Provider store={store}>
+          <HydrateBuilderPageState streamingStates={streamingStates}>
+            <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+          </HydrateBuilderPageState>
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      (getLastPreviewPaneProps() as {
+        onSelectionEvent?: (event: { type: string; selector?: string }) => void
+      }).onSelectionEvent?.({ type: 'selected', selector: '#hero-banner' })
+    })
+
+    await act(async () => {
+      (getLastPreviewPaneProps() as {
+        onRequestOpenCmsBrowser?: () => void
+      }).onRequestOpenCmsBrowser?.()
+    })
+
+    const selection: PageBuilderCmsSelectionResult = {
+      version: 1,
+      targetBlock: {
+        selector: '#hero-banner',
+      },
+      selectionKind: 'catalogs',
+      sourceType: 'catalogs',
+      selectionMode: 'single',
+      catalogIds: ['101'],
+      snapshot: {
+        catalogs: [],
+      },
+    }
+
+    await act(async () => {
+      await (getLastCmsBrowserDialogProps() as {
+        onConfirmSelection?: (value: PageBuilderCmsSelectionResult) => void
+      }).onConfirmSelection?.(selection)
+    })
+
+    expect(getToastError()).toHaveBeenCalledTimes(1)
+    expect(getLastAgentViewProps()).toMatchObject({
+      programmaticSendRequest: null,
+    })
+    expect(getLastCmsBrowserDialogProps()).toMatchObject({
+      open: true,
+      confirming: false,
+    })
+  })
+
+  test('keeps the dialog open after auto handoff send failure so the user can retry in place', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const {
+      BuilderPage,
+      getLastAgentViewProps,
+      getLastCmsBrowserDialogProps,
+      getLastPreviewPaneProps,
+    } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      mockCmsBrowserDialog: true,
+      mockPreviewPane: true,
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      (getLastPreviewPaneProps() as {
+        onSelectionEvent?: (event: { type: string; selector?: string }) => void
+      }).onSelectionEvent?.({ type: 'selected', selector: '#hero-banner' })
+    })
+
+    await act(async () => {
+      (getLastPreviewPaneProps() as {
+        onRequestOpenCmsBrowser?: () => void
+      }).onRequestOpenCmsBrowser?.()
+    })
+
+    const selection: PageBuilderCmsSelectionResult = {
+      version: 1,
+      targetBlock: {
+        selector: '#hero-banner',
+      },
+      selectionKind: 'contents',
+      sourceType: 'contents-fixed',
+      selectionMode: 'fixed-items',
+      catalogIds: ['101'],
+      contentIds: ['501'],
+      snapshot: {
+        contents: [],
+      },
+    }
+
+    await act(async () => {
+      await (getLastCmsBrowserDialogProps() as {
+        onConfirmSelection?: (value: PageBuilderCmsSelectionResult) => void
+      }).onConfirmSelection?.(selection)
+    })
+
+    const request = (getLastAgentViewProps()?.programmaticSendRequest ?? null) as { requestId: string } | null
+
+    await act(async () => {
+      (getLastAgentViewProps() as {
+        onProgrammaticSendSettled?: (result: PageBuilderCmsAutoAgentHandoffSettledResult) => void
+      }).onProgrammaticSendSettled?.({
+        requestId: request!.requestId,
+        status: 'failed',
+        errorMessage: 'send failed',
+      })
+    })
+
+    expect(getLastCmsBrowserDialogProps()).toMatchObject({
+      open: true,
+      confirming: false,
+    })
+    expect(getComposerActionLabel(getLastAgentViewProps())).toBe('已选区域')
   })
 
   test('opens an image-only file picker for replace-image actions and ignores canceled selections', async () => {

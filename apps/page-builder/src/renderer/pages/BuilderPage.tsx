@@ -1,9 +1,11 @@
 import * as React from 'react'
-import { useSetAtom } from 'jotai'
+import { useAtomValue, useSetAtom } from 'jotai'
 import { AlertTriangle, LoaderCircle, MousePointerClick } from 'lucide-react'
 import { toast } from 'sonner'
 import type {
   PageBuilderBlockDeletionPayload,
+  PageBuilderCmsAutoAgentHandoffRequest,
+  PageBuilderCmsAutoAgentHandoffSettledResult,
   PageBuilderCmsSelectionRequestContext,
   PageBuilderCmsSelectionResult,
   PageBuilderImageReplacementPayload,
@@ -12,6 +14,7 @@ import type {
 } from '@proma/shared'
 import { AgentView } from '@/components/agent'
 import {
+  agentStreamingStatesAtom,
   agentSessionsAtom,
   agentWorkspacesAtom,
   currentAgentSessionIdAtom,
@@ -31,6 +34,7 @@ import { Button } from '@/components/ui/button'
 import { api } from '@/lib/api'
 import { clearBootstrapPayload, readBootstrapPayload } from '@page-builder/lib/bootstrap-cache'
 import { resolveBuilderContext } from '@page-builder/lib/builder-context'
+import { createPageBuilderCmsAutoAgentHandoffRequest } from '@page-builder/lib/cms-auto-agent-handoff'
 import {
   BUILDER_SPLIT_GAP,
   BUILDER_SPLIT_RAIL_WIDTH,
@@ -83,6 +87,7 @@ export function BuilderPage({
   const setWorkspaces = useSetAtom(agentWorkspacesAtom)
   const setCurrentSessionId = useSetAtom(currentAgentSessionIdAtom)
   const setCurrentWorkspaceId = useSetAtom(currentAgentWorkspaceIdAtom)
+  const streamingState = useAtomValue(agentStreamingStatesAtom).get(sessionId)
   const [loadState, setLoadState] = React.useState<LoadState>({ status: 'loading' })
   const [previewState, setPreviewState] = React.useState<WorkspacePreviewState | null>(() => {
     if (typeof window === 'undefined') return null
@@ -99,9 +104,11 @@ export function BuilderPage({
   const [selectedSelector, setSelectedSelector] = React.useState<string | null>(null)
   const [pendingDeleteSelector, setPendingDeleteSelector] = React.useState<string | null>(null)
   const [cmsBrowserOpen, setCmsBrowserOpen] = React.useState(false)
+  const [cmsAutoHandoffRequest, setCmsAutoHandoffRequest] = React.useState<PageBuilderCmsAutoAgentHandoffRequest | null>(null)
   const [isDeletingBlock, setIsDeletingBlock] = React.useState(false)
   const [isReplacingImage, setIsReplacingImage] = React.useState(false)
   const selectionModeEnabled = selectionActionState !== 'idle'
+  const isAgentStreaming = streamingState?.running === true
 
   const clearSelection = React.useCallback(() => {
     setSelectionActionState('idle')
@@ -522,8 +529,26 @@ export function BuilderPage({
     }
   }, [selectedSelector])
   const handleCmsSelectionConfirm = React.useCallback((selection: PageBuilderCmsSelectionResult) => {
-    console.info('[BuilderPage] CMS 选择结果:', selection)
-  }, [])
+    if (isAgentStreaming || cmsAutoHandoffRequest) {
+      toast.error('当前会话正在处理中，请稍候再试')
+      return
+    }
+
+    setCmsAutoHandoffRequest(createPageBuilderCmsAutoAgentHandoffRequest(selection, {
+      uiEntryPoint: cmsSelectionRequestContext?.entryPoint,
+    }))
+  }, [cmsAutoHandoffRequest, cmsSelectionRequestContext?.entryPoint, isAgentStreaming])
+  const handleCmsAutoHandoffSettled = React.useCallback((result: PageBuilderCmsAutoAgentHandoffSettledResult) => {
+    if (!cmsAutoHandoffRequest || result.requestId !== cmsAutoHandoffRequest.requestId) {
+      return
+    }
+
+    setCmsAutoHandoffRequest(null)
+
+    if (result.status === 'sent') {
+      setCmsBrowserOpen(false)
+    }
+  }, [cmsAutoHandoffRequest])
   const messageDecorator = React.useMemo(() => {
     if (!selectedSelector) return undefined
 
@@ -628,6 +653,8 @@ export function BuilderPage({
               initialUserMessage={loadState.initialUserMessage}
               onMessageSent={handleMessageSent}
               onInitialUserMessageHandled={handleInitialUserMessageHandled}
+              onProgrammaticSendSettled={handleCmsAutoHandoffSettled}
+              programmaticSendRequest={cmsAutoHandoffRequest}
               sessionId={sessionId}
               showComposerMeta={false}
               showHeader={false}
@@ -683,6 +710,7 @@ export function BuilderPage({
       </AlertDialog>
 
       <CmsBrowserDialog
+        confirming={cmsAutoHandoffRequest !== null}
         onConfirmSelection={handleCmsSelectionConfirm}
         onOpenChange={setCmsBrowserOpen}
         open={cmsBrowserOpen}

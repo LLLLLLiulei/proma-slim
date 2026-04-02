@@ -3,7 +3,13 @@ import React from 'react'
 import { Provider, createStore } from 'jotai'
 import { useHydrateAtoms } from 'jotai/utils'
 import { act, create } from 'react-test-renderer'
-import type { AgentSessionMeta, AgentWorkspace, WorkspaceDirectoryContext } from '@proma/shared'
+import type {
+  AgentSessionMeta,
+  AgentWorkspace,
+  PageBuilderCmsAutoAgentHandoffRequest,
+  PageBuilderCmsAutoAgentHandoffSettledResult,
+  WorkspaceDirectoryContext,
+} from '@proma/shared'
 import {
   agentSessionDraftsAtom,
   agentSessionsAtom,
@@ -16,6 +22,7 @@ interface RichTextInputProps {
   value: string
   onChange: (value: string) => void
   onSubmit: () => void
+  onPasteFiles?: (files: File[]) => void
 }
 
 function createWorkspaceContext(workspaceId: string): WorkspaceDirectoryContext {
@@ -36,15 +43,17 @@ function HydrateAgentViewState({
   children,
   sessions,
   workspaces,
+  drafts,
 }: {
   children: React.ReactNode
   sessions: AgentSessionMeta[]
   workspaces: AgentWorkspace[]
+  drafts?: Map<string, string>
 }): React.ReactElement {
   useHydrateAtoms([
     [agentSessionsAtom, sessions],
     [agentWorkspacesAtom, workspaces],
-    [agentSessionDraftsAtom, new Map()],
+    [agentSessionDraftsAtom, drafts ?? new Map()],
     [agentStreamingStatesAtom, new Map()],
     [workspaceDirectoryContextMapAtom, new Map()],
   ])
@@ -56,6 +65,7 @@ async function loadAgentView(options?: {
   getSessionMessages?: () => Promise<unknown[]>
 }) {
   let lastRichTextInputProps: RichTextInputProps | null = null
+  let lastPendingAttachments: unknown[] = []
 
   const sendMessage = options?.sendMessage ?? mock(async () => undefined)
   const stopSession = mock(async () => undefined)
@@ -82,7 +92,8 @@ async function loadAgentView(options?: {
     },
   }))
   mock.module('./AgentPendingAttachments', () => ({
-    AgentPendingAttachments() {
+    AgentPendingAttachments(props: { attachments?: unknown[] }) {
+      lastPendingAttachments = props.attachments ?? []
       return React.createElement('div', { 'data-testid': 'agent-pending-attachments' })
     },
   }))
@@ -123,6 +134,9 @@ async function loadAgentView(options?: {
     stopSession,
     getLastRichTextInputProps() {
       return lastRichTextInputProps
+    },
+    getLastPendingAttachments() {
+      return lastPendingAttachments
     },
   }
 }
@@ -281,5 +295,99 @@ describe('AgentView rendering extension points', () => {
     } finally {
       console.error = originalConsoleError
     }
+  })
+
+  test('programmatic send keeps current draft and attachments while forwarding hidden payload and mentioned skills', async () => {
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: 'Page Builder Project',
+      slug: 'page-builder-project',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const onProgrammaticSendSettled = mock((_result: PageBuilderCmsAutoAgentHandoffSettledResult) => {})
+    const request: PageBuilderCmsAutoAgentHandoffRequest = {
+      requestId: 'handoff-1',
+      userMessage: '请根据刚确认的 CMS 选择结果，判断如何应用到当前区块。',
+      composedUserMessage: '<cms_binding_apply_input>{"version":1}</cms_binding_apply_input>',
+      mentionedSkills: ['cms-binding-apply'],
+    }
+    const { AgentView, sendMessage, getLastRichTextInputProps, getLastPendingAttachments } = await loadAgentView()
+    const store = createStore()
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <Provider store={store}>
+          <HydrateAgentViewState
+            drafts={new Map([[session.id, '已有草稿']])}
+            sessions={[session]}
+            workspaces={[workspace]}
+          >
+            <AgentView
+              sessionId={session.id}
+              allowAttachments
+              onProgrammaticSendSettled={onProgrammaticSendSettled}
+              programmaticSendRequest={null}
+            />
+          </HydrateAgentViewState>
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    const attachmentFile = new File(['cms-bytes'], 'cms.png', { type: 'image/png' })
+
+    await act(async () => {
+      getLastRichTextInputProps()?.onPasteFiles?.([attachmentFile])
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(getLastRichTextInputProps()?.value).toBe('已有草稿')
+    expect(getLastPendingAttachments()).toHaveLength(1)
+
+    await act(async () => {
+      renderer.update(
+        <Provider store={store}>
+          <HydrateAgentViewState
+            drafts={new Map([[session.id, '已有草稿']])}
+            sessions={[session]}
+            workspaces={[workspace]}
+          >
+            <AgentView
+              sessionId={session.id}
+              allowAttachments
+              onProgrammaticSendSettled={onProgrammaticSendSettled}
+              programmaticSendRequest={request}
+            />
+          </HydrateAgentViewState>
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(sendMessage).toHaveBeenCalledWith(session.id, expect.objectContaining({
+      userMessage: request.userMessage,
+      composedUserMessage: request.composedUserMessage,
+      mentionedSkills: ['cms-binding-apply'],
+      workspaceId: workspace.id,
+    }))
+    expect(onProgrammaticSendSettled).toHaveBeenCalledWith({
+      requestId: 'handoff-1',
+      status: 'sent',
+    })
+    expect(getLastRichTextInputProps()?.value).toBe('已有草稿')
+    expect(getLastPendingAttachments()).toHaveLength(1)
   })
 })

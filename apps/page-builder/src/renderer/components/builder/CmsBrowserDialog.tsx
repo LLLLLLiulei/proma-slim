@@ -26,6 +26,7 @@ interface CmsBrowserDialogProps {
   onConfirmSelection?: (selection: CmsBrowserDialogSelection) => void
   onOpenChange: (open: boolean) => void
   requestContext?: PageBuilderCmsSelectionRequestContext
+  confirming?: boolean
 }
 
 export type CmsBrowserDialogSelection = PageBuilderCmsSelectionResult
@@ -58,6 +59,7 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
     open,
     onOpenChange,
     requestContext,
+    confirming = false,
   } = props
   const {
     activeTab,
@@ -116,7 +118,7 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
   const currentSelectionCount = activeTab === 'catalogs'
     ? selectedCatalogs.length
     : selectedContents.length
-  const canConfirmSelection = currentSelectionCount > 0 && Boolean(requestContext?.targetBlock.selector)
+  const canConfirmSelection = !confirming && currentSelectionCount > 0 && Boolean(requestContext?.targetBlock.selector)
   const currentSelectionSummary = activeTab === 'catalogs'
     ? `已选 ${selectedCatalogs.length} 个栏目`
     : `已选 ${selectedContents.length} 条内容`
@@ -189,12 +191,10 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
       })
     }
 
-    onOpenChange(false)
   }, [
     activeTab,
     currentSelectionCount,
     onConfirmSelection,
-    onOpenChange,
     requestContext,
     selectedCatalogs,
     selectedContentCatalogIds,
@@ -333,7 +333,7 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
             <p className="text-xs text-muted-foreground">{currentSelectionSummary}</p>
 
             <div className="flex items-center gap-2">
-              <Button onClick={() => onOpenChange(false)} size="sm" type="button" variant="outline">
+              <Button disabled={confirming} onClick={() => onOpenChange(false)} size="sm" type="button" variant="outline">
                 取消
               </Button>
               <Button
@@ -342,7 +342,7 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
                 size="sm"
                 type="button"
               >
-                确认选择
+                {confirming ? '提交中...' : '确认选择'}
               </Button>
             </div>
           </div>

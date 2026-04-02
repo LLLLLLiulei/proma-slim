@@ -28,7 +28,11 @@ import {
 import { api, type AppStatus } from '@/lib/api'
 import { useGlobalAgentListeners } from '@/hooks/useGlobalAgentListeners'
 import { cn } from '@/lib/utils'
-import type { AgentMessage } from '@proma/shared'
+import type {
+  AgentMessage,
+  PageBuilderCmsAutoAgentHandoffRequest,
+  PageBuilderCmsAutoAgentHandoffSettledResult,
+} from '@proma/shared'
 
 interface SyncSessionMessagesDeps {
   loadSessionMessagesWithCatchup: typeof loadSessionMessagesWithCatchup
@@ -131,6 +135,8 @@ export interface AgentViewProps {
   messageDecorator?: AgentMessageDecorator
   composerLeadingActions?: React.ReactNode
   onMessageSent?: (userMessage: string) => void
+  programmaticSendRequest?: PageBuilderCmsAutoAgentHandoffRequest | null
+  onProgrammaticSendSettled?: (result: PageBuilderCmsAutoAgentHandoffSettledResult) => void
 }
 
 export type AgentMessageDecorator = (userMessage: string) => string
@@ -140,6 +146,11 @@ export interface PreparedAgentSendPayload {
   composedUserMessage?: string
   mentionedSkills: string[]
   mentionedMcpServers: string[]
+}
+
+interface AgentSendExecutionResult {
+  ok: boolean
+  errorMessage?: string
 }
 
 export function resolveShouldRenderAgentHeader(showHeader = true): boolean {
@@ -228,6 +239,8 @@ export function AgentView({
   messageDecorator,
   composerLeadingActions,
   onMessageSent,
+  programmaticSendRequest = null,
+  onProgrammaticSendSettled,
 }: AgentViewProps): React.ReactElement {
   const [messagesBySession, setMessagesBySession] = React.useState<Map<string, AgentMessage[]>>(() => new Map())
   const [status, setStatus] = React.useState<AppStatus | null>(null)
@@ -247,6 +260,7 @@ export function AgentView({
   const setDraftsMap = useSetAtom(agentSessionDraftsAtom)
   const { sendMessage, stopSession } = useGlobalAgentListeners()
   const initialMessageTriggeredRef = React.useRef(false)
+  const lastProgrammaticRequestIdRef = React.useRef<string | null>(null)
   const pendingAttachmentsRef = React.useRef(pendingAttachments)
   pendingAttachmentsRef.current = pendingAttachments
   const fileInputRef = React.useRef<HTMLInputElement>(null)
@@ -365,26 +379,52 @@ export function AgentView({
     }
   }, [sessionWorkspaceId, setWorkspaceDirectoryContextMap])
 
-  const sendDraftMessage = React.useCallback(async (nextUserMessage: string): Promise<boolean> => {
-    const userMessage = nextUserMessage.trim()
-    if (!userMessage && pendingAttachments.length === 0) return false
-    if (streaming) return false
+  const executeSend = React.useCallback(async ({
+    userMessage,
+    composedUserMessage,
+    mentionedSkills = [],
+    mentionedMcpServers = [],
+    optimisticAttachments = [],
+    attachmentFiles = [],
+    clearComposerOnSuccess,
+    clearAttachmentsOnSuccess,
+    emitMessageSent,
+  }: {
+    userMessage: string
+    composedUserMessage?: string
+    mentionedSkills?: string[]
+    mentionedMcpServers?: string[]
+    optimisticAttachments?: ReadonlyArray<PendingAgentAttachment>
+    attachmentFiles?: File[]
+    clearComposerOnSuccess: boolean
+    clearAttachmentsOnSuccess: boolean
+    emitMessageSent: boolean
+  }): Promise<AgentSendExecutionResult> => {
+    const trimmedUserMessage = userMessage.trim()
+    if (!trimmedUserMessage && optimisticAttachments.length === 0) {
+      return { ok: false }
+    }
+
+    if (streaming) {
+      return { ok: false, errorMessage: '当前会话正在处理中，请稍候再试' }
+    }
 
     if (status && !status.ok) {
       toast.error('后端未就绪，当前无法发送消息')
-      return false
+      return { ok: false, errorMessage: '后端未就绪，当前无法发送消息' }
     }
 
     const optimisticCreatedAt = Date.now()
-    if (userMessage || pendingAttachments.length > 0) {
+    if (trimmedUserMessage || optimisticAttachments.length > 0) {
       const optimisticMessage = createOptimisticUserMessage({
-        userMessage,
-        pendingAttachments,
+        userMessage: trimmedUserMessage,
+        pendingAttachments: optimisticAttachments,
         messageId: `local-${optimisticCreatedAt}`,
         createdAt: optimisticCreatedAt,
       })
       setMessagesBySession((prev) => appendMessageForSession(prev, sessionId, optimisticMessage))
     }
+
     setStreamErrors((prev) => {
       const map = new Map(prev)
       map.delete(sessionId)
@@ -394,38 +434,51 @@ export function AgentView({
     if (session && (!session.title || session.title === '新 Agent 会话')) {
       setSessions((prev) => prev.map((item) => item.id === sessionId ? {
         ...item,
-        title: userMessage.slice(0, 50),
+        title: trimmedUserMessage.slice(0, 50),
       } : item))
     }
 
     try {
-      const payload = prepareAgentSendPayload(userMessage, messageDecorator)
-
       await sendMessage(sessionId, {
-        userMessage: payload.userMessage,
-        ...(payload.composedUserMessage ? { composedUserMessage: payload.composedUserMessage } : {}),
-        ...(pendingAttachments.length > 0 ? { attachmentFiles: pendingAttachments.map((attachment) => attachment.file) } : {}),
+        userMessage: trimmedUserMessage,
+        ...(composedUserMessage ? { composedUserMessage } : {}),
+        ...(attachmentFiles.length > 0 ? { attachmentFiles } : {}),
         ...(sessionWorkspaceId && { workspaceId: sessionWorkspaceId }),
         ...(attachedDirectories.length > 0 && { additionalDirectories: attachedDirectories }),
-        ...(payload.mentionedSkills.length > 0 && { mentionedSkills: payload.mentionedSkills }),
-        ...(payload.mentionedMcpServers.length > 0 && { mentionedMcpServers: payload.mentionedMcpServers }),
+        ...(mentionedSkills.length > 0 && { mentionedSkills }),
+        ...(mentionedMcpServers.length > 0 && { mentionedMcpServers }),
       })
-      setInputValue('')
-      setPendingAttachments((current) => {
-        releasePendingAgentAttachments(current)
-        return []
-      })
-      onMessageSent?.(userMessage)
-      return true
+
+      if (clearComposerOnSuccess) {
+        setInputValue('')
+      }
+
+      if (clearAttachmentsOnSuccess) {
+        setPendingAttachments((current) => {
+          releasePendingAgentAttachments(current)
+          return []
+        })
+      }
+
+      if (emitMessageSent) {
+        onMessageSent?.(trimmedUserMessage)
+      }
+
+      return { ok: true }
     } catch (error) {
       console.error('[AgentView] 发送消息失败:', error)
-      toast.error(error instanceof Error ? error.message : '发送消息失败')
+      const errorMessage = error instanceof Error ? error.message : '发送消息失败'
+      toast.error(errorMessage)
       const nextMessages = await api.getSessionMessages(sessionId)
       setMessagesBySession((prev) => replaceMessagesForSession(prev, sessionId, nextMessages))
-      return false
+      return {
+        ok: false,
+        errorMessage,
+      }
     }
   }, [
     attachedDirectories,
+    onMessageSent,
     sendMessage,
     session,
     sessionId,
@@ -435,10 +488,24 @@ export function AgentView({
     setStreamErrors,
     status,
     streaming,
-    messageDecorator,
-    onMessageSent,
-    pendingAttachments,
   ])
+
+  const sendDraftMessage = React.useCallback(async (nextUserMessage: string): Promise<boolean> => {
+    const payload = prepareAgentSendPayload(nextUserMessage.trim(), messageDecorator)
+    const result = await executeSend({
+      userMessage: payload.userMessage,
+      ...(payload.composedUserMessage ? { composedUserMessage: payload.composedUserMessage } : {}),
+      mentionedSkills: payload.mentionedSkills,
+      mentionedMcpServers: payload.mentionedMcpServers,
+      optimisticAttachments: pendingAttachments,
+      attachmentFiles: pendingAttachments.map((attachment) => attachment.file),
+      clearComposerOnSuccess: true,
+      clearAttachmentsOnSuccess: true,
+      emitMessageSent: true,
+    })
+
+    return result.ok
+  }, [executeSend, messageDecorator, pendingAttachments])
 
   const handleSend = React.useCallback(async (): Promise<void> => {
     await sendDraftMessage(inputValue)
@@ -527,6 +594,39 @@ export function AgentView({
     onInitialUserMessageHandled,
     sendDraftMessage,
     streaming,
+  ])
+
+  React.useEffect(() => {
+    if (!programmaticSendRequest) {
+      return
+    }
+
+    if (lastProgrammaticRequestIdRef.current === programmaticSendRequest.requestId) {
+      return
+    }
+
+    lastProgrammaticRequestIdRef.current = programmaticSendRequest.requestId
+
+    void executeSend({
+      userMessage: programmaticSendRequest.userMessage,
+      composedUserMessage: programmaticSendRequest.composedUserMessage,
+      mentionedSkills: programmaticSendRequest.mentionedSkills,
+      optimisticAttachments: [],
+      attachmentFiles: [],
+      clearComposerOnSuccess: false,
+      clearAttachmentsOnSuccess: false,
+      emitMessageSent: false,
+    }).then((result) => {
+      onProgrammaticSendSettled?.({
+        requestId: programmaticSendRequest.requestId,
+        status: result.ok ? 'sent' : 'failed',
+        ...(result.errorMessage ? { errorMessage: result.errorMessage } : {}),
+      })
+    })
+  }, [
+    executeSend,
+    onProgrammaticSendSettled,
+    programmaticSendRequest,
   ])
 
   const handleStop = React.useCallback(async (): Promise<void> => {
