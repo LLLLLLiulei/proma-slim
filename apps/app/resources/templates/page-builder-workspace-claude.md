@@ -25,6 +25,13 @@ This workspace is used to generate a static website that can be previewed inside
 - When refactoring or redesigning an existing webpage design, use the workspace-local `redesign-skill`.
 - If it is unclear whether the task is a new design or a redesign, use the `AskUserQuestion` tool to confirm before starting implementation.
 
+## CMS Apply Skill Rules
+
+- When a page-builder workflow already has a confirmed CMS selection and a target block selector, use the workspace-local `cms-binding-apply` skill to decide whether Phase 1A can apply the data.
+- Use `cms-binding-apply` only after CMS browsing and selection are already complete. Do not use it to browse CMS data or to replace the CMS picker.
+- Limit Phase 1A decisions to `ready`, `needs-clarification`, or `incompatible`.
+- Treat Phase 1A as `replace-current` only and keep any proposed changes scoped to the current target block.
+
 ## Working Notes
 
 - The current session directory is a scratch working directory, not the published preview root.

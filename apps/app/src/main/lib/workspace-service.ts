@@ -27,6 +27,7 @@ import {
   getAgentWorkspacesIndexPath,
   getDefaultSkillsDir,
   getInactiveSkillsDir,
+  seedDefaultSkills,
   getWorkspaceMemoryDir,
   getWorkspaceMemoryFilePath,
   getWorkspaceFilesDir,
@@ -205,6 +206,7 @@ function ensureWorkspaceStructure(workspaceSlug: string): void {
 }
 
 function copyDefaultSkills(workspaceSlug: string): void {
+  seedDefaultSkills()
   const defaultDir = getDefaultSkillsDir()
   const targetDir = getWorkspaceSkillsDir(workspaceSlug)
 

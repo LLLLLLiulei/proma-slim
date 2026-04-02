@@ -111,6 +111,7 @@ describe('workspace service', () => {
     seedDefaultSkills()
 
     expect(existsSync(join(configDir, 'default-skills', 'brainstorming', 'SKILL.md'))).toBe(true)
+    expect(existsSync(join(configDir, 'default-skills', 'cms-binding-apply', 'SKILL.md'))).toBe(true)
   })
 
   test('creates a workspace with a stable slug and directory', () => {
@@ -131,6 +132,14 @@ describe('workspace service', () => {
     expect(existsSync(claudeMdPath)).toBe(true)
     expect(readFileSync(claudeMdPath, 'utf-8')).toContain('workspace-files/index.html')
     expect(readFileSync(claudeMdPath, 'utf-8')).toContain('workspace-files/assets/')
+    expect(readFileSync(claudeMdPath, 'utf-8')).toContain('cms-binding-apply')
+  })
+
+  test('copies the cms-binding-apply skill into page-builder workspaces', () => {
+    ensureDefaultWorkspace()
+    const workspace = createAgentWorkspace('Builder Skill Workspace', { template: 'page-builder' })
+
+    expect(existsSync(join(getWorkspaceSkillsDir(workspace.slug), 'cms-binding-apply', 'SKILL.md'))).toBe(true)
   })
 
   test('creates a page-builder workspace with default MCP servers', () => {
