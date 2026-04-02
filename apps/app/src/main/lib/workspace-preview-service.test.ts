@@ -6,8 +6,29 @@ import { getPageBuilderPreviewBridgeAssetUrl } from './page-builder-preview-brid
 import { createWorkspacePreviewResponse, getWorkspacePreviewState } from './workspace-preview-service'
 import { createAgentWorkspace } from './workspace-service'
 
+const CMS_ENV_KEYS = [
+  'PROMA_CMS_BASE_URL',
+  'PROMA_CMS_ZUSID',
+  'PROMA_CMS_CURRENT_SITE',
+] as const
+
+const originalCmsEnv = {
+  PROMA_CMS_BASE_URL: process.env.PROMA_CMS_BASE_URL,
+  PROMA_CMS_ZUSID: process.env.PROMA_CMS_ZUSID,
+  PROMA_CMS_CURRENT_SITE: process.env.PROMA_CMS_CURRENT_SITE,
+}
+
 afterEach(() => {
   rmSync(join(homedir(), '.proma'), { recursive: true, force: true })
+
+  for (const key of CMS_ENV_KEYS) {
+    const value = originalCmsEnv[key]
+    if (value === undefined) {
+      delete process.env[key]
+    } else {
+      process.env[key] = value
+    }
+  }
 })
 
 describe('workspace preview service', () => {
@@ -72,5 +93,42 @@ describe('workspace preview service', () => {
     const assetResponse = createWorkspacePreviewResponse(workspace, '/assets/site.css')
 
     expect(await assetResponse.text()).toBe('body { color: rebeccapurple; }')
+  })
+
+  test('rewrites CMS resource URLs in preview html to the authenticated asset proxy', async () => {
+    process.env.PROMA_CMS_BASE_URL = 'https://demo.zving.com/zcmstest/'
+    process.env.PROMA_CMS_ZUSID = 'test-zusid'
+    process.env.PROMA_CMS_CURRENT_SITE = '277'
+
+    const workspace = createAgentWorkspace('Preview CMS Asset Proxy', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(
+      join(workspaceFilesDir, 'index.html'),
+      `<!doctype html><html><body>
+        <link rel="stylesheet" href="./assets/site.css">
+        <img src="https://demo.zving.com/zcmstest/preview/news/upload/resources/image/banner.jpg">
+        <video controls poster="https://demo.zving.com/zcmstest/preview/news/upload/resources/image/poster.jpg" src="https://demo.zving.com/zcmstest/preview/news/upload/resources/video/demo.mp4"></video>
+        <audio src="https://demo.zving.com/zcmstest/preview/news/upload/resources/audio/demo.mp3"></audio>
+        <a href="https://demo.zving.com/zcmstest/preview/news/upload/resources/file/demo.pdf">下载文件</a>
+        <a href="https://demo.zving.com/test/kj/">科技</a>
+        <img src="https://example.com/not-cms.png">
+      </body></html>`,
+      'utf-8',
+    )
+
+    const response = createWorkspacePreviewResponse(workspace, '/')
+    const html = await response.text()
+
+    expect(html).toContain('/api/page-builder/cms/assets?url=')
+    expect(html).toContain(encodeURIComponent('https://demo.zving.com/zcmstest/preview/news/upload/resources/image/banner.jpg'))
+    expect(html).toContain(encodeURIComponent('https://demo.zving.com/zcmstest/preview/news/upload/resources/video/demo.mp4'))
+    expect(html).toContain(encodeURIComponent('https://demo.zving.com/zcmstest/preview/news/upload/resources/audio/demo.mp3'))
+    expect(html).toContain(encodeURIComponent('https://demo.zving.com/zcmstest/preview/news/upload/resources/file/demo.pdf'))
+    expect(html).toContain(encodeURIComponent('https://demo.zving.com/zcmstest/preview/news/upload/resources/image/poster.jpg'))
+    expect(html).toContain('<link rel="stylesheet" href="./assets/site.css">')
+    expect(html).toContain('<a href="https://demo.zving.com/test/kj/">科技</a>')
+    expect(html).toContain('https://example.com/not-cms.png')
   })
 })
