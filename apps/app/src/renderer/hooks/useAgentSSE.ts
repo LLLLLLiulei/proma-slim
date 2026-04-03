@@ -265,6 +265,32 @@ export function useAgentSSE() {
     }
   }, [store])
 
+  const reconcileSessionStreaming = useCallback(async (sessionId: string): Promise<boolean> => {
+    try {
+      const activity = await api.getSessionActivity(sessionId)
+      if (activity.active) {
+        return true
+      }
+
+      const staleController = controllersRef.current.get(sessionId)
+      if (staleController) {
+        detachedSessionsRef.current.add(sessionId)
+        staleController.abort()
+      }
+
+      finalizeStream(store, sessionId)
+      store.set(agentStreamErrorsAtom, (prev: Map<string, string>) => {
+        const map = new Map(prev)
+        map.delete(sessionId)
+        return map
+      })
+      return false
+    } catch (error) {
+      console.error('[useAgentSSE] 探测会话活跃状态失败:', error)
+      return true
+    }
+  }, [store])
+
   const sendMessage = useCallback(async (
     sessionId: string,
     payload: Pick<AgentSendInput, 'userMessage'> & Partial<AgentSendInput>,
@@ -378,6 +404,7 @@ export function useAgentSSE() {
   }, [store])
 
   return {
+    reconcileSessionStreaming,
     sendMessage,
     stopSession,
   }

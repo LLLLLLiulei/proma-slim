@@ -360,6 +360,10 @@ export const api = {
     return request<AgentMessage[]>(`/api/sessions/${encodeURIComponent(sessionId)}/messages`)
   },
 
+  getSessionActivity(sessionId: string): Promise<{ active: boolean }> {
+    return request<{ active: boolean }>(`/api/sessions/${encodeURIComponent(sessionId)}/activity`)
+  },
+
   sendMessage(
     sessionId: string,
     payload: SendMessagePayload,

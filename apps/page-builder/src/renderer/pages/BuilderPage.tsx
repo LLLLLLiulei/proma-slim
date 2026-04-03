@@ -529,15 +529,10 @@ export function BuilderPage({
     }
   }, [selectedSelector])
   const handleCmsSelectionConfirm = React.useCallback((selection: PageBuilderCmsSelectionResult) => {
-    if (isAgentStreaming || cmsAutoHandoffRequest) {
-      toast.error('当前会话正在处理中，请稍候再试')
-      return
-    }
-
     setCmsAutoHandoffRequest(createPageBuilderCmsAutoAgentHandoffRequest(selection, {
       uiEntryPoint: cmsSelectionRequestContext?.entryPoint,
     }))
-  }, [cmsAutoHandoffRequest, cmsSelectionRequestContext?.entryPoint, isAgentStreaming])
+  }, [cmsSelectionRequestContext?.entryPoint])
   const handleCmsAutoHandoffSettled = React.useCallback((result: PageBuilderCmsAutoAgentHandoffSettledResult) => {
     if (!cmsAutoHandoffRequest || result.requestId !== cmsAutoHandoffRequest.requestId) {
       return
@@ -572,6 +567,7 @@ export function BuilderPage({
         aria-label={selectionActionLabel}
         aria-pressed={selectionModeEnabled}
         className={selectionActionClassName}
+        disabled={isAgentStreaming}
         onClick={handleToggleSelectionMode}
         size="sm"
         type="button"
@@ -581,7 +577,7 @@ export function BuilderPage({
         {selectionActionLabel}
       </Button>
     </div>
-  ), [handleToggleSelectionMode, selectionActionClassName, selectionActionLabel, selectionModeEnabled])
+  ), [handleToggleSelectionMode, isAgentStreaming, selectionActionClassName, selectionActionLabel, selectionModeEnabled])
 
   if (loadState.status === 'loading') {
     return (

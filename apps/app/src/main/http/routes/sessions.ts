@@ -117,6 +117,12 @@ sessionRoutes.patch('/:sessionId', async (c) => {
   return c.json(updateAgentSessionMeta(c.var.sessionMeta.id, { title: body.title.trim() }))
 })
 
+sessionRoutes.get('/:sessionId/activity', (c) => {
+  return c.json({
+    active: isAgentSessionActive(c.var.sessionMeta.id),
+  })
+})
+
 sessionRoutes.get('/:sessionId/messages', (c) => {
   return c.json(getAgentSessionMessages(c.var.sessionMeta.id))
 })

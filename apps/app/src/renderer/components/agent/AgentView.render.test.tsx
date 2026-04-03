@@ -11,6 +11,7 @@ import type {
   WorkspaceDirectoryContext,
 } from '@proma/shared'
 import {
+  type AgentStreamState,
   agentSessionDraftsAtom,
   agentSessionsAtom,
   agentStreamingStatesAtom,
@@ -23,6 +24,7 @@ interface RichTextInputProps {
   onChange: (value: string) => void
   onSubmit: () => void
   onPasteFiles?: (files: File[]) => void
+  disabled?: boolean
 }
 
 function createWorkspaceContext(workspaceId: string): WorkspaceDirectoryContext {
@@ -44,32 +46,38 @@ function HydrateAgentViewState({
   sessions,
   workspaces,
   drafts,
+  streamingStates,
 }: {
   children: React.ReactNode
   sessions: AgentSessionMeta[]
   workspaces: AgentWorkspace[]
   drafts?: Map<string, string>
+  streamingStates?: Map<string, AgentStreamState>
 }): React.ReactElement {
   useHydrateAtoms([
     [agentSessionsAtom, sessions],
     [agentWorkspacesAtom, workspaces],
     [agentSessionDraftsAtom, drafts ?? new Map()],
-    [agentStreamingStatesAtom, new Map()],
+    [agentStreamingStatesAtom, streamingStates ?? new Map()],
     [workspaceDirectoryContextMapAtom, new Map()],
   ])
   return <>{children}</>
 }
 
 async function loadAgentView(options?: {
+  reconcileSessionStreaming?: ReturnType<typeof mock>
   sendMessage?: ReturnType<typeof mock>
   getSessionMessages?: () => Promise<unknown[]>
+  getSessionActivity?: (sessionId: string) => Promise<{ active: boolean }>
 }) {
   let lastRichTextInputProps: RichTextInputProps | null = null
   let lastPendingAttachments: unknown[] = []
 
+  const reconcileSessionStreaming = options?.reconcileSessionStreaming ?? mock(async () => false)
   const sendMessage = options?.sendMessage ?? mock(async () => undefined)
   const stopSession = mock(async () => undefined)
   const getSessionMessages = options?.getSessionMessages ?? (async () => [])
+  const getSessionActivity = options?.getSessionActivity ?? (async () => ({ active: false }))
 
   mock.module('./AgentHeader', () => ({
     AgentHeader() {
@@ -109,6 +117,7 @@ async function loadAgentView(options?: {
   mock.module('@/hooks/useGlobalAgentListeners', () => ({
     useGlobalAgentListeners() {
       return {
+        reconcileSessionStreaming,
         sendMessage,
         stopSession,
       }
@@ -122,6 +131,7 @@ async function loadAgentView(options?: {
         sdkCliAvailable: true,
       }),
       getSessionMessages,
+      getSessionActivity,
       getWorkspaceContext: async (workspaceId: string) => createWorkspaceContext(workspaceId),
     },
   }))
@@ -146,6 +156,53 @@ afterEach(() => {
 })
 
 describe('AgentView rendering extension points', () => {
+  test('disables the attachment button while streaming', async () => {
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: 'Page Builder Project',
+      slug: 'page-builder-project',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const streamingStates = new Map<string, AgentStreamState>([
+      [session.id, { running: true, content: '', toolActivities: [], teammates: [], startedAt: 1 }],
+    ])
+
+    const { AgentView, getLastRichTextInputProps } = await loadAgentView()
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <Provider store={createStore()}>
+          <HydrateAgentViewState
+            sessions={[session]}
+            streamingStates={streamingStates}
+            workspaces={[workspace]}
+          >
+            <AgentView allowAttachments sessionId={session.id} />
+          </HydrateAgentViewState>
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    const attachmentButton = renderer.root.find((node) =>
+      node.type === 'button' && node.props['aria-label'] === '添加附件',
+    )
+
+    expect(getLastRichTextInputProps()?.disabled).toBe(true)
+    expect(attachmentButton.props.disabled).toBe(true)
+  })
+
   test('renders custom leading composer actions without replacing the shared composer shell', async () => {
     const workspace: AgentWorkspace = {
       id: 'workspace-1',
@@ -389,5 +446,96 @@ describe('AgentView rendering extension points', () => {
     })
     expect(getLastRichTextInputProps()?.value).toBe('已有草稿')
     expect(getLastPendingAttachments()).toHaveLength(1)
+  })
+
+  test('programmatic send recovers from a stale client streaming flag after probing session activity', async () => {
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: 'Page Builder Project',
+      slug: 'page-builder-project',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const onProgrammaticSendSettled = mock((_result: PageBuilderCmsAutoAgentHandoffSettledResult) => {})
+    const reconcileSessionStreaming = mock(async (_sessionId: string) => false)
+    const request: PageBuilderCmsAutoAgentHandoffRequest = {
+      requestId: 'handoff-stale-1',
+      userMessage: '请根据刚确认的 CMS 选择结果，判断如何应用到当前区块。',
+      composedUserMessage: '<cms_binding_apply_input>{"version":1}</cms_binding_apply_input>',
+      mentionedSkills: ['cms-binding-apply'],
+    }
+    const { AgentView, sendMessage } = await loadAgentView({
+      reconcileSessionStreaming,
+    })
+    const store = createStore()
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <Provider store={store}>
+          <HydrateAgentViewState
+            drafts={new Map([[session.id, '已有草稿']])}
+            sessions={[session]}
+            streamingStates={new Map([
+              [session.id, { running: true, content: '', toolActivities: [], teammates: [], startedAt: 1 }],
+            ])}
+            workspaces={[workspace]}
+          >
+            <AgentView
+              sessionId={session.id}
+              allowAttachments
+              onProgrammaticSendSettled={onProgrammaticSendSettled}
+              programmaticSendRequest={null}
+            />
+          </HydrateAgentViewState>
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      renderer.update(
+        <Provider store={store}>
+          <HydrateAgentViewState
+            drafts={new Map([[session.id, '已有草稿']])}
+            sessions={[session]}
+            streamingStates={new Map([
+              [session.id, { running: true, content: '', toolActivities: [], teammates: [], startedAt: 1 }],
+            ])}
+            workspaces={[workspace]}
+          >
+            <AgentView
+              sessionId={session.id}
+              allowAttachments
+              onProgrammaticSendSettled={onProgrammaticSendSettled}
+              programmaticSendRequest={request}
+            />
+          </HydrateAgentViewState>
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(reconcileSessionStreaming).toHaveBeenCalledWith(session.id)
+    expect(sendMessage).toHaveBeenCalledWith(session.id, expect.objectContaining({
+      userMessage: request.userMessage,
+      composedUserMessage: request.composedUserMessage,
+      mentionedSkills: ['cms-binding-apply'],
+      workspaceId: workspace.id,
+    }))
+    expect(onProgrammaticSendSettled).toHaveBeenCalledWith({
+      requestId: 'handoff-stale-1',
+      status: 'sent',
+    })
   })
 })

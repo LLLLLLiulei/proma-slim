@@ -1053,6 +1053,48 @@ describe('BuilderPage', () => {
     expect(getLastAgentViewProps()).not.toHaveProperty('messageDecorator')
   })
 
+  test('locks the shared selection action while the agent is streaming', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const streamingStates = new Map<string, AgentStreamState>([
+      [session.id, { running: true, content: '', toolActivities: [], teammates: [], startedAt: 1 }],
+    ])
+
+    const { BuilderPage, getLastAgentViewProps } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      mockPreviewPane: true,
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <HydrateBuilderPageState streamingStates={streamingStates}>
+            <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+          </HydrateBuilderPageState>
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(getComposerActionElement(getLastAgentViewProps())?.props.disabled).toBe(true)
+  })
+
   test('keeps the selected block for retry until a success callback or preview reset clears it', async () => {
     installWindowHarness()
     const workspace: AgentWorkspace = {
@@ -1300,7 +1342,7 @@ describe('BuilderPage', () => {
     expect(getComposerActionLabel(getLastAgentViewProps())).toBe('已选区域')
   })
 
-  test('blocks auto handoff while the current session is streaming and keeps the dialog open', async () => {
+  test('creates the auto handoff request without showing a blocking toast when the session is already streaming', async () => {
     installWindowHarness()
     const workspace: AgentWorkspace = {
       id: 'workspace-1',
@@ -1380,13 +1422,16 @@ describe('BuilderPage', () => {
       }).onConfirmSelection?.(selection)
     })
 
-    expect(getToastError()).toHaveBeenCalledTimes(1)
+    expect(getToastError()).not.toHaveBeenCalled()
     expect(getLastAgentViewProps()).toMatchObject({
-      programmaticSendRequest: null,
+      programmaticSendRequest: expect.objectContaining({
+        userMessage: '请根据刚确认的 CMS 选择结果，判断如何应用到当前区块。',
+        mentionedSkills: ['cms-binding-apply'],
+      }),
     })
     expect(getLastCmsBrowserDialogProps()).toMatchObject({
       open: true,
-      confirming: false,
+      confirming: true,
     })
   })
 

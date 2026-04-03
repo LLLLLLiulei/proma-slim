@@ -258,7 +258,7 @@ export function AgentView({
   const draftsMap = useAtomValue(agentSessionDraftsAtom)
   const workspaceDirectoryContextMap = useAtomValue(workspaceDirectoryContextMapAtom)
   const setDraftsMap = useSetAtom(agentSessionDraftsAtom)
-  const { sendMessage, stopSession } = useGlobalAgentListeners()
+  const { reconcileSessionStreaming, sendMessage, stopSession } = useGlobalAgentListeners()
   const initialMessageTriggeredRef = React.useRef(false)
   const lastProgrammaticRequestIdRef = React.useRef<string | null>(null)
   const pendingAttachmentsRef = React.useRef(pendingAttachments)
@@ -281,6 +281,7 @@ export function AgentView({
     () => [...messages].reverse().find((message) => message.role === 'assistant')?.model ?? null,
     [messages],
   )
+  const composerInteractionLocked = streaming || Boolean(status && !status.ok)
   const canSend = (inputValue.trim().length > 0 || pendingAttachments.length > 0) && !(status && !status.ok)
   const attachedDirectories = React.useMemo(
     () => Array.from(new Set([
@@ -406,7 +407,12 @@ export function AgentView({
     }
 
     if (streaming) {
-      return { ok: false, errorMessage: '当前会话正在处理中，请稍候再试' }
+      const stillBusy = await reconcileSessionStreaming(sessionId)
+      if (stillBusy) {
+        const errorMessage = '当前会话正在处理中，请稍候再试'
+        toast.error(errorMessage)
+        return { ok: false, errorMessage }
+      }
     }
 
     if (status && !status.ok) {
@@ -479,6 +485,7 @@ export function AgentView({
   }, [
     attachedDirectories,
     onMessageSent,
+    reconcileSessionStreaming,
     sendMessage,
     session,
     sessionId,
@@ -690,7 +697,7 @@ export function AgentView({
             onChange={setInputValue}
             onSubmit={() => { void handleSend() }}
             onPasteFiles={allowAttachments ? handleAddFiles : undefined}
-            disabled={streaming || Boolean(status && !status.ok)}
+            disabled={composerInteractionLocked}
             autoFocusTrigger={sessionId}
             placeholder={status && !status.ok ? '请先修复后端状态，再发送消息' : '输入消息...'}
             workspaceId={sessionWorkspaceId}
@@ -704,10 +711,12 @@ export function AgentView({
               {composerLeadingActions}
               {allowAttachments && (
                 <Button
+                  aria-label="添加附件"
                   type="button"
                   variant="ghost"
                   size="icon"
                   className="size-7 rounded-full text-muted-foreground hover:bg-muted"
+                  disabled={composerInteractionLocked}
                   onClick={handleOpenFilePicker}
                 >
                   <Paperclip className="size-4" />

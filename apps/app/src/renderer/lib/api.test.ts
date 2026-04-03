@@ -94,6 +94,21 @@ describe('renderer api wrappers', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
+  test('getSessionActivity requests the session activity endpoint', async () => {
+    const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe('/api/sessions/session-1/activity')
+      expect(init?.method).toBeUndefined()
+      return jsonResponse({ active: false })
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const { api } = await import('./api')
+    const activity = await api.getSessionActivity('session-1')
+
+    expect(activity).toEqual({ active: false })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
   test('sendMessage opens the POST SSE endpoint without consuming the stream', async () => {
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {

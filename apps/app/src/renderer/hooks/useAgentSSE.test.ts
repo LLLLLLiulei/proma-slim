@@ -14,11 +14,13 @@ import { api } from '@/lib/api'
 import { useAgentSSE } from './useAgentSSE'
 
 const originalSendMessage = api.sendMessage
+const originalGetSessionActivity = api.getSessionActivity
 const originalStopSession = api.stopSession
 
 afterEach(() => {
   mock.restore()
   api.sendMessage = originalSendMessage
+  api.getSessionActivity = originalGetSessionActivity
   api.stopSession = originalStopSession
 })
 
@@ -276,6 +278,32 @@ describe('useAgentSSE helpers', () => {
 
     expect(harness.store.get(agentStreamingStatesAtom).get('session-1')?.running).toBe(true)
     expect(harness.store.get(agentMessageRefreshAtom).get('session-1')).toBeUndefined()
+  })
+
+  test('reconcileSessionStreaming clears a stale local stream after the backend reports the session is idle', async () => {
+    const pendingResponse = createDeferred<Response>()
+    const sendMessageMock = mock((_sessionId: string, _payload: unknown, init?: Pick<RequestInit, 'signal'>) => {
+      init?.signal?.addEventListener('abort', () => {
+        pendingResponse.reject(createAbortError())
+      }, { once: true })
+      return pendingResponse.promise
+    })
+    const getSessionActivityMock = mock(async (_sessionId: string) => ({ active: false }))
+    api.sendMessage = sendMessageMock
+    api.getSessionActivity = getSessionActivityMock
+
+    const harness = createHookHarness()
+    const sendPromise = harness.controls.sendMessage('session-1', { userMessage: 'hello' })
+
+    expect(harness.store.get(agentStreamingStatesAtom).get('session-1')?.running).toBe(true)
+
+    await expect(harness.controls.reconcileSessionStreaming('session-1')).resolves.toBe(false)
+    await sendPromise
+
+    expect(getSessionActivityMock).toHaveBeenCalledWith('session-1')
+    expect(harness.store.get(agentStreamingStatesAtom).get('session-1')?.running).toBe(false)
+    expect(harness.store.get(agentStreamErrorsAtom).get('session-1')).toBeUndefined()
+    expect(harness.store.get(agentMessageRefreshAtom).get('session-1')).toBe(1)
   })
 
   test('unmount abort only detaches the local stream and does not finalize or record an error', async () => {

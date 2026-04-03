@@ -551,6 +551,16 @@ describe('createHttpApp', () => {
     expect(await response.json()).toEqual({ error: '会话不存在: missing-session' })
   })
 
+  test('session activity route returns the current active flag', async () => {
+    const app = createApp()
+    const session = createAgentSession('Activity Probe')
+
+    const response = await app.fetch(new Request(`http://localhost/api/sessions/${session.id}/activity`))
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ active: false })
+  })
+
   test('send route preserves the existing validation error for blank userMessage', async () => {
     const app = createApp()
     const session = createAgentSession('Send Validation')
