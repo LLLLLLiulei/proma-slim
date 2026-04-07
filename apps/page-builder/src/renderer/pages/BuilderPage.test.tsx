@@ -568,6 +568,7 @@ describe('BuilderPage', () => {
       allowAttachments: true,
       showHeader: false,
       showComposerMeta: false,
+      defaultMentionedSkills: ['page-builder-guided-generation'],
       initialUserMessage: '生成一个企业官网',
     })
     expect(getLastAgentViewProps()).not.toHaveProperty('messageDecorator')
@@ -1051,6 +1052,45 @@ describe('BuilderPage', () => {
     })
     expect(getComposerActionLabel(getLastAgentViewProps())).toBe('选择进行编辑')
     expect(getLastAgentViewProps()).not.toHaveProperty('messageDecorator')
+  })
+
+  test('passes the guided generation skill as the default mentioned skill for builder conversations', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const { BuilderPage, getLastAgentViewProps } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(getLastAgentViewProps()).toMatchObject({
+      defaultMentionedSkills: ['page-builder-guided-generation'],
+      sessionId: session.id,
+    })
   })
 
   test('locks the shared selection action while the agent is streaming', async () => {

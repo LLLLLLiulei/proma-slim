@@ -7,7 +7,7 @@
 
 import { fileURLToPath } from 'node:url'
 import { isAbsolute, join, normalize } from 'node:path'
-import { mkdirSync, existsSync, cpSync, readdirSync } from 'node:fs'
+import { mkdirSync, existsSync, cpSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { homedir } from 'node:os'
 
 /** 配置目录名称 */
@@ -440,6 +440,18 @@ function resolveBundledDefaultSkillsDir(): string {
     : fileURLToPath(new URL('../../../default-skills', import.meta.url))
 }
 
+export function isPlaceholderSkillDirectory(skillDir: string): boolean {
+  const skillPath = join(skillDir, 'SKILL.md')
+  if (!existsSync(skillPath)) return false
+
+  try {
+    const content = readFileSync(skillPath, 'utf-8')
+    return content.includes('[TODO:') || content.includes('## Structuring This Skill')
+  } catch {
+    return false
+  }
+}
+
 /**
  * 同步默认 Skills 到 ~/.proma/default-skills/
  *
@@ -460,11 +472,19 @@ export function seedDefaultSkills(): void {
     const entries = readdirSync(bundledDir, { withFileTypes: true })
 
     for (const entry of entries) {
+      const source = join(bundledDir, entry.name)
       const target = join(userDir, entry.name)
+
       if (!existsSync(target)) {
-        const source = join(bundledDir, entry.name)
         cpSync(source, target, { recursive: true })
         console.log(`[配置] 已同步默认 Skill: ${entry.name}`)
+        continue
+      }
+
+      if (isPlaceholderSkillDirectory(target)) {
+        rmSync(target, { recursive: true, force: true })
+        cpSync(source, target, { recursive: true })
+        console.log(`[配置] 已刷新占位 Skill: ${entry.name}`)
       }
     }
   } catch (err) {

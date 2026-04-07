@@ -194,4 +194,16 @@ describe('AgentView embedding helpers', () => {
       mentionedMcpServers: ['docs'],
     })
   })
+
+  test('merges default mentioned skills into visible input parsing for ordinary sends', () => {
+    expect(prepareAgentSendPayload(
+      '请直接开始生成页面，并参考 /skill:docs',
+      undefined,
+      ['page-builder-guided-generation'],
+    )).toEqual({
+      userMessage: '请直接开始生成页面，并参考 /skill:docs',
+      mentionedSkills: ['docs', 'page-builder-guided-generation'],
+      mentionedMcpServers: [],
+    })
+  })
 })

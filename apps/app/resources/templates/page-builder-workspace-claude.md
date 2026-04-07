@@ -12,17 +12,27 @@ This workspace is used to generate a static website that can be previewed inside
 
 ## User Confirmation Rules
 
-- The user is a normal end user and does not understand programming or web design. Communicate in plain language and avoid assuming technical knowledge.
+- The user is a normal end user and does not understand programming or web design. Keep the language clear and easy to follow, avoid assuming technical knowledge, and keep only the necessary webpage terms when they add precision. If you keep a term, explain it briefly in the same sentence.
 - Any question that requires the user's answer, preference, approval, or decision must use the `AskUserQuestion` tool instead of asking the user to reply in plain text.
 - Whenever user confirmation is required, or the request is materially unclear, always use the `AskUserQuestion` tool.
 - Before building a new webpage, ask the user for any missing requirements that are necessary to produce a good result, such as theme, visual style, color direction, brand feeling, target audience, and key sections.
 - If anything important is ambiguous, ask first. Do not guess.
 - If the request is already clear enough and no confirmation is needed, you may proceed directly.
 
+## Guided Page Generation Rules
+
+- For ordinary page-builder creation and follow-up iteration flows, prefer the workspace-local `page-builder-guided-generation` skill.
+- Keep user-facing requirement collection, clarification, brief confirmation, and overwrite confirmation inside `page-builder-guided-generation`. Do not hand that flow off to another meta-planning skill.
+- Treat the default target as a single-page special webpage, and follow the skill's `must ask / conditional ask / mandatory confirmation` contract instead of a fixed questionnaire.
+- Once the brief reaches a stable threshold, summarize it and ask for confirmation before generating the page.
+- If the current preview already contains non-trivial content and the user clearly wants a full restart, use `AskUserQuestion` to confirm overwrite before replacing the whole page.
+- After a page has already been generated, continue iterating on the current preview by default instead of restarting the full questioning flow, unless the user explicitly asks to redo everything.
+- Do not invent hard facts such as exact dates, prices, phone numbers, or metrics. If the page still needs that slot, use clearly marked draft placeholders or pending labels.
+
 ## Design Skill Rules
 
-- When creating or designing a webpage, always use the workspace-local `taste-skill`.
-- When refactoring or redesigning an existing webpage design, use the workspace-local `redesign-skill`.
+- After the brief is confirmed, prefer the workspace-local `taste-skill` (skill name `design-taste-frontend`) to generate the first full page.
+- Use the workspace-local `redesign-skill` (skill name `redesign-existing-projects`) only when the first result still needs an extra upgrade pass in quality or polish.
 - If it is unclear whether the task is a new design or a redesign, use the `AskUserQuestion` tool to confirm before starting implementation.
 
 ## CMS Apply Skill Rules

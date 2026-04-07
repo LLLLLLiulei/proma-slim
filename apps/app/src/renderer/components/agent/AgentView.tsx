@@ -130,6 +130,7 @@ export interface AgentViewProps {
   showHeader?: boolean
   showComposerMeta?: boolean
   allowAttachments?: boolean
+  defaultMentionedSkills?: string[]
   initialUserMessage?: string | null
   onInitialUserMessageHandled?: () => void
   messageDecorator?: AgentMessageDecorator
@@ -182,14 +183,19 @@ export function resolveShouldAutoSendInitialMessage({
 export function prepareAgentSendPayload(
   userMessage: string,
   messageDecorator?: AgentMessageDecorator,
+  defaultMentionedSkills: string[] = [],
 ): PreparedAgentSendPayload {
   const composedUserMessage = messageDecorator ? messageDecorator(userMessage) : undefined
-  const mentionedSkills = [...userMessage.matchAll(/\/skill:(\S+)/g)]
+  const visibleMentionedSkills = [...userMessage.matchAll(/\/skill:(\S+)/g)]
     .map((match) => match[1])
     .filter(Boolean) as string[]
   const mentionedMcpServers = [...userMessage.matchAll(/#mcp:(\S+)/g)]
     .map((match) => match[1])
     .filter(Boolean) as string[]
+  const mentionedSkills = Array.from(new Set([
+    ...visibleMentionedSkills,
+    ...defaultMentionedSkills.filter(Boolean),
+  ]))
 
   return {
     userMessage,
@@ -234,6 +240,7 @@ export function AgentView({
   showHeader = true,
   showComposerMeta = true,
   allowAttachments = false,
+  defaultMentionedSkills = [],
   initialUserMessage = null,
   onInitialUserMessageHandled,
   messageDecorator,
@@ -498,7 +505,7 @@ export function AgentView({
   ])
 
   const sendDraftMessage = React.useCallback(async (nextUserMessage: string): Promise<boolean> => {
-    const payload = prepareAgentSendPayload(nextUserMessage.trim(), messageDecorator)
+    const payload = prepareAgentSendPayload(nextUserMessage.trim(), messageDecorator, defaultMentionedSkills)
     const result = await executeSend({
       userMessage: payload.userMessage,
       ...(payload.composedUserMessage ? { composedUserMessage: payload.composedUserMessage } : {}),
@@ -512,7 +519,7 @@ export function AgentView({
     })
 
     return result.ok
-  }, [executeSend, messageDecorator, pendingAttachments])
+  }, [defaultMentionedSkills, executeSend, messageDecorator, pendingAttachments])
 
   const handleSend = React.useCallback(async (): Promise<void> => {
     await sendDraftMessage(inputValue)

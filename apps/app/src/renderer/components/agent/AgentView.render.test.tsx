@@ -448,6 +448,163 @@ describe('AgentView rendering extension points', () => {
     expect(getLastPendingAttachments()).toHaveLength(1)
   })
 
+  test('auto-sends the initial page-builder prompt with default mentioned skills', async () => {
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: 'Page Builder Project',
+      slug: 'page-builder-project',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const { AgentView, sendMessage } = await loadAgentView()
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <HydrateAgentViewState sessions={[session]} workspaces={[workspace]}>
+            <AgentView
+              defaultMentionedSkills={['page-builder-guided-generation']}
+              initialUserMessage="生成一个企业官网"
+              sessionId={session.id}
+            />
+          </HydrateAgentViewState>
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(sendMessage).toHaveBeenCalledWith(session.id, expect.objectContaining({
+      userMessage: '生成一个企业官网',
+      mentionedSkills: ['page-builder-guided-generation'],
+      workspaceId: workspace.id,
+    }))
+  })
+
+  test('merges default mentioned skills into ordinary user sends', async () => {
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: 'Page Builder Project',
+      slug: 'page-builder-project',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const { AgentView, sendMessage, getLastRichTextInputProps } = await loadAgentView()
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <HydrateAgentViewState sessions={[session]} workspaces={[workspace]}>
+            <AgentView
+              defaultMentionedSkills={['page-builder-guided-generation']}
+              sessionId={session.id}
+            />
+          </HydrateAgentViewState>
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      getLastRichTextInputProps()?.onChange('把页面做得更年轻一些')
+    })
+    await act(async () => {
+      getLastRichTextInputProps()?.onSubmit()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(sendMessage).toHaveBeenCalledWith(session.id, expect.objectContaining({
+      userMessage: '把页面做得更年轻一些',
+      mentionedSkills: ['page-builder-guided-generation'],
+      workspaceId: workspace.id,
+    }))
+  })
+
+  test('does not append default mentioned skills to programmatic sends with explicit skill ownership', async () => {
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: 'Page Builder Project',
+      slug: 'page-builder-project',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const request: PageBuilderCmsAutoAgentHandoffRequest = {
+      requestId: 'handoff-guided-skip-1',
+      userMessage: '请根据刚确认的 CMS 选择结果，判断如何应用到当前区块。',
+      composedUserMessage: '<cms_binding_apply_input>{"version":1}</cms_binding_apply_input>',
+      mentionedSkills: ['cms-binding-apply'],
+    }
+    const { AgentView, sendMessage } = await loadAgentView()
+    const store = createStore()
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <Provider store={store}>
+          <HydrateAgentViewState sessions={[session]} workspaces={[workspace]}>
+            <AgentView
+              defaultMentionedSkills={['page-builder-guided-generation']}
+              programmaticSendRequest={null}
+              sessionId={session.id}
+            />
+          </HydrateAgentViewState>
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      renderer.update(
+        <Provider store={store}>
+          <HydrateAgentViewState sessions={[session]} workspaces={[workspace]}>
+            <AgentView
+              defaultMentionedSkills={['page-builder-guided-generation']}
+              programmaticSendRequest={request}
+              sessionId={session.id}
+            />
+          </HydrateAgentViewState>
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(sendMessage).toHaveBeenCalledWith(session.id, expect.objectContaining({
+      userMessage: request.userMessage,
+      mentionedSkills: ['cms-binding-apply'],
+      workspaceId: workspace.id,
+    }))
+  })
+
   test('programmatic send recovers from a stale client streaming flag after probing session activity', async () => {
     const workspace: AgentWorkspace = {
       id: 'workspace-1',

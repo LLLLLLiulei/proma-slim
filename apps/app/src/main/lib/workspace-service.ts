@@ -27,6 +27,7 @@ import {
   getAgentWorkspacesIndexPath,
   getDefaultSkillsDir,
   getInactiveSkillsDir,
+  isPlaceholderSkillDirectory,
   seedDefaultSkills,
   getWorkspaceMemoryDir,
   getWorkspaceMemoryFilePath,
@@ -219,6 +220,12 @@ function copyDefaultSkills(workspaceSlug: string): void {
       const target = join(targetDir, entry.name)
       if (!existsSync(target)) {
         cpSync(source, target, { recursive: true })
+        continue
+      }
+
+      if (isPlaceholderSkillDirectory(target)) {
+        rmSync(target, { recursive: true, force: true })
+        cpSync(source, target, { recursive: true })
       }
     }
   } catch {
@@ -230,6 +237,8 @@ function ensureWorkspaceTemplateArtifacts(workspace: AgentWorkspace): AgentWorks
   if (workspace.template === 'page-builder') {
     initializePageBuilderWorkspace(workspace.slug)
   }
+
+  copyDefaultSkills(workspace.slug)
 
   return workspace
 }
@@ -317,7 +326,6 @@ export function ensureDefaultWorkspace(): AgentWorkspace {
 
   ensureWorkspaceStructure(workspace.slug)
   ensureWorkspaceTemplateArtifacts(workspace)
-  copyDefaultSkills(workspace.slug)
   return workspace
 }
 
@@ -345,7 +353,6 @@ export function createAgentWorkspace(name: string, options?: CreateWorkspaceOpti
   writeIndex(index)
   ensureWorkspaceStructure(workspace.slug)
   ensureWorkspaceTemplateArtifacts(workspace)
-  copyDefaultSkills(workspace.slug)
   return workspace
 }
 

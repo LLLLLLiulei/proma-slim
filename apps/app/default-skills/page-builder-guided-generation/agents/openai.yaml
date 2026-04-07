@@ -1,0 +1,4 @@
+interface:
+  display_name: "Guided Page Builder"
+  short_description: "Guide normal users to build pages"
+  default_prompt: "Use $page-builder-guided-generation to guide a normal user from a vague idea to a finished single-page special webpage in page-builder."

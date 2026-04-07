@@ -71,6 +71,8 @@ type LoadState =
 
 type SelectionActionState = 'idle' | 'armed' | 'selected'
 
+const PAGE_BUILDER_GUIDED_GENERATION_SKILL = 'page-builder-guided-generation'
+
 export function BuilderPage({
   workspaceId,
   sessionId,
@@ -646,6 +648,7 @@ export function BuilderPage({
             <AgentView
               allowAttachments
               composerLeadingActions={composerLeadingActions}
+              defaultMentionedSkills={[PAGE_BUILDER_GUIDED_GENERATION_SKILL]}
               initialUserMessage={loadState.initialUserMessage}
               onMessageSent={handleMessageSent}
               onInitialUserMessageHandled={handleInitialUserMessageHandled}
