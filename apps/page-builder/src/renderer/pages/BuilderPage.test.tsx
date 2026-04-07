@@ -349,13 +349,20 @@ function HydrateBuilderPageState({
   return <>{children}</>
 }
 
+function setStreamingStatesForTest(
+  store: ReturnType<typeof createStore>,
+  states: Map<string, AgentStreamState>,
+): void {
+  ;(store as { set: (atom: unknown, value: unknown) => void }).set(agentStreamingStatesAtom, states)
+}
+
 afterEach(() => {
   mock.restore()
   Reflect.deleteProperty(globalThis, 'window')
 })
 
 describe('BuilderPage', () => {
-  test('registers a beforeunload guard that prevents accidental refresh or close on the builder page', async () => {
+  test('registers a beforeunload guard only while the agent is processing', async () => {
     const { dispatchWindowEvent, getListenerCount } = installWindowHarness()
     const workspace: AgentWorkspace = {
       id: 'workspace-1',
@@ -371,6 +378,7 @@ describe('BuilderPage', () => {
       createdAt: 1,
       updatedAt: 1,
     }
+    const store = createStore()
 
     const { BuilderPage } = await loadBuilderPage({
       sessions: [session],
@@ -380,10 +388,27 @@ describe('BuilderPage', () => {
     let renderer!: ReturnType<typeof create>
     await act(async () => {
       renderer = create(
-        <Provider store={createStore()}>
+        <Provider store={store}>
           <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
         </Provider>,
       )
+      await Promise.resolve()
+    })
+
+    expect(getListenerCount('beforeunload')).toBe(0)
+
+    const runningStreamState: AgentStreamState = {
+      running: true,
+      content: '',
+      toolActivities: [],
+      teammates: [],
+      startedAt: 1,
+    }
+
+    await act(async () => {
+      setStreamingStatesForTest(store, new Map([
+        [session.id, runningStreamState],
+      ]))
       await Promise.resolve()
     })
 
@@ -399,6 +424,23 @@ describe('BuilderPage', () => {
 
     expect(preventDefault).toHaveBeenCalledTimes(1)
     expect(event.returnValue).toBe('')
+
+    const idleStreamState: AgentStreamState = {
+      running: false,
+      content: '',
+      toolActivities: [],
+      teammates: [],
+      startedAt: 1,
+    }
+
+    await act(async () => {
+      setStreamingStatesForTest(store, new Map([
+        [session.id, idleStreamState],
+      ]))
+      await Promise.resolve()
+    })
+
+    expect(getListenerCount('beforeunload')).toBe(0)
 
     await act(async () => {
       renderer.unmount()
@@ -1196,6 +1238,93 @@ describe('BuilderPage', () => {
 
     expect(getLastPreviewPaneProps()).toMatchObject({
       selectionModeEnabled: false,
+    })
+    expect(getComposerActionLabel(getLastAgentViewProps())).toBe('选择进行编辑')
+    expect(getLastAgentViewProps()).not.toHaveProperty('messageDecorator')
+  })
+
+  test('keeps the selected block after sending a micro-adjustment message until preview refresh completes', async () => {
+    const { runIntervalsOnce } = installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const { BuilderPage, getLastAgentViewProps, getLastPreviewPaneProps } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      mockPreviewPane: true,
+      previewStates: [
+        {
+          hasPreview: true,
+          entryUrl: `/api/workspaces/${workspace.id}/preview/`,
+          revision: 'rev-1',
+        },
+        {
+          hasPreview: true,
+          entryUrl: `/api/workspaces/${workspace.id}/preview/`,
+          revision: 'rev-2',
+        },
+      ],
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      getComposerActionElement(getLastAgentViewProps())?.props.onClick()
+    })
+    await act(async () => {
+      (getLastPreviewPaneProps() as {
+        onSelectionEvent?: (event: { type: string; selector?: string }) => void
+      }).onSelectionEvent?.({
+        type: 'selected',
+        selector: '#hero-banner',
+      })
+    })
+
+    expect(getComposerActionLabel(getLastAgentViewProps())).toBe('已选区域')
+
+    await act(async () => {
+      (getLastAgentViewProps() as {
+        onMessageSent?: (userMessage: string) => void
+      }).onMessageSent?.('帮我微调这个区块')
+    })
+
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      selectionModeEnabled: true,
+      previewUrl: `/api/workspaces/${workspace.id}/preview/?v=rev-1`,
+    })
+    expect(getComposerActionLabel(getLastAgentViewProps())).toBe('已选区域')
+    expect((getLastAgentViewProps() as {
+      messageDecorator?: (message: string) => string
+    }).messageDecorator?.('帮我微调这个区块')).toContain('#hero-banner')
+
+    await act(async () => {
+      await runIntervalsOnce()
+    })
+
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      selectionModeEnabled: false,
+      previewUrl: `/api/workspaces/${workspace.id}/preview/?v=rev-2`,
     })
     expect(getComposerActionLabel(getLastAgentViewProps())).toBe('选择进行编辑')
     expect(getLastAgentViewProps()).not.toHaveProperty('messageDecorator')

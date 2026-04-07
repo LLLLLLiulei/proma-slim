@@ -209,7 +209,7 @@ export function BuilderPage({
   }, [workspaceId])
 
   React.useEffect(() => {
-    if (typeof window === 'undefined') return
+    if (!isAgentStreaming || typeof window === 'undefined') return
 
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault()
@@ -218,7 +218,7 @@ export function BuilderPage({
 
     window.addEventListener('beforeunload', handleBeforeUnload)
     return () => window.removeEventListener('beforeunload', handleBeforeUnload)
-  }, [])
+  }, [isAgentStreaming])
 
   React.useEffect(() => {
     if (loadState.status !== 'ready' || typeof window === 'undefined') return
@@ -478,8 +478,7 @@ export function BuilderPage({
 
   const handleMessageSent = React.useCallback(() => {
     if (selectionActionState === 'idle') return
-    clearSelection()
-  }, [clearSelection, selectionActionState])
+  }, [selectionActionState])
 
   const handleSplitPointerDown = React.useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return

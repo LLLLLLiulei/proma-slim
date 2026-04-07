@@ -244,7 +244,7 @@ describe('AgentMessages transient assistant rendering', () => {
     )
 
     expect(markup).toContain('这是正在流式输出的部分内容。')
-    expect(markup).toContain('正在输出...')
+    expect(markup).toContain('正在处理...')
   })
 
   test('reuses the latest persisted assistant model for the transient streaming header before model_resolved arrives', () => {

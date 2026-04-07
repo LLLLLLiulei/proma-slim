@@ -203,6 +203,49 @@ describe('AgentView rendering extension points', () => {
     expect(attachmentButton.props.disabled).toBe(true)
   })
 
+  test('keeps the composer streaming copy while streaming', async () => {
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: 'Page Builder Project',
+      slug: 'page-builder-project',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const streamingStates = new Map<string, AgentStreamState>([
+      [session.id, { running: true, content: '', toolActivities: [], teammates: [], startedAt: 1 }],
+    ])
+
+    const { AgentView } = await loadAgentView()
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <Provider store={createStore()}>
+          <HydrateAgentViewState
+            sessions={[session]}
+            streamingStates={streamingStates}
+            workspaces={[workspace]}
+          >
+            <AgentView sessionId={session.id} />
+          </HydrateAgentViewState>
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    const json = JSON.stringify(renderer.toJSON())
+    expect(json).toContain('正在流式输出，输入框已锁定。')
+  })
+
   test('renders custom leading composer actions without replacing the shared composer shell', async () => {
     const workspace: AgentWorkspace = {
       id: 'workspace-1',

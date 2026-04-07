@@ -646,7 +646,7 @@ export function AgentMessages({ sessionId, messages, streaming, streamState, onR
   })
   const shouldShowTransientShell = streaming || shouldShowTransientToolBlock || Boolean(retrying) || Boolean(statusNotice) || shouldShowTransientAssistant
   const loadingLabel = shouldShowTransientAssistant
-    ? '正在输出...'
+    ? '正在处理...'
     : toolActivities.length > 0
       ? '正在执行工具...'
       : '正在思考...'
