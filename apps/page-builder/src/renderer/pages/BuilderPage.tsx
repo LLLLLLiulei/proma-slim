@@ -11,6 +11,7 @@ import type {
   PageBuilderImageReplacementPayload,
   PageBuilderInlineTextSaveRequest,
   PageBuilderInlineTextSaveResult,
+  PageBuilderStaticExportJob,
 } from '@proma/shared'
 import { AgentView } from '@/components/agent'
 import {
@@ -85,6 +86,7 @@ export function BuilderPage({
   const hydratedPreviewWorkspaceRef = React.useRef(workspaceId)
   const pendingImageReplacementRef = React.useRef<PageBuilderImageReplacementPayload | null>(null)
   const suppressedInlinePreviewRevisionsRef = React.useRef<Set<string>>(new Set())
+  const handledStaticExportJobsRef = React.useRef<Set<string>>(new Set())
   const setSessions = useSetAtom(agentSessionsAtom)
   const setWorkspaces = useSetAtom(agentWorkspacesAtom)
   const setCurrentSessionId = useSetAtom(currentAgentSessionIdAtom)
@@ -109,6 +111,7 @@ export function BuilderPage({
   const [cmsAutoHandoffRequest, setCmsAutoHandoffRequest] = React.useState<PageBuilderCmsAutoAgentHandoffRequest | null>(null)
   const [isDeletingBlock, setIsDeletingBlock] = React.useState(false)
   const [isReplacingImage, setIsReplacingImage] = React.useState(false)
+  const [staticExportJob, setStaticExportJob] = React.useState<PageBuilderStaticExportJob | null>(null)
   const selectionModeEnabled = selectionActionState !== 'idle'
   const isAgentStreaming = streamingState?.running === true
 
@@ -206,6 +209,7 @@ export function BuilderPage({
     }
 
     setPreviewState(readWorkspacePreviewState(window.sessionStorage, workspaceId))
+    setStaticExportJob(null)
   }, [workspaceId])
 
   React.useEffect(() => {
@@ -319,6 +323,84 @@ export function BuilderPage({
       areWorkspacePreviewStatesEqual(previous, nextState) ? previous : nextState
     ))
   }, [workspaceId])
+
+  const handleStaticExportSettled = React.useCallback((job: PageBuilderStaticExportJob) => {
+    if (handledStaticExportJobsRef.current.has(job.jobId)) {
+      return
+    }
+
+    if (job.status === 'pending' || job.status === 'running') {
+      return
+    }
+
+    handledStaticExportJobsRef.current.add(job.jobId)
+
+    if (job.status === 'failed') {
+      toast.error(job.errorMessage ?? '静态包导出失败')
+      return
+    }
+
+    const downloadUrl = job.downloadUrl ?? api.getPageBuilderStaticExportDownloadUrl(workspaceId, job.jobId)
+    window.open(downloadUrl, '_blank', 'noopener,noreferrer')
+
+    if (job.reportSummary?.hasWarnings) {
+      toast.success('静态包导出完成，但存在离线告警，请查看导出报告')
+      return
+    }
+
+    toast.success('静态包导出成功')
+  }, [workspaceId])
+
+  const handleRequestExportStatic = React.useCallback(async (): Promise<void> => {
+    if (!previewState?.hasPreview) {
+      return
+    }
+
+    if (staticExportJob && (staticExportJob.status === 'pending' || staticExportJob.status === 'running')) {
+      return
+    }
+
+    try {
+      const job = await api.createPageBuilderStaticExportJob(workspaceId)
+      setStaticExportJob(job)
+      handleStaticExportSettled(job)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '静态包导出失败'
+      console.error('[BuilderPage] 静态包导出失败:', error)
+      toast.error(message)
+    }
+  }, [handleStaticExportSettled, previewState?.hasPreview, staticExportJob, workspaceId])
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (!staticExportJob || (staticExportJob.status !== 'pending' && staticExportJob.status !== 'running')) {
+      return
+    }
+
+    let cancelled = false
+    const pollExportJob = async () => {
+      try {
+        const nextJob = await api.getPageBuilderStaticExportJob(workspaceId, staticExportJob.jobId)
+        if (cancelled) return
+
+        setStaticExportJob(nextJob)
+        handleStaticExportSettled(nextJob)
+      } catch (error) {
+        if (!cancelled) {
+          console.error('[BuilderPage] 读取静态导出任务失败:', error)
+        }
+      }
+    }
+
+    const intervalId = window.setInterval(() => {
+      void pollExportJob()
+    }, BUILDER_PREVIEW_POLL_INTERVAL_MS)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(intervalId)
+    }
+  }, [handleStaticExportSettled, staticExportJob, workspaceId])
 
   const handleRequestReplaceImage = React.useCallback((request: PageBuilderImageReplacementPayload) => {
     pendingImageReplacementRef.current = request
@@ -514,6 +596,7 @@ export function BuilderPage({
     () => resolveWorkspacePreviewUrl(previewState),
     [previewState],
   )
+  const exportStaticPending = staticExportJob?.status === 'pending' || staticExportJob?.status === 'running'
   React.useEffect(() => {
     clearSelection()
   }, [clearSelection, previewUrl])
@@ -616,9 +699,11 @@ export function BuilderPage({
         style={desktopGridStyle}
       >
         <PreviewPane
+          exportStaticPending={exportStaticPending}
           imageReplacementPending={isReplacingImage}
           onInlineTextSaveRequest={handleInlineTextSaveRequest}
           onRequestDeleteBlock={handleRequestDeleteBlock}
+          onRequestExportStatic={handleRequestExportStatic}
           onRequestOpenCmsBrowser={() => setCmsBrowserOpen(true)}
           onRequestReplaceImage={handleRequestReplaceImage}
           onSelectionEvent={handleSelectionEvent}

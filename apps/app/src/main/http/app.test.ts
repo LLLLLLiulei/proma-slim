@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
+import { strFromU8, unzipSync } from 'fflate'
 import { PAGE_BUILDER_PREVIEW_BRIDGE_SOURCE } from '@proma/shared'
 import { getSettings, updateSettings } from '../lib/settings-service'
 import { getUserProfile, updateUserProfile } from '../lib/user-profile-service'
@@ -19,6 +20,33 @@ function createApp() {
     distDir: process.cwd(),
     isDev: true,
   })
+}
+
+async function waitForCompletedStaticExportJob(
+  app: ReturnType<typeof createApp>,
+  workspaceId: string,
+  jobId: string,
+): Promise<{
+  status: string
+  downloadUrl?: string | null
+}> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const response = await app.fetch(new Request(`http://localhost/api/workspaces/${workspaceId}/page-builder/export-static-jobs/${jobId}`))
+    expect(response.status).toBe(200)
+
+    const payload = await response.json() as {
+      status: string
+      downloadUrl?: string | null
+    }
+    if (payload.status === 'completed' || payload.status === 'failed') {
+      return payload
+    }
+
+    await Promise.resolve()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  }
+
+  throw new Error(`等待导出任务超时: ${jobId}`)
 }
 
 describe('createHttpApp', () => {
@@ -457,6 +485,66 @@ describe('createHttpApp', () => {
     expect(updatedHtml).not.toContain('id="hero"')
     expect(updatedHtml).toContain('id="features"')
     expect(updatedHtml).toContain('保留内容')
+  })
+
+  test('workspace routes create static export jobs, expose status, and allow downloading the completed package', async () => {
+    const app = createApp()
+    const workspace = createAgentWorkspace('Builder Export', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+
+    mkdirSync(join(workspaceFilesDir, 'assets'), { recursive: true })
+    writeFileSync(
+      join(workspaceFilesDir, 'index.html'),
+      '<!doctype html><html><head><link rel="stylesheet" href="./assets/site.css"></head><body><img src="./assets/hero.png"><h1>导出预览</h1></body></html>',
+      'utf-8',
+    )
+    writeFileSync(join(workspaceFilesDir, 'assets', 'site.css'), 'body { color: red; }', 'utf-8')
+    writeFileSync(join(workspaceFilesDir, 'assets', 'hero.png'), 'hero-image', 'utf-8')
+
+    const createResponse = await app.fetch(new Request(`http://localhost/api/workspaces/${workspace.id}/page-builder/export-static-jobs`, {
+      method: 'POST',
+    }))
+
+    expect(createResponse.status).toBe(202)
+    const createdJob = await createResponse.json() as {
+      jobId: string
+      status: string
+    }
+    expect(createdJob.status === 'pending' || createdJob.status === 'running').toBe(true)
+
+    const finishedJob = await waitForCompletedStaticExportJob(app, workspace.id, createdJob.jobId)
+    expect(finishedJob.status).toBe('completed')
+    expect(finishedJob.downloadUrl).toBe(`/api/workspaces/${workspace.id}/page-builder/export-static-jobs/${createdJob.jobId}/download`)
+
+    const downloadResponse = await app.fetch(new Request(`http://localhost${finishedJob.downloadUrl}`))
+    expect(downloadResponse.status).toBe(200)
+    expect(downloadResponse.headers.get('content-type')).toContain('application/zip')
+    expect(downloadResponse.headers.get('content-disposition')).toContain('attachment;')
+    expect(downloadResponse.headers.get('content-disposition')).toMatch(/filename\*=UTF-8''Builder%20Export-\d{14}\.zip/)
+
+    const archiveEntries = unzipSync(new Uint8Array(await downloadResponse.arrayBuffer()))
+    expect(strFromU8(archiveEntries['index.html']!)).toContain('<h1>导出预览</h1>')
+    expect(strFromU8(archiveEntries['assets/site.css']!)).toContain('color: red')
+    const report = JSON.parse(strFromU8(archiveEntries['export-report.json']!)) as {
+      entryFile: string
+      summary: {
+        localizedResourceCount: number
+      }
+    }
+    expect(report.entryFile).toBe('index.html')
+    expect(report.summary.localizedResourceCount).toBe(0)
+  })
+
+  test('workspace routes reject static export creation when workspace-files/index.html is missing', async () => {
+    const app = createApp()
+    const workspace = createAgentWorkspace('Builder Export Missing Entry', { template: 'page-builder' })
+
+    const response = await app.fetch(new Request(`http://localhost/api/workspaces/${workspace.id}/page-builder/export-static-jobs`, {
+      method: 'POST',
+    }))
+
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({ error: '当前项目没有可导出的页面产物' })
   })
 
   test('page-builder routes serve the external preview bridge asset', async () => {

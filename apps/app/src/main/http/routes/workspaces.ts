@@ -27,6 +27,10 @@ import {
   savePageBuilderInlineText,
 } from '../../lib/page-builder-inline-text-service'
 import { PageBuilderImageReplacementError, savePageBuilderImageReplacement } from '../../lib/page-builder-image-replacement-service'
+import {
+  PageBuilderStaticExportServiceError,
+  pageBuilderStaticExportService,
+} from '../../lib/page-builder-static-export-service'
 import { listAgentSessions } from '../../lib/agent-session-manager'
 import { HttpError } from '../errors'
 import { json, noContent, readJsonBody } from '../responses'
@@ -169,6 +173,38 @@ workspaceRoutes.post('/:workspaceId/page-builder/image', async (c) => {
   }
 })
 
+workspaceRoutes.post('/:workspaceId/page-builder/export-static-jobs', (c) => {
+  try {
+    return json(pageBuilderStaticExportService.createJob(c.var.workspace), 202)
+  } catch (error) {
+    throw mapStaticExportServiceError(error)
+  }
+})
+
+workspaceRoutes.get('/:workspaceId/page-builder/export-static-jobs/:jobId', (c) => {
+  const job = pageBuilderStaticExportService.getJob(c.var.workspace.id, c.req.param('jobId'))
+  if (!job) {
+    throw new HttpError(404, '导出任务不存在')
+  }
+
+  return json(job)
+})
+
+workspaceRoutes.get('/:workspaceId/page-builder/export-static-jobs/:jobId/download', (c) => {
+  try {
+    const artifact = pageBuilderStaticExportService.resolveDownload(c.var.workspace.id, c.req.param('jobId'))
+    return new Response(Bun.file(artifact.filePath), {
+      headers: {
+        'cache-control': 'private, no-store',
+        'content-disposition': `attachment; filename="${artifact.fallbackFileName}"; filename*=UTF-8''${encodeURIComponent(artifact.fileName)}`,
+        'content-type': 'application/zip',
+      },
+    })
+  } catch (error) {
+    throw mapStaticExportServiceError(error)
+  }
+})
+
 const handleWorkspacePreview = (c: { req: { raw: Request }; var: { workspace: HttpAppEnv['Variables']['workspace'] } }) => {
   const url = new URL(c.req.raw.url)
   const requestPath = getWorkspacePreviewRequestPath(c.req.raw.url, c.var.workspace.id)
@@ -280,4 +316,20 @@ function readPageBuilderImageReplacementPayload(
     selector: value.selector,
     imageTargetDescriptor: value.imageTargetDescriptor,
   }
+}
+
+function mapStaticExportServiceError(error: unknown): Error {
+  if (error instanceof HttpError) {
+    return error
+  }
+
+  if (error instanceof PageBuilderStaticExportServiceError) {
+    if (error.code === 'entry-missing' || error.code === 'job-missing') {
+      return new HttpError(404, error.message)
+    }
+
+    return new HttpError(409, error.message)
+  }
+
+  return error instanceof Error ? error : new Error(String(error))
 }

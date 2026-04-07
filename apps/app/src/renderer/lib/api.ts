@@ -14,6 +14,7 @@ import type {
   PageBuilderImageReplacementPayload,
   PageBuilderInlineTextSavePayload,
   PageBuilderProjectSummary,
+  PageBuilderStaticExportJob,
   PermissionResponse,
   RuntimeStatus,
   WorkspaceCapabilities,
@@ -306,6 +307,23 @@ export const api = {
       method: 'POST',
       body: buildPageBuilderImageReplacementBody(payload),
     })
+  },
+
+  createPageBuilderStaticExportJob(workspaceId: string): Promise<PageBuilderStaticExportJob> {
+    return request<PageBuilderStaticExportJob>(`/api/workspaces/${encodeURIComponent(workspaceId)}/page-builder/export-static-jobs`, {
+      method: 'POST',
+    })
+  },
+
+  getPageBuilderStaticExportJob(
+    workspaceId: string,
+    jobId: string,
+  ): Promise<PageBuilderStaticExportJob> {
+    return request<PageBuilderStaticExportJob>(`/api/workspaces/${encodeURIComponent(workspaceId)}/page-builder/export-static-jobs/${encodeURIComponent(jobId)}`)
+  },
+
+  getPageBuilderStaticExportDownloadUrl(workspaceId: string, jobId: string): string {
+    return `/api/workspaces/${encodeURIComponent(workspaceId)}/page-builder/export-static-jobs/${encodeURIComponent(jobId)}/download`
   },
 
   searchWorkspaceFiles(

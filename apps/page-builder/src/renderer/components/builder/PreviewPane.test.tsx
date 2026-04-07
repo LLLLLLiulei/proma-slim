@@ -16,7 +16,7 @@ afterEach(() => {
 })
 
 describe('PreviewPane', () => {
-  test('renders a compact toolbar with refresh, fullscreen, and new-window controls', async () => {
+  test('renders a compact toolbar with export, refresh, fullscreen, and new-window controls', async () => {
     const { PreviewPane } = await loadPreviewPane()
     const renderer = create(<PreviewPane previewUrl="https://example.com/preview" />)
 
@@ -27,16 +27,37 @@ describe('PreviewPane', () => {
       && node.props.className.includes('border-b border-border/70')
     )
     const buttons = renderer.root.findAllByType('button')
+    const exportButton = buttons[0]!
     const json = JSON.stringify(renderer.toJSON())
 
     expect(toolbar.props.className).toContain('h-11')
     expect(buttons.map((button) => button.props['aria-label'])).toEqual([
+      '导出静态包',
       '刷新预览',
       '全屏预览',
       '新窗口打开预览',
     ])
     expect(json).toContain('实时预览')
+    expect(exportButton.props.className).toContain('size-8')
+    expect(exportButton.children.some((child: unknown) => typeof child === 'string')).toBe(false)
     expect(json).not.toContain('第一阶段使用精简 iframe 容器承载页面预览。')
+  })
+
+  test('shows a loading state on the export button while the static export job is running', async () => {
+    const { PreviewPane } = await loadPreviewPane()
+    const renderer = create(
+      <PreviewPane
+        exportStaticPending={true}
+        previewUrl="https://example.com/preview"
+      />,
+    )
+
+    const exportButton = renderer.root.findAllByType('button')[0]!
+    const spinnerIcon = exportButton.findByType('svg')
+    expect(exportButton.children.some((child: unknown) => typeof child === 'string')).toBe(false)
+    expect(exportButton.props.disabled).toBe(true)
+    expect(exportButton.props['aria-busy']).toBe(true)
+    expect(spinnerIcon.props.className).toContain('animate-spin')
   })
 
   test('renders the preview iframe with a restricted sandbox and falls back to an empty state when no preview is available', async () => {
@@ -66,7 +87,7 @@ describe('PreviewPane', () => {
     const renderer = create(<PreviewPane previewUrl="https://example.com/preview?v=rev-1" />)
 
     await act(async () => {
-      renderer.root.findAllByType('button')[2]!.props.onClick()
+      renderer.root.findAllByType('button').find((button) => button.props['aria-label'] === '新窗口打开预览')!.props.onClick()
     })
 
     expect(open).toHaveBeenCalledWith(

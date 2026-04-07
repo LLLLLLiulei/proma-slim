@@ -645,4 +645,83 @@ describe('renderer api wrappers', () => {
 
     expect(session.workspaceId).toBe('workspace-2')
   })
+
+  test('createPageBuilderStaticExportJob POSTs the export creation endpoint', async () => {
+    const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe('/api/workspaces/workspace-1/page-builder/export-static-jobs')
+      expect(init?.method).toBe('POST')
+      return jsonResponse({
+        jobId: 'job-1',
+        status: 'running',
+        phase: 'copying',
+        createdAt: '2026-04-07T10:00:00.000Z',
+        updatedAt: '2026-04-07T10:00:00.000Z',
+        expiresAt: '2026-04-07T11:00:00.000Z',
+        downloadUrl: null,
+        errorMessage: null,
+        reportSummary: null,
+      })
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const { api } = await import('./api')
+    const result = await (api as unknown as {
+      createPageBuilderStaticExportJob: (workspaceId: string) => Promise<{ jobId: string; phase: string }>
+    }).createPageBuilderStaticExportJob('workspace-1')
+
+    expect(result).toEqual(expect.objectContaining({
+      jobId: 'job-1',
+      phase: 'copying',
+    }))
+  })
+
+  test('getPageBuilderStaticExportJob requests the export status endpoint', async () => {
+    const fetchMock = mock(async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe('/api/workspaces/workspace-1/page-builder/export-static-jobs/job-1')
+      return jsonResponse({
+        jobId: 'job-1',
+        status: 'completed',
+        phase: 'completed',
+        createdAt: '2026-04-07T10:00:00.000Z',
+        updatedAt: '2026-04-07T10:00:02.000Z',
+        expiresAt: '2026-04-07T11:00:00.000Z',
+        downloadUrl: '/api/workspaces/workspace-1/page-builder/export-static-jobs/job-1/download',
+        errorMessage: null,
+        reportSummary: {
+          localizedResourceCount: 3,
+          retainedExternalLinkCount: 0,
+          warningCount: 0,
+          unsupportedRuntimeDependencyCount: 0,
+          failureCount: 0,
+          hasWarnings: false,
+        },
+      })
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const { api } = await import('./api')
+    const result = await (api as unknown as {
+      getPageBuilderStaticExportJob: (workspaceId: string, jobId: string) => Promise<{ status: string; downloadUrl: string | null }>
+    }).getPageBuilderStaticExportJob('workspace-1', 'job-1')
+
+    expect(result).toEqual(expect.objectContaining({
+      status: 'completed',
+      downloadUrl: '/api/workspaces/workspace-1/page-builder/export-static-jobs/job-1/download',
+    }))
+  })
+
+  test('getPageBuilderStaticExportDownloadUrl builds the direct download endpoint without issuing a fetch', async () => {
+    const fetchMock = mock(async () => {
+      throw new Error('should not fetch')
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const { api } = await import('./api')
+    const url = (api as unknown as {
+      getPageBuilderStaticExportDownloadUrl: (workspaceId: string, jobId: string) => string
+    }).getPageBuilderStaticExportDownloadUrl('workspace-1', 'job-1')
+
+    expect(url).toBe('/api/workspaces/workspace-1/page-builder/export-static-jobs/job-1/download')
+    expect(fetchMock).toHaveBeenCalledTimes(0)
+  })
 })

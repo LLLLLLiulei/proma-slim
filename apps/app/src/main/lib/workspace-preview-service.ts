@@ -10,6 +10,15 @@ import {
   shouldInjectPageBuilderPreviewBridge,
 } from './page-builder-preview-bridge'
 import { resolvePageBuilderCmsConfig } from './page-builder-cms-config'
+import {
+  PAGE_BUILDER_HTML_SRCSET_ATTRIBUTES,
+  PAGE_BUILDER_HTML_URL_ATTRIBUTES,
+  isAllowedCmsAssetUrl,
+  resolveCmsAssetUrl,
+  rewriteCssUrlFunctions,
+  rewriteSrcsetValue,
+  shouldRewritePreviewAttributeUrl,
+} from './page-builder-asset-reference-utils'
 
 export interface WorkspacePreviewState {
   hasPreview: boolean
@@ -20,21 +29,6 @@ export interface WorkspacePreviewState {
 interface CreateWorkspacePreviewResponseOptions {
   enablePageBuilderBridge?: boolean
 }
-
-const CMS_URL_ATTRIBUTES = [
-  'src',
-  'href',
-  'poster',
-  'data-src',
-  'data-href',
-  'data-url',
-  'data-poster',
-] as const
-
-const CMS_SRCSET_ATTRIBUTES = [
-  'srcset',
-  'data-srcset',
-] as const
 
 function getWorkspacePreviewRoot(workspace: AgentWorkspace): string {
   return getWorkspaceFilesDir(workspace.slug)
@@ -72,7 +66,12 @@ function collectRevisionEntries(dir: string, rootDir: string, entries: string[])
 
     if (!child.isFile()) continue
 
-    const stat = statSync(fullPath)
+    let stat: ReturnType<typeof statSync>
+    try {
+      stat = statSync(fullPath)
+    } catch {
+      continue
+    }
     const relativePath = fullPath.slice(rootDir.length + 1)
     entries.push(`${relativePath}:${stat.size}:${stat.mtimeMs}`)
   }
@@ -122,155 +121,13 @@ function buildCmsAssetProxyUrl(assetUrl: string): string {
   return `/api/page-builder/cms/assets?url=${encodeURIComponent(assetUrl)}`
 }
 
-function isAbsoluteHttpUrl(value: string): boolean {
-  return /^https?:\/\//i.test(value)
-}
-
-function isCmsRootRelativeAssetPath(baseUrl: string, assetUrl: string): boolean {
-  if (!assetUrl.startsWith('/')) {
-    return false
-  }
-
-  try {
-    const base = new URL(baseUrl)
-    const basePath = base.pathname.replace(/\/+$/, '')
-    return assetUrl.startsWith('/preview/')
-      || assetUrl.startsWith('/upload/')
-      || assetUrl.startsWith('/resources/')
-      || (basePath ? assetUrl.startsWith(`${basePath}/preview/`) : false)
-      || (basePath ? assetUrl.startsWith(`${basePath}/upload/`) : false)
-      || (basePath ? assetUrl.startsWith(`${basePath}/resources/`) : false)
-  } catch {
-    return false
-  }
-}
-
-function looksLikeCmsDownloadableAsset(assetUrl: string): boolean {
-  const normalized = assetUrl.toLowerCase()
-
-  if (normalized.includes('/upload/resources/') || normalized.includes('/preview/')) {
-    return true
-  }
-
-  return /\.(png|jpe?g|gif|webp|svg|ico|bmp|avif|mp4|webm|ogg|mp3|wav|m4a|flac|aac|pdf|docx?|xlsx?|pptx?|zip|rar|7z|txt)(?:[?#].*)?$/i.test(normalized)
-}
-
-function shouldRewriteAttributeUrl(element: Element, attribute: string, rawValue: string): boolean {
-  const tagName = element.tagName.toLowerCase()
-  const normalizedAttribute = attribute.toLowerCase()
-
-  if (!rawValue.trim()) {
-    return false
-  }
-
-  if (normalizedAttribute === 'href') {
-    if (tagName === 'link') {
-      return false
-    }
-
-    if (tagName === 'a') {
-      return looksLikeCmsDownloadableAsset(rawValue)
-    }
-  }
-
-  if (normalizedAttribute === 'poster') {
-    return true
-  }
-
-  if (normalizedAttribute === 'src') {
-    return ['img', 'audio', 'video', 'source'].includes(tagName)
-      || tagName.startsWith('amp-img')
-  }
-
-  if (normalizedAttribute === 'srcset') {
-    return ['img', 'source'].includes(tagName)
-  }
-
-  if (normalizedAttribute.startsWith('data-')) {
-    return looksLikeCmsDownloadableAsset(rawValue)
-  }
-
-  return false
-}
-
-function resolveCmsAssetUrlForPreview(baseUrl: string, assetUrl: string): string | null {
-  const trimmed = assetUrl.trim()
-  if (!trimmed) {
-    return null
-  }
-
-  try {
-    const proxyCandidate = new URL(trimmed, 'http://localhost')
-    if (proxyCandidate.pathname === '/api/page-builder/cms/assets') {
-      return null
-    }
-  } catch {
-    return null
-  }
-
-  try {
-    if (!isAbsoluteHttpUrl(trimmed) && !isCmsRootRelativeAssetPath(baseUrl, trimmed)) {
-      return null
-    }
-
-    const base = new URL(baseUrl)
-    if (trimmed.startsWith('/')) {
-      const basePath = base.pathname.replace(/\/+$/, '')
-      return `${base.origin}${basePath}${trimmed}`
-    }
-
-    return new URL(trimmed, base).toString()
-  } catch {
-    return null
-  }
-}
-
-function isAllowedCmsAssetUrl(baseUrl: string, assetUrl: string): boolean {
-  try {
-    const base = new URL(baseUrl)
-    const candidate = new URL(assetUrl)
-    return base.origin === candidate.origin
-  } catch {
-    return false
-  }
-}
-
 function rewriteCmsAssetUrl(baseUrl: string, rawValue: string): string {
-  const resolved = resolveCmsAssetUrlForPreview(baseUrl, rawValue)
+  const resolved = resolveCmsAssetUrl(baseUrl, rawValue)
   if (!resolved || !isAllowedCmsAssetUrl(baseUrl, resolved)) {
     return rawValue
   }
 
   return buildCmsAssetProxyUrl(resolved)
-}
-
-function rewriteSrcsetValue(baseUrl: string, srcset: string): string {
-  return srcset
-    .split(',')
-    .map((candidate) => {
-      const trimmed = candidate.trim()
-      if (!trimmed) {
-        return trimmed
-      }
-
-      const segments = trimmed.split(/\s+/)
-      const [rawUrl, ...descriptors] = segments
-      const nextUrl = rawUrl ? rewriteCmsAssetUrl(baseUrl, rawUrl) : rawUrl
-      return [nextUrl, ...descriptors].filter(Boolean).join(' ')
-    })
-    .join(', ')
-}
-
-function rewriteCssUrlFunctions(baseUrl: string, cssValue: string): string {
-  return cssValue.replace(/url\(\s*(['"]?)(.*?)\1\s*\)/gi, (match, quote: string, rawUrl: string) => {
-    const rewrittenUrl = rewriteCmsAssetUrl(baseUrl, rawUrl)
-    if (rewrittenUrl === rawUrl) {
-      return match
-    }
-
-    const nextQuote = quote || '"'
-    return `url(${nextQuote}${rewrittenUrl}${nextQuote})`
-  })
 }
 
 function rewritePreviewHtmlCmsAssetUrls(sourceHtml: string): string {
@@ -283,13 +140,13 @@ function rewritePreviewHtmlCmsAssetUrls(sourceHtml: string): string {
   let changed = false
 
   for (const element of Array.from(document.querySelectorAll('*'))) {
-    for (const attribute of CMS_URL_ATTRIBUTES) {
+    for (const attribute of PAGE_BUILDER_HTML_URL_ATTRIBUTES) {
       const currentValue = element.getAttribute(attribute)
       if (!currentValue) {
         continue
       }
 
-      if (!shouldRewriteAttributeUrl(element, attribute, currentValue)) {
+      if (!shouldRewritePreviewAttributeUrl(element, attribute, currentValue)) {
         continue
       }
 
@@ -300,17 +157,17 @@ function rewritePreviewHtmlCmsAssetUrls(sourceHtml: string): string {
       }
     }
 
-    for (const attribute of CMS_SRCSET_ATTRIBUTES) {
+    for (const attribute of PAGE_BUILDER_HTML_SRCSET_ATTRIBUTES) {
       const currentValue = element.getAttribute(attribute)
       if (!currentValue) {
         continue
       }
 
-      if (!shouldRewriteAttributeUrl(element, attribute, currentValue)) {
+      if (!shouldRewritePreviewAttributeUrl(element, attribute, currentValue)) {
         continue
       }
 
-      const nextValue = rewriteSrcsetValue(cmsConfig.baseUrl, currentValue)
+      const nextValue = rewriteSrcsetValue(currentValue, (rawUrl) => rewriteCmsAssetUrl(cmsConfig.baseUrl, rawUrl))
       if (nextValue !== currentValue) {
         element.setAttribute(attribute, nextValue)
         changed = true
@@ -319,7 +176,7 @@ function rewritePreviewHtmlCmsAssetUrls(sourceHtml: string): string {
 
     const styleValue = element.getAttribute('style')
     if (styleValue) {
-      const nextStyleValue = rewriteCssUrlFunctions(cmsConfig.baseUrl, styleValue)
+      const nextStyleValue = rewriteCssUrlFunctions(styleValue, (rawUrl) => rewriteCmsAssetUrl(cmsConfig.baseUrl, rawUrl))
       if (nextStyleValue !== styleValue) {
         element.setAttribute('style', nextStyleValue)
         changed = true
@@ -333,7 +190,7 @@ function rewritePreviewHtmlCmsAssetUrls(sourceHtml: string): string {
       continue
     }
 
-    const nextCssText = rewriteCssUrlFunctions(cmsConfig.baseUrl, currentCssText)
+    const nextCssText = rewriteCssUrlFunctions(currentCssText, (rawUrl) => rewriteCmsAssetUrl(cmsConfig.baseUrl, rawUrl))
     if (nextCssText !== currentCssText) {
       styleElement.textContent = nextCssText
       changed = true

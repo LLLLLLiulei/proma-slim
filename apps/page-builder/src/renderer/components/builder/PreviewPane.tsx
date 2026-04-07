@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Expand, ExternalLink, RefreshCw } from 'lucide-react'
+import { Download, Expand, ExternalLink, LoaderCircle, RefreshCw } from 'lucide-react'
 import type {
   PageBuilderPreviewAnchorRect,
   PageBuilderPreviewBridgeMessage,
@@ -86,6 +86,8 @@ function resolveEmbeddedPreviewUrl(previewUrl: string): string {
 }
 
 export function PreviewPane({
+  exportStaticPending = false,
+  onRequestExportStatic,
   onInlineTextSaveRequest,
   onRequestDeleteBlock,
   onRequestOpenCmsBrowser,
@@ -95,6 +97,8 @@ export function PreviewPane({
   selectionModeEnabled = false,
   onSelectionEvent,
 }: {
+  exportStaticPending?: boolean
+  onRequestExportStatic?: () => void | Promise<void>
   onInlineTextSaveRequest?: (request: PageBuilderInlineTextSaveRequest) => Promise<PageBuilderInlineTextSaveResult>
   onRequestDeleteBlock?: (selector: string) => void
   onRequestOpenCmsBrowser?: () => void
@@ -271,7 +275,24 @@ export function PreviewPane({
     <section className="page-builder-pane flex min-h-[560px] min-w-0 flex-col overflow-hidden rounded-2xl lg:h-full lg:min-h-0">
       <div className="flex h-11 items-center justify-between gap-3 border-b border-border/70 px-3">
         <h2 className="min-w-0 truncate text-sm font-medium text-foreground">实时预览</h2>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2">
+          <Button
+            aria-label="导出静态包"
+            aria-busy={exportStaticPending}
+            className="size-8"
+            disabled={!previewUrl || exportStaticPending}
+            onClick={() => {
+              void onRequestExportStatic?.()
+            }}
+            size="icon"
+            title="导出静态包"
+            type="button"
+            variant="outline"
+          >
+            {exportStaticPending
+              ? <LoaderCircle className="size-3.5 animate-spin" />
+              : <Download className="size-3.5" />}
+          </Button>
           <Button
             aria-label="刷新预览"
             className="size-8"

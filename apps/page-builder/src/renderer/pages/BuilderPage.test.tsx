@@ -40,6 +40,25 @@ interface PageBuilderBlockDeletionPayload {
   selector: string
 }
 
+interface PageBuilderStaticExportJob {
+  jobId: string
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  phase: 'copying' | 'scanning' | 'downloading' | 'packaging' | 'completed'
+  createdAt: string
+  updatedAt: string
+  expiresAt: string
+  downloadUrl: string | null
+  errorMessage: string | null
+  reportSummary: {
+    localizedResourceCount: number
+    retainedExternalLinkCount: number
+    warningCount: number
+    unsupportedRuntimeDependencyCount: number
+    failureCount: number
+    hasWarnings: boolean
+  } | null
+}
+
 function createMemoryStorage(initial: Record<string, string> = {}): Storage {
   const state = new Map(Object.entries(initial))
 
@@ -71,12 +90,14 @@ function installWindowHarness(): {
   dispatchWindowEvent: (type: string, event?: unknown) => void
   getListenerCount: (type: string) => number
   runIntervalsOnce: () => Promise<void>
+  open: ReturnType<typeof mock>
 } {
   const sessionStorage = createMemoryStorage()
   const localStorage = createMemoryStorage()
   const listeners = new Map<string, Set<(event?: unknown) => void>>()
   const intervals = new Map<number, () => void | Promise<void>>()
   let nextIntervalId = 1
+  const open = mock(() => {})
 
   Object.defineProperty(globalThis, 'window', {
     configurable: true,
@@ -99,12 +120,14 @@ function installWindowHarness(): {
       clearInterval(id: number) {
         intervals.delete(id)
       },
+      open,
     },
   })
 
   return {
     localStorage,
     sessionStorage,
+    open,
     dispatchWindowEvent(type: string, event?: unknown) {
       for (const listener of listeners.get(type) ?? []) {
         listener(event)
@@ -133,6 +156,8 @@ async function loadBuilderPage(options: {
     workspaceId: string,
     payload: PageBuilderBlockDeletionPayload,
   ) => Promise<WorkspacePreviewState>
+  createPageBuilderStaticExportJobImpl?: (workspaceId: string) => Promise<PageBuilderStaticExportJob>
+  getPageBuilderStaticExportJobImpl?: (workspaceId: string, jobId: string) => Promise<PageBuilderStaticExportJob>
   replacePageBuilderImageImpl?: (
     workspaceId: string,
     payload: PageBuilderImageReplacementPayload,
@@ -215,6 +240,14 @@ async function loadBuilderPage(options: {
       deletePageBuilderBlock: options.deletePageBuilderBlockImpl ?? (async () => {
         throw new Error('deletePageBuilderBlock 未在测试中模拟')
       }),
+      createPageBuilderStaticExportJob: options.createPageBuilderStaticExportJobImpl ?? (async () => {
+        throw new Error('createPageBuilderStaticExportJob 未在测试中模拟')
+      }),
+      getPageBuilderStaticExportJob: options.getPageBuilderStaticExportJobImpl ?? (async () => {
+        throw new Error('getPageBuilderStaticExportJob 未在测试中模拟')
+      }),
+      getPageBuilderStaticExportDownloadUrl: (workspaceId: string, jobId: string) =>
+        `/api/workspaces/${workspaceId}/page-builder/export-static-jobs/${jobId}/download`,
       savePageBuilderInlineText: options.savePageBuilderInlineTextImpl ?? (async () => {
         throw new Error('savePageBuilderInlineText 未在测试中模拟')
       }),
@@ -2245,5 +2278,273 @@ describe('BuilderPage', () => {
       selectionModeEnabled: true,
     })
     expect(getComposerActionLabel(getLastAgentViewProps())).toBe('已选区域')
+  })
+
+  test('starts a static export job from PreviewPane, polls until completion, and opens the downloaded package', async () => {
+    const windowHarness = installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const createPageBuilderStaticExportJob = mock(async () => ({
+      jobId: 'job-1',
+      status: 'running',
+      phase: 'scanning',
+      createdAt: '2026-04-07T10:00:00.000Z',
+      updatedAt: '2026-04-07T10:00:00.000Z',
+      expiresAt: '2026-04-07T11:00:00.000Z',
+      downloadUrl: null,
+      errorMessage: null,
+      reportSummary: null,
+    } satisfies PageBuilderStaticExportJob))
+    const getPageBuilderStaticExportJob = mock(async () => ({
+      jobId: 'job-1',
+      status: 'completed',
+      phase: 'completed',
+      createdAt: '2026-04-07T10:00:00.000Z',
+      updatedAt: '2026-04-07T10:00:02.000Z',
+      expiresAt: '2026-04-07T11:00:00.000Z',
+      downloadUrl: `/api/workspaces/${workspace.id}/page-builder/export-static-jobs/job-1/download`,
+      errorMessage: null,
+      reportSummary: {
+        localizedResourceCount: 4,
+        retainedExternalLinkCount: 0,
+        warningCount: 0,
+        unsupportedRuntimeDependencyCount: 0,
+        failureCount: 0,
+        hasWarnings: false,
+      },
+    } satisfies PageBuilderStaticExportJob))
+
+    const {
+      BuilderPage,
+      getLastPreviewPaneProps,
+      getToastSuccess,
+      getToastError,
+    } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      mockPreviewPane: true,
+      previewStates: [{
+        hasPreview: true,
+        entryUrl: `/api/workspaces/${workspace.id}/preview/`,
+        revision: 'rev-1',
+      }],
+      createPageBuilderStaticExportJobImpl: createPageBuilderStaticExportJob,
+      getPageBuilderStaticExportJobImpl: getPageBuilderStaticExportJob,
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      exportStaticPending: false,
+    })
+
+    await act(async () => {
+      await (getLastPreviewPaneProps() as {
+        onRequestExportStatic?: () => Promise<void>
+      }).onRequestExportStatic?.()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(createPageBuilderStaticExportJob).toHaveBeenCalledTimes(1)
+    expect(createPageBuilderStaticExportJob).toHaveBeenCalledWith(workspace.id)
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      exportStaticPending: true,
+    })
+
+    await act(async () => {
+      await windowHarness.runIntervalsOnce()
+    })
+
+    expect(getPageBuilderStaticExportJob).toHaveBeenCalledTimes(1)
+    expect(getPageBuilderStaticExportJob).toHaveBeenCalledWith(workspace.id, 'job-1')
+    expect(windowHarness.open).toHaveBeenCalledWith(
+      `/api/workspaces/${workspace.id}/page-builder/export-static-jobs/job-1/download`,
+      '_blank',
+      'noopener,noreferrer',
+    )
+    expect(getToastError()).toHaveBeenCalledTimes(0)
+    expect(getToastSuccess()).toHaveBeenCalledWith('静态包导出成功')
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      exportStaticPending: false,
+    })
+  })
+
+  test('shows a warning-flavored success toast when the static export report contains warnings', async () => {
+    const windowHarness = installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const {
+      BuilderPage,
+      getLastPreviewPaneProps,
+      getToastSuccess,
+    } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      mockPreviewPane: true,
+      previewStates: [{
+        hasPreview: true,
+        entryUrl: `/api/workspaces/${workspace.id}/preview/`,
+        revision: 'rev-1',
+      }],
+      createPageBuilderStaticExportJobImpl: async () => ({
+        jobId: 'job-2',
+        status: 'completed',
+        phase: 'completed',
+        createdAt: '2026-04-07T10:00:00.000Z',
+        updatedAt: '2026-04-07T10:00:02.000Z',
+        expiresAt: '2026-04-07T11:00:00.000Z',
+        downloadUrl: `/api/workspaces/${workspace.id}/page-builder/export-static-jobs/job-2/download`,
+        errorMessage: null,
+        reportSummary: {
+          localizedResourceCount: 3,
+          retainedExternalLinkCount: 1,
+          warningCount: 1,
+          unsupportedRuntimeDependencyCount: 0,
+          failureCount: 0,
+          hasWarnings: true,
+        },
+      }),
+      getPageBuilderStaticExportJobImpl: async () => {
+        throw new Error('completed job should not poll again')
+      },
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      await (getLastPreviewPaneProps() as {
+        onRequestExportStatic?: () => Promise<void>
+      }).onRequestExportStatic?.()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(windowHarness.open).toHaveBeenCalledWith(
+      `/api/workspaces/${workspace.id}/page-builder/export-static-jobs/job-2/download`,
+      '_blank',
+      'noopener,noreferrer',
+    )
+    expect(getToastSuccess()).toHaveBeenCalledWith('静态包导出完成，但存在离线告警，请查看导出报告')
+  })
+
+  test('shows a failure toast when the static export job ends in a failed state', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const createPageBuilderStaticExportJob = mock(async () => ({
+      jobId: 'job-3',
+      status: 'failed',
+      phase: 'downloading',
+      createdAt: '2026-04-07T10:00:00.000Z',
+      updatedAt: '2026-04-07T10:00:02.000Z',
+      expiresAt: '2026-04-07T11:00:00.000Z',
+      downloadUrl: null,
+      errorMessage: '关键图片下载失败',
+      reportSummary: {
+        localizedResourceCount: 1,
+        retainedExternalLinkCount: 0,
+        warningCount: 0,
+        unsupportedRuntimeDependencyCount: 0,
+        failureCount: 1,
+        hasWarnings: false,
+      },
+    } satisfies PageBuilderStaticExportJob))
+
+    const {
+      BuilderPage,
+      getLastPreviewPaneProps,
+      getToastError,
+    } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      mockPreviewPane: true,
+      previewStates: [{
+        hasPreview: true,
+        entryUrl: `/api/workspaces/${workspace.id}/preview/`,
+        revision: 'rev-1',
+      }],
+      createPageBuilderStaticExportJobImpl: createPageBuilderStaticExportJob,
+      getPageBuilderStaticExportJobImpl: async () => {
+        throw new Error('failed job should not poll again')
+      },
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      await (getLastPreviewPaneProps() as {
+        onRequestExportStatic?: () => Promise<void>
+      }).onRequestExportStatic?.()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(createPageBuilderStaticExportJob).toHaveBeenCalledTimes(1)
+    expect(getToastError()).toHaveBeenCalledWith('关键图片下载失败')
   })
 })
