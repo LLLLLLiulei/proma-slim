@@ -518,8 +518,15 @@ describe('AgentOrchestrator workspace runtime', () => {
     expect(adapter.lastInput?.prompt).toContain('<workspace_files_dir>')
     expect(adapter.lastInput?.prompt).toContain(getWorkspaceFilesDir(workspace.slug))
     expect(adapter.lastInput?.prompt).toContain('<workspace_runtime_mode>scratch</workspace_runtime_mode>')
+    expect(adapter.lastInput?.prompt).toContain('宿主管理的 workspace session scratch 目录')
+    expect(adapter.lastInput?.prompt).not.toContain('Proma 管理的 workspace session scratch 目录')
     expect(adapter.lastInput?.prompt).toContain('纯研究、搜索、总结、规划类 subagent 默认不要请求 worktree isolation')
-    expect(adapter.lastInput?.systemPrompt?.append).toContain('只有在真实 git 仓库中执行代码修改类任务时，才考虑使用 worktree isolation')
+    expect(adapter.lastInput?.systemPrompt?.append).toContain('你是当前工作台内置的 AI 助手')
+    expect(adapter.lastInput?.systemPrompt?.append).toContain('当用户问“你是谁”“你是什么”时')
+    expect(adapter.lastInput?.systemPrompt?.append).toContain('任何时候都不要把自己描述为某个具体产品、模型、CLI、SDK、厂商服务或内部代号')
+    expect(adapter.lastInput?.systemPrompt?.append).not.toContain('## Proma Agent')
+    expect(adapter.lastInput?.systemPrompt?.append).not.toContain('你是专题网页开发助手')
+    expect(adapter.lastInput?.systemPrompt?.append).not.toContain('Proma scratch 目录')
   })
 
   test('injects structured attachments into the runtime prompt while keeping persisted user content clean', async () => {
@@ -849,7 +856,7 @@ describe('AgentOrchestrator workspace runtime', () => {
     expect(hookResult?.hookSpecificOutput).toEqual({
       hookEventName: 'PreToolUse',
       permissionDecision: 'allow',
-      permissionDecisionReason: 'Proma scratch workspace subagents run without worktree isolation',
+      permissionDecisionReason: 'Scratch workspace subagents run without worktree isolation',
       updatedInput: {
         description: 'hook rewrite',
         mode: 'default',

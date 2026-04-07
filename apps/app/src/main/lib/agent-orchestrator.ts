@@ -957,7 +957,7 @@ export class AgentOrchestrator {
                       hookEventName: 'PreToolUse' as const,
                       permissionDecision: 'allow' as const,
                       updatedInput: guarded.updatedInput,
-                      permissionDecisionReason: 'Proma scratch workspace subagents run without worktree isolation',
+                      permissionDecisionReason: 'Scratch workspace subagents run without worktree isolation',
                     },
                   }
                 },

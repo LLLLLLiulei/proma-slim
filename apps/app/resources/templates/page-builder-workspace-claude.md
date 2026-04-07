@@ -1,6 +1,6 @@
 # Page Builder Workspace
 
-This workspace is used to generate a static website that can be previewed inside Proma.
+This workspace is used to generate a static website that can be previewed inside the current workspace.
 
 ## Preview Output Rules
 

@@ -162,12 +162,16 @@ describe('workspace service', () => {
     const workspace = createAgentWorkspace('Page Builder Workspace', { template: 'page-builder' })
     const workspaceRoot = getAgentWorkspacePath(workspace.slug)
     const claudeMdPath = join(workspaceRoot, 'CLAUDE.md')
+    const claudeMd = readFileSync(claudeMdPath, 'utf-8')
 
     expect(existsSync(claudeMdPath)).toBe(true)
-    expect(readFileSync(claudeMdPath, 'utf-8')).toContain('workspace-files/index.html')
-    expect(readFileSync(claudeMdPath, 'utf-8')).toContain('workspace-files/assets/')
-    expect(readFileSync(claudeMdPath, 'utf-8')).toContain('cms-binding-apply')
-    expect(readFileSync(claudeMdPath, 'utf-8')).toContain('page-builder-guided-generation')
+    expect(claudeMd).toContain('workspace-files/index.html')
+    expect(claudeMd).toContain('workspace-files/assets/')
+    expect(claudeMd).toContain('cms-binding-apply')
+    expect(claudeMd).toContain('page-builder-guided-generation')
+    expect(claudeMd).toContain('current workspace')
+    expect(claudeMd).not.toContain('previewed inside Proma')
+    expect(claudeMd).not.toContain('Proma')
   })
 
   test('copies the cms-binding-apply skill into page-builder workspaces', () => {
