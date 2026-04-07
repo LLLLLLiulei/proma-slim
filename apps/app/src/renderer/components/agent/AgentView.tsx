@@ -748,7 +748,7 @@ export function AgentView({
               )}
               <span className="truncate">
                 {streaming
-                  ? '正在流式输出，输入框已锁定。'
+                  ? '正在处理中，输入框已锁定。'
                   : 'Enter 发送，Shift+Enter 换行。'}
               </span>
             </div>

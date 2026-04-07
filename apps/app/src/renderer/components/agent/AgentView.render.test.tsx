@@ -203,7 +203,7 @@ describe('AgentView rendering extension points', () => {
     expect(attachmentButton.props.disabled).toBe(true)
   })
 
-  test('keeps the composer streaming copy while streaming', async () => {
+  test('keeps the composer processing copy while streaming', async () => {
     const workspace: AgentWorkspace = {
       id: 'workspace-1',
       name: 'Page Builder Project',
@@ -243,7 +243,7 @@ describe('AgentView rendering extension points', () => {
     })
 
     const json = JSON.stringify(renderer.toJSON())
-    expect(json).toContain('正在流式输出，输入框已锁定。')
+    expect(json).toContain('正在处理中，输入框已锁定。')
   })
 
   test('renders custom leading composer actions without replacing the shared composer shell', async () => {

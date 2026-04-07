@@ -29,6 +29,7 @@ export function AskUserBanner({ sessionId }: AskUserBannerProps): React.ReactEle
   const questions = request?.questions ?? []
   const currentQuestion = questions[activeTab]
   const isLastTab = activeTab >= questions.length - 1
+  const shouldRenderMeta = requests.length > 1 || questions.length > 1
 
   React.useEffect(() => {
     if (!request) return
@@ -115,98 +116,112 @@ export function AskUserBanner({ sessionId }: AskUserBannerProps): React.ReactEle
   })
 
   return (
-    <div className="mx-4 mb-3 overflow-hidden rounded-2xl border border-border/60 bg-card shadow-sm">
-      <div className="px-4 py-3">
-        <div className="flex items-center justify-between">
-          <span className="text-sm font-medium">Proma 需要你的输入</span>
-          {requests.length > 1 && <span className="text-xs text-muted-foreground">(+{requests.length - 1})</span>}
-        </div>
+    <div
+      data-testid="ask-user-banner"
+      className="mx-4 mb-3 flex max-h-[min(32rem,calc(100vh-12rem))] min-h-0 flex-col overflow-hidden rounded-2xl border border-border/60 bg-card shadow-sm"
+    >
+      {shouldRenderMeta && (
+        <div className="shrink-0 px-4 py-3">
+          {requests.length > 1 && (
+            <div className="flex items-center justify-end">
+              <span className="text-xs text-muted-foreground">(+{requests.length - 1})</span>
+            </div>
+          )}
 
-        {questions.length > 1 && (
-          <div className="mt-3 flex flex-wrap gap-2">
-            {questions.map((question, index) => {
-              const answer = getAnswer(index)
-              const answered = answer.selected.length > 0 || (answer.showCustom && answer.customText.trim())
+          {questions.length > 1 && (
+            <div className={requests.length > 1 ? 'mt-3 flex flex-wrap gap-2' : 'flex flex-wrap gap-2'}>
+              {questions.map((question, index) => {
+                const answer = getAnswer(index)
+                const answered = answer.selected.length > 0 || (answer.showCustom && answer.customText.trim())
+                return (
+                  <button
+                    key={`${request.requestId}-${index}`}
+                    type="button"
+                    onClick={() => setActiveTab(index)}
+                    className={`rounded-full px-3 py-1 text-xs transition-colors ${
+                      index === activeTab
+                        ? 'bg-primary text-primary-foreground'
+                        : answered
+                          ? 'bg-primary/10 text-primary'
+                          : 'bg-muted text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    {question.header || `问题 ${index + 1}`}
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div
+        data-testid="ask-user-scroll-region"
+        className={`min-h-0 flex-1 overflow-y-auto px-4 pb-3 ${shouldRenderMeta ? '' : 'pt-3'}`}
+      >
+        <div className="space-y-3">
+          <div>
+            <div className="text-sm font-medium text-foreground">{currentQuestion.question}</div>
+          </div>
+
+          <div className="space-y-2">
+            {currentQuestion.options.map((option) => {
+              const current = getAnswer(activeTab)
+              const selected = current.selected.includes(option.label)
               return (
                 <button
-                  key={`${request.requestId}-${index}`}
+                  key={option.label}
                   type="button"
-                  onClick={() => setActiveTab(index)}
-                  className={`rounded-full px-3 py-1 text-xs transition-colors ${
-                    index === activeTab
-                      ? 'bg-primary text-primary-foreground'
-                      : answered
-                        ? 'bg-primary/10 text-primary'
-                        : 'bg-muted text-muted-foreground hover:text-foreground'
+                  onClick={() => toggleOption(activeTab, currentQuestion, option.label)}
+                  className={`w-full rounded-2xl border px-3 py-3 text-left transition-colors ${
+                    selected
+                      ? 'border-primary/30 bg-primary/10'
+                      : 'border-border/70 bg-background hover:bg-muted/60'
                   }`}
                 >
-                  {question.header || `问题 ${index + 1}`}
+                  <div className="text-sm font-medium">{option.label}</div>
+                  {option.description && <div className="mt-1 text-xs text-muted-foreground">{option.description}</div>}
                 </button>
               )
             })}
+
+            <button
+              type="button"
+              onClick={() => toggleCustom(activeTab)}
+              className={`w-full rounded-2xl border px-3 py-3 text-left text-sm transition-colors ${
+                getAnswer(activeTab).showCustom
+                  ? 'border-primary/30 bg-primary/10'
+                  : 'border-border/70 bg-background hover:bg-muted/60'
+              }`}
+            >
+              自定义回答
+            </button>
+
+            {getAnswer(activeTab).showCustom && (
+              <textarea
+                value={getAnswer(activeTab).customText}
+                onChange={(event) => {
+                  const value = event.target.value
+                  setAnswers((prev) => {
+                    const map = new Map(prev)
+                    const current = map.get(activeTab) ?? EMPTY_ANSWER
+                    map.set(activeTab, { ...current, customText: value })
+                    return map
+                  })
+                }}
+                rows={4}
+                className="w-full rounded-2xl border border-border/70 bg-background px-3 py-3 text-sm outline-none transition-colors focus:border-primary"
+                placeholder="输入你的回答..."
+              />
+            )}
           </div>
-        )}
-      </div>
-
-      <div className="space-y-3 px-4 pb-3">
-        <div>
-          <div className="text-sm font-medium text-foreground">{currentQuestion.question}</div>
-        </div>
-
-        <div className="space-y-2">
-          {currentQuestion.options.map((option) => {
-            const current = getAnswer(activeTab)
-            const selected = current.selected.includes(option.label)
-            return (
-              <button
-                key={option.label}
-                type="button"
-                onClick={() => toggleOption(activeTab, currentQuestion, option.label)}
-                className={`w-full rounded-2xl border px-3 py-3 text-left transition-colors ${
-                  selected
-                    ? 'border-primary/30 bg-primary/10'
-                    : 'border-border/70 bg-background hover:bg-muted/60'
-                }`}
-              >
-                <div className="text-sm font-medium">{option.label}</div>
-                {option.description && <div className="mt-1 text-xs text-muted-foreground">{option.description}</div>}
-              </button>
-            )
-          })}
-
-          <button
-            type="button"
-            onClick={() => toggleCustom(activeTab)}
-            className={`w-full rounded-2xl border px-3 py-3 text-left text-sm transition-colors ${
-              getAnswer(activeTab).showCustom
-                ? 'border-primary/30 bg-primary/10'
-                : 'border-border/70 bg-background hover:bg-muted/60'
-            }`}
-          >
-            自定义回答
-          </button>
-
-          {getAnswer(activeTab).showCustom && (
-            <textarea
-              value={getAnswer(activeTab).customText}
-              onChange={(event) => {
-                const value = event.target.value
-                setAnswers((prev) => {
-                  const map = new Map(prev)
-                  const current = map.get(activeTab) ?? EMPTY_ANSWER
-                  map.set(activeTab, { ...current, customText: value })
-                  return map
-                })
-              }}
-              rows={4}
-              className="w-full rounded-2xl border border-border/70 bg-background px-3 py-3 text-sm outline-none transition-colors focus:border-primary"
-              placeholder="输入你的回答..."
-            />
-          )}
         </div>
       </div>
 
-      <div className="flex items-center justify-between border-t border-border/60 px-4 py-3">
+      <div
+        data-testid="ask-user-footer"
+        className="flex shrink-0 items-center justify-between border-t border-border/60 px-4 py-3"
+      >
         <button
           type="button"
           onClick={() => setActiveTab((prev) => Math.max(0, prev - 1))}
