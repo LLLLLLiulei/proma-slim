@@ -103,7 +103,7 @@ export function HomePage(): React.ReactElement {
         <section className="page-builder-home-stage flex min-h-[100dvh] items-center justify-center px-4 py-8 sm:px-6">
           <div className="page-builder-home-content flex w-full flex-col items-center gap-8">
             <div className="page-builder-home-copy max-w-[760px] text-center">
-              <p className="text-sm font-medium uppercase tracking-[0.28em] text-muted-foreground">Proma Page Builder</p>
+              <p className="text-sm font-medium uppercase tracking-[0.28em] text-muted-foreground">Intelligent Page Builder</p>
               <h1 className="mt-5 text-4xl font-semibold tracking-[-0.05em] text-foreground sm:text-5xl">
                 几分钟内创建您的网站
               </h1>

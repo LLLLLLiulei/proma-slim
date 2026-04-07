@@ -49,7 +49,7 @@ export default function App(): React.ReactElement {
       <div className="flex h-screen items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
           <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-          <p className="text-sm text-muted-foreground">正在连接 Proma 服务...</p>
+          <p className="text-sm text-muted-foreground">正在连接服务...</p>
         </div>
       </div>
     )

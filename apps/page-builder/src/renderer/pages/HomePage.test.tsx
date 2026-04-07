@@ -234,6 +234,8 @@ describe('HomePage', () => {
     })
 
     const json = JSON.stringify(renderer.toJSON())
+    expect(json).toContain('Intelligent Page Builder')
+    expect(json).not.toContain('Proma Page Builder')
     expect(json).toContain('输入你想要的网页效果，回车后即可创建项目并进入构建页继续完善。')
     expect(json).not.toContain('提交后会创建“未命名项目”工作区与首个对话，并自动开始生成。')
   })
