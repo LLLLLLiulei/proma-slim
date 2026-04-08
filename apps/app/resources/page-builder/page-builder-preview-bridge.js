@@ -292,7 +292,7 @@
       transition: 'all 120ms ease-out',
       border: kind === 'selected'
         ? '2px solid rgba(37, 99, 235, 0.92)'
-        : '2px solid rgba(59, 130, 246, 0.65)',
+        : '2px dashed rgba(59, 130, 246, 0.65)',
       background: kind === 'selected'
         ? 'rgba(37, 99, 235, 0.16)'
         : 'rgba(59, 130, 246, 0.10)',

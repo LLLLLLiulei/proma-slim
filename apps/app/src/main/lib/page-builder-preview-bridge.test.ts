@@ -61,6 +61,15 @@ test('page-builder preview bridge filters mutation observer events triggered by 
   expect(script).toContain('if (!shouldSyncFromMutations(mutations)) {')
 })
 
+test('page-builder preview bridge uses dashed hover borders and solid selected borders', async () => {
+  const module = await importPreviewBridgeModule()
+
+  const script = module.readPageBuilderPreviewBridgeScript()
+
+  expect(script).toContain("? '2px solid rgba(37, 99, 235, 0.92)'")
+  expect(script).toContain(": '2px dashed rgba(59, 130, 246, 0.65)'")
+})
+
 test('page-builder preview bridge bundled script includes inline text editing save protocol hooks', async () => {
   const module = await importPreviewBridgeModule()
 
