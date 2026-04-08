@@ -38,7 +38,7 @@ afterEach(() => {
 })
 
 describe('PreviewPane', () => {
-  test('renders a compact toolbar with device toggle, export, refresh, fullscreen, and new-window controls', async () => {
+  test('renders a compact toolbar with device toggle, export, refresh, and new-window controls', async () => {
     const { PreviewPane } = await loadPreviewPane()
     const renderer = create(<PreviewPane previewUrl="https://example.com/preview" />)
 
@@ -63,7 +63,6 @@ describe('PreviewPane', () => {
       'Mobile 预览',
       '导出静态包',
       '刷新预览',
-      '全屏预览',
       '新窗口打开预览',
     ])
     expect(desktopButton.props['aria-pressed']).toBe(true)

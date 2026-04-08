@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Download, Expand, ExternalLink, Laptop, LoaderCircle, RefreshCw, Smartphone } from 'lucide-react'
+import { Download, ExternalLink, Laptop, LoaderCircle, RefreshCw, Smartphone } from 'lucide-react'
 import type {
   PageBuilderPreviewAnchorRect,
   PageBuilderPreviewBridgeMessage,
@@ -126,10 +126,6 @@ export function PreviewPane({
 
     return resolveEmbeddedPreviewUrl(previewUrl)
   }, [previewUrl])
-
-  const handleFullscreen = React.useCallback(() => {
-    void frameRef.current?.requestFullscreen?.()
-  }, [])
 
   const handleRefresh = React.useCallback(() => {
     if (!previewUrl) return
@@ -349,17 +345,6 @@ export function PreviewPane({
             variant="outline"
           >
             <RefreshCw className="size-3.5" />
-          </Button>
-          <Button
-            aria-label="全屏预览"
-            className="size-8"
-            onClick={handleFullscreen}
-            size="icon"
-            title="全屏预览"
-            type="button"
-            variant="outline"
-          >
-            <Expand className="size-3.5" />
           </Button>
           <Button
             aria-label="新窗口打开预览"
