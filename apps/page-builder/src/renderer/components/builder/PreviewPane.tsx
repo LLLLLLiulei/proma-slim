@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Download, ExternalLink, Laptop, LoaderCircle, RefreshCw, Smartphone } from 'lucide-react'
+import { Download, ExternalLink, Laptop, LoaderCircle, MousePointerClick, RefreshCw, Smartphone } from 'lucide-react'
 import type {
   PageBuilderPreviewAnchorRect,
   PageBuilderPreviewBridgeMessage,
@@ -26,6 +26,7 @@ const BLOCK_ACTION_BAR_PADDING = 12
 const MOBILE_PREVIEW_VIEWPORT_WIDTH = 390
 
 type PreviewDeviceMode = 'desktop' | 'mobile'
+type PreviewSelectionActionState = 'idle' | 'armed' | 'selected'
 
 interface SelectedAnchorState {
   imageTargetDescriptor: PageBuilderImageTargetDescriptor | null
@@ -97,8 +98,12 @@ export function PreviewPane({
   onRequestOpenCmsBrowser,
   onRequestReplaceImage,
   imageReplacementPending = false,
+  interactionLocked = false,
   previewUrl,
+  selectionActionState = 'idle',
   selectionModeEnabled = false,
+  selectionToggleDisabled = false,
+  onToggleSelectionMode,
   onSelectionEvent,
 }: {
   exportStaticPending?: boolean
@@ -108,8 +113,12 @@ export function PreviewPane({
   onRequestOpenCmsBrowser?: () => void
   onRequestReplaceImage?: (request: PageBuilderImageReplacementPayload) => void
   imageReplacementPending?: boolean
+  interactionLocked?: boolean
   previewUrl: string | null
+  selectionActionState?: PreviewSelectionActionState
   selectionModeEnabled?: boolean
+  selectionToggleDisabled?: boolean
+  onToggleSelectionMode?: () => void
   onSelectionEvent?: (event: PageBuilderPreviewSelectionEvent) => void
 }): React.ReactElement {
   const frameRef = React.useRef<HTMLDivElement>(null)
@@ -152,6 +161,7 @@ export function PreviewPane({
       }
 
       if (event.data.type === 'hover') {
+        if (interactionLocked) return
         onSelectionEvent?.({
           type: 'hover',
           selector: event.data.selector,
@@ -160,6 +170,7 @@ export function PreviewPane({
       }
 
       if (event.data.type === 'selected') {
+        if (interactionLocked) return
         const replaceImageTargetDescriptor = event.data.capabilities?.replaceImage?.supported
           ? event.data.capabilities.replaceImage.targetDescriptor
           : null
@@ -231,7 +242,7 @@ export function PreviewPane({
 
     window.addEventListener('message', handleMessage)
     return () => window.removeEventListener('message', handleMessage)
-  }, [onInlineTextSaveRequest, onSelectionEvent])
+  }, [interactionLocked, onInlineTextSaveRequest, onSelectionEvent])
 
   React.useEffect(() => {
     if (!previewUrl) return
@@ -254,6 +265,7 @@ export function PreviewPane({
       source: PAGE_BUILDER_PREVIEW_PARENT_SOURCE,
       type: 'selection-mode',
       enabled: selectionModeEnabled,
+      locked: interactionLocked,
     }
 
     contentWindow.postMessage(modeMessage, '*')
@@ -265,7 +277,7 @@ export function PreviewPane({
       }
       contentWindow.postMessage(clearMessage, '*')
     }
-  }, [bridgeReady, previewUrl, selectionModeEnabled])
+  }, [bridgeReady, interactionLocked, previewUrl, selectionModeEnabled])
 
   const blockActionBarStyle = resolveBlockActionBarStyle(
     selectedAnchor,
@@ -276,11 +288,25 @@ export function PreviewPane({
   const viewportShellWidth = previewDeviceMode === 'mobile'
     ? `min(${MOBILE_PREVIEW_VIEWPORT_WIDTH}px, 100%)`
     : '100%'
+  const selectionToggleTitle = selectionActionState === 'selected'
+    ? '已选区域'
+    : selectionActionState === 'armed'
+      ? '从页面中选择'
+      : '选择进行编辑'
+  const selectionToggleDisabledState = selectionToggleDisabled || !previewUrl
+  const selectionToggleClassName = selectionActionState === 'selected'
+    ? 'border border-primary/70 bg-primary text-primary-foreground hover:bg-primary'
+    : selectionActionState === 'armed'
+      ? 'border border-primary/35 bg-primary/10 text-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.35)] ring-1 ring-primary/15 hover:border-primary/45 hover:bg-primary/14 hover:text-primary'
+      : 'border border-transparent text-muted-foreground hover:bg-muted/70 hover:text-foreground'
 
   return (
     <section className="page-builder-pane flex min-h-[560px] min-w-0 flex-col overflow-hidden rounded-2xl lg:h-full lg:min-h-0">
       <div className="flex h-11 items-center justify-between gap-3 border-b border-border/70 px-3">
-        <div className="flex items-center gap-1 rounded-md border border-border/70 bg-background/80 p-0.5">
+        <div
+          className="flex items-center gap-1 rounded-md border border-border/70 bg-background/80 p-0.5"
+          data-preview-device-toggle-group={true}
+        >
           <Button
             aria-label="PC 预览"
             aria-pressed={previewDeviceMode === 'desktop'}
@@ -317,6 +343,27 @@ export function PreviewPane({
           </Button>
         </div>
         <div className="flex items-center gap-2">
+          <div
+            className="flex items-center gap-1 rounded-md border border-border/70 bg-background/80 p-0.5"
+            data-preview-selection-action-group={true}
+          >
+            <Button
+              aria-label="选择区块"
+              aria-pressed={selectionActionState !== 'idle'}
+              className={cn(
+                'size-7 rounded-[6px] shadow-none',
+                selectionToggleClassName,
+              )}
+              disabled={selectionToggleDisabledState}
+              onClick={onToggleSelectionMode}
+              size="icon-sm"
+              title={selectionToggleTitle}
+              type="button"
+              variant="ghost"
+            >
+              <MousePointerClick className="size-3.5" />
+            </Button>
+          </div>
           <Button
             aria-label="导出静态包"
             aria-busy={exportStaticPending}
@@ -399,13 +446,23 @@ export function PreviewPane({
                   {selectedAnchor && blockActionBarStyle ? (
                     <div className="pointer-events-none absolute inset-0 z-10">
                       <PageBuilderBlockActionBar
-                        onDelete={() => onRequestDeleteBlock?.(selectedAnchor.selector)}
-                        onOpenCms={() => onRequestOpenCmsBrowser?.()}
+                        actionsDisabled={interactionLocked}
+                        onDelete={() => {
+                          if (interactionLocked) return
+                          onRequestDeleteBlock?.(selectedAnchor.selector)
+                        }}
+                        onOpenCms={() => {
+                          if (interactionLocked) return
+                          onRequestOpenCmsBrowser?.()
+                        }}
                         onReplaceImage={selectedImageTargetDescriptor
-                          ? () => onRequestReplaceImage?.({
-                              selector: selectedAnchor.selector,
-                              imageTargetDescriptor: selectedImageTargetDescriptor,
-                            })
+                          ? () => {
+                              if (interactionLocked) return
+                              onRequestReplaceImage?.({
+                                selector: selectedAnchor.selector,
+                                imageTargetDescriptor: selectedImageTargetDescriptor,
+                              })
+                            }
                           : undefined}
                         replaceImageDisabled={imageReplacementPending}
                         style={blockActionBarStyle}

@@ -279,11 +279,6 @@ async function loadBuilderPage(options: {
   }
 }
 
-function getComposerActionRoot(agentViewProps: Record<string, unknown> | null): React.ReactElement | null {
-  const action = agentViewProps?.composerLeadingActions
-  return React.isValidElement(action) ? action : null
-}
-
 function flattenElementText(node: React.ReactNode): string {
   return React.Children.toArray(node).map((child) => {
     if (typeof child === 'string') {
@@ -302,58 +297,18 @@ function flattenElementText(node: React.ReactNode): string {
   }).join('')
 }
 
-function findComposerActionElement(
-  agentViewProps: Record<string, unknown> | null,
-  matcher: (element: React.ReactElement) => boolean,
-): React.ReactElement | null {
-  const root = getComposerActionRoot(agentViewProps)
-  if (!root) return null
-
-  const queue: React.ReactElement[] = [root]
-  while (queue.length > 0) {
-    const current = queue.shift()!
-    if (matcher(current)) {
-      return current
-    }
-
-    for (const child of React.Children.toArray(current.props.children)) {
-      if (React.isValidElement(child)) {
-        queue.push(child)
-      }
-    }
-  }
-
-  return null
+function getPreviewSelectionActionState(previewPaneProps: Record<string, unknown> | null): string | null {
+  return typeof previewPaneProps?.selectionActionState === 'string'
+    ? previewPaneProps.selectionActionState
+    : null
 }
 
-function getComposerActionElement(agentViewProps: Record<string, unknown> | null): React.ReactElement | null {
-  const selectionLabels = new Set(['选择进行编辑', '从页面中选择', '已选区域'])
-  return findComposerActionElement(agentViewProps, (element) =>
-    typeof element.props.onClick === 'function'
-      && selectionLabels.has(flattenElementText(element.props.children).trim()),
-  )
-}
-
-function getComposerActionElementByLabel(
-  agentViewProps: Record<string, unknown> | null,
-  label: string,
-): React.ReactElement | null {
-  return findComposerActionElement(agentViewProps, (element) =>
-    typeof element.props.onClick === 'function'
-      && flattenElementText(element.props.children).trim() === label,
-  )
-}
-
-function getComposerActionLabel(agentViewProps: Record<string, unknown> | null): string | null {
-  const action = getComposerActionElement(agentViewProps)
-  if (!action) return null
-
-  return flattenElementText(action.props.children).trim() || null
-}
-
-function getComposerActionClassName(agentViewProps: Record<string, unknown> | null): string {
-  const action = getComposerActionElement(agentViewProps)
-  return typeof action?.props.className === 'string' ? action.props.className : ''
+function getPreviewSelectionToggle(
+  previewPaneProps: Record<string, unknown> | null,
+): (() => void) | null {
+  return typeof previewPaneProps?.onToggleSelectionMode === 'function'
+    ? previewPaneProps.onToggleSelectionMode as () => void
+    : null
 }
 
 function findButtonByText(renderer: ReturnType<typeof create>, label: string) {
@@ -1183,41 +1138,45 @@ describe('BuilderPage', () => {
 
     expect(getLastPreviewPaneProps()).toMatchObject({
       selectionModeEnabled: false,
+      selectionActionState: 'idle',
+      selectionToggleDisabled: false,
     })
-    expect(getComposerActionLabel(getLastAgentViewProps())).toBe('选择进行编辑')
-    expect(getComposerActionClassName(getLastAgentViewProps())).toContain('border-transparent')
+    expect(typeof getPreviewSelectionToggle(getLastPreviewPaneProps())).toBe('function')
+    expect(getPreviewSelectionActionState(getLastPreviewPaneProps())).toBe('idle')
+    expect(getLastAgentViewProps()).not.toHaveProperty('composerLeadingActions')
     expect(getLastAgentViewProps()).not.toHaveProperty('messageDecorator')
 
     await act(async () => {
-      getComposerActionElement(getLastAgentViewProps())?.props.onClick()
+      getPreviewSelectionToggle(getLastPreviewPaneProps())?.()
     })
 
     expect(getLastPreviewPaneProps()).toMatchObject({
       selectionModeEnabled: true,
+      selectionActionState: 'armed',
     })
-    expect(getComposerActionLabel(getLastAgentViewProps())).toBe('从页面中选择')
-    expect(getComposerActionClassName(getLastAgentViewProps())).toContain('border-primary/35')
-    expect(getComposerActionClassName(getLastAgentViewProps())).toContain('ring-1')
+    expect(getPreviewSelectionActionState(getLastPreviewPaneProps())).toBe('armed')
     expect(getLastAgentViewProps()).not.toHaveProperty('messageDecorator')
 
     await act(async () => {
-      getComposerActionElement(getLastAgentViewProps())?.props.onClick()
+      getPreviewSelectionToggle(getLastPreviewPaneProps())?.()
     })
 
     expect(getLastPreviewPaneProps()).toMatchObject({
       selectionModeEnabled: false,
+      selectionActionState: 'idle',
     })
-    expect(getComposerActionLabel(getLastAgentViewProps())).toBe('选择进行编辑')
+    expect(getPreviewSelectionActionState(getLastPreviewPaneProps())).toBe('idle')
     expect(getLastAgentViewProps()).not.toHaveProperty('messageDecorator')
 
     await act(async () => {
-      getComposerActionElement(getLastAgentViewProps())?.props.onClick()
+      getPreviewSelectionToggle(getLastPreviewPaneProps())?.()
     })
 
     expect(getLastPreviewPaneProps()).toMatchObject({
       selectionModeEnabled: true,
+      selectionActionState: 'armed',
     })
-    expect(getComposerActionLabel(getLastAgentViewProps())).toBe('从页面中选择')
+    expect(getPreviewSelectionActionState(getLastPreviewPaneProps())).toBe('armed')
 
     await act(async () => {
       (getLastPreviewPaneProps() as {
@@ -1228,9 +1187,11 @@ describe('BuilderPage', () => {
       })
     })
 
-    expect(getComposerActionLabel(getLastAgentViewProps())).toBe('已选区域')
-    expect(getComposerActionClassName(getLastAgentViewProps())).toContain('bg-primary')
-    expect(getComposerActionClassName(getLastAgentViewProps())).toContain('ring-2')
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      selectionModeEnabled: true,
+      selectionActionState: 'selected',
+    })
+    expect(getPreviewSelectionActionState(getLastPreviewPaneProps())).toBe('selected')
 
     const decorated = (getLastAgentViewProps() as {
       messageDecorator?: (message: string) => string
@@ -1240,13 +1201,14 @@ describe('BuilderPage', () => {
     expect(decorated).toContain('修改这里的标题')
 
     await act(async () => {
-      getComposerActionElement(getLastAgentViewProps())?.props.onClick()
+      getPreviewSelectionToggle(getLastPreviewPaneProps())?.()
     })
 
     expect(getLastPreviewPaneProps()).toMatchObject({
       selectionModeEnabled: false,
+      selectionActionState: 'idle',
     })
-    expect(getComposerActionLabel(getLastAgentViewProps())).toBe('选择进行编辑')
+    expect(getPreviewSelectionActionState(getLastPreviewPaneProps())).toBe('idle')
     expect(getLastAgentViewProps()).not.toHaveProperty('messageDecorator')
   })
 
@@ -1310,7 +1272,7 @@ describe('BuilderPage', () => {
       [session.id, { running: true, content: '', toolActivities: [], teammates: [], startedAt: 1 }],
     ])
 
-    const { BuilderPage, getLastAgentViewProps } = await loadBuilderPage({
+    const { BuilderPage, getLastPreviewPaneProps } = await loadBuilderPage({
       sessions: [session],
       workspaces: [workspace],
       mockPreviewPane: true,
@@ -1328,7 +1290,106 @@ describe('BuilderPage', () => {
       await Promise.resolve()
     })
 
-    expect(getComposerActionElement(getLastAgentViewProps())?.props.disabled).toBe(true)
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      selectionToggleDisabled: true,
+    })
+  })
+
+  test('preserves the current target and blocks block-level actions while the agent is streaming', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const { BuilderPage, getLastAgentViewProps, getLastCmsBrowserDialogProps, getLastPreviewPaneProps } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      mockPreviewPane: true,
+      mockCmsBrowserDialog: true,
+    })
+
+    const store = createStore()
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <Provider store={store}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      getPreviewSelectionToggle(getLastPreviewPaneProps())?.()
+    })
+
+    await act(async () => {
+      (getLastPreviewPaneProps() as {
+        onSelectionEvent?: (event: { type: 'selected'; selector: string }) => void
+      }).onSelectionEvent?.({
+        type: 'selected',
+        selector: '#hero',
+      })
+    })
+
+    expect(getPreviewSelectionActionState(getLastPreviewPaneProps())).toBe('selected')
+    expect((getLastAgentViewProps() as {
+      messageDecorator?: (message: string) => string
+    }).messageDecorator?.('继续修改')).toContain('#hero')
+
+    await act(async () => {
+      setStreamingStatesForTest(store, new Map([
+        [session.id, { running: true, content: '', toolActivities: [], teammates: [], startedAt: 1 }],
+      ]))
+      await Promise.resolve()
+    })
+
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      interactionLocked: true,
+      selectionModeEnabled: true,
+      selectionToggleDisabled: true,
+      selectionActionState: 'selected',
+    })
+
+    await act(async () => {
+      (getLastPreviewPaneProps() as {
+        onSelectionEvent?: (event: { type: 'selected'; selector: string }) => void
+        onRequestDeleteBlock?: (selector: string) => void
+        onRequestOpenCmsBrowser?: () => void
+      }).onSelectionEvent?.({
+        type: 'selected',
+        selector: '#pricing',
+      })
+      ;(getLastPreviewPaneProps() as {
+        onRequestDeleteBlock?: (selector: string) => void
+      }).onRequestDeleteBlock?.('#hero')
+      ;(getLastPreviewPaneProps() as {
+        onRequestOpenCmsBrowser?: () => void
+      }).onRequestOpenCmsBrowser?.()
+      await Promise.resolve()
+    })
+
+    expect((getLastAgentViewProps() as {
+      messageDecorator?: (message: string) => string
+    }).messageDecorator?.('继续修改')).toContain('#hero')
+    expect((getLastAgentViewProps() as {
+      messageDecorator?: (message: string) => string
+    }).messageDecorator?.('继续修改')).not.toContain('#pricing')
+    expect(JSON.stringify(renderer.toJSON())).not.toContain('删除区块')
+    expect(getLastCmsBrowserDialogProps()).toMatchObject({ open: false })
   })
 
   test('keeps the selected block for retry until a success callback or preview reset clears it', async () => {
@@ -1366,7 +1427,7 @@ describe('BuilderPage', () => {
     })
 
     await act(async () => {
-      getComposerActionElement(getLastAgentViewProps())?.props.onClick()
+      getPreviewSelectionToggle(getLastPreviewPaneProps())?.()
     })
     await act(async () => {
       (getLastPreviewPaneProps() as {
@@ -1377,7 +1438,7 @@ describe('BuilderPage', () => {
       })
     })
 
-    expect(getComposerActionLabel(getLastAgentViewProps())).toBe('已选区域')
+    expect(getPreviewSelectionActionState(getLastPreviewPaneProps())).toBe('selected')
     expect((getLastAgentViewProps() as {
       messageDecorator?: (message: string) => string
     }).messageDecorator?.('改成更紧凑')).toContain('#pricing')
@@ -1392,8 +1453,9 @@ describe('BuilderPage', () => {
 
     expect(getLastPreviewPaneProps()).toMatchObject({
       selectionModeEnabled: false,
+      selectionActionState: 'idle',
     })
-    expect(getComposerActionLabel(getLastAgentViewProps())).toBe('选择进行编辑')
+    expect(getPreviewSelectionActionState(getLastPreviewPaneProps())).toBe('idle')
     expect(getLastAgentViewProps()).not.toHaveProperty('messageDecorator')
   })
 
@@ -1444,7 +1506,7 @@ describe('BuilderPage', () => {
     })
 
     await act(async () => {
-      getComposerActionElement(getLastAgentViewProps())?.props.onClick()
+      getPreviewSelectionToggle(getLastPreviewPaneProps())?.()
     })
     await act(async () => {
       (getLastPreviewPaneProps() as {
@@ -1455,7 +1517,7 @@ describe('BuilderPage', () => {
       })
     })
 
-    expect(getComposerActionLabel(getLastAgentViewProps())).toBe('已选区域')
+    expect(getPreviewSelectionActionState(getLastPreviewPaneProps())).toBe('selected')
 
     await act(async () => {
       (getLastAgentViewProps() as {
@@ -1465,9 +1527,10 @@ describe('BuilderPage', () => {
 
     expect(getLastPreviewPaneProps()).toMatchObject({
       selectionModeEnabled: true,
+      selectionActionState: 'selected',
       previewUrl: `/api/workspaces/${workspace.id}/preview/?v=rev-1`,
     })
-    expect(getComposerActionLabel(getLastAgentViewProps())).toBe('已选区域')
+    expect(getPreviewSelectionActionState(getLastPreviewPaneProps())).toBe('selected')
     expect((getLastAgentViewProps() as {
       messageDecorator?: (message: string) => string
     }).messageDecorator?.('帮我微调这个区块')).toContain('#hero-banner')
@@ -1478,9 +1541,10 @@ describe('BuilderPage', () => {
 
     expect(getLastPreviewPaneProps()).toMatchObject({
       selectionModeEnabled: false,
+      selectionActionState: 'idle',
       previewUrl: `/api/workspaces/${workspace.id}/preview/?v=rev-2`,
     })
-    expect(getComposerActionLabel(getLastAgentViewProps())).toBe('选择进行编辑')
+    expect(getPreviewSelectionActionState(getLastPreviewPaneProps())).toBe('idle')
     expect(getLastAgentViewProps()).not.toHaveProperty('messageDecorator')
   })
 
@@ -1524,12 +1588,18 @@ describe('BuilderPage', () => {
       await Promise.resolve()
     })
 
-    expect(getComposerActionElementByLabel(getLastAgentViewProps(), '浏览 CMS')).toBeNull()
+    expect(getLastAgentViewProps()).not.toHaveProperty('composerLeadingActions')
     expect(getLastCmsBrowserDialogProps()).toMatchObject({ open: false })
-    expect(getLastPreviewPaneProps()).toMatchObject({ selectionModeEnabled: false })
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      selectionModeEnabled: false,
+      selectionActionState: 'idle',
+    })
     expect(typeof (getLastPreviewPaneProps() as {
       onRequestOpenCmsBrowser?: () => void
     }).onRequestOpenCmsBrowser).toBe('function')
+    expect(typeof (getLastPreviewPaneProps() as {
+      onToggleSelectionMode?: () => void
+    }).onToggleSelectionMode).toBe('function')
     expect(typeof (getLastCmsBrowserDialogProps() as {
       onConfirmSelection?: (selection: PageBuilderCmsSelectionResult) => void
     }).onConfirmSelection).toBe('function')
@@ -1558,8 +1628,10 @@ describe('BuilderPage', () => {
         },
       },
     })
-    expect(getLastPreviewPaneProps()).toMatchObject({ selectionModeEnabled: true })
-    expect(getComposerActionLabel(getLastAgentViewProps())).toBe('已选区域')
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      selectionModeEnabled: true,
+      selectionActionState: 'selected',
+    })
   })
 
   test('creates a programmatic CMS handoff request and closes the dialog only after send settles successfully', async () => {
@@ -1662,10 +1734,10 @@ describe('BuilderPage', () => {
       open: false,
       confirming: false,
     })
-    expect(getComposerActionLabel(getLastAgentViewProps())).toBe('已选区域')
+    expect(getPreviewSelectionActionState(getLastPreviewPaneProps())).toBe('selected')
   })
 
-  test('creates the auto handoff request without showing a blocking toast when the session is already streaming', async () => {
+  test('blocks opening the cms browser from preview block actions while the session is already streaming', async () => {
     installWindowHarness()
     const workspace: AgentWorkspace = {
       id: 'workspace-1',
@@ -1725,37 +1797,12 @@ describe('BuilderPage', () => {
       }).onRequestOpenCmsBrowser?.()
     })
 
-    const selection: PageBuilderCmsSelectionResult = {
-      version: 1,
-      targetBlock: {
-        selector: '#hero-banner',
-      },
-      selectionKind: 'catalogs',
-      sourceType: 'catalogs',
-      selectionMode: 'single',
-      catalogIds: ['101'],
-      snapshot: {
-        catalogs: [],
-      },
-    }
-
-    await act(async () => {
-      await (getLastCmsBrowserDialogProps() as {
-        onConfirmSelection?: (value: PageBuilderCmsSelectionResult) => void
-      }).onConfirmSelection?.(selection)
-    })
-
     expect(getToastError()).not.toHaveBeenCalled()
-    expect(getLastAgentViewProps()).toMatchObject({
-      programmaticSendRequest: expect.objectContaining({
-        userMessage: '请根据刚确认的 CMS 选择结果，判断如何应用到当前区块。',
-        mentionedSkills: ['cms-binding-apply'],
-      }),
-    })
     expect(getLastCmsBrowserDialogProps()).toMatchObject({
-      open: true,
-      confirming: true,
+      open: false,
+      confirming: false,
     })
+    expect(getLastAgentViewProps()?.programmaticSendRequest ?? null).toBeNull()
   })
 
   test('keeps the dialog open after auto handoff send failure so the user can retry in place', async () => {
@@ -1847,7 +1894,7 @@ describe('BuilderPage', () => {
       open: true,
       confirming: false,
     })
-    expect(getComposerActionLabel(getLastAgentViewProps())).toBe('已选区域')
+    expect(getPreviewSelectionActionState(getLastPreviewPaneProps())).toBe('selected')
   })
 
   test('opens an image-only file picker for replace-image actions and ignores canceled selections', async () => {
@@ -2219,7 +2266,7 @@ describe('BuilderPage', () => {
       })
     })
 
-    expect(getComposerActionLabel(getLastAgentViewProps())).toBe('已选区域')
+    expect(getPreviewSelectionActionState(getLastPreviewPaneProps())).toBe('selected')
 
     await act(async () => {
       (getLastPreviewPaneProps() as {
@@ -2235,7 +2282,7 @@ describe('BuilderPage', () => {
 
     expect(deletePageBuilderBlock).toHaveBeenCalledTimes(0)
     expect(JSON.stringify(renderer.toJSON())).not.toContain('删除区块')
-    expect(getComposerActionLabel(getLastAgentViewProps())).toBe('已选区域')
+    expect(getPreviewSelectionActionState(getLastPreviewPaneProps())).toBe('selected')
   })
 
   test('deletes the selected block after confirmation and clears the current selection', async () => {
@@ -2319,8 +2366,9 @@ describe('BuilderPage', () => {
     expect(getLastPreviewPaneProps()).toMatchObject({
       previewUrl: `/api/workspaces/${workspace.id}/preview/?v=rev-2`,
       selectionModeEnabled: false,
+      selectionActionState: 'idle',
     })
-    expect(getComposerActionLabel(getLastAgentViewProps())).toBe('选择进行编辑')
+    expect(getPreviewSelectionActionState(getLastPreviewPaneProps())).toBe('idle')
   })
 
   test('shows an error toast and preserves the current selection when block deletion fails', async () => {
@@ -2397,8 +2445,9 @@ describe('BuilderPage', () => {
     expect(getLastPreviewPaneProps()).toMatchObject({
       previewUrl: `/api/workspaces/${workspace.id}/preview/?v=rev-1`,
       selectionModeEnabled: true,
+      selectionActionState: 'selected',
     })
-    expect(getComposerActionLabel(getLastAgentViewProps())).toBe('已选区域')
+    expect(getPreviewSelectionActionState(getLastPreviewPaneProps())).toBe('selected')
   })
 
   test('starts a static export job from PreviewPane, polls until completion, and opens the downloaded package', async () => {

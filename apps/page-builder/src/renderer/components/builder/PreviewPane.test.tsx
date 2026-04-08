@@ -38,7 +38,7 @@ afterEach(() => {
 })
 
 describe('PreviewPane', () => {
-  test('renders a compact toolbar with device toggle, export, refresh, and new-window controls', async () => {
+  test('renders a compact toolbar with device toggle, block selection, export, refresh, and new-window controls', async () => {
     const { PreviewPane } = await loadPreviewPane()
     const renderer = create(<PreviewPane previewUrl="https://example.com/preview" />)
 
@@ -56,22 +56,90 @@ describe('PreviewPane', () => {
     const viewportShell = renderer.root.find((node) =>
       node.type === 'div' && node.props['data-preview-viewport-shell'] === true
     )
+    const deviceToggleGroup = renderer.root.find((node) =>
+      node.type === 'div' && node.props['data-preview-device-toggle-group'] === true
+    )
+    const selectionActionGroup = renderer.root.find((node) =>
+      node.type === 'div' && node.props['data-preview-selection-action-group'] === true
+    )
 
     expect(toolbar.props.className).toContain('h-11')
     expect(buttons.map((button) => button.props['aria-label'])).toEqual([
       'PC 预览',
       'Mobile 预览',
+      '选择区块',
       '导出静态包',
       '刷新预览',
       '新窗口打开预览',
     ])
     expect(desktopButton.props['aria-pressed']).toBe(true)
     expect(mobileButton.props['aria-pressed']).toBe(false)
+    expect(findButton(renderer, '选择区块').props['aria-pressed']).toBe(false)
+    expect(deviceToggleGroup.findAllByType('button').map((button) => button.props['aria-label'])).toEqual([
+      'PC 预览',
+      'Mobile 预览',
+    ])
+    expect(selectionActionGroup.findAllByType('button').map((button) => button.props['aria-label'])).toEqual([
+      '选择区块',
+    ])
     expect(viewportShell.props['data-preview-device-mode']).toBe('desktop')
     expect(json).not.toContain('实时预览')
     expect(exportButton.props.className).toContain('size-8')
     expect(exportButton.children.some((child: unknown) => typeof child === 'string')).toBe(false)
     expect(json).not.toContain('第一阶段使用精简 iframe 容器承载页面预览。')
+  })
+
+  test('reflects the preview block-selection toggle states and forwards toggle requests', async () => {
+    const onToggleSelectionMode = mock(() => {})
+    const { PreviewPane } = await loadPreviewPane()
+    let renderer = create(
+      <PreviewPane
+        onToggleSelectionMode={onToggleSelectionMode}
+        previewUrl="https://example.com/preview"
+        selectionActionState="armed"
+        selectionModeEnabled={true}
+      />,
+    )
+
+    let selectionButton = findButton(renderer, '选择区块')
+    expect(selectionButton.props['aria-pressed']).toBe(true)
+    expect(selectionButton.props.className).toContain('border-primary/35')
+
+    await act(async () => {
+      selectionButton.props.onClick()
+    })
+
+    expect(onToggleSelectionMode).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      renderer.update(
+        <PreviewPane
+          onToggleSelectionMode={onToggleSelectionMode}
+          previewUrl="https://example.com/preview"
+          selectionActionState="selected"
+          selectionModeEnabled={true}
+        />,
+      )
+    })
+
+    selectionButton = findButton(renderer, '选择区块')
+    expect(selectionButton.props['aria-pressed']).toBe(true)
+    expect(selectionButton.props.className).toContain('bg-primary')
+
+    await act(async () => {
+      renderer.update(
+        <PreviewPane
+          onToggleSelectionMode={onToggleSelectionMode}
+          previewUrl="https://example.com/preview"
+          selectionActionState="idle"
+          selectionToggleDisabled={true}
+        />,
+      )
+    })
+
+    selectionButton = findButton(renderer, '选择区块')
+    expect(selectionButton.props['aria-pressed']).toBe(false)
+    expect(selectionButton.props.disabled).toBe(true)
   })
 
   test('shows a loading state on the export button while the static export job is running', async () => {
@@ -210,7 +278,7 @@ describe('PreviewPane', () => {
     })
 
     await act(async () => {
-      const messageHandler = [...(listeners.get('message') ?? [])][0]
+      const messageHandler = [...(listeners.get('message') ?? [])].at(-1)
       messageHandler?.({
         source: iframeWindow,
         data: {
@@ -435,11 +503,13 @@ describe('PreviewPane', () => {
       source: PAGE_BUILDER_PREVIEW_PARENT_SOURCE,
       type: 'selection-mode',
       enabled: true,
+      locked: false,
     }, '*')
 
     await act(async () => {
       renderer.update(
         <PreviewPane
+          interactionLocked={true}
           previewUrl="https://example.com/preview?v=rev-1"
           selectionModeEnabled={false}
         />,
@@ -450,6 +520,7 @@ describe('PreviewPane', () => {
       source: PAGE_BUILDER_PREVIEW_PARENT_SOURCE,
       type: 'selection-mode',
       enabled: false,
+      locked: true,
     }, '*')
     expect(iframeWindow.postMessage).toHaveBeenLastCalledWith({
       source: PAGE_BUILDER_PREVIEW_PARENT_SOURCE,
@@ -691,6 +762,259 @@ describe('PreviewPane', () => {
         childPath: [],
       },
     })
+  })
+
+  test('locks preview block interactions while the agent is processing', async () => {
+    const listeners = new Map<string, Set<(event: unknown) => void>>()
+    const iframeWindow = {
+      postMessage: mock(() => {}),
+    }
+    const onSelectionEvent = mock(() => {})
+    const onRequestOpenCmsBrowser = mock(() => {})
+    const onRequestDeleteBlock = mock(() => {})
+    const onRequestReplaceImage = mock(() => {})
+
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: {
+        addEventListener(type: string, listener: (event: unknown) => void) {
+          const bucket = listeners.get(type) ?? new Set()
+          bucket.add(listener)
+          listeners.set(type, bucket)
+        },
+        removeEventListener(type: string, listener: (event: unknown) => void) {
+          listeners.get(type)?.delete(listener)
+        },
+        open: mock(() => {}),
+      },
+    })
+
+    const { PreviewPane } = await loadPreviewPane()
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <PreviewPane
+          onRequestDeleteBlock={onRequestDeleteBlock}
+          onRequestOpenCmsBrowser={onRequestOpenCmsBrowser}
+          onRequestReplaceImage={onRequestReplaceImage}
+          onSelectionEvent={onSelectionEvent}
+          previewUrl="https://example.com/preview?v=rev-1"
+          selectionModeEnabled={true}
+        />,
+        {
+          createNodeMock(element) {
+            if (element.type === 'iframe') {
+              return { contentWindow: iframeWindow }
+            }
+
+            if (
+              element.type === 'div'
+              && typeof element.props.className === 'string'
+              && element.props.className.includes('rounded-xl border border-border/70 bg-background')
+            ) {
+              return {
+                getBoundingClientRect() {
+                  return {
+                    top: 0,
+                    left: 0,
+                    width: 960,
+                    height: 640,
+                    right: 960,
+                    bottom: 640,
+                  }
+                },
+              }
+            }
+
+            return {}
+          },
+        },
+      )
+    })
+
+    await act(async () => {
+      const messageHandler = [...(listeners.get('message') ?? [])][0]
+      messageHandler?.({
+        source: iframeWindow,
+        data: {
+          source: PAGE_BUILDER_PREVIEW_BRIDGE_SOURCE,
+          type: 'selected',
+          selector: '#hero-image',
+          rect: {
+            top: 160,
+            left: 100,
+            right: 360,
+            bottom: 320,
+            width: 260,
+            height: 160,
+          },
+          capabilities: {
+            replaceImage: {
+              supported: true,
+              targetDescriptor: {
+                version: 1,
+                tagName: 'img',
+                childPath: [],
+              },
+            },
+          },
+        },
+      })
+    })
+
+    await act(async () => {
+      renderer.update(
+        <PreviewPane
+          interactionLocked={true}
+          onRequestDeleteBlock={onRequestDeleteBlock}
+          onRequestOpenCmsBrowser={onRequestOpenCmsBrowser}
+          onRequestReplaceImage={onRequestReplaceImage}
+          onSelectionEvent={onSelectionEvent}
+          previewUrl="https://example.com/preview?v=rev-1"
+          selectionModeEnabled={true}
+        />,
+      )
+    })
+
+    const actionButton = renderer.root.find((node) =>
+      node.type === 'button'
+      && node.props['aria-label'] === '从 CMS 选择数据'
+    )
+    const deleteButton = renderer.root.find((node) =>
+      node.type === 'button'
+      && node.props['aria-label'] === '删除'
+    )
+    const replaceImageButton = renderer.root.find((node) =>
+      node.type === 'button'
+      && node.props['aria-label'] === '替换图片'
+    )
+
+    expect(actionButton.props.disabled).toBe(true)
+    expect(deleteButton.props.disabled).toBe(true)
+    expect(replaceImageButton.props.disabled).toBe(true)
+    expect(renderer.root.findAll((node) =>
+      node.type === 'div'
+      && node.props['data-preview-interaction-lock'] === true
+    )).toHaveLength(0)
+
+    await act(async () => {
+      actionButton.props.onClick()
+      deleteButton.props.onClick()
+      replaceImageButton.props.onClick()
+    })
+
+    expect(onRequestOpenCmsBrowser).toHaveBeenCalledTimes(0)
+    expect(onRequestDeleteBlock).toHaveBeenCalledTimes(0)
+    expect(onRequestReplaceImage).toHaveBeenCalledTimes(0)
+
+    await act(async () => {
+      const messageHandler = [...(listeners.get('message') ?? [])][0]
+      messageHandler?.({
+        source: iframeWindow,
+        data: {
+          source: PAGE_BUILDER_PREVIEW_BRIDGE_SOURCE,
+          type: 'selected',
+          selector: '#pricing',
+          rect: {
+            top: 220,
+            left: 120,
+            right: 400,
+            bottom: 360,
+            width: 280,
+            height: 140,
+          },
+        },
+      })
+    })
+
+    expect(onSelectionEvent).toHaveBeenCalledWith({
+      type: 'selected',
+      selector: '#hero-image',
+    })
+    expect(onSelectionEvent).not.toHaveBeenCalledWith({
+      type: 'selected',
+      selector: '#pricing',
+    })
+  })
+
+  test('posts interaction lock state to the preview bridge without mounting an iframe overlay', async () => {
+    const listeners = new Map<string, Set<(event: unknown) => void>>()
+    const iframeWindow = {
+      postMessage: mock(() => {}),
+    }
+
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: {
+        addEventListener(type: string, listener: (event: unknown) => void) {
+          const bucket = listeners.get(type) ?? new Set()
+          bucket.add(listener)
+          listeners.set(type, bucket)
+        },
+        removeEventListener(type: string, listener: (event: unknown) => void) {
+          listeners.get(type)?.delete(listener)
+        },
+        open: mock(() => {}),
+      },
+    })
+
+    const { PreviewPane } = await loadPreviewPane()
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <PreviewPane
+          previewUrl="https://example.com/preview?v=rev-1"
+          selectionModeEnabled={true}
+        />,
+        {
+          createNodeMock(element) {
+            if (element.type === 'iframe') {
+              return { contentWindow: iframeWindow }
+            }
+            return {}
+          },
+        },
+      )
+    })
+
+    await act(async () => {
+      const messageHandler = [...(listeners.get('message') ?? [])][0]
+      messageHandler?.({
+        source: iframeWindow,
+        data: {
+          source: PAGE_BUILDER_PREVIEW_BRIDGE_SOURCE,
+          type: 'ready',
+        },
+      })
+    })
+
+    expect(iframeWindow.postMessage).toHaveBeenCalledWith({
+      source: PAGE_BUILDER_PREVIEW_PARENT_SOURCE,
+      type: 'selection-mode',
+      enabled: true,
+      locked: false,
+    }, '*')
+
+    await act(async () => {
+      renderer.update(
+        <PreviewPane
+          interactionLocked={true}
+          previewUrl="https://example.com/preview?v=rev-1"
+          selectionModeEnabled={true}
+        />,
+      )
+    })
+
+    expect(iframeWindow.postMessage).toHaveBeenCalledWith({
+      source: PAGE_BUILDER_PREVIEW_PARENT_SOURCE,
+      type: 'selection-mode',
+      enabled: true,
+      locked: true,
+    }, '*')
+    expect(renderer.root.findAll((node) =>
+      node.type === 'div'
+      && node.props['data-preview-interaction-lock'] === true
+    )).toHaveLength(0)
   })
 
   test('hides the block toolbar when the bridge resets the current selection', async () => {

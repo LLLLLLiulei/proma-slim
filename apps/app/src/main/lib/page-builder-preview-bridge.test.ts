@@ -61,6 +61,17 @@ test('page-builder preview bridge filters mutation observer events triggered by 
   expect(script).toContain('if (!shouldSyncFromMutations(mutations)) {')
 })
 
+test('page-builder preview bridge handles interaction locks without relying on a parent overlay', async () => {
+  const module = await importPreviewBridgeModule()
+
+  const script = module.readPageBuilderPreviewBridgeScript()
+
+  expect(script).toContain('let selectionInteractionLocked = false')
+  expect(script).toContain('locked: Boolean(data.locked)')
+  expect(script).toContain('selectionInteractionLocked = Boolean(data.locked)')
+  expect(script).toContain('if (!selectionModeEnabled || selectionInteractionLocked) return')
+})
+
 test('page-builder preview bridge uses dashed hover borders and solid selected borders', async () => {
   const module = await importPreviewBridgeModule()
 

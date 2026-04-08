@@ -19,6 +19,7 @@
   const READY_ANNOUNCEMENT_INTERVAL_MS = 250
   const READY_ANNOUNCEMENT_MAX_ATTEMPTS = 12
   let selectionModeEnabled = false
+  let selectionInteractionLocked = false
   let hoveredElement = null
   let selectedElement = null
   let hoveredSelector = null
@@ -387,7 +388,7 @@
   }
 
   const syncOverlays = () => {
-    const effectiveHoverElement = selectionModeEnabled && hoveredElement !== selectedElement
+    const effectiveHoverElement = selectionModeEnabled && !selectionInteractionLocked && hoveredElement !== selectedElement
       ? hoveredElement
       : null
 
@@ -804,13 +805,13 @@
   }
 
   const handleMouseMove = (event) => {
-    if (!selectionModeEnabled) return
+    if (!selectionModeEnabled || selectionInteractionLocked) return
     const target = resolveSelectableElement(event.target)
     updateHoveredElement(target)
   }
 
   const handleMouseOut = (event) => {
-    if (!selectionModeEnabled) return
+    if (!selectionModeEnabled || selectionInteractionLocked) return
 
     const relatedTarget = event.relatedTarget
     if (relatedTarget instanceof Node && document.contains(relatedTarget)) {
@@ -821,7 +822,7 @@
   }
 
   const handleClick = (event) => {
-    if (!selectionModeEnabled) return
+    if (!selectionModeEnabled || selectionInteractionLocked) return
 
     const target = resolveSelectableElement(event.target)
     if (!target) {
@@ -877,8 +878,10 @@
       logBridge('parent-message', {
         type: data.type,
         enabled: Boolean(data.enabled),
+        locked: Boolean(data.locked),
       })
       selectionModeEnabled = Boolean(data.enabled)
+      selectionInteractionLocked = Boolean(data.locked)
       if (!selectionModeEnabled) {
         clearAll(false)
       } else {
@@ -890,6 +893,7 @@
     if (data.type === 'selection-clear') {
       logBridge('parent-message', { type: data.type })
       selectionModeEnabled = false
+      selectionInteractionLocked = false
       clearAll(false)
       return
     }

@@ -25,6 +25,7 @@ export type PageBuilderPreviewParentMessage =
     source: typeof PAGE_BUILDER_PREVIEW_PARENT_SOURCE
     type: 'selection-mode'
     enabled: boolean
+    locked: boolean
   }
   | {
     source: typeof PAGE_BUILDER_PREVIEW_PARENT_SOURCE

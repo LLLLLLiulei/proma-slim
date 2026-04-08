@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
 export function PageBuilderBlockActionBar({
+  actionsDisabled = false,
   className,
   onDelete,
   onOpenCms,
@@ -11,6 +12,7 @@ export function PageBuilderBlockActionBar({
   replaceImageDisabled = false,
   style,
 }: {
+  actionsDisabled?: boolean
   className?: string
   onDelete?: () => void
   onOpenCms: () => void
@@ -30,7 +32,7 @@ export function PageBuilderBlockActionBar({
         <Button
           aria-label="替换图片"
           className="h-7 shrink-0 justify-start rounded-sm px-2 text-[11px] font-medium text-foreground shadow-none hover:bg-muted/70"
-          disabled={replaceImageDisabled}
+          disabled={actionsDisabled || replaceImageDisabled}
           onClick={onReplaceImage}
           size="sm"
           type="button"
@@ -43,6 +45,7 @@ export function PageBuilderBlockActionBar({
       <Button
         aria-label="从 CMS 选择数据"
         className="h-7 shrink-0 justify-start rounded-sm px-2 text-[11px] font-medium text-foreground shadow-none hover:bg-muted/70"
+        disabled={actionsDisabled}
         onClick={onOpenCms}
         size="sm"
         type="button"
@@ -54,7 +57,7 @@ export function PageBuilderBlockActionBar({
       <Button
         aria-label="删除"
         className="h-7 shrink-0 justify-start rounded-sm px-2 text-[11px] font-medium text-destructive shadow-none hover:bg-muted/70 hover:text-destructive"
-        disabled={!onDelete}
+        disabled={actionsDisabled || !onDelete}
         onClick={onDelete}
         size="sm"
         type="button"

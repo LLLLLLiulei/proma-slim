@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { useAtomValue, useSetAtom } from 'jotai'
-import { AlertTriangle, LoaderCircle, MousePointerClick } from 'lucide-react'
+import { AlertTriangle, LoaderCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import type {
   PageBuilderBlockDeletionPayload,
@@ -438,6 +438,10 @@ export function BuilderPage({
   }, [handleStaticExportSettled, staticExportJob, workspaceId])
 
   const handleRequestReplaceImage = React.useCallback((request: PageBuilderImageReplacementPayload) => {
+    if (isAgentStreaming) {
+      return
+    }
+
     pendingImageReplacementRef.current = request
     const input = imageFileInputRef.current
     if (!input) {
@@ -446,11 +450,15 @@ export function BuilderPage({
 
     input.value = ''
     input.click()
-  }, [])
+  }, [isAgentStreaming])
 
   const handleRequestDeleteBlock = React.useCallback((selector: string) => {
+    if (isAgentStreaming) {
+      return
+    }
+
     setPendingDeleteSelector(selector)
-  }, [])
+  }, [isAgentStreaming])
 
   const handleDeleteDialogOpenChange = React.useCallback((open: boolean) => {
     if (!open) {
@@ -591,6 +599,10 @@ export function BuilderPage({
   }, [sessionId])
 
   const handleSelectionEvent = React.useCallback((event: PageBuilderPreviewSelectionEvent) => {
+    if (isAgentStreaming && event.type !== 'reset') {
+      return
+    }
+
     if (event.type === 'hover') {
       setHoveredSelector(event.selector)
       return
@@ -603,9 +615,13 @@ export function BuilderPage({
     }
 
     clearSelection()
-  }, [clearSelection])
+  }, [clearSelection, isAgentStreaming])
 
   const handleToggleSelectionMode = React.useCallback(() => {
+    if (isAgentStreaming) {
+      return
+    }
+
     if (selectionActionState !== 'idle') {
       clearSelection()
       return
@@ -614,7 +630,7 @@ export function BuilderPage({
     setSelectionActionState('armed')
     setHoveredSelector(null)
     setSelectedSelector(null)
-  }, [clearSelection, selectionActionState])
+  }, [clearSelection, isAgentStreaming, selectionActionState])
 
   const handleMessageSent = React.useCallback(() => {
     if (selectionActionState === 'idle') return
@@ -696,34 +712,6 @@ export function BuilderPage({
       selector: selectedSelector,
     })
   }, [selectedSelector])
-  const selectionActionLabel = selectionActionState === 'idle'
-    ? '选择进行编辑'
-    : selectionActionState === 'selected'
-      ? '已选区域'
-      : '从页面中选择'
-  const selectionActionClassName = selectionActionState === 'selected'
-    ? 'h-7 rounded-full border border-primary/70 bg-primary px-2.5 text-[11px] font-semibold text-primary-foreground shadow-sm ring-2 ring-primary/20 ring-offset-1 ring-offset-background transition-all hover:bg-primary/92 hover:text-primary-foreground'
-    : selectionActionState === 'armed'
-      ? 'h-7 rounded-full border border-primary/35 bg-primary/10 px-2.5 text-[11px] font-medium text-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.35)] ring-1 ring-primary/15 ring-offset-1 ring-offset-background transition-all hover:border-primary/45 hover:bg-primary/14 hover:text-primary'
-      : 'h-7 rounded-full border border-transparent bg-transparent px-2.5 text-[11px] font-medium text-muted-foreground transition-all hover:border-border/60 hover:bg-muted/70 hover:text-foreground'
-  const composerLeadingActions = React.useMemo(() => (
-    <div className="flex items-center gap-1.5">
-      <Button
-        aria-label={selectionActionLabel}
-        aria-pressed={selectionModeEnabled}
-        className={selectionActionClassName}
-        disabled={isAgentStreaming}
-        onClick={handleToggleSelectionMode}
-        size="sm"
-        type="button"
-        variant="ghost"
-      >
-        <MousePointerClick className="mr-1 size-3.5" />
-        {selectionActionLabel}
-      </Button>
-    </div>
-  ), [handleToggleSelectionMode, isAgentStreaming, selectionActionClassName, selectionActionLabel, selectionModeEnabled])
-
   if (loadState.status === 'loading') {
     return (
       <div className="page-builder-workbench flex min-h-[100dvh] items-center justify-center px-6 py-10">
@@ -762,14 +750,24 @@ export function BuilderPage({
         <PreviewPane
           exportStaticPending={exportStaticPending}
           imageReplacementPending={isReplacingImage}
+          interactionLocked={isAgentStreaming}
           onInlineTextSaveRequest={handleInlineTextSaveRequest}
           onRequestDeleteBlock={handleRequestDeleteBlock}
           onRequestExportStatic={handleRequestExportStatic}
-          onRequestOpenCmsBrowser={() => setCmsBrowserOpen(true)}
+          onRequestOpenCmsBrowser={() => {
+            if (isAgentStreaming) {
+              return
+            }
+
+            setCmsBrowserOpen(true)
+          }}
           onRequestReplaceImage={handleRequestReplaceImage}
           onSelectionEvent={handleSelectionEvent}
           previewUrl={previewUrl}
+          selectionActionState={selectionActionState}
           selectionModeEnabled={selectionModeEnabled}
+          selectionToggleDisabled={isAgentStreaming}
+          onToggleSelectionMode={handleToggleSelectionMode}
         />
 
         <div className="page-builder-split-rail hidden lg:flex" aria-hidden>
@@ -793,7 +791,6 @@ export function BuilderPage({
           <div className="min-h-0 flex-1 overflow-hidden bg-background/40">
             <AgentView
               allowAttachments
-              composerLeadingActions={composerLeadingActions}
               defaultMentionedSkills={[PAGE_BUILDER_GUIDED_GENERATION_SKILL]}
               initialUserMessage={loadState.initialUserMessage}
               onMessageSent={handleMessageSent}
