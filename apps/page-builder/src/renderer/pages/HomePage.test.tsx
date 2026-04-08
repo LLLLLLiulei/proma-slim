@@ -240,6 +240,41 @@ describe('HomePage', () => {
     expect(json).not.toContain('提交后会创建“未命名项目”工作区与首个对话，并自动开始生成。')
   })
 
+  test('attaches focus highlight styling to the visible input surface', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const { HomePage } = await loadHomePage({
+      createPageBuilderProjectImpl: async () => ({ workspace, session }),
+      retryPageBuilderSessionImpl: async () => session,
+    })
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(React.createElement(HomePage))
+    })
+
+    const surface = renderer.root.find((node) =>
+      typeof node.props.className === 'string'
+      && node.props.className.includes('page-builder-home-surface')
+    )
+
+    expect(surface.props.className).toContain('page-builder-home-panel-focus')
+  })
+
   test('mounts the independent history section below the viewport-tall hero stage', async () => {
     installWindowHarness()
     const workspace: AgentWorkspace = {

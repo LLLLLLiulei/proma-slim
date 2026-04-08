@@ -113,7 +113,7 @@ export function HomePage(): React.ReactElement {
             </div>
 
             <div className="page-builder-home-panel w-full max-w-[960px] p-4 sm:p-5">
-              <div className="page-builder-home-surface page-builder-home-panel-surface page-builder-home-panel-flat rounded-[24px] border border-border/55 bg-background/90 p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)] backdrop-blur-xl">
+              <div className="page-builder-home-surface page-builder-home-panel-surface page-builder-home-panel-flat page-builder-home-panel-focus rounded-[24px] border border-border/55 bg-background/90 p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)] backdrop-blur-xl">
                 <RichTextInput
                   value={prompt}
                   onChange={setPrompt}
