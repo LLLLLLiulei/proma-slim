@@ -596,6 +596,125 @@ describe('BuilderPage', () => {
     expect(localStorage.length).toBeGreaterThan(0)
   })
 
+  test('updates the desktop split live during pointer dragging but persists only after pointerup', async () => {
+    const windowHarness = installWindowHarness()
+    const localStorageSetItem = mock(windowHarness.localStorage.setItem.bind(windowHarness.localStorage))
+    windowHarness.localStorage.setItem = localStorageSetItem
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const inlineStyleState = new Map<string, string>()
+    const gridNode = {
+      getBoundingClientRect() {
+        return {
+          left: 100,
+          width: 1200,
+          top: 0,
+          right: 1300,
+          bottom: 800,
+          height: 800,
+        }
+      },
+      style: {
+        setProperty: mock((name: string, value: string) => {
+          inlineStyleState.set(name, value)
+        }),
+        removeProperty: mock((name: string) => {
+          inlineStyleState.delete(name)
+        }),
+      },
+    }
+    const separatorNode = {
+      setPointerCapture: mock(() => {}),
+      releasePointerCapture: mock(() => {}),
+    }
+
+    const { BuilderPage } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      mockPreviewPane: true,
+    })
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+        {
+          createNodeMock(element) {
+            if (
+              element.type === 'div'
+              && typeof element.props.className === 'string'
+              && element.props.className.includes('page-builder-builder-grid')
+            ) {
+              return gridNode
+            }
+
+            if (element.type === 'div' && element.props['aria-label'] === '调整预览与对话宽度') {
+              return separatorNode
+            }
+
+            return {}
+          },
+        },
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    const persistedCallCountBeforeDrag = localStorageSetItem.mock.calls.length
+
+    const separator = renderer.root.find((node) =>
+      node.props['aria-label'] === '调整预览与对话宽度'
+    )
+
+    await act(async () => {
+      separator.props.onPointerDown({
+        button: 0,
+        clientX: 760,
+        pointerId: 1,
+        currentTarget: separatorNode,
+        preventDefault() {},
+      })
+    })
+
+    expect(separatorNode.setPointerCapture).toHaveBeenCalledWith(1)
+    expect(windowHarness.getListenerCount('pointermove')).toBe(1)
+    expect(localStorageSetItem.mock.calls.length).toBe(persistedCallCountBeforeDrag)
+
+    await act(async () => {
+      windowHarness.dispatchWindowEvent('pointermove', {
+        clientX: 900,
+        pointerId: 1,
+      })
+    })
+
+    expect(gridNode.style.setProperty).toHaveBeenCalled()
+    expect(inlineStyleState.get('--page-builder-preview-size')).toBeDefined()
+    expect(localStorageSetItem.mock.calls.length).toBe(persistedCallCountBeforeDrag)
+
+    await act(async () => {
+      windowHarness.dispatchWindowEvent('pointerup', {
+        pointerId: 1,
+      })
+    })
+
+    expect(separatorNode.releasePointerCapture).toHaveBeenCalledWith(1)
+    expect(localStorageSetItem.mock.calls.length).toBe(persistedCallCountBeforeDrag + 1)
+    expect(windowHarness.getListenerCount('pointermove')).toBe(0)
+  })
+
   test('hydrates the builder runtime and passes the bootstrap prompt into the embedded AgentView', async () => {
     const { sessionStorage } = installWindowHarness()
     const workspace: AgentWorkspace = {
@@ -673,9 +792,10 @@ describe('BuilderPage', () => {
       updatedAt: 1,
     }
 
-    const { BuilderPage } = await loadBuilderPage({
+    const { BuilderPage, getLastPreviewPaneProps } = await loadBuilderPage({
       sessions: [session],
       workspaces: [workspace],
+      mockPreviewPane: true,
       previewStates: [{
         hasPreview: true,
         entryUrl: `/api/workspaces/${workspace.id}/preview/`,
@@ -696,8 +816,9 @@ describe('BuilderPage', () => {
       await Promise.resolve()
     })
 
-    const iframe = renderer.root.findByType('iframe')
-    expect(iframe.props.src).toBe(`http://localhost/api/workspaces/${workspace.id}/preview/?v=rev-1&page-builder-bridge=1`)
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      previewUrl: `/api/workspaces/${workspace.id}/preview/?v=rev-1`,
+    })
   })
 
   test('rehydrates the last successful preview url across a full builder remount before preview-state polling resolves', async () => {

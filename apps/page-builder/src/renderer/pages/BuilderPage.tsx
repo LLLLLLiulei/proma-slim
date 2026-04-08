@@ -82,11 +82,15 @@ export function BuilderPage({
   sessionId: string
 }): React.ReactElement {
   const desktopGridRef = React.useRef<HTMLDivElement>(null)
+  const splitHandleRef = React.useRef<HTMLDivElement>(null)
   const imageFileInputRef = React.useRef<HTMLInputElement>(null)
   const hydratedPreviewWorkspaceRef = React.useRef(workspaceId)
   const pendingImageReplacementRef = React.useRef<PageBuilderImageReplacementPayload | null>(null)
   const suppressedInlinePreviewRevisionsRef = React.useRef<Set<string>>(new Set())
   const handledStaticExportJobsRef = React.useRef<Set<string>>(new Set())
+  const desktopSplitRatioRef = React.useRef(DEFAULT_BUILDER_SPLIT_RATIO)
+  const draggingSplitPointerIdRef = React.useRef<number | null>(null)
+  const draggingSplitRatioRef = React.useRef<number | null>(null)
   const setSessions = useSetAtom(agentSessionsAtom)
   const setWorkspaces = useSetAtom(agentWorkspacesAtom)
   const setCurrentSessionId = useSetAtom(currentAgentSessionIdAtom)
@@ -122,24 +126,55 @@ export function BuilderPage({
     pendingImageReplacementRef.current = null
   }, [])
 
-  const persistDesktopSplitRatio = React.useCallback((nextRatio: number) => {
-    const containerWidth = desktopGridRef.current?.getBoundingClientRect().width
+  const applyDesktopGridSplitStyle = React.useCallback((nextRatio: number, containerWidth: number) => {
+    const element = desktopGridRef.current
+    if (!element) return nextRatio
+
+    const layout = resolveBuilderDesktopTrackWidths(nextRatio, containerWidth)
+    element.style.setProperty('--page-builder-preview-size', `${layout.clampedRatio}fr`)
+    element.style.setProperty('--page-builder-chat-size', `${1 - layout.clampedRatio}fr`)
+
+    if (layout.previewWidth > 0 && layout.chatWidth > 0) {
+      element.style.setProperty('--page-builder-preview-width', `${layout.previewWidth}px`)
+      element.style.setProperty('--page-builder-chat-width', `${layout.chatWidth}px`)
+    } else {
+      element.style.removeProperty('--page-builder-preview-width')
+      element.style.removeProperty('--page-builder-chat-width')
+    }
+
+    return layout.clampedRatio
+  }, [])
+
+  const commitDesktopSplitRatio = React.useCallback((
+    nextRatio: number,
+    options?: { persist?: boolean; containerWidth?: number },
+  ) => {
+    const containerWidth = options?.containerWidth ?? desktopGridRef.current?.getBoundingClientRect().width
     const clamped = clampBuilderSplitRatio(nextRatio, containerWidth)
+    desktopSplitRatioRef.current = clamped
 
     setDesktopSplitRatio(clamped)
 
-    if (typeof window !== 'undefined') {
+    if (options?.persist !== false && typeof window !== 'undefined') {
       writeStoredBuilderSplitRatio(window.localStorage, clamped)
     }
+
+    return clamped
   }, [])
 
-  const updateDesktopSplitRatioFromPointer = React.useCallback((clientX: number) => {
+  const previewDesktopSplitRatioFromPointer = React.useCallback((clientX: number) => {
     const rect = desktopGridRef.current?.getBoundingClientRect()
-    if (!rect) return
+    if (!rect) return null
 
     const nextRatio = deriveBuilderSplitRatioFromPointer(clientX, rect)
-    persistDesktopSplitRatio(nextRatio)
-  }, [persistDesktopSplitRatio])
+    const clamped = applyDesktopGridSplitStyle(nextRatio, rect.width)
+    draggingSplitRatioRef.current = clamped
+    return clamped
+  }, [applyDesktopGridSplitStyle])
+
+  React.useEffect(() => {
+    desktopSplitRatioRef.current = desktopSplitRatio
+  }, [desktopSplitRatio])
 
   const loadBuilderRuntime = React.useCallback(async (): Promise<void> => {
     setLoadState({ status: 'loading' })
@@ -507,9 +542,32 @@ export function BuilderPage({
     if (!isDraggingSplit || typeof window === 'undefined') return
 
     const handlePointerMove = (event: PointerEvent) => {
-      updateDesktopSplitRatioFromPointer(event.clientX)
+      if (
+        draggingSplitPointerIdRef.current !== null
+        && event.pointerId !== draggingSplitPointerIdRef.current
+      ) {
+        return
+      }
+
+      previewDesktopSplitRatioFromPointer(event.clientX)
     }
-    const handlePointerUp = () => {
+    const handlePointerUp = (event: PointerEvent) => {
+      if (
+        draggingSplitPointerIdRef.current !== null
+        && event.pointerId !== draggingSplitPointerIdRef.current
+      ) {
+        return
+      }
+
+      const activePointerId = draggingSplitPointerIdRef.current
+      if (activePointerId !== null) {
+        splitHandleRef.current?.releasePointerCapture?.(activePointerId)
+      }
+
+      const nextRatio = draggingSplitRatioRef.current ?? desktopSplitRatioRef.current
+      draggingSplitPointerIdRef.current = null
+      draggingSplitRatioRef.current = null
+      commitDesktopSplitRatio(nextRatio)
       setIsDraggingSplit(false)
     }
 
@@ -522,7 +580,7 @@ export function BuilderPage({
       window.removeEventListener('pointerup', handlePointerUp)
       window.removeEventListener('pointercancel', handlePointerUp)
     }
-  }, [isDraggingSplit, updateDesktopSplitRatioFromPointer])
+  }, [commitDesktopSplitRatio, isDraggingSplit, previewDesktopSplitRatioFromPointer])
 
   const handleInitialUserMessageHandled = React.useCallback(() => {
     if (typeof window === 'undefined') return
@@ -565,17 +623,20 @@ export function BuilderPage({
   const handleSplitPointerDown = React.useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return
     event.preventDefault()
-    updateDesktopSplitRatioFromPointer(event.clientX)
+    draggingSplitPointerIdRef.current = event.pointerId
+    draggingSplitRatioRef.current = desktopSplitRatioRef.current
+    event.currentTarget.setPointerCapture?.(event.pointerId)
+    previewDesktopSplitRatioFromPointer(event.clientX)
     setIsDraggingSplit(true)
-  }, [updateDesktopSplitRatioFromPointer])
+  }, [previewDesktopSplitRatioFromPointer])
 
   const handleSplitKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
     event.preventDefault()
 
     const delta = event.key === 'ArrowLeft' ? -0.03 : 0.03
-    persistDesktopSplitRatio(desktopSplitRatio + delta)
-  }, [desktopSplitRatio, persistDesktopSplitRatio])
+    commitDesktopSplitRatio(desktopSplitRatio + delta)
+  }, [commitDesktopSplitRatio, desktopSplitRatio])
 
   const desktopGridStyle = React.useMemo(() => ({
     '--page-builder-preview-size': `${desktopSplitRatio}fr`,
@@ -721,6 +782,7 @@ export function BuilderPage({
             className={`page-builder-split-handle ${isDraggingSplit ? 'is-dragging' : ''}`}
             onKeyDown={handleSplitKeyDown}
             onPointerDown={handleSplitPointerDown}
+            ref={splitHandleRef}
             role="separator"
             tabIndex={0}
           />
