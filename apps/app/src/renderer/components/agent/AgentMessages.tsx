@@ -48,7 +48,8 @@ interface AgentMessagesProps {
   onCompact?: () => void
 }
 
-const DEFAULT_STREAMING_ASSISTANT_MODEL = 'claude-sonnet-4-5-20250929'
+const FIXED_ASSISTANT_NAME = 'Agent'
+const FIXED_ASSISTANT_ICON_SHELL_CLASSNAME = 'flex items-center justify-center rounded-[25%] border border-[#4360FD]/24 bg-[#4360FD]/10 text-[#4360FD] dark:border-[#4360FD]/34 dark:bg-[#4360FD]/18 dark:text-[#93A2FF]'
 
 function normalizeAssistantContent(content: string): string {
   return content.trim()
@@ -71,16 +72,6 @@ function normalizeToolActivitiesForComparison(activities: ToolActivity[]): strin
       isBackground: Boolean(activity.isBackground),
     })),
   )
-}
-
-function resolveTransientAssistantModel(messages: AgentMessage[], streamingModel?: string): string {
-  if (streamingModel) return streamingModel
-
-  const lastAssistantModel = [...messages]
-    .reverse()
-    .find((message) => message.role === 'assistant' && message.model)?.model
-
-  return lastAssistantModel ?? DEFAULT_STREAMING_ASSISTANT_MODEL
 }
 
 export function shouldRenderTransientAssistantMessage({
@@ -145,8 +136,8 @@ function EmptyState(): React.ReactElement {
   return (
     <div className="flex h-full items-center justify-center">
       <div className="flex flex-col items-center gap-3 text-muted-foreground">
-        <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center">
-          <Bot size={24} className="text-muted-foreground/60" />
+        <div className={cn('size-12 rounded-full', FIXED_ASSISTANT_ICON_SHELL_CLASSNAME)}>
+          <Bot className="relative -top-px size-6" />
         </div>
         <p className="text-sm">在下方输入框开始使用 Agent</p>
       </div>
@@ -164,9 +155,18 @@ function AssistantLogo({ model }: { model?: string }): React.ReactElement {
       />
     )
   }
+
   return (
-    <div className="size-[35px] rounded-[25%] bg-primary/10 flex items-center justify-center">
-      <Bot size={18} className="text-primary" />
+    <div className={cn('size-[35px]', FIXED_ASSISTANT_ICON_SHELL_CLASSNAME)}>
+      <Bot size={18} />
+    </div>
+  )
+}
+
+function FixedAssistantIdentityLogo(): React.ReactElement {
+  return (
+    <div className={cn('size-[35px]', FIXED_ASSISTANT_ICON_SHELL_CLASSNAME)}>
+      <Bot className="relative -top-px size-[18px]" />
     </div>
   )
 }
@@ -543,9 +543,9 @@ function AgentMessageItem({
     return (
       <Message from="assistant">
         <MessageHeader
-          model={message.model}
+          model={FIXED_ASSISTANT_NAME}
           time={formatMessageTime(message.createdAt)}
-          logo={<AssistantLogo model={message.model} />}
+          logo={<FixedAssistantIdentityLogo />}
         />
         <MessageContent>
           {toolActivities.length > 0 && (
@@ -623,7 +623,6 @@ export function AgentMessages({ sessionId, messages, streaming, streamState, onR
   // 从 streamState 属性中计算派生值
   const streamingContent = streamState?.content ?? ''
   const toolActivities = streamState?.toolActivities ?? []
-  const agentStreamingModel = resolveTransientAssistantModel(messages, streamState?.model)
   const retrying = streamState?.retrying
   const statusNotice = streamState?.statusNotice
   const startedAt = streamState?.startedAt
@@ -685,9 +684,9 @@ export function AgentMessages({ sessionId, messages, streaming, streamState, onR
             {shouldShowTransientShell && (
               <Message from="assistant">
                 <MessageHeader
-                  model={agentStreamingModel}
+                  model={FIXED_ASSISTANT_NAME}
                   time={formatMessageTime(Date.now())}
-                  logo={<AssistantLogo model={agentStreamingModel} />}
+                  logo={<FixedAssistantIdentityLogo />}
                 />
                 <MessageContent>
                   {retrying && <RetryingNotice retrying={retrying} />}

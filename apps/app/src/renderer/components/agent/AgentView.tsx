@@ -284,10 +284,6 @@ export function AgentView({
   const workspaceContext = sessionWorkspaceId
     ? workspaceDirectoryContextMap.get(sessionWorkspaceId) ?? null
     : null
-  const latestAssistantModel = React.useMemo(
-    () => [...messages].reverse().find((message) => message.role === 'assistant')?.model ?? null,
-    [messages],
-  )
   const composerInteractionLocked = streaming || Boolean(status && !status.ok)
   const canSend = (inputValue.trim().length > 0 || pendingAttachments.length > 0) && !(status && !status.ok)
   const attachedDirectories = React.useMemo(
@@ -737,11 +733,6 @@ export function AgentView({
                   {(workspaceContext?.workspaceName || sessionWorkspace?.name) && (
                     <span className="rounded-full bg-muted px-2.5 py-1 text-[11px] font-medium text-foreground/75">
                       {workspaceContext?.workspaceName ?? sessionWorkspace?.name}
-                    </span>
-                  )}
-                  {latestAssistantModel && (
-                    <span className="truncate text-[11px] text-muted-foreground/80">
-                      {latestAssistantModel}
                     </span>
                   )}
                 </>

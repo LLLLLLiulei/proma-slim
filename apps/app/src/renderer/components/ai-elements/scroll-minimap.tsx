@@ -7,10 +7,9 @@
  */
 
 import * as React from 'react'
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, Bot } from 'lucide-react'
 import { useStickToBottomContext } from 'use-stick-to-bottom'
 import { UserAvatar } from '@/components/common/UserAvatar'
-import { getModelLogo } from '@/lib/model-logo'
 import { cn } from '@/lib/utils'
 
 export interface MinimapItem {
@@ -155,13 +154,11 @@ function ItemIcon({ item }: { item: MinimapItem }): React.ReactElement {
   if (item.role === 'user' && item.avatar) {
     return <UserAvatar avatar={item.avatar} size={16} className="mt-0.5" />
   }
-  if ((item.role === 'assistant') && item.model) {
+  if (item.role === 'assistant') {
     return (
-      <img
-        src={getModelLogo(item.model)}
-        alt=""
-        className="size-4 shrink-0 mt-0.5 rounded-[20%] object-cover"
-      />
+      <div className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-[20%] border border-[#4360FD]/24 bg-[#4360FD]/10 text-[#4360FD] dark:border-[#4360FD]/34 dark:bg-[#4360FD]/18 dark:text-[#93A2FF]">
+        <Bot className="relative -top-px size-3" />
+      </div>
     )
   }
   if (item.role === 'status') {
