@@ -6,6 +6,28 @@ import {
   PAGE_BUILDER_PREVIEW_PARENT_SOURCE,
 } from '@proma/shared'
 
+function findButton(renderer: ReturnType<typeof create>, ariaLabel: string) {
+  return renderer.root.find((node) =>
+    node.type === 'button'
+    && node.props['aria-label'] === ariaLabel
+  )
+}
+
+function findToolbarNode(renderer: ReturnType<typeof create>) {
+  return renderer.root.find((node) =>
+    node.type === 'div'
+    && node.props.style
+    && typeof node.props.style.left === 'number'
+    && typeof node.props.style.top === 'number'
+  )
+}
+
+function findViewportFrameNode(renderer: ReturnType<typeof create>) {
+  return renderer.root.find((node) =>
+    node.type === 'div' && node.props['data-preview-viewport-frame'] === true
+  )
+}
+
 async function loadPreviewPane() {
   mock.restore()
   return import(`./PreviewPane.tsx?test=${Date.now()}-${Math.random()}`)
@@ -16,7 +38,7 @@ afterEach(() => {
 })
 
 describe('PreviewPane', () => {
-  test('renders a compact toolbar with export, refresh, fullscreen, and new-window controls', async () => {
+  test('renders a compact toolbar with device toggle, export, refresh, fullscreen, and new-window controls', async () => {
     const { PreviewPane } = await loadPreviewPane()
     const renderer = create(<PreviewPane previewUrl="https://example.com/preview" />)
 
@@ -27,17 +49,27 @@ describe('PreviewPane', () => {
       && node.props.className.includes('border-b border-border/70')
     )
     const buttons = renderer.root.findAllByType('button')
-    const exportButton = buttons[0]!
+    const desktopButton = findButton(renderer, 'PC 预览')
+    const mobileButton = findButton(renderer, 'Mobile 预览')
+    const exportButton = findButton(renderer, '导出静态包')
     const json = JSON.stringify(renderer.toJSON())
+    const viewportShell = renderer.root.find((node) =>
+      node.type === 'div' && node.props['data-preview-viewport-shell'] === true
+    )
 
     expect(toolbar.props.className).toContain('h-11')
     expect(buttons.map((button) => button.props['aria-label'])).toEqual([
+      'PC 预览',
+      'Mobile 预览',
       '导出静态包',
       '刷新预览',
       '全屏预览',
       '新窗口打开预览',
     ])
-    expect(json).toContain('实时预览')
+    expect(desktopButton.props['aria-pressed']).toBe(true)
+    expect(mobileButton.props['aria-pressed']).toBe(false)
+    expect(viewportShell.props['data-preview-device-mode']).toBe('desktop')
+    expect(json).not.toContain('实时预览')
     expect(exportButton.props.className).toContain('size-8')
     expect(exportButton.children.some((child: unknown) => typeof child === 'string')).toBe(false)
     expect(json).not.toContain('第一阶段使用精简 iframe 容器承载页面预览。')
@@ -52,7 +84,7 @@ describe('PreviewPane', () => {
       />,
     )
 
-    const exportButton = renderer.root.findAllByType('button')[0]!
+    const exportButton = findButton(renderer, '导出静态包')
     const spinnerIcon = exportButton.findByType('svg')
     expect(exportButton.children.some((child: unknown) => typeof child === 'string')).toBe(false)
     expect(exportButton.props.disabled).toBe(true)
@@ -64,8 +96,12 @@ describe('PreviewPane', () => {
     const { PreviewPane } = await loadPreviewPane()
     const readyRenderer = create(<PreviewPane previewUrl="https://example.com/preview?v=rev-1" />)
     const iframe = readyRenderer.root.findByType('iframe')
+    const viewportShell = readyRenderer.root.find((node) =>
+      node.type === 'div' && node.props['data-preview-viewport-shell'] === true
+    )
     expect(iframe.props.src).toBe('https://example.com/preview?v=rev-1&page-builder-bridge=1')
     expect(iframe.props.sandbox).toBe('allow-forms allow-scripts')
+    expect(viewportShell.props.style.width).toBe('100%')
 
     const emptyRenderer = create(<PreviewPane previewUrl={null} />)
     const emptyJson = JSON.stringify(emptyRenderer.toJSON())
@@ -87,7 +123,7 @@ describe('PreviewPane', () => {
     const renderer = create(<PreviewPane previewUrl="https://example.com/preview?v=rev-1" />)
 
     await act(async () => {
-      renderer.root.findAllByType('button').find((button) => button.props['aria-label'] === '新窗口打开预览')!.props.onClick()
+      findButton(renderer, '新窗口打开预览').props.onClick()
     })
 
     expect(open).toHaveBeenCalledWith(
@@ -108,10 +144,136 @@ describe('PreviewPane', () => {
     )
 
     await act(async () => {
-      renderer.root.findAllByType('button')[0]!.props.onClick()
+      findButton(renderer, '刷新预览').props.onClick()
     })
 
     expect(onSelectionEvent).toHaveBeenCalledWith({ type: 'reset' })
+  })
+
+  test('switches to mobile mode and keeps the selected block toolbar anchored inside the viewport shell', async () => {
+    const listeners = new Map<string, Set<(event: unknown) => void>>()
+    const iframeWindow = {
+      postMessage: mock(() => {}),
+    }
+    let viewportWidth = 960
+
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: {
+        addEventListener(type: string, listener: (event: unknown) => void) {
+          const bucket = listeners.get(type) ?? new Set()
+          bucket.add(listener)
+          listeners.set(type, bucket)
+        },
+        removeEventListener(type: string, listener: (event: unknown) => void) {
+          listeners.get(type)?.delete(listener)
+        },
+        open: mock(() => {}),
+      },
+    })
+
+    const { PreviewPane } = await loadPreviewPane()
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <PreviewPane
+          previewUrl="https://example.com/preview?v=rev-1"
+          selectionModeEnabled={true}
+        />,
+        {
+          createNodeMock(element) {
+            if (element.type === 'iframe') {
+              return { contentWindow: iframeWindow }
+            }
+
+            if (
+              element.type === 'div'
+              && element.props['data-preview-viewport-shell'] === true
+            ) {
+              return {
+                getBoundingClientRect() {
+                  return {
+                    top: 0,
+                    left: 0,
+                    width: viewportWidth,
+                    height: 640,
+                    right: viewportWidth,
+                    bottom: 640,
+                  }
+                },
+              }
+            }
+
+            return {}
+          },
+        },
+      )
+    })
+
+    await act(async () => {
+      const messageHandler = [...(listeners.get('message') ?? [])][0]
+      messageHandler?.({
+        source: iframeWindow,
+        data: {
+          source: PAGE_BUILDER_PREVIEW_BRIDGE_SOURCE,
+          type: 'selected',
+          selector: '#hero',
+          rect: {
+            top: 120,
+            left: 300,
+            right: 620,
+            bottom: 260,
+            width: 320,
+            height: 140,
+          },
+        },
+      })
+    })
+
+    expect(findToolbarNode(renderer).props.style.left).toBe(300)
+
+    viewportWidth = 390
+    await act(async () => {
+      findButton(renderer, 'Mobile 预览').props.onClick()
+    })
+
+    await act(async () => {
+      const messageHandler = [...(listeners.get('message') ?? [])][0]
+      messageHandler?.({
+        source: iframeWindow,
+        data: {
+          source: PAGE_BUILDER_PREVIEW_BRIDGE_SOURCE,
+          type: 'selected',
+          selector: '#hero',
+          rect: {
+            top: 120,
+            left: 300,
+            right: 620,
+            bottom: 260,
+            width: 320,
+            height: 140,
+          },
+        },
+      })
+    })
+
+    const viewportShell = renderer.root.find((node) =>
+      node.type === 'div' && node.props['data-preview-viewport-shell'] === true
+    )
+    const viewportFrame = findViewportFrameNode(renderer)
+
+    expect(viewportShell.props['data-preview-device-mode']).toBe('mobile')
+    expect(viewportShell.props.style.width).toBe('min(390px, 100%)')
+    expect(viewportFrame.props.className).toContain('py-4')
+    expect(viewportShell.props.className).toContain('border')
+    expect(viewportShell.props.className).toContain('rounded')
+    expect(findButton(renderer, 'PC 预览').props['aria-pressed']).toBe(false)
+    expect(findButton(renderer, 'Mobile 预览').props['aria-pressed']).toBe(true)
+    expect(findToolbarNode(renderer).props.style.left).toBe(202)
+    expect(renderer.root.findAll((node) =>
+      node.type === 'button'
+      && node.props['aria-label'] === '从 CMS 选择数据'
+    )).toHaveLength(1)
   })
 
   test('keeps the iframe mounted when selection mode starts before the preview bridge becomes ready', async () => {

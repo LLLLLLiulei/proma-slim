@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Download, Expand, ExternalLink, LoaderCircle, RefreshCw } from 'lucide-react'
+import { Download, Expand, ExternalLink, Laptop, LoaderCircle, RefreshCw, Smartphone } from 'lucide-react'
 import type {
   PageBuilderPreviewAnchorRect,
   PageBuilderPreviewBridgeMessage,
@@ -16,12 +16,16 @@ import {
 import { Button } from '@/components/ui/button'
 import { PageBuilderBlockActionBar } from '@page-builder/components/builder/PageBuilderBlockActionBar'
 import type { PageBuilderPreviewSelectionEvent } from '@page-builder/lib/preview-selection'
+import { cn } from '@/lib/utils'
 
 const BLOCK_ACTION_BAR_ESTIMATED_WIDTH = 176
 const BLOCK_ACTION_BAR_WITH_IMAGE_ACTION_ESTIMATED_WIDTH = 296
 const BLOCK_ACTION_BAR_ESTIMATED_HEIGHT = 44
 const BLOCK_ACTION_BAR_GAP = 8
 const BLOCK_ACTION_BAR_PADDING = 12
+const MOBILE_PREVIEW_VIEWPORT_WIDTH = 390
+
+type PreviewDeviceMode = 'desktop' | 'mobile'
 
 interface SelectedAnchorState {
   imageTargetDescriptor: PageBuilderImageTargetDescriptor | null
@@ -109,9 +113,11 @@ export function PreviewPane({
   onSelectionEvent?: (event: PageBuilderPreviewSelectionEvent) => void
 }): React.ReactElement {
   const frameRef = React.useRef<HTMLDivElement>(null)
+  const viewportShellRef = React.useRef<HTMLDivElement>(null)
   const iframeRef = React.useRef<HTMLIFrameElement>(null)
   const [frameKey, setFrameKey] = React.useState(0)
   const [bridgeReady, setBridgeReady] = React.useState(false)
+  const [previewDeviceMode, setPreviewDeviceMode] = React.useState<PreviewDeviceMode>('desktop')
   const [selectedAnchor, setSelectedAnchor] = React.useState<SelectedAnchorState | null>(null)
   const embeddedPreviewUrl = React.useMemo(() => {
     if (!previewUrl) {
@@ -265,16 +271,55 @@ export function PreviewPane({
     }
   }, [bridgeReady, previewUrl, selectionModeEnabled])
 
-  const blockActionBarStyle = React.useMemo(
-    () => resolveBlockActionBarStyle(selectedAnchor, frameRef.current?.getBoundingClientRect()),
-    [selectedAnchor],
+  const blockActionBarStyle = resolveBlockActionBarStyle(
+    selectedAnchor,
+    viewportShellRef.current?.getBoundingClientRect?.() ?? frameRef.current?.getBoundingClientRect?.(),
   )
   const selectedImageTargetDescriptor = selectedAnchor?.imageTargetDescriptor ?? null
+  const isMobilePreview = previewDeviceMode === 'mobile'
+  const viewportShellWidth = previewDeviceMode === 'mobile'
+    ? `min(${MOBILE_PREVIEW_VIEWPORT_WIDTH}px, 100%)`
+    : '100%'
 
   return (
     <section className="page-builder-pane flex min-h-[560px] min-w-0 flex-col overflow-hidden rounded-2xl lg:h-full lg:min-h-0">
       <div className="flex h-11 items-center justify-between gap-3 border-b border-border/70 px-3">
-        <h2 className="min-w-0 truncate text-sm font-medium text-foreground">实时预览</h2>
+        <div className="flex items-center gap-1 rounded-md border border-border/70 bg-background/80 p-0.5">
+          <Button
+            aria-label="PC 预览"
+            aria-pressed={previewDeviceMode === 'desktop'}
+            className={cn(
+              'size-7 rounded-[6px] border-0 shadow-none',
+              previewDeviceMode === 'desktop'
+                ? 'bg-accent text-accent-foreground hover:bg-accent'
+                : 'text-muted-foreground hover:bg-muted/70 hover:text-foreground',
+            )}
+            onClick={() => setPreviewDeviceMode('desktop')}
+            size="icon-sm"
+            title="PC 预览"
+            type="button"
+            variant="ghost"
+          >
+            <Laptop className="size-3.5" />
+          </Button>
+          <Button
+            aria-label="Mobile 预览"
+            aria-pressed={previewDeviceMode === 'mobile'}
+            className={cn(
+              'size-7 rounded-[6px] border-0 shadow-none',
+              previewDeviceMode === 'mobile'
+                ? 'bg-accent text-accent-foreground hover:bg-accent'
+                : 'text-muted-foreground hover:bg-muted/70 hover:text-foreground',
+            )}
+            onClick={() => setPreviewDeviceMode('mobile')}
+            size="icon-sm"
+            title="Mobile 预览"
+            type="button"
+            variant="ghost"
+          >
+            <Smartphone className="size-3.5" />
+          </Button>
+        </div>
         <div className="flex items-center gap-2">
           <Button
             aria-label="导出静态包"
@@ -334,44 +379,65 @@ export function PreviewPane({
       <div className="min-h-0 flex-1 p-2.5">
         <div
           ref={frameRef}
-          className="relative flex h-full min-h-[480px] overflow-hidden rounded-xl border border-border/70 bg-background"
+          className="relative flex h-full min-h-[480px] items-stretch justify-center overflow-hidden rounded-xl border border-border/70 bg-background"
         >
-          {previewUrl ? (
-            <>
-              <iframe
-                ref={iframeRef}
-                key={frameKey}
-                className="h-full w-full border-0 bg-background"
-                onLoad={() => setBridgeReady(false)}
-                sandbox="allow-forms allow-scripts"
-                src={embeddedPreviewUrl ?? undefined}
-                title="网页预览"
-              />
-              {selectedAnchor && blockActionBarStyle ? (
-                <div className="pointer-events-none absolute inset-0 z-10">
-                  <PageBuilderBlockActionBar
-                    onDelete={() => onRequestDeleteBlock?.(selectedAnchor.selector)}
-                    onOpenCms={() => onRequestOpenCmsBrowser?.()}
-                    onReplaceImage={selectedImageTargetDescriptor
-                      ? () => onRequestReplaceImage?.({
-                          selector: selectedAnchor.selector,
-                          imageTargetDescriptor: selectedImageTargetDescriptor,
-                        })
-                      : undefined}
-                    replaceImageDisabled={imageReplacementPending}
-                    style={blockActionBarStyle}
+          <div
+            className={cn(
+              'flex h-full w-full items-stretch justify-center',
+              isMobilePreview ? 'px-3 py-4' : '',
+            )}
+            data-preview-viewport-frame={true}
+          >
+            <div
+              ref={viewportShellRef}
+              className={cn(
+                'relative h-full min-h-[480px] max-w-full shrink-0 bg-background',
+                isMobilePreview
+                  ? 'overflow-hidden rounded-xl border border-border/70 shadow-[0_10px_28px_rgba(15,23,42,0.08)]'
+                  : '',
+              )}
+              data-preview-device-mode={previewDeviceMode}
+              data-preview-viewport-shell={true}
+              style={{ width: viewportShellWidth }}
+            >
+              {previewUrl ? (
+                <>
+                  <iframe
+                    ref={iframeRef}
+                    key={frameKey}
+                    className="h-full w-full border-0 bg-background"
+                    onLoad={() => setBridgeReady(false)}
+                    sandbox="allow-forms allow-scripts"
+                    src={embeddedPreviewUrl ?? undefined}
+                    title="网页预览"
                   />
+                  {selectedAnchor && blockActionBarStyle ? (
+                    <div className="pointer-events-none absolute inset-0 z-10">
+                      <PageBuilderBlockActionBar
+                        onDelete={() => onRequestDeleteBlock?.(selectedAnchor.selector)}
+                        onOpenCms={() => onRequestOpenCmsBrowser?.()}
+                        onReplaceImage={selectedImageTargetDescriptor
+                          ? () => onRequestReplaceImage?.({
+                              selector: selectedAnchor.selector,
+                              imageTargetDescriptor: selectedImageTargetDescriptor,
+                            })
+                          : undefined}
+                        replaceImageDisabled={imageReplacementPending}
+                        style={blockActionBarStyle}
+                      />
+                    </div>
+                  ) : null}
+                </>
+              ) : (
+                <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-muted/35 text-center text-sm text-muted-foreground">
+                  <p className="font-medium text-foreground/75">预览尚未生成</p>
+                  <p className="max-w-[36ch] leading-6">
+                    在右侧继续描述或修改网页需求，生成结果写入工作区后会自动显示在这里。
+                  </p>
                 </div>
-              ) : null}
-            </>
-          ) : (
-            <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-muted/35 text-center text-sm text-muted-foreground">
-              <p className="font-medium text-foreground/75">预览尚未生成</p>
-              <p className="max-w-[36ch] leading-6">
-                在右侧继续描述或修改网页需求，生成结果写入工作区后会自动显示在这里。
-              </p>
+              )}
             </div>
-          )}
+          </div>
         </div>
       </div>
     </section>
