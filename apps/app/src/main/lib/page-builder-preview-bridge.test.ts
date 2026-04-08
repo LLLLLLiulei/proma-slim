@@ -66,6 +66,7 @@ test('page-builder preview bridge bundled script includes inline text editing sa
 
   const script = module.readPageBuilderPreviewBridgeScript()
 
+  expect(script).toContain("'DIV'")
   expect(script).toContain("type: 'inline-text-save-request'")
   expect(script).toContain("inline-text-save-result")
   expect(script).toContain('contenteditable')

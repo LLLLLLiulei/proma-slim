@@ -5,7 +5,7 @@ import type { AgentWorkspace, PageBuilderInlineTextSavePayload, PageBuilderInlin
 import { getWorkspaceFilesDir } from './config-paths'
 import { getWorkspacePreviewState, type WorkspacePreviewState } from './workspace-preview-service'
 
-const EDITABLE_TEXT_TAGS = new Set(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'a', 'button', 'span', 'label'])
+const EDITABLE_TEXT_TAGS = new Set(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'a', 'button', 'span', 'label', 'div'])
 
 type PageBuilderInlineTextSaveErrorCode =
   | 'entry-missing'

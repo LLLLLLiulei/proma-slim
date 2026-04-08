@@ -12,7 +12,7 @@
   const PARENT_SOURCE = __PAGE_BUILDER_PREVIEW_PARENT_SOURCE__
   const OVERLAY_ATTR = 'data-page-builder-preview-overlay'
   const BLOCKED_TAGS = new Set(['HTML', 'BODY', 'HEAD', 'SCRIPT', 'STYLE', 'META', 'LINK'])
-  const EDITABLE_TEXT_TAGS = new Set(['H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'P', 'A', 'BUTTON', 'SPAN', 'LABEL'])
+  const EDITABLE_TEXT_TAGS = new Set(['H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'P', 'A', 'BUTTON', 'SPAN', 'LABEL', 'DIV'])
   const INLINE_EDITING_ATTR = 'data-page-builder-preview-inline-editing'
   const INLINE_SAVING_ATTR = 'data-page-builder-preview-inline-saving'
   const LABEL_MAX_WIDTH = 220
