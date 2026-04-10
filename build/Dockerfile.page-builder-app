@@ -1,0 +1,46 @@
+FROM oven/bun:1.2.5 AS deps
+WORKDIR /app
+
+COPY package.json bun.lock tsconfig.json ./
+COPY apps/app/package.json apps/app/package.json
+COPY apps/page-builder/package.json apps/page-builder/package.json
+COPY packages/shared/package.json packages/shared/package.json
+COPY packages/ui/package.json packages/ui/package.json
+
+RUN bun install --frozen-lockfile --network-concurrency=8 --concurrent-scripts=2
+
+FROM deps AS build
+WORKDIR /app
+
+COPY . .
+
+RUN bun run --filter='@proma/app' build
+
+FROM oven/bun:1.2.5 AS runtime
+USER root
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates git \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=build /app/package.json ./package.json
+COPY --from=build /app/bun.lock ./bun.lock
+COPY --from=build /app/tsconfig.json ./tsconfig.json
+COPY --from=build /app/packages/shared ./packages/shared
+COPY --from=build /app/packages/ui ./packages/ui
+COPY --from=build /app/apps/app ./apps/app
+
+RUN mkdir -p /home/bun/.ai-page-builder
+
+ENV NODE_ENV=production
+ENV PORT=8888
+ENV AI_PAGE_BUILDER_CONFIG_DIR=/home/bun/.ai-page-builder
+ENV AI_PAGE_BUILDER_SDK_HOME=/home/bun/.ai-page-builder/sdk-config
+
+WORKDIR /app/apps/app
+
+EXPOSE 8888
+
+CMD ["sh", "-lc", "PROMA_CONFIG_DIR=\"${AI_PAGE_BUILDER_CONFIG_DIR:-/home/bun/.ai-page-builder}\" PROMA_CLAUDE_HOME=\"${AI_PAGE_BUILDER_SDK_HOME:-/home/bun/.ai-page-builder/sdk-config}\" PROMA_CMS_BASE_URL=\"${AI_PAGE_BUILDER_CMS_BASE_URL:-}\" PROMA_CMS_ZUSID=\"${AI_PAGE_BUILDER_CMS_ZUSID:-}\" PROMA_CMS_CURRENT_SITE=\"${AI_PAGE_BUILDER_CMS_CURRENT_SITE:-}\" PROMA_CMS_REFERER=\"${AI_PAGE_BUILDER_CMS_REFERER:-}\" exec bun run start"]

@@ -1,0 +1,39 @@
+name: ai-page-builder
+
+services:
+  server:
+    container_name: server
+    image: ai-page-builder-server
+    build:
+      context: ..
+      dockerfile: build/Dockerfile.page-builder-app
+    environment:
+      PORT: 8888
+      AI_PAGE_BUILDER_CONFIG_DIR: /home/bun/.ai-page-builder
+      AI_PAGE_BUILDER_SDK_HOME: /home/bun/.ai-page-builder/sdk-config
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?Set ANTHROPIC_API_KEY in build/.env or your shell}
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
+      AI_PAGE_BUILDER_CMS_BASE_URL: ${AI_PAGE_BUILDER_CMS_BASE_URL:-}
+      AI_PAGE_BUILDER_CMS_ZUSID: ${AI_PAGE_BUILDER_CMS_ZUSID:-}
+      AI_PAGE_BUILDER_CMS_CURRENT_SITE: ${AI_PAGE_BUILDER_CMS_CURRENT_SITE:-}
+      AI_PAGE_BUILDER_CMS_REFERER: ${AI_PAGE_BUILDER_CMS_REFERER:-}
+    volumes:
+      - type: bind
+        source: ${HOME:?Set HOME in your shell}/.ai-page-builder
+        target: /home/bun/.ai-page-builder
+    expose:
+      - "8888"
+
+  web:
+    container_name: web
+    image: ai-page-builder-web
+    build:
+      context: ..
+      dockerfile: build/Dockerfile.page-builder-web
+    depends_on:
+      - server
+    environment:
+      PORT: 3333
+      AI_PAGE_BUILDER_SERVER_ORIGIN: http://server:8888
+    ports:
+      - "${PAGE_BUILDER_PORT:-3333}:3333"

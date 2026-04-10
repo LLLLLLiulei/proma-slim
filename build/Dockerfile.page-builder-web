@@ -1,0 +1,30 @@
+FROM oven/bun:1.2.5 AS deps
+WORKDIR /app
+
+COPY package.json bun.lock tsconfig.json ./
+COPY apps/app/package.json apps/app/package.json
+COPY apps/page-builder/package.json apps/page-builder/package.json
+COPY packages/shared/package.json packages/shared/package.json
+COPY packages/ui/package.json packages/ui/package.json
+
+RUN bun install --frozen-lockfile --network-concurrency=8 --concurrent-scripts=2
+
+FROM deps AS build
+WORKDIR /app
+
+COPY . .
+
+RUN bun run --filter='@proma/page-builder' build
+
+FROM oven/bun:1.2.5 AS runtime
+WORKDIR /app
+
+COPY --from=build /app/apps/page-builder/dist ./apps/page-builder/dist
+COPY --from=build /app/apps/page-builder/src/server/prod-server.ts ./apps/page-builder/src/server/prod-server.ts
+
+ENV PORT=3333
+ENV AI_PAGE_BUILDER_SERVER_ORIGIN=http://server:8888
+
+EXPOSE 3333
+
+CMD ["sh", "-lc", "PROMA_APP_ORIGIN=\"${AI_PAGE_BUILDER_SERVER_ORIGIN:-http://server:8888}\" exec bun apps/page-builder/src/server/prod-server.ts"]
