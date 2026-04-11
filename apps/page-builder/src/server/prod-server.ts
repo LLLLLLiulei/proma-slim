@@ -106,9 +106,16 @@ function getDistDir(): string {
     : fileURLToPath(new URL('../../dist', import.meta.url))
 }
 
-function getAppOrigin(): string {
-  const configuredOrigin = process.env.PROMA_APP_ORIGIN?.trim()
+type EnvSource = Record<string, string | undefined>
+
+export function resolvePageBuilderProdAppOrigin(env: EnvSource = process.env): string {
+  const configuredOrigin = env.AI_PAGE_BUILDER_SERVER_ORIGIN?.trim()
+    || env.PROMA_APP_ORIGIN?.trim()
   return configuredOrigin || DEFAULT_APP_ORIGIN
+}
+
+function getAppOrigin(): string {
+  return resolvePageBuilderProdAppOrigin()
 }
 
 export function startPageBuilderProdServer(): void {

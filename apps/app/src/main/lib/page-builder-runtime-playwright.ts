@@ -1,0 +1,73 @@
+import type { McpServerEntry } from '@proma/shared'
+import { readWorkspaceTemplateMcpConfig } from './workspace-template-service'
+
+type EnvSource = Record<string, string | undefined>
+
+function normalizeUrl(value: string): string {
+  return value.trim()
+}
+
+function normalizeOrigin(value: string): string {
+  return value.trim().replace(/\/+$/, '')
+}
+
+function canonicalizeEntry(entry: McpServerEntry | null | undefined): string | null {
+  if (!entry) return null
+
+  return JSON.stringify({
+    type: entry.type,
+    command: entry.command ?? null,
+    args: entry.args ?? null,
+    env: entry.env ?? null,
+    url: entry.url ?? null,
+    headers: entry.headers ?? null,
+    timeout: entry.timeout ?? null,
+    enabled: entry.enabled,
+  })
+}
+
+let cachedDefaultPlaywrightEntry: McpServerEntry | null | undefined
+
+function getDefaultPageBuilderPlaywrightEntry(): McpServerEntry | null {
+  if (cachedDefaultPlaywrightEntry !== undefined) {
+    return cachedDefaultPlaywrightEntry
+  }
+
+  const config = readWorkspaceTemplateMcpConfig('page-builder')
+  cachedDefaultPlaywrightEntry = config.servers.playwright ?? null
+  return cachedDefaultPlaywrightEntry
+}
+
+export function resolvePageBuilderPlaywrightMcpUrl(env: EnvSource = process.env): string | null {
+  const raw = env.AI_PAGE_BUILDER_PLAYWRIGHT_MCP_URL?.trim()
+  return raw ? normalizeUrl(raw) : null
+}
+
+export function isPageBuilderDockerRuntime(env: EnvSource = process.env): boolean {
+  return env.AI_PAGE_BUILDER_RUNTIME_ENV?.trim() === 'docker'
+}
+
+export function resolvePageBuilderInternalAppOrigin(env: EnvSource = process.env): string | null {
+  const raw = env.AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN?.trim()
+  return raw ? normalizeOrigin(raw) : null
+}
+
+export function resolvePageBuilderInternalPreviewUrl(
+  previewPath: string | null,
+  env: EnvSource = process.env,
+): string | null {
+  if (!previewPath) return null
+
+  const origin = resolvePageBuilderInternalAppOrigin(env)
+  if (!origin) return null
+
+  try {
+    return new URL(previewPath, `${origin}/`).toString()
+  } catch {
+    return null
+  }
+}
+
+export function isDefaultPageBuilderPlaywrightEntry(entry: McpServerEntry): boolean {
+  return canonicalizeEntry(entry) === canonicalizeEntry(getDefaultPageBuilderPlaywrightEntry())
+}

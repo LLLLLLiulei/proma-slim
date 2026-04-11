@@ -11,18 +11,45 @@ services:
       PORT: 8888
       AI_PAGE_BUILDER_CONFIG_DIR: /home/bun/.ai-page-builder
       AI_PAGE_BUILDER_SDK_HOME: /home/bun/.ai-page-builder/sdk-config
+      AI_PAGE_BUILDER_RUNTIME_ENV: docker
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?Set ANTHROPIC_API_KEY in build/.env or your shell}
       ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
       AI_PAGE_BUILDER_CMS_BASE_URL: ${AI_PAGE_BUILDER_CMS_BASE_URL:-}
       AI_PAGE_BUILDER_CMS_ZUSID: ${AI_PAGE_BUILDER_CMS_ZUSID:-}
       AI_PAGE_BUILDER_CMS_CURRENT_SITE: ${AI_PAGE_BUILDER_CMS_CURRENT_SITE:-}
       AI_PAGE_BUILDER_CMS_REFERER: ${AI_PAGE_BUILDER_CMS_REFERER:-}
+      AI_PAGE_BUILDER_PLAYWRIGHT_MCP_URL: ${AI_PAGE_BUILDER_PLAYWRIGHT_MCP_URL:-}
+      AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN: ${AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN:-}
     volumes:
       - type: bind
         source: ${HOME:?Set HOME in your shell}/.ai-page-builder
         target: /home/bun/.ai-page-builder
     expose:
       - "8888"
+
+  playwright:
+    container_name: playwright
+    image: mcr.microsoft.com/playwright:v1.57.0-jammy
+    profiles:
+      - playwright
+    init: true
+    ipc: host
+    volumes:
+      - type: bind
+        source: ${HOME:?Set HOME in your shell}/.ai-page-builder
+        target: /home/bun/.ai-page-builder
+    command:
+      - sh
+      - -lc
+      - >-
+        PLAYWRIGHT_EXECUTABLE_PATH="$(find /ms-playwright/chromium-* -path '*chrome-linux/chrome' | head -1)";
+        if [ -z "$$PLAYWRIGHT_EXECUTABLE_PATH" ]; then
+          echo "Chromium executable not found under /ms-playwright" >&2;
+          exit 1;
+        fi;
+        exec npx -y @playwright/mcp@latest --host 0.0.0.0 --port 8931 --headless --allowed-hosts '*' --executable-path "$$PLAYWRIGHT_EXECUTABLE_PATH"
+    expose:
+      - "8931"
 
   web:
     container_name: web

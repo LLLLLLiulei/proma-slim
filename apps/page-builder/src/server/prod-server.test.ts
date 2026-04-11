@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createPageBuilderProdFetchHandler } from './prod-server'
+import { createPageBuilderProdFetchHandler, resolvePageBuilderProdAppOrigin } from './prod-server'
 
 function createTempDistDir(): string {
   const distDir = mkdtempSync(join(tmpdir(), 'proma-page-builder-dist-'))
@@ -24,6 +24,17 @@ afterEach(() => {
 })
 
 describe('page-builder production server', () => {
+  test('prefers docker runtime app origin env while keeping legacy fallback', () => {
+    expect(resolvePageBuilderProdAppOrigin({
+      AI_PAGE_BUILDER_SERVER_ORIGIN: 'http://server:8888',
+      PROMA_APP_ORIGIN: 'http://legacy:8888',
+    })).toBe('http://server:8888')
+
+    expect(resolvePageBuilderProdAppOrigin({
+      PROMA_APP_ORIGIN: 'http://legacy:8888',
+    })).toBe('http://legacy:8888')
+  })
+
   test('serves static assets from dist', async () => {
     const distDir = createTempDistDir()
     tempDirs.push(distDir)

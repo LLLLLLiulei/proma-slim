@@ -105,6 +105,9 @@ describe('AgentOrchestrator workspace runtime', () => {
   let originalCmsBaseUrl: string | undefined
   let originalCmsZusid: string | undefined
   let originalCmsCurrentSite: string | undefined
+  let originalPlaywrightMcpUrl: string | undefined
+  let originalInternalAppOrigin: string | undefined
+  let originalRuntimeEnv: string | undefined
 
   beforeEach(() => {
     configDir = mkdtempSync(join(tmpdir(), 'proma-orchestrator-workspace-'))
@@ -119,6 +122,9 @@ describe('AgentOrchestrator workspace runtime', () => {
     originalCmsBaseUrl = process.env.PROMA_CMS_BASE_URL
     originalCmsZusid = process.env.PROMA_CMS_ZUSID
     originalCmsCurrentSite = process.env.PROMA_CMS_CURRENT_SITE
+    originalPlaywrightMcpUrl = process.env.AI_PAGE_BUILDER_PLAYWRIGHT_MCP_URL
+    originalInternalAppOrigin = process.env.AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN
+    originalRuntimeEnv = process.env.AI_PAGE_BUILDER_RUNTIME_ENV
     process.env.ANTHROPIC_API_KEY = 'test-api-key'
     process.env.ANTHROPIC_BASE_URL = 'https://api.anthropic.com'
   })
@@ -160,6 +166,21 @@ describe('AgentOrchestrator workspace runtime', () => {
       delete process.env.PROMA_CMS_CURRENT_SITE
     } else {
       process.env.PROMA_CMS_CURRENT_SITE = originalCmsCurrentSite
+    }
+    if (originalPlaywrightMcpUrl === undefined) {
+      delete process.env.AI_PAGE_BUILDER_PLAYWRIGHT_MCP_URL
+    } else {
+      process.env.AI_PAGE_BUILDER_PLAYWRIGHT_MCP_URL = originalPlaywrightMcpUrl
+    }
+    if (originalInternalAppOrigin === undefined) {
+      delete process.env.AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN
+    } else {
+      process.env.AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN = originalInternalAppOrigin
+    }
+    if (originalRuntimeEnv === undefined) {
+      delete process.env.AI_PAGE_BUILDER_RUNTIME_ENV
+    } else {
+      process.env.AI_PAGE_BUILDER_RUNTIME_ENV = originalRuntimeEnv
     }
     rmSync(configDir, { recursive: true, force: true })
     rmSync(claudeHomeDir, { recursive: true, force: true })
@@ -313,7 +334,7 @@ describe('AgentOrchestrator workspace runtime', () => {
     expect(adapter.lastInput?.mcpServers).toBeUndefined()
   })
 
-  test('restores default page-builder MCP servers after the first turn completes', async () => {
+  test('restores default page-builder MCP servers after the first turn completes when runtime playwright is not configured', async () => {
     const adapter = new RecordingAdapter()
     const orchestrator = new AgentOrchestrator(adapter, new AgentEventBus())
     const workspace = createAgentWorkspace('Page Builder MCP Follow-up', { template: 'page-builder' })
@@ -363,7 +384,7 @@ describe('AgentOrchestrator workspace runtime', () => {
     })
   })
 
-  test('allows an explicitly mentioned MCP server on the first page-builder turn', async () => {
+  test('allows an explicitly mentioned MCP server on the first page-builder turn when runtime playwright is not configured', async () => {
     const adapter = new RecordingAdapter()
     const orchestrator = new AgentOrchestrator(adapter, new AgentEventBus())
     const workspace = createAgentWorkspace('Page Builder MCP Mention', { template: 'page-builder' })
@@ -397,6 +418,248 @@ describe('AgentOrchestrator workspace runtime', () => {
         startup_timeout_sec: 30,
       },
     })
+  })
+
+  test('suppresses the default page-builder playwright MCP in docker runtime when no sidecar endpoint is configured', async () => {
+    process.env.AI_PAGE_BUILDER_RUNTIME_ENV = 'docker'
+
+    const adapter = new RecordingAdapter()
+    const orchestrator = new AgentOrchestrator(adapter, new AgentEventBus())
+    const workspace = createAgentWorkspace('Page Builder Docker Without Sidecar', { template: 'page-builder' })
+    const session = createAgentSession('Docker without sidecar session', undefined, workspace.id)
+
+    await orchestrator.sendMessage(
+      {
+        sessionId: session.id,
+        userMessage: '你好',
+        channelId: '',
+      },
+      {
+        onError: (message) => {
+          throw new Error(message)
+        },
+        onComplete: () => {},
+        onTitleUpdated: () => {},
+      },
+    )
+
+    await orchestrator.sendMessage(
+      {
+        sessionId: session.id,
+        userMessage: '请使用浏览器检查预览',
+        channelId: '',
+        mentionedMcpServers: ['playwright'],
+      },
+      {
+        onError: (message) => {
+          throw new Error(message)
+        },
+        onComplete: () => {},
+        onTitleUpdated: () => {},
+      },
+    )
+
+    expect(adapter.inputs).toHaveLength(2)
+    expect(adapter.inputs[1]?.mcpServers).toMatchObject({
+      'server-sequential-thinking': {
+        type: 'stdio',
+        command: 'npx',
+      },
+    })
+    expect(adapter.inputs[1]?.mcpServers).not.toHaveProperty('playwright')
+    expect(adapter.inputs[1]?.prompt).not.toContain('<mentioned_tools>')
+  })
+
+  test('does not fail the query when the docker internal app origin is invalid', async () => {
+    process.env.AI_PAGE_BUILDER_RUNTIME_ENV = 'docker'
+    process.env.AI_PAGE_BUILDER_PLAYWRIGHT_MCP_URL = 'http://playwright:8931/mcp'
+    process.env.AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN = 'server:8888'
+
+    const adapter = new RecordingAdapter()
+    const orchestrator = new AgentOrchestrator(adapter, new AgentEventBus())
+    const workspace = createAgentWorkspace('Page Builder Invalid Origin', { template: 'page-builder' })
+    const session = createAgentSession('Invalid origin session', undefined, workspace.id)
+    const workspaceFilesDir = getWorkspaceFilesDir(workspace.slug)
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(join(workspaceFilesDir, 'index.html'), '<!doctype html><html><body><h1>Preview</h1></body></html>', 'utf-8')
+
+    await orchestrator.sendMessage(
+      {
+        sessionId: session.id,
+        userMessage: '请使用浏览器检查预览',
+        channelId: '',
+        mentionedMcpServers: ['playwright'],
+      },
+      {
+        onError: (message) => {
+          throw new Error(message)
+        },
+        onComplete: () => {},
+        onTitleUpdated: () => {},
+      },
+    )
+
+    expect(adapter.lastInput?.mcpServers).toEqual({
+      playwright: {
+        type: 'http',
+        url: 'http://playwright:8931/mcp',
+        required: false,
+      },
+    })
+    expect(adapter.lastInput?.prompt).toContain('<page_builder_runtime_playwright>docker-http</page_builder_runtime_playwright>')
+    expect(adapter.lastInput?.prompt).not.toContain('<page_builder_internal_preview_url>')
+  })
+
+  test('resolves the default page-builder playwright MCP to the docker runtime endpoint when configured', async () => {
+    process.env.AI_PAGE_BUILDER_PLAYWRIGHT_MCP_URL = 'http://playwright:8931/mcp'
+
+    const adapter = new RecordingAdapter()
+    const orchestrator = new AgentOrchestrator(adapter, new AgentEventBus())
+    const workspace = createAgentWorkspace('Page Builder Docker Playwright', { template: 'page-builder' })
+    const session = createAgentSession('Docker playwright session', undefined, workspace.id)
+
+    await orchestrator.sendMessage(
+      {
+        sessionId: session.id,
+        userMessage: '请使用浏览器检查预览',
+        channelId: '',
+        mentionedMcpServers: ['playwright'],
+      },
+      {
+        onError: (message) => {
+          throw new Error(message)
+        },
+        onComplete: () => {},
+        onTitleUpdated: () => {},
+      },
+    )
+
+    expect(adapter.lastInput?.mcpServers).toEqual({
+      playwright: {
+        type: 'http',
+        url: 'http://playwright:8931/mcp',
+        required: false,
+      },
+    })
+  })
+
+  test('does not override a custom page-builder playwright MCP when docker runtime is configured', async () => {
+    process.env.AI_PAGE_BUILDER_PLAYWRIGHT_MCP_URL = 'http://playwright:8931/mcp'
+
+    const adapter = new RecordingAdapter()
+    const orchestrator = new AgentOrchestrator(adapter, new AgentEventBus())
+    const workspace = createAgentWorkspace('Page Builder Custom Playwright', { template: 'page-builder' })
+    const session = createAgentSession('Custom playwright session', undefined, workspace.id)
+
+    saveWorkspaceMcpConfig(workspace.slug, {
+      servers: {
+        playwright: {
+          type: 'stdio',
+          command: 'node',
+          args: ['custom-playwright.js'],
+          enabled: true,
+          timeout: 88,
+        },
+      },
+    })
+
+    await orchestrator.sendMessage(
+      {
+        sessionId: session.id,
+        userMessage: '请使用浏览器检查预览',
+        channelId: '',
+        mentionedMcpServers: ['playwright'],
+      },
+      {
+        onError: (message) => {
+          throw new Error(message)
+        },
+        onComplete: () => {},
+        onTitleUpdated: () => {},
+      },
+    )
+
+    expect(adapter.lastInput?.mcpServers).toEqual({
+      playwright: {
+        type: 'stdio',
+        command: 'node',
+        args: ['custom-playwright.js'],
+        env: {
+          PATH: process.env.PATH,
+        },
+        required: false,
+        startup_timeout_sec: 88,
+      },
+    })
+  })
+
+  test('injects an internal preview url into the page-builder prompt when docker playwright runtime is active', async () => {
+    process.env.AI_PAGE_BUILDER_PLAYWRIGHT_MCP_URL = 'http://playwright:8931/mcp'
+    process.env.AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN = 'http://server:8888'
+
+    const adapter = new RecordingAdapter()
+    const orchestrator = new AgentOrchestrator(adapter, new AgentEventBus())
+    const workspace = createAgentWorkspace('Page Builder Internal Preview', { template: 'page-builder' })
+    const session = createAgentSession('Internal preview session', undefined, workspace.id)
+    const workspaceFilesDir = getWorkspaceFilesDir(workspace.slug)
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(join(workspaceFilesDir, 'index.html'), '<!doctype html><html><body><h1>Preview</h1></body></html>', 'utf-8')
+
+    await orchestrator.sendMessage(
+      {
+        sessionId: session.id,
+        userMessage: '请使用浏览器检查预览',
+        channelId: '',
+        mentionedMcpServers: ['playwright'],
+      },
+      {
+        onError: (message) => {
+          throw new Error(message)
+        },
+        onComplete: () => {},
+        onTitleUpdated: () => {},
+      },
+    )
+
+    expect(adapter.lastInput?.prompt).toContain('<page_builder_internal_preview_url>')
+    expect(adapter.lastInput?.prompt).toContain(`http://server:8888/api/workspaces/${workspace.id}/preview/`)
+    expect(adapter.lastInput?.prompt).toContain('<page_builder_runtime_playwright>docker-http</page_builder_runtime_playwright>')
+    expect(adapter.lastInput?.prompt).toContain('不要对 workspace 文件使用 file:// URL')
+    expect(adapter.lastInput?.prompt).toContain('- playwright (http, 已启用): http://playwright:8931/mcp')
+    expect(adapter.lastInput?.prompt).not.toContain('- playwright (stdio, 已启用): npx @playwright/mcp@latest --headless --browser chrome')
+  })
+
+  test('does not inject an internal preview url when no preview is available', async () => {
+    process.env.AI_PAGE_BUILDER_PLAYWRIGHT_MCP_URL = 'http://playwright:8931/mcp'
+    process.env.AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN = 'http://server:8888'
+
+    const adapter = new RecordingAdapter()
+    const orchestrator = new AgentOrchestrator(adapter, new AgentEventBus())
+    const workspace = createAgentWorkspace('Page Builder Missing Preview', { template: 'page-builder' })
+    const session = createAgentSession('Missing preview session', undefined, workspace.id)
+
+    await orchestrator.sendMessage(
+      {
+        sessionId: session.id,
+        userMessage: '请使用浏览器检查预览',
+        channelId: '',
+        mentionedMcpServers: ['playwright'],
+      },
+      {
+        onError: (message) => {
+          throw new Error(message)
+        },
+        onComplete: () => {},
+        onTitleUpdated: () => {},
+      },
+    )
+
+    expect(adapter.lastInput?.prompt).not.toContain('<page_builder_internal_preview_url>')
+    expect(adapter.lastInput?.prompt).not.toContain(`http://server:8888/api/workspaces/${workspace.id}/preview/`)
+    expect(adapter.lastInput?.prompt).toContain('<page_builder_runtime_playwright>docker-http</page_builder_runtime_playwright>')
+    expect(adapter.lastInput?.prompt).toContain('不要对 workspace 文件使用 file:// URL')
   })
 
   test('does not auto-inject runtime cms sdk tools into page-builder queries', async () => {

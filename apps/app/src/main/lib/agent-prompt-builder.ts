@@ -87,6 +87,9 @@ interface DynamicContext {
   workspaceFilesDir?: string
   accessibleDirectories?: string[]
   memoryFilePath?: string
+  workspaceMcpStateLines?: string[]
+  pageBuilderRuntimePlaywrightActive?: boolean
+  pageBuilderInternalPreviewUrl?: string
 }
 
 export function buildDynamicContext(ctx: DynamicContext): string {
@@ -157,16 +160,24 @@ ${accessibleDirectories.map((directory) => `- ${directory}`).join('\n')}
       workspaceStateLines.push(`工作区: ${ctx.workspaceName}`)
     }
 
-    const mcpConfig = getWorkspaceMcpConfig(ctx.workspaceSlug)
-    const serverEntries = Object.entries(mcpConfig.servers ?? {})
-    if (serverEntries.length > 0) {
+    const runtimeMcpStateLines = ctx.workspaceMcpStateLines
+    if (runtimeMcpStateLines) {
       workspaceStateLines.push('MCP 服务器:')
-      for (const [name, entry] of serverEntries) {
-        const status = entry.enabled ? '已启用' : '已禁用'
-        const detail = entry.type === 'stdio'
-          ? `${entry.command}${entry.args?.length ? ` ${entry.args.join(' ')}` : ''}`
-          : entry.url || ''
-        workspaceStateLines.push(`- ${name} (${entry.type}, ${status}): ${detail}`)
+      for (const line of runtimeMcpStateLines) {
+        workspaceStateLines.push(line)
+      }
+    } else {
+      const mcpConfig = getWorkspaceMcpConfig(ctx.workspaceSlug)
+      const serverEntries = Object.entries(mcpConfig.servers ?? {})
+      if (serverEntries.length > 0) {
+        workspaceStateLines.push('MCP 服务器:')
+        for (const [name, entry] of serverEntries) {
+          const status = entry.enabled ? '已启用' : '已禁用'
+          const detail = entry.type === 'stdio'
+            ? `${entry.command}${entry.args?.length ? ` ${entry.args.join(' ')}` : ''}`
+            : entry.url || ''
+          workspaceStateLines.push(`- ${name} (${entry.type}, ${status}): ${detail}`)
+        }
       }
     }
 
@@ -195,6 +206,25 @@ ${accessibleDirectories.map((directory) => `- ${directory}`).join('\n')}
     sections.push(`<workspace_state>
 ${workspaceStateLines.join('\n')}
 </workspace_state>`)
+  }
+
+  if (ctx.pageBuilderInternalPreviewUrl) {
+    sections.push(`<page_builder_internal_preview_url>${ctx.pageBuilderInternalPreviewUrl}</page_builder_internal_preview_url>`)
+    sections.push(`<page_builder_internal_preview_instructions>
+当你需要使用浏览器 MCP 访问当前 page-builder 工作区预览时，优先使用上面的内部绝对地址。
+- 这个地址面向部署内部网络中的浏览器自动化运行时。
+- 不要把它改写回浏览器侧的相对 preview path。
+</page_builder_internal_preview_instructions>`)
+  }
+
+  if (ctx.pageBuilderRuntimePlaywrightActive) {
+    sections.push(`<page_builder_runtime_playwright>docker-http</page_builder_runtime_playwright>`)
+    sections.push(`<page_builder_runtime_playwright_instructions>
+当前 query 的 playwright MCP 由 Docker 内部 HTTP sidecar 提供。
+- 不要尝试在当前工作目录或当前容器里安装 Chrome、Chromium，或运行 npx playwright install。
+- 这个浏览器运行时不共享当前工作目录的本地文件系统；不要对 workspace 文件使用 file:// URL。
+- 若需要访问当前 page-builder 页面，优先使用内部预览地址；没有内部预览地址时，也不要退回到 file:// 工作区文件。
+</page_builder_runtime_playwright_instructions>`)
   }
 
   return sections.join('\n')

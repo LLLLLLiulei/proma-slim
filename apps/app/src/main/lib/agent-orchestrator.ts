@@ -69,6 +69,13 @@ import {
   getWorkspaceSkillInvocationName,
   getWorkspaceMcpConfig,
 } from './workspace-service'
+import {
+  isPageBuilderDockerRuntime,
+  isDefaultPageBuilderPlaywrightEntry,
+  resolvePageBuilderInternalPreviewUrl,
+  resolvePageBuilderPlaywrightMcpUrl,
+} from './page-builder-runtime-playwright'
+import { getWorkspacePreviewState } from './workspace-preview-service'
 
 type AgentMcpServerMap = Record<string, AgentMcpServerConfig>
 
@@ -80,12 +87,42 @@ interface ResolvedWorkspaceRuntime {
   mcpServers: AgentMcpServerMap
 }
 
-function buildWorkspaceMcpServers(workspaceSlug: string): AgentMcpServerMap {
+function buildWorkspaceMcpServers(workspace: import('@proma/shared').AgentWorkspace): AgentMcpServerMap {
   const mcpServers: AgentMcpServerMap = {}
-  const mcpConfig = getWorkspaceMcpConfig(workspaceSlug)
+  const mcpConfig = getWorkspaceMcpConfig(workspace.slug)
+  const dockerRuntime = workspace.template === 'page-builder'
+    ? isPageBuilderDockerRuntime()
+    : false
+  const dockerPlaywrightMcpUrl = workspace.template === 'page-builder'
+    ? resolvePageBuilderPlaywrightMcpUrl()
+    : null
 
   for (const [name, entry] of Object.entries(mcpConfig.servers ?? {})) {
     if (!entry.enabled) continue
+
+    if (
+      workspace.template === 'page-builder'
+      && name === 'playwright'
+      && dockerRuntime
+      && !dockerPlaywrightMcpUrl
+      && isDefaultPageBuilderPlaywrightEntry(entry)
+    ) {
+      continue
+    }
+
+    if (
+      workspace.template === 'page-builder'
+      && name === 'playwright'
+      && dockerPlaywrightMcpUrl
+      && isDefaultPageBuilderPlaywrightEntry(entry)
+    ) {
+      mcpServers[name] = {
+        type: 'http',
+        url: dockerPlaywrightMcpUrl,
+        required: false,
+      }
+      continue
+    }
 
     if (entry.type === 'stdio' && entry.command) {
       const mergedEnv: Record<string, string> = {
@@ -132,6 +169,29 @@ function pickMcpServersByName(
   return selected
 }
 
+function buildWorkspaceMcpStateLines(servers: AgentMcpServerMap): string[] {
+  return Object.entries(servers).map(([name, server]) => {
+    const entry = server as Record<string, unknown>
+    const type = typeof entry.type === 'string' ? entry.type : 'unknown'
+    let detail = ''
+
+    if (type === 'stdio' && typeof entry.command === 'string') {
+      const args = Array.isArray(entry.args)
+        ? entry.args.filter((arg): arg is string => typeof arg === 'string')
+        : []
+      detail = `${entry.command}${args.length > 0 ? ` ${args.join(' ')}` : ''}`
+    } else if ((type === 'http' || type === 'sse') && typeof entry.url === 'string') {
+      detail = entry.url
+    } else if (type === 'sdk' && typeof entry.name === 'string') {
+      detail = entry.name
+    }
+
+    return detail.length > 0
+      ? `- ${name} (${type}, 已启用): ${detail}`
+      : `- ${name} (${type}, 已启用)`
+  })
+}
+
 export function resolveWorkspaceRuntimeContext(
   sessionId: string,
   overrides?: Pick<AgentSendInput, 'workspaceId' | 'additionalDirectories'>,
@@ -159,7 +219,7 @@ export function resolveWorkspaceRuntimeContext(
     agentCwd,
     pluginPath: getAgentWorkspacePath(workspace.slug),
     additionalDirectories: mergedDirectories,
-    mcpServers: buildWorkspaceMcpServers(workspace.slug),
+    mcpServers: buildWorkspaceMcpServers(workspace),
   }
 }
 
@@ -837,6 +897,30 @@ export class AgentOrchestrator {
       }
 
       // 10. 构建动态上下文和最终 prompt
+      const runtimePlaywright = isPageBuilderWorkspace
+        ? resolvedMcpServers.playwright
+        : undefined
+      const configuredRuntimePlaywrightUrl = isPageBuilderWorkspace
+        ? resolvePageBuilderPlaywrightMcpUrl()
+        : null
+      const hasRuntimePageBuilderPlaywright = Boolean(
+        configuredRuntimePlaywrightUrl
+        && runtimePlaywright?.type === 'http'
+        && runtimePlaywright.url === configuredRuntimePlaywrightUrl,
+      )
+
+      const runtimePlaywrightPreviewUrl = (() => {
+        if (!isPageBuilderWorkspace) return undefined
+
+        if (!hasRuntimePageBuilderPlaywright) {
+          return undefined
+        }
+
+        const previewState = getWorkspacePreviewState(workspaceRuntime.workspace)
+        return resolvePageBuilderInternalPreviewUrl(previewState.entryUrl)
+          ?? undefined
+      })()
+
       const dynamicCtx = buildDynamicContext({
         agentCwd,
         workspaceName: workspaceRuntime.workspace.name,
@@ -845,11 +929,16 @@ export class AgentOrchestrator {
         workspaceFilesDir: getWorkspaceFilesDir(workspaceSlug),
         accessibleDirectories: resolvedAdditionalDirectories,
         memoryFilePath: getWorkspaceMemoryFilePath(workspaceSlug),
+        workspaceMcpStateLines: buildWorkspaceMcpStateLines(resolvedMcpServers),
+        pageBuilderRuntimePlaywrightActive: hasRuntimePageBuilderPlaywright,
+        pageBuilderInternalPreviewUrl: runtimePlaywrightPreviewUrl,
       })
 
       const runtimeUserMessage = composedUserMessage ?? userMessage
+      const availableMentionedMcpServers = (mentionedMcpServers ?? [])
+        .filter((name) => Object.prototype.hasOwnProperty.call(resolvedMcpServers, name))
       let enrichedMessage = runtimeUserMessage
-      if (mentionedSkills?.length || mentionedMcpServers?.length) {
+      if (mentionedSkills?.length || availableMentionedMcpServers.length > 0) {
         const toolLines: string[] = ['用户在消息中明确引用了以下工具，请在本次回复中主动调用：']
 
         for (const slug of mentionedSkills ?? []) {
@@ -859,12 +948,12 @@ export class AgentOrchestrator {
           toolLines.push(`- Skill: ${qualifiedName}（请立即调用此 Skill）`)
         }
 
-        for (const name of mentionedMcpServers ?? []) {
+        for (const name of availableMentionedMcpServers) {
           toolLines.push(`- MCP 服务器: ${name}（请使用此 MCP 服务器的工具来完成任务）`)
         }
 
         enrichedMessage = `<mentioned_tools>\n${toolLines.join('\n')}\n</mentioned_tools>\n\n${runtimeUserMessage}`
-        console.log(`[Agent 编排] 注入 mentioned_tools: ${mentionedSkills?.length ?? 0} skills, ${mentionedMcpServers?.length ?? 0} MCP`)
+        console.log(`[Agent 编排] 注入 mentioned_tools: ${mentionedSkills?.length ?? 0} skills, ${availableMentionedMcpServers.length} MCP`)
       }
 
       enrichedMessage = buildPromptMessageContent(enrichedMessage, attachments, agentCwd)
