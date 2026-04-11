@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -100,6 +100,7 @@ describe('AgentOrchestrator workspace runtime', () => {
   let claudeHomeDir: string
   let originalApiKey: string | undefined
   let originalBaseUrl: string | undefined
+  let originalClaudeConfigDir: string | undefined
   let originalClaudeHome: string | undefined
   let originalCmsBaseUrl: string | undefined
   let originalCmsZusid: string | undefined
@@ -109,6 +110,8 @@ describe('AgentOrchestrator workspace runtime', () => {
     configDir = mkdtempSync(join(tmpdir(), 'proma-orchestrator-workspace-'))
     claudeHomeDir = mkdtempSync(join(tmpdir(), 'proma-claude-home-'))
     process.env.PROMA_CONFIG_DIR = configDir
+    originalClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR
+    delete process.env.CLAUDE_CONFIG_DIR
     originalClaudeHome = process.env.PROMA_CLAUDE_HOME
     process.env.PROMA_CLAUDE_HOME = claudeHomeDir
     originalApiKey = process.env.ANTHROPIC_API_KEY
@@ -121,7 +124,13 @@ describe('AgentOrchestrator workspace runtime', () => {
   })
 
   afterEach(() => {
+    mock.restore()
     delete process.env.PROMA_CONFIG_DIR
+    if (originalClaudeConfigDir === undefined) {
+      delete process.env.CLAUDE_CONFIG_DIR
+    } else {
+      process.env.CLAUDE_CONFIG_DIR = originalClaudeConfigDir
+    }
     if (originalClaudeHome === undefined) {
       delete process.env.PROMA_CLAUDE_HOME
     } else {
@@ -952,6 +961,50 @@ describe('AgentOrchestrator workspace runtime', () => {
     } finally {
       console.log = originalConsoleLog
     }
+  })
+
+  test('validates resumed sdk sessions against the isolated sdk config dir', async () => {
+    const observedClaudeConfigDirs: string[] = []
+    const listSessionsMock = mock(async () => {
+      observedClaudeConfigDirs.push(process.env.CLAUDE_CONFIG_DIR ?? '')
+
+      if (process.env.CLAUDE_CONFIG_DIR === join(configDir, 'sdk-config')) {
+        return [{ sessionId: 'sdk-live-session' }]
+      }
+
+      return []
+    })
+
+    mock.module('@anthropic-ai/claude-agent-sdk', () => ({
+      listSessions: listSessionsMock,
+    }))
+
+    const adapter = new RecordingAdapter()
+    const orchestrator = new AgentOrchestrator(adapter, new AgentEventBus())
+    const workspace = createAgentWorkspace('Resume Validation Docs')
+    const session = createAgentSession('Resume validation session', undefined, workspace.id)
+    updateAgentSessionMeta(session.id, { sdkSessionId: 'sdk-live-session' })
+
+    await orchestrator.sendMessage(
+      {
+        sessionId: session.id,
+        userMessage: 'Resume this conversation',
+        channelId: '',
+      },
+      {
+        onError: (message) => {
+          throw new Error(message)
+        },
+        onComplete: () => {},
+        onTitleUpdated: () => {},
+      },
+    )
+
+    expect(listSessionsMock).toHaveBeenCalledTimes(1)
+    expect(observedClaudeConfigDirs).toEqual([join(configDir, 'sdk-config')])
+    expect(process.env.CLAUDE_CONFIG_DIR).toBeUndefined()
+    expect(adapter.lastInput?.resumeSessionId).toBe('sdk-live-session')
+    expect(getAgentSessionMeta(session.id)?.sdkSessionId).toBe('sdk-live-session')
   })
 
   test('prefers team inbox output when auto-resuming teammate results', async () => {

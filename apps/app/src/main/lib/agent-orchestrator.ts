@@ -239,6 +239,28 @@ function normalizeAnthropicBaseUrlForSdk(baseUrl: string): string {
     .replace(/\/v\d+$/, '')
 }
 
+async function withSdkConfigDir<T>(
+  sdkConfigDir: string | undefined,
+  operation: () => Promise<T>,
+): Promise<T> {
+  if (!sdkConfigDir) {
+    return operation()
+  }
+
+  const previousSdkConfigDir = process.env.CLAUDE_CONFIG_DIR
+  process.env.CLAUDE_CONFIG_DIR = sdkConfigDir
+
+  try {
+    return await operation()
+  } finally {
+    if (previousSdkConfigDir === undefined) {
+      delete process.env.CLAUDE_CONFIG_DIR
+    } else {
+      process.env.CLAUDE_CONFIG_DIR = previousSdkConfigDir
+    }
+  }
+}
+
 // ===== 自动重试工具函数 =====
 
 /** 可自动重试的 TypedError 错误码 */
@@ -801,7 +823,7 @@ export class AgentOrchestrator {
           const listSessions = (sdk as unknown as {
             listSessions: (opts: { dir: string }) => Promise<Array<{ sessionId: string }>>
           }).listSessions
-          const sessions = await listSessions({ dir: agentCwd })
+          const sessions = await withSdkConfigDir(sdkEnv.CLAUDE_CONFIG_DIR, () => listSessions({ dir: agentCwd }))
           const isValid = sessions.some((s: { sessionId: string }) => s.sessionId === existingSdkSessionId)
           if (!isValid) {
             console.log(`[Agent 编排] sdkSessionId 已失效 (${existingSdkSessionId})，将使用上下文注入`)
