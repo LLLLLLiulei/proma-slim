@@ -111,19 +111,6 @@ function createContentsPayload(title: string): PageBuilderCmsContentList {
         listLogoUrl: 'https://demo.zving.com/zcmstest/preview/news/upload/resources/image/banner-list-logo.jpg',
         addedAt: '2025-04-11 17:48',
         publishUrl: 'https://demo.zving.com/home/banner/501.html',
-        shape: 'gallery',
-        assetCounts: {
-          images: 3,
-          audios: 0,
-          videos: 0,
-          files: 0,
-        },
-        assetHints: {
-          images: [],
-          audios: [],
-          videos: [],
-          files: [],
-        },
       },
     ],
   }
@@ -138,19 +125,6 @@ function createContentItem(id: string, catalogId: string, title: string) {
     listLogoUrl: 'https://demo.zving.com/zcmstest/preview/news/upload/resources/image/content-list-logo.jpg',
     addedAt: '2025-04-11 17:48',
     publishUrl: `https://demo.zving.com/${catalogId}/${id}.html`,
-    shape: 'gallery' as const,
-    assetCounts: {
-      images: 3,
-      audios: 0,
-      videos: 0,
-      files: 0,
-    },
-    assetHints: {
-      images: [],
-      audios: [],
-      videos: [],
-      files: [],
-    },
   }
 }
 
@@ -925,10 +899,13 @@ describe('CmsBrowserDialog', () => {
     })
 
     const tree = JSON.stringify(renderer.toJSON())
+    const metaRow = renderer.root.findAllByProps({
+      className: 'page-builder-cms-content-meta',
+    })[0]
 
     expect(tree).toContain('2025-04-11 17:48')
     expect(tree).toContain('/api/page-builder/cms/assets?url=')
-    expect(tree).not.toContain('图片 3')
+    expect(flattenText(metaRow?.props.children)).toBe('2025-04-11 17:48')
     expect(tree).not.toContain('无素材')
     expect(tree).not.toContain('预览')
 
@@ -951,12 +928,6 @@ describe('CmsBrowserDialog', () => {
           {
             ...createContentItem('fallback-1', '101', '无 Logo 内容'),
             listLogoUrl: undefined,
-            assetHints: {
-              images: [],
-              audios: [],
-              videos: [],
-              files: [],
-            },
           },
         ],
       })),

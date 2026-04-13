@@ -1,24 +1,30 @@
 import type {
-  PageBuilderCmsAssetCounts,
-  PageBuilderCmsAssetHint,
   PageBuilderCmsCatalog,
   PageBuilderCmsCatalogDetail,
   PageBuilderCmsCatalogList,
   PageBuilderCmsCatalogQuery,
   PageBuilderCmsContentList,
   PageBuilderCmsContentQuery,
-  PageBuilderCmsContentShape,
   PageBuilderCmsContentSummary,
 } from '@proma/shared'
+import {
+  CmsTokenProviderError,
+  getSharedCmsTokenProvider,
+  type CmsAuthorizationProvider,
+} from './cms-token-provider'
 import type { PageBuilderCmsConfig } from './page-builder-cms-config'
+import {
+  isAllowedCmsAssetUrl as isAllowedCmsAssetUrlShared,
+  resolveCmsAssetUrl as resolveCmsAssetUrlShared,
+} from './page-builder-asset-reference-utils'
+
+const AUTH_FAILURE_MESSAGE = 'CMS 鉴权失败，请检查宿主配置中的账号密码是否正确'
+const CATALOGS_PAGE_SIZE = 500
 
 export type CmsCatalogQuery = PageBuilderCmsCatalogQuery
 export type CmsContentQuery = PageBuilderCmsContentQuery
 export type NormalizedCmsCatalog = PageBuilderCmsCatalog
 export type NormalizedCmsCatalogDetail = PageBuilderCmsCatalogDetail
-export type NormalizedCmsAssetCounts = PageBuilderCmsAssetCounts
-export type NormalizedCmsAssetHint = PageBuilderCmsAssetHint
-export type CmsContentShape = PageBuilderCmsContentShape
 export type NormalizedCmsContentSummary = PageBuilderCmsContentSummary
 export type NormalizedCmsCatalogList = PageBuilderCmsCatalogList
 export type NormalizedCmsContentList = PageBuilderCmsContentList
@@ -36,21 +42,28 @@ export class CmsGatewayError extends Error {
 interface CmsGatewayOptions {
   config: PageBuilderCmsConfig
   fetchFn?: typeof fetch
+  tokenProvider?: CmsAuthorizationProvider
 }
 
 export class CmsGateway {
   private readonly config: PageBuilderCmsConfig
   private readonly fetchFn: typeof fetch
+  private readonly tokenProvider: CmsAuthorizationProvider
 
   constructor(options: CmsGatewayOptions) {
     this.config = options.config
     this.fetchFn = options.fetchFn ?? fetch
+    this.tokenProvider = options.tokenProvider ?? getSharedCmsTokenProvider({
+      config: this.config,
+      fetchFn: this.fetchFn,
+    })
   }
 
   async listCatalogs(query: CmsCatalogQuery = {}): Promise<NormalizedCmsCatalogList> {
-    const payload = await this.requestJson('/ui/dimensions/1/catalogs', {
-      contentType: query.contentType ?? '',
-      searchKeyWord: query.searchKeyword ?? '',
+    const payload = await this.requestJson('/api/catalogsTree', {
+      siteID: this.config.siteID,
+      ...(query.contentType ? { contentType: query.contentType } : {}),
+      ...(query.searchKeyword ? { keyword: query.searchKeyword } : {}),
     })
 
     const items = normalizeCatalogs(extractCatalogArray(payload))
@@ -61,19 +74,26 @@ export class CmsGateway {
   }
 
   async getCatalogDetail(catalogId: string): Promise<NormalizedCmsCatalogDetail> {
-    const payload = await this.requestJson(`/ui/catalogs/${encodeURIComponent(catalogId)}`, {})
-    return normalizeCatalogDetail(payload, this.config.baseUrl)
+    const items = await this.fetchCatalogMetadata()
+    const catalog = items.find((item) => readString(item.id ?? item.ID) === catalogId)
+
+    if (!catalog) {
+      throw new CmsGatewayError('invalid_response', `CMS 栏目详情不存在：${catalogId}`)
+    }
+
+    return normalizeCatalogDetail(catalog, this.config.baseUrl)
   }
 
   async listContents(query: CmsContentQuery): Promise<NormalizedCmsContentList> {
-    const payload = await this.requestJson('/ui/contentcore/contents', {
-      catalogID: query.catalogId,
-      contentSelectType: query.contentSelectType ?? '',
-      keyWord: query.keyword ?? '',
-      title: query.title ?? '',
-      pageIndex: String(query.pageIndex ?? 0),
-      pageSize: String(query.pageSize ?? 20),
-    })
+    const payload = await this.requestJson(
+      `/api/catalogs/${encodeURIComponent(query.catalogId)}/contents`,
+      {
+        pageIndex: String(query.pageIndex ?? 0),
+        pageSize: String(query.pageSize ?? 20),
+        loadextend: 'true',
+        ...(query.keyword ? { keyword: query.keyword } : {}),
+      },
+    )
 
     return normalizeContentList(payload, query, this.config.baseUrl)
   }
@@ -84,17 +104,17 @@ export class CmsGateway {
       throw new CmsGatewayError('config', 'CMS 资源地址不合法')
     }
 
-    const response = await this.fetchFn(resolvedAssetUrl, {
-      method: 'GET',
-      headers: {
-        ...this.config.headers,
-        Accept: 'image/*,*/*',
-        Cookie: this.config.cookie,
-      },
-    })
+    let response: Response
+    try {
+      response = await this.fetchFn(resolvedAssetUrl, {
+        method: 'GET',
+      })
+    } catch (error) {
+      throw buildUpstreamGatewayError('CMS 资源请求失败', error)
+    }
 
     if (response.status === 401 || response.status === 403) {
-      throw new CmsGatewayError('auth', 'CMS 鉴权失败，请检查宿主配置中的登录态是否有效')
+      throw new CmsGatewayError('auth', AUTH_FAILURE_MESSAGE)
     }
 
     if (!response.ok) {
@@ -102,6 +122,38 @@ export class CmsGateway {
     }
 
     return response
+  }
+
+  private async fetchCatalogMetadata(): Promise<Record<string, unknown>[]> {
+    const items: Record<string, unknown>[] = []
+    let pageIndex = 0
+
+    while (true) {
+      const payload = await this.requestJson('/api/catalogs', {
+        siteID: this.config.siteID,
+        level: 'All',
+        pageIndex: String(pageIndex),
+        pageSize: String(CATALOGS_PAGE_SIZE),
+      })
+      const root = asRecord(payload)
+      const pageItems = extractCatalogArray(payload)
+        .map((item) => asRecord(item))
+        .filter((item): item is Record<string, unknown> => item !== null)
+      items.push(...pageItems)
+
+      const total = readNumber(root?.total)
+        ?? readNumber(asRecord(root?.data)?.total)
+
+      if (
+        pageItems.length === 0
+        || pageItems.length < CATALOGS_PAGE_SIZE
+        || (total !== undefined && items.length >= total)
+      ) {
+        return items
+      }
+
+      pageIndex += 1
+    }
   }
 
   private async requestJson(
@@ -113,13 +165,28 @@ export class CmsGateway {
       url.searchParams.set(key, value)
     }
 
-    const response = await this.fetchFn(url, {
-      method: 'GET',
-      headers: {
-        ...this.config.headers,
-        Cookie: this.config.cookie,
-      },
-    })
+    let authorizationHeader: string
+    try {
+      authorizationHeader = await this.tokenProvider.getAuthorizationHeader()
+    } catch (error) {
+      if (error instanceof CmsTokenProviderError) {
+        throw new CmsGatewayError(error.code, error.message)
+      }
+      throw error
+    }
+
+    let response: Response
+    try {
+      response = await this.fetchFn(url, {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+          Authorization: authorizationHeader,
+        },
+      })
+    } catch (error) {
+      throw buildUpstreamGatewayError('CMS 请求失败', error)
+    }
 
     const rawText = await response.text()
     const payload = parseJsonSafely(rawText)
@@ -128,7 +195,7 @@ export class CmsGateway {
       : undefined
 
     if (response.status === 401 || response.status === 403) {
-      throw new CmsGatewayError('auth', 'CMS 鉴权失败，请检查宿主配置中的登录态是否有效')
+      throw new CmsGatewayError('auth', AUTH_FAILURE_MESSAGE)
     }
 
     if (response.ok && payloadStatus === 1) {
@@ -138,25 +205,21 @@ export class CmsGateway {
     const detail = sanitizeCmsErrorDetail(extractErrorMessage(payload) || rawText)
 
     if (looksLikeAuthFailure(payload, detail)) {
-      throw new CmsGatewayError('auth', 'CMS 鉴权失败，请检查宿主配置中的登录态是否有效')
+      throw new CmsGatewayError('auth', AUTH_FAILURE_MESSAGE)
     }
 
     if (!response.ok) {
-      throw new CmsGatewayError('upstream', detail
-        ? `CMS 请求失败：${detail}`
-        : `CMS 请求失败（HTTP ${response.status}）`)
+      throw new CmsGatewayError(
+        'upstream',
+        detail ? `CMS 请求失败：${detail}` : `CMS 请求失败（HTTP ${response.status}）`,
+      )
     }
 
-    if (payloadStatus !== undefined) {
-      if (payloadStatus !== 1) {
-        if (looksLikeAuthFailure(payload, detail)) {
-          throw new CmsGatewayError('auth', 'CMS 鉴权失败，请检查宿主配置中的登录态是否有效')
-        }
-
-        throw new CmsGatewayError('upstream', detail
-          ? `CMS 请求失败：${detail}`
-          : 'CMS 请求失败，上游返回了非成功状态')
-      }
+    if (payloadStatus !== undefined && payloadStatus !== 1) {
+      throw new CmsGatewayError(
+        'upstream',
+        detail ? `CMS 请求失败：${detail}` : 'CMS 请求失败，上游返回了非成功状态',
+      )
     }
 
     return payload
@@ -187,15 +250,35 @@ function looksLikeAuthFailure(payload: unknown, detail: string): boolean {
     || combined.includes('login')
     || combined.includes('鉴权')
     || combined.includes('权限')
-  }
+}
 
 function sanitizeCmsErrorDetail(detail: string): string {
   return detail
-    .replace(/ZUSID=[^;\s,]+/gi, 'ZUSID=[REDACTED]')
-    .replace(/CurrentSite=[^;\s,]+/gi, 'CurrentSite=[REDACTED]')
-    .replace(/cookie\s*=\s*[^,\n]+/gi, 'cookie=[REDACTED]')
-    .replace(/authorization:\s*[^\s,]+/gi, 'authorization=[REDACTED]')
+    .replace(/authorization\s*[:=]?\s*bearer\s+[^\s,;]+/gi, 'authorization=[REDACTED]')
+    .replace(/bearer\s+[^\s,;]+/gi, 'Bearer [REDACTED]')
+    .replace(/username\s*[:=]\s*[^\s,;]+/gi, 'username=[REDACTED]')
+    .replace(/password\s*[:=]\s*[^\s,;]+/gi, 'password=[REDACTED]')
     .trim()
+}
+
+function buildUpstreamGatewayError(prefix: string, error: unknown): CmsGatewayError {
+  const detail = sanitizeCmsErrorDetail(extractUnknownErrorMessage(error))
+  return new CmsGatewayError(
+    'upstream',
+    detail ? `${prefix}：${detail}` : prefix,
+  )
+}
+
+function extractUnknownErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message
+  }
+
+  if (typeof error === 'string') {
+    return error
+  }
+
+  return ''
 }
 
 function extractErrorMessage(payload: unknown): string {
@@ -223,18 +306,23 @@ function extractErrorMessage(payload: unknown): string {
 }
 
 function extractCatalogArray(payload: unknown): unknown[] {
-  if (!payload || typeof payload !== 'object') {
+  const root = asRecord(payload)
+  if (!root) {
     throw new CmsGatewayError('invalid_response', 'CMS 栏目响应格式不正确')
   }
 
-  const record = payload as Record<string, unknown>
-  const data = record.data
+  const data = root.data
   if (Array.isArray(data)) {
     return data
   }
 
-  if (Array.isArray(record.items)) {
-    return record.items
+  const container = asRecord(data)
+  if (Array.isArray(container?.data)) {
+    return container.data
+  }
+
+  if (Array.isArray(root.items)) {
+    return root.items
   }
 
   throw new CmsGatewayError('invalid_response', 'CMS 栏目响应缺少 data 数组')
@@ -249,11 +337,11 @@ function normalizeCatalogs(items: unknown[]): NormalizedCmsCatalog[] {
 }
 
 function normalizeCatalogNode(item: unknown): NormalizedCmsCatalog | null {
-  if (!item || typeof item !== 'object') {
+  const record = asRecord(item)
+  if (!record) {
     return null
   }
 
-  const record = item as Record<string, unknown>
   const id = readString(record.ID ?? record.id)
   if (!id) {
     return null
@@ -320,34 +408,28 @@ function buildCatalogTree(items: NormalizedCmsCatalog[]): NormalizedCmsCatalog[]
   return roots
 }
 
-function normalizeCatalogDetail(payload: unknown, baseUrl: string): NormalizedCmsCatalogDetail {
-  if (!payload || typeof payload !== 'object') {
-    throw new CmsGatewayError('invalid_response', 'CMS 栏目详情响应格式不正确')
-  }
-
-  const record = asRecord((payload as Record<string, unknown>).data) ?? asRecord(payload)
-  if (!record) {
-    throw new CmsGatewayError('invalid_response', 'CMS 栏目详情响应缺少 data 对象')
-  }
-
-  const id = readString(record.ID ?? record.id)
+function normalizeCatalogDetail(
+  item: Record<string, unknown>,
+  baseUrl: string,
+): NormalizedCmsCatalogDetail {
+  const id = readString(item.ID ?? item.id)
   if (!id) {
     throw new CmsGatewayError('invalid_response', 'CMS 栏目详情响应缺少栏目 ID')
   }
 
-  const contentType = readString(record.contentType) || ''
-  const logoUrl = resolveCmsAssetUrl(baseUrl, readString(record.logoSrc ?? record.logoFile))
+  const contentType = readString(item.contentType) || ''
+  const logoUrl = resolveCmsAssetUrl(baseUrl, readString(item.logoSrc ?? item.logoFile))
 
   return {
     id,
-    innerCode: readString(record.innerCode) || '',
-    statusCode: readNumber(record.status) ?? null,
-    statusLabel: resolveCatalogStatusLabel(readNumber(record.status)),
-    name: readString(record.name) || '',
-    alias: readString(record.alias) || '',
+    innerCode: readString(item.innerCode) || '',
+    statusCode: readNumber(item.status) ?? null,
+    statusLabel: resolveCatalogStatusLabel(readNumber(item.status)),
+    name: readString(item.name) || '',
+    alias: readString(item.alias) || '',
     contentType,
-    contentTypeName: readString(record.contentTypeName) || resolveCatalogContentTypeName(contentType),
-    description: readString(record.info) || '',
+    contentTypeName: readString(item.contentTypeName) || resolveCatalogContentTypeName(contentType),
+    description: readString(item.info) || '',
     ...(logoUrl ? { logoUrl } : {}),
   }
 }
@@ -357,11 +439,11 @@ function normalizeContentList(
   query: Pick<CmsContentQuery, 'pageIndex' | 'pageSize'>,
   baseUrl: string,
 ): NormalizedCmsContentList {
-  if (!payload || typeof payload !== 'object') {
+  const root = asRecord(payload)
+  if (!root) {
     throw new CmsGatewayError('invalid_response', 'CMS 内容响应格式不正确')
   }
 
-  const root = payload as Record<string, unknown>
   const container = asRecord(root.data) ?? root
   const itemsRaw = extractContentArray(container)
   const items = itemsRaw
@@ -370,7 +452,7 @@ function normalizeContentList(
 
   const pageIndex = readNumber(container.pageIndex ?? container.pageNo ?? container.page) ?? query.pageIndex ?? 0
   const pageSize = readNumber(container.pageSize ?? container.size) ?? query.pageSize ?? items.length ?? 20
-  const total = readNumber(container.total ?? container.totalCount ?? container.recordCount) ?? items.length
+  const total = readNumber(container.total ?? root.total ?? container.totalCount ?? container.recordCount) ?? items.length
 
   return {
     pageIndex,
@@ -383,10 +465,10 @@ function normalizeContentList(
 
 function extractContentArray(container: Record<string, unknown>): unknown[] {
   const candidates = [
+    container.data,
     container.list,
     container.rows,
     container.items,
-    container.data,
   ]
 
   for (const candidate of candidates) {
@@ -398,140 +480,32 @@ function extractContentArray(container: Record<string, unknown>): unknown[] {
   return []
 }
 
-function normalizeContentItem(item: unknown, baseUrl: string): NormalizedCmsContentSummary | null {
-  if (!item || typeof item !== 'object') {
+function normalizeContentItem(
+  item: unknown,
+  baseUrl: string,
+): NormalizedCmsContentSummary | null {
+  const record = asRecord(item)
+  if (!record) {
     return null
   }
 
-  const record = item as Record<string, unknown>
   const id = readString(record.ID ?? record.id)
   const catalogId = readString(record.catalogID ?? record.catalogId)
   if (!id || !catalogId) {
     return null
   }
 
-  const extendJson = parseExtendJson(record.extendJSON ?? record.extendJson)
-  const assetHints = {
-    images: extractAssetHints(extendJson, ['images', 'imageList', 'pictures']),
-    audios: extractAssetHints(extendJson, ['audios', 'audioList', 'audio']),
-    videos: extractAssetHints(extendJson, ['videos', 'videoList', 'video']),
-    files: extractAssetHints(extendJson, ['files', 'attachments', 'fileList']),
-  }
-
-  const assetCounts = {
-    images: readNumber(record.imagesTotal) ?? assetHints.images.length,
-    audios: readNumber(record.audiosTotal ?? record.audioTotal) ?? assetHints.audios.length,
-    videos: readNumber(record.videosTotal) ?? assetHints.videos.length,
-    files: readNumber(record.filesTotal) ?? assetHints.files.length,
-  }
+  const logoUrl = resolveCmsAssetUrl(baseUrl, readString(record.listLogo ?? record.logoFile))
+  const addedAt = pickContentAddedAt(record)
 
   return {
     id,
     catalogId,
     title: readString(record.title) || '',
     summary: readString(record.summary ?? record.description ?? record.digest) || '',
-    ...(resolveCmsAssetUrl(
-      baseUrl,
-      readString(record.listLogo ?? record.logoFile),
-    ) ? {
-      listLogoUrl: resolveCmsAssetUrl(baseUrl, readString(record.listLogo ?? record.logoFile))!,
-    } : {}),
-    ...(pickContentAddedAt(record) ? {
-      addedAt: pickContentAddedAt(record)!,
-    } : {}),
+    ...(logoUrl ? { listLogoUrl: logoUrl } : {}),
+    ...(addedAt ? { addedAt } : {}),
     publishUrl: readString(record.publishUrl ?? record.link ?? record.url) || '',
-    shape: detectContentShape(assetCounts),
-    assetCounts,
-    assetHints,
-  }
-}
-
-function detectContentShape(assetCounts: NormalizedCmsAssetCounts): CmsContentShape {
-  const activeAssetTypes = [
-    assetCounts.images > 0 ? 'images' : null,
-    assetCounts.audios > 0 ? 'audios' : null,
-    assetCounts.videos > 0 ? 'videos' : null,
-    assetCounts.files > 0 ? 'files' : null,
-  ].filter(Boolean)
-
-  if (activeAssetTypes.length > 1) {
-    return 'mixed'
-  }
-
-  if (assetCounts.images > 0) {
-    return 'gallery'
-  }
-
-  if (assetCounts.videos > 0) {
-    return 'video'
-  }
-
-  if (assetCounts.files > 0) {
-    return 'file'
-  }
-
-  if (assetCounts.audios > 0) {
-    return 'audio'
-  }
-
-  return 'single-article'
-}
-
-function parseExtendJson(value: unknown): Record<string, unknown> {
-  if (!value) {
-    return {}
-  }
-
-  if (typeof value === 'string') {
-    try {
-      const parsed = JSON.parse(value) as unknown
-      return asRecord(parsed) ?? {}
-    } catch {
-      return {}
-    }
-  }
-
-  return asRecord(value) ?? {}
-}
-
-function extractAssetHints(
-  extendJson: Record<string, unknown>,
-  keys: string[],
-): NormalizedCmsAssetHint[] {
-  for (const key of keys) {
-    const value = extendJson[key]
-    if (!Array.isArray(value)) {
-      continue
-    }
-
-    return value
-      .map((item) => normalizeAssetHint(item))
-      .filter((item): item is NormalizedCmsAssetHint => item !== null)
-  }
-
-  return []
-}
-
-function normalizeAssetHint(item: unknown): NormalizedCmsAssetHint | null {
-  if (!item || typeof item !== 'object') {
-    return null
-  }
-
-  const record = item as Record<string, unknown>
-  const url = readString(record.url ?? record.src ?? record.link)
-  const title = readString(record.title)
-  const name = readString(record.name ?? record.fileName)
-  const type = readString(record.type ?? record.mediaType)
-
-  if (!url && !title && !name && !type) {
-    return null
-  }
-
-  return {
-    ...(url ? { url } : {}),
-    ...(title ? { title } : {}),
-    ...(name ? { name } : {}),
-    ...(type ? { type } : {}),
   }
 }
 
@@ -541,31 +515,21 @@ function resolveCmsAssetUrl(baseUrl: string, assetUrl: string | undefined): stri
     return undefined
   }
 
+  const sharedResolved = resolveCmsAssetUrlShared(baseUrl, trimmed)
+  if (sharedResolved) {
+    return sharedResolved
+  }
+
   try {
-    if (baseUrl) {
-      const base = new URL(baseUrl)
-      if (trimmed.startsWith('/')) {
-        const basePath = base.pathname.replace(/\/+$/, '')
-        return `${base.origin}${basePath}${trimmed}`
-      }
-
-      return new URL(trimmed, base).toString()
-    }
-
-    return new URL(trimmed).toString()
+    const base = new URL(baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`)
+    return new URL(trimmed, base).toString()
   } catch {
     return undefined
   }
 }
 
 function isCmsAssetUrlAllowed(baseUrl: string, assetUrl: string): boolean {
-  try {
-    const base = new URL(baseUrl)
-    const candidate = new URL(assetUrl)
-    return base.origin === candidate.origin
-  } catch {
-    return false
-  }
+  return isAllowedCmsAssetUrlShared(baseUrl, assetUrl)
 }
 
 function resolveCatalogStatusLabel(statusCode: number | undefined): string {

@@ -42,7 +42,7 @@
 
 #### Scenario: `cms-content` 暴露稳定 content ViewModel
 - **WHEN** `cms-content` 接收到归一化内容列表数据
-- **THEN** 系统 SHALL 向 slot `items` 暴露包含 `id`、`catalogId`、`title`、`summary`、`publishUrl`、`listLogoUrl`、`addedAt`、`shape` 与 `assetCounts` 的 ViewModel
+- **THEN** 系统 SHALL 向 slot `items` 暴露包含 `id`、`catalogId`、`title`、`summary`、`publishUrl`、`listLogoUrl` 与 `addedAt` 的 ViewModel
 
 #### Scenario: 组件在 loading、empty、error 状态下暴露统一 slot 合同
 - **WHEN** 任一内置 CMS 组件处于加载中、空结果或运行时错误状态

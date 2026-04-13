@@ -9,8 +9,9 @@ import { createHttpApp } from '../app'
 const originalFetch = globalThis.fetch
 const originalCmsEnv = {
   PROMA_CMS_BASE_URL: process.env.PROMA_CMS_BASE_URL,
-  PROMA_CMS_ZUSID: process.env.PROMA_CMS_ZUSID,
-  PROMA_CMS_CURRENT_SITE: process.env.PROMA_CMS_CURRENT_SITE,
+  PROMA_CMS_SITE_ID: process.env.PROMA_CMS_SITE_ID,
+  PROMA_CMS_USERNAME: process.env.PROMA_CMS_USERNAME,
+  PROMA_CMS_PASSWORD: process.env.PROMA_CMS_PASSWORD,
 } as const
 
 afterEach(() => {
@@ -28,15 +29,17 @@ function createApp() {
 }
 
 function setCmsEnv() {
-  process.env.PROMA_CMS_BASE_URL = 'https://demo.zving.com/zcmstest/'
-  process.env.PROMA_CMS_ZUSID = 'test-zusid'
-  process.env.PROMA_CMS_CURRENT_SITE = '277'
+  process.env.PROMA_CMS_BASE_URL = 'https://demo.zving.com/manager/'
+  process.env.PROMA_CMS_SITE_ID = '277'
+  process.env.PROMA_CMS_USERNAME = 'test-user'
+  process.env.PROMA_CMS_PASSWORD = 'test-pass'
 }
 
 function restoreCmsEnv() {
   restoreEnvVar('PROMA_CMS_BASE_URL', originalCmsEnv.PROMA_CMS_BASE_URL)
-  restoreEnvVar('PROMA_CMS_ZUSID', originalCmsEnv.PROMA_CMS_ZUSID)
-  restoreEnvVar('PROMA_CMS_CURRENT_SITE', originalCmsEnv.PROMA_CMS_CURRENT_SITE)
+  restoreEnvVar('PROMA_CMS_SITE_ID', originalCmsEnv.PROMA_CMS_SITE_ID)
+  restoreEnvVar('PROMA_CMS_USERNAME', originalCmsEnv.PROMA_CMS_USERNAME)
+  restoreEnvVar('PROMA_CMS_PASSWORD', originalCmsEnv.PROMA_CMS_PASSWORD)
 }
 
 function restoreEnvVar(name: string, value: string | undefined) {
@@ -46,6 +49,20 @@ function restoreEnvVar(name: string, value: string | undefined) {
   }
 
   process.env[name] = value
+}
+
+function createTokenResponse() {
+  return new Response(JSON.stringify({
+    status: 1,
+    message: '操作成功!',
+    access_token: 'Bearer slim-token',
+    expires_in: 18_000,
+  }), {
+    status: 200,
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+    },
+  })
 }
 
 describe('page-builder routes', () => {
@@ -88,11 +105,21 @@ describe('page-builder routes', () => {
     setCmsEnv()
     const app = createApp()
     const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
-      expect(String(input)).toBe(
-        'https://demo.zving.com/zcmstest/ui/dimensions/1/catalogs?contentType=Image&searchKeyWord=%E9%A6%96%E9%A1%B5',
+      const url = String(input)
+      if (url === 'https://demo.zving.com/manager/api/token') {
+        expect(init?.method).toBe('POST')
+        expect(JSON.parse(String(init?.body))).toEqual({
+          username: 'test-user',
+          password: 'test-pass',
+        })
+        return createTokenResponse()
+      }
+
+      expect(url).toBe(
+        'https://demo.zving.com/manager/api/catalogsTree?siteID=277&contentType=Image&keyword=%E9%A6%96%E9%A1%B5',
       )
       expect(init?.headers).toMatchObject({
-        Cookie: 'ZUSID=test-zusid; CurrentSite=277',
+        Authorization: 'Bearer slim-token',
       })
 
       return new Response(JSON.stringify({
@@ -107,16 +134,18 @@ describe('page-builder routes', () => {
             contentTypeName: '文章',
             hasChild: true,
             total: 12,
-          },
-          {
-            ID: 101,
-            parentID: 100,
-            path: 'home/banner/',
-            name: 'Banner',
-            contentType: 'Image',
-            contentTypeName: '图片',
-            hasChild: false,
-            total: 3,
+            children: [
+              {
+                ID: 101,
+                parentID: 100,
+                path: 'home/banner/',
+                name: 'Banner',
+                contentType: 'Image',
+                contentTypeName: '图片',
+                hasChild: false,
+                total: 3,
+              },
+            ],
           },
         ],
       }), {
@@ -187,10 +216,18 @@ describe('page-builder routes', () => {
   test('GET /api/page-builder/cms/contents returns normalized content summaries', async () => {
     setCmsEnv()
     const app = createApp()
-    const fetchMock = mock(async (input: RequestInfo | URL) => {
-      expect(String(input)).toBe(
-        'https://demo.zving.com/zcmstest/ui/contentcore/contents?catalogID=101&contentSelectType=&keyWord=&title=&pageIndex=1&pageSize=10',
+    const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === 'https://demo.zving.com/manager/api/token') {
+        return createTokenResponse()
+      }
+
+      expect(url).toBe(
+        'https://demo.zving.com/manager/api/catalogs/101/contents?pageIndex=1&pageSize=10&loadextend=true',
       )
+      expect(init?.headers).toMatchObject({
+        Authorization: 'Bearer slim-token',
+      })
 
       return new Response(JSON.stringify({
         status: 1,
@@ -198,16 +235,15 @@ describe('page-builder routes', () => {
           pageIndex: 1,
           pageSize: 10,
           total: 1,
-          list: [
+          data: [
             {
               id: 501,
-              catalogId: 101,
+              catalogID: 101,
               title: '首页轮播图',
               summary: '三张首页图片',
-              listLogo: 'https://demo.zving.com/zcmstest/preview/news/upload/resources/image/banner-list-logo.jpg',
+              logoFile: 'preview/news/upload/resources/image/banner-list-logo.jpg',
               publishUrl: 'https://demo.zving.com/home/banner/501.html',
               addTime: '2025-04-11 17:48:06',
-              imagesTotal: 3,
             },
           ],
         },
@@ -234,22 +270,9 @@ describe('page-builder routes', () => {
           catalogId: '101',
           title: '首页轮播图',
           summary: '三张首页图片',
-          listLogoUrl: 'https://demo.zving.com/zcmstest/preview/news/upload/resources/image/banner-list-logo.jpg',
+          listLogoUrl: 'https://demo.zving.com/manager/preview/news/upload/resources/image/banner-list-logo.jpg',
           addedAt: '2025-04-11 17:48',
           publishUrl: 'https://demo.zving.com/home/banner/501.html',
-          shape: 'gallery',
-          assetCounts: {
-            images: 3,
-            audios: 0,
-            videos: 0,
-            files: 0,
-          },
-          assetHints: {
-            images: [],
-            audios: [],
-            videos: [],
-            files: [],
-          },
         },
       ],
     })
@@ -259,23 +282,30 @@ describe('page-builder routes', () => {
     setCmsEnv()
     const app = createApp()
     const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
-      expect(String(input)).toBe('https://demo.zving.com/zcmstest/ui/catalogs/17765')
+      const url = String(input)
+      if (url === 'https://demo.zving.com/manager/api/token') {
+        return createTokenResponse()
+      }
+
+      expect(url).toBe('https://demo.zving.com/manager/api/catalogs?siteID=277&level=All&pageIndex=0&pageSize=500')
       expect(init?.headers).toMatchObject({
-        Cookie: 'ZUSID=test-zusid; CurrentSite=277',
+        Authorization: 'Bearer slim-token',
       })
 
       return new Response(JSON.stringify({
         status: 1,
-        data: {
-          ID: 17765,
-          innerCode: '002676000004',
-          status: 20,
-          name: '文章',
-          alias: 'lbt_wz',
-          contentType: 'Article',
-          info: '栏目描述',
-          logoSrc: '/assets/images/addpicture.png',
-        },
+        data: [
+          {
+            id: 17765,
+            innerCode: '002676000004',
+            status: 20,
+            name: '文章',
+            alias: 'lbt_wz',
+            contentType: 'Article',
+            info: '栏目描述',
+            logoFile: 'assets/images/addpicture.png',
+          },
+        ],
       }), {
         status: 200,
         headers: {
@@ -298,20 +328,18 @@ describe('page-builder routes', () => {
       contentType: 'Article',
       contentTypeName: '文章',
       description: '栏目描述',
-      logoUrl: 'https://demo.zving.com/zcmstest/assets/images/addpicture.png',
+      logoUrl: 'https://demo.zving.com/manager/assets/images/addpicture.png',
     })
   })
 
-  test('GET /api/page-builder/cms/assets proxies authenticated cms logo images', async () => {
+  test('GET /api/page-builder/cms/assets proxies cms logo images without auth headers', async () => {
     setCmsEnv()
     const app = createApp()
     const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
       expect(String(input)).toBe(
-        'https://demo.zving.com/zcmstest/preview/news/upload/resources/image/banner-list-logo.jpg',
+        'https://demo.zving.com/manager/preview/news/upload/resources/image/banner-list-logo.jpg',
       )
-      expect(init?.headers).toMatchObject({
-        Cookie: 'ZUSID=test-zusid; CurrentSite=277',
-      })
+      expect(init?.headers).toBeUndefined()
 
       return new Response('binary-image', {
         status: 200,
@@ -323,7 +351,7 @@ describe('page-builder routes', () => {
     globalThis.fetch = fetchMock as unknown as typeof fetch
 
     const response = await app.fetch(new Request(
-      'http://localhost/api/page-builder/cms/assets?url=https%3A%2F%2Fdemo.zving.com%2Fzcmstest%2Fpreview%2Fnews%2Fupload%2Fresources%2Fimage%2Fbanner-list-logo.jpg',
+      'http://localhost/api/page-builder/cms/assets?url=https%3A%2F%2Fdemo.zving.com%2Fmanager%2Fpreview%2Fnews%2Fupload%2Fresources%2Fimage%2Fbanner-list-logo.jpg',
     ))
 
     expect(response.status).toBe(200)
@@ -336,9 +364,7 @@ describe('page-builder routes', () => {
     const app = createApp()
     const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
       expect(String(input)).toBe('https://demo.zving.com/assets/images/addpicture.png')
-      expect(init?.headers).toMatchObject({
-        Cookie: 'ZUSID=test-zusid; CurrentSite=277',
-      })
+      expect(init?.headers).toBeUndefined()
 
       return new Response('root-binary-image', {
         status: 200,
@@ -360,8 +386,9 @@ describe('page-builder routes', () => {
 
   test('GET /api/page-builder/cms/catalogs returns 503 when cms host config is missing', async () => {
     delete process.env.PROMA_CMS_BASE_URL
-    delete process.env.PROMA_CMS_ZUSID
-    delete process.env.PROMA_CMS_CURRENT_SITE
+    delete process.env.PROMA_CMS_SITE_ID
+    delete process.env.PROMA_CMS_USERNAME
+    delete process.env.PROMA_CMS_PASSWORD
 
     const app = createApp()
     const response = await app.fetch(new Request('http://localhost/api/page-builder/cms/catalogs'))
@@ -375,15 +402,22 @@ describe('page-builder routes', () => {
   test('GET /api/page-builder/cms/contents returns 502 when the cms upstream fails', async () => {
     setCmsEnv()
     const app = createApp()
-    const fetchMock = mock(async () => new Response(JSON.stringify({
-      status: 0,
-      message: '上游接口不可用',
-    }), {
-      status: 500,
-      headers: {
-        'content-type': 'application/json; charset=utf-8',
-      },
-    }))
+    const fetchMock = mock(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === 'https://demo.zving.com/manager/api/token') {
+        return createTokenResponse()
+      }
+
+      return new Response(JSON.stringify({
+        status: 0,
+        message: '上游接口不可用',
+      }), {
+        status: 500,
+        headers: {
+          'content-type': 'application/json; charset=utf-8',
+        },
+      })
+    })
     globalThis.fetch = fetchMock as unknown as typeof fetch
 
     const response = await app.fetch(new Request('http://localhost/api/page-builder/cms/contents?catalogId=101'))

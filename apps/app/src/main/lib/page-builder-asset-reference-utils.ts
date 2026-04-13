@@ -43,12 +43,12 @@ export function isCmsRootRelativeAssetPath(baseUrl: string, assetUrl: string): b
   try {
     const base = new URL(baseUrl)
     const basePath = base.pathname.replace(/\/+$/, '')
-    return assetUrl.startsWith('/preview/')
-      || assetUrl.startsWith('/upload/')
-      || assetUrl.startsWith('/resources/')
-      || (basePath ? assetUrl.startsWith(`${basePath}/preview/`) : false)
-      || (basePath ? assetUrl.startsWith(`${basePath}/upload/`) : false)
-      || (basePath ? assetUrl.startsWith(`${basePath}/resources/`) : false)
+    const rootPaths = ['/preview/', '/upload/', '/resources/', '/assets/']
+
+    return rootPaths.some((prefix) => assetUrl.startsWith(prefix))
+      || (basePath
+        ? rootPaths.some((prefix) => assetUrl.startsWith(`${basePath}${prefix}`))
+        : false)
   } catch {
     return false
   }
@@ -76,11 +76,15 @@ export function resolveCmsAssetUrl(baseUrl: string, assetUrl: string): string | 
 
     const base = new URL(baseUrl)
     if (trimmed.startsWith('/')) {
-      if (trimmed.startsWith(base.pathname.replace(/\/+$/, ''))) {
+      const basePath = base.pathname.replace(/\/+$/, '')
+      if (trimmed.startsWith('/assets/')) {
         return `${base.origin}${trimmed}`
       }
 
-      const basePath = base.pathname.replace(/\/+$/, '')
+      if (trimmed.startsWith(basePath)) {
+        return `${base.origin}${trimmed}`
+      }
+
       return `${base.origin}${basePath}${trimmed}`
     }
 

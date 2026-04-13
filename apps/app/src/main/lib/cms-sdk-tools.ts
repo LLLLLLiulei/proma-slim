@@ -30,12 +30,10 @@ export function buildCmsRuntimeToolBundle(gateway: CmsGateway): CmsRuntimeToolBu
 
   const listContentsTool = tool(
     'list_contents',
-    '列出 CMS 栏目下的内容摘要、素材计数和归一化 shape。',
+    '列出 CMS 栏目下的内容摘要。',
     {
       catalogId: z.string().min(1),
-      contentSelectType: z.string().optional(),
       keyword: z.string().optional(),
-      title: z.string().optional(),
       pageIndex: z.number().int().min(0).optional(),
       pageSize: z.number().int().min(1).max(100).optional(),
     },

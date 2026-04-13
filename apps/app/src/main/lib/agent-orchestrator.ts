@@ -903,10 +903,19 @@ export class AgentOrchestrator {
       const configuredRuntimePlaywrightUrl = isPageBuilderWorkspace
         ? resolvePageBuilderPlaywrightMcpUrl()
         : null
+      const runtimePlaywrightUrl = (() => {
+        if (!runtimePlaywright || typeof runtimePlaywright !== 'object') {
+          return null
+        }
+
+        const candidate = runtimePlaywright as Record<string, unknown>
+        return candidate.type === 'http' && typeof candidate.url === 'string'
+          ? candidate.url
+          : null
+      })()
       const hasRuntimePageBuilderPlaywright = Boolean(
         configuredRuntimePlaywrightUrl
-        && runtimePlaywright?.type === 'http'
-        && runtimePlaywright.url === configuredRuntimePlaywrightUrl,
+        && runtimePlaywrightUrl === configuredRuntimePlaywrightUrl,
       )
 
       const runtimePlaywrightPreviewUrl = (() => {

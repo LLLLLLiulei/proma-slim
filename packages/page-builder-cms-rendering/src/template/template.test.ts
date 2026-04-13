@@ -36,19 +36,6 @@ describe('template utilities', () => {
               title: 'Launch Update',
               summary: 'Quarterly launch update',
               publishUrl: 'https://example.com/news/launch-update',
-              shape: 'single-article',
-              assetCounts: {
-                images: 0,
-                audios: 0,
-                videos: 0,
-                files: 0,
-              },
-              assetHints: {
-                images: [],
-                audios: [],
-                videos: [],
-                files: [],
-              },
             },
           ],
         }

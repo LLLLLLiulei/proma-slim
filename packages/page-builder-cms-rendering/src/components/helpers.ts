@@ -30,9 +30,7 @@ export function createCatalogDisplayOptions(props: Record<string, unknown>): Cat
 export function createContentQuery(props: Record<string, unknown>): PageBuilderCmsContentQuery {
   return {
     catalogId: String(props.catalogId ?? '').trim(),
-    contentSelectType: normalizeOptionalString(props.contentSelectType),
     keyword: normalizeOptionalString(props.keyword),
-    title: normalizeOptionalString(props.title),
     pageIndex: normalizeNonNegativeInteger(props.pageIndex),
     pageSize: normalizePositiveInteger(props.pageSize),
   }

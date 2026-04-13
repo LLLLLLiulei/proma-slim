@@ -8,14 +8,16 @@ import { createAgentWorkspace } from './workspace-service'
 
 const CMS_ENV_KEYS = [
   'PROMA_CMS_BASE_URL',
-  'PROMA_CMS_ZUSID',
-  'PROMA_CMS_CURRENT_SITE',
+  'PROMA_CMS_SITE_ID',
+  'PROMA_CMS_USERNAME',
+  'PROMA_CMS_PASSWORD',
 ] as const
 
 const originalCmsEnv = {
   PROMA_CMS_BASE_URL: process.env.PROMA_CMS_BASE_URL,
-  PROMA_CMS_ZUSID: process.env.PROMA_CMS_ZUSID,
-  PROMA_CMS_CURRENT_SITE: process.env.PROMA_CMS_CURRENT_SITE,
+  PROMA_CMS_SITE_ID: process.env.PROMA_CMS_SITE_ID,
+  PROMA_CMS_USERNAME: process.env.PROMA_CMS_USERNAME,
+  PROMA_CMS_PASSWORD: process.env.PROMA_CMS_PASSWORD,
 }
 
 afterEach(() => {
@@ -127,10 +129,11 @@ describe('workspace preview service', () => {
     expect(await assetResponse.text()).toBe('body { color: rebeccapurple; }')
   })
 
-  test('rewrites CMS resource URLs in preview html to the authenticated asset proxy', async () => {
-    process.env.PROMA_CMS_BASE_URL = 'https://demo.zving.com/zcmstest/'
-    process.env.PROMA_CMS_ZUSID = 'test-zusid'
-    process.env.PROMA_CMS_CURRENT_SITE = '277'
+  test('rewrites CMS resource URLs in preview html to the asset proxy', async () => {
+    process.env.PROMA_CMS_BASE_URL = 'https://demo.zving.com/manager/'
+    process.env.PROMA_CMS_SITE_ID = '277'
+    process.env.PROMA_CMS_USERNAME = 'test-user'
+    process.env.PROMA_CMS_PASSWORD = 'test-pass'
 
     const workspace = createAgentWorkspace('Preview CMS Asset Proxy', { template: 'page-builder' })
     const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
@@ -140,10 +143,11 @@ describe('workspace preview service', () => {
       join(workspaceFilesDir, 'index.html'),
       `<!doctype html><html><body>
         <link rel="stylesheet" href="./assets/site.css">
-        <img src="https://demo.zving.com/zcmstest/preview/news/upload/resources/image/banner.jpg">
-        <video controls poster="https://demo.zving.com/zcmstest/preview/news/upload/resources/image/poster.jpg" src="https://demo.zving.com/zcmstest/preview/news/upload/resources/video/demo.mp4"></video>
-        <audio src="https://demo.zving.com/zcmstest/preview/news/upload/resources/audio/demo.mp3"></audio>
-        <a href="https://demo.zving.com/zcmstest/preview/news/upload/resources/file/demo.pdf">下载文件</a>
+        <img src="https://demo.zving.com/manager/preview/news/upload/resources/image/banner.jpg">
+        <img src="/assets/images/addpicture.png">
+        <video controls poster="https://demo.zving.com/manager/preview/news/upload/resources/image/poster.jpg" src="https://demo.zving.com/manager/preview/news/upload/resources/video/demo.mp4"></video>
+        <audio src="https://demo.zving.com/manager/preview/news/upload/resources/audio/demo.mp3"></audio>
+        <a href="https://demo.zving.com/manager/preview/news/upload/resources/file/demo.pdf">下载文件</a>
         <a href="https://demo.zving.com/test/kj/">科技</a>
         <img src="https://example.com/not-cms.png">
       </body></html>`,
@@ -154,11 +158,12 @@ describe('workspace preview service', () => {
     const html = await response.text()
 
     expect(html).toContain('/api/page-builder/cms/assets?url=')
-    expect(html).toContain(encodeURIComponent('https://demo.zving.com/zcmstest/preview/news/upload/resources/image/banner.jpg'))
-    expect(html).toContain(encodeURIComponent('https://demo.zving.com/zcmstest/preview/news/upload/resources/video/demo.mp4'))
-    expect(html).toContain(encodeURIComponent('https://demo.zving.com/zcmstest/preview/news/upload/resources/audio/demo.mp3'))
-    expect(html).toContain(encodeURIComponent('https://demo.zving.com/zcmstest/preview/news/upload/resources/file/demo.pdf'))
-    expect(html).toContain(encodeURIComponent('https://demo.zving.com/zcmstest/preview/news/upload/resources/image/poster.jpg'))
+    expect(html).toContain(encodeURIComponent('https://demo.zving.com/manager/preview/news/upload/resources/image/banner.jpg'))
+    expect(html).toContain(encodeURIComponent('https://demo.zving.com/assets/images/addpicture.png'))
+    expect(html).toContain(encodeURIComponent('https://demo.zving.com/manager/preview/news/upload/resources/video/demo.mp4'))
+    expect(html).toContain(encodeURIComponent('https://demo.zving.com/manager/preview/news/upload/resources/audio/demo.mp3'))
+    expect(html).toContain(encodeURIComponent('https://demo.zving.com/manager/preview/news/upload/resources/file/demo.pdf'))
+    expect(html).toContain(encodeURIComponent('https://demo.zving.com/manager/preview/news/upload/resources/image/poster.jpg'))
     expect(html).toContain('<link rel="stylesheet" href="./assets/site.css">')
     expect(html).toContain('<a href="https://demo.zving.com/test/kj/">科技</a>')
     expect(html).toContain('https://example.com/not-cms.png')

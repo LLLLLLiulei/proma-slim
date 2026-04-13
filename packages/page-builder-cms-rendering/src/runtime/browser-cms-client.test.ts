@@ -84,19 +84,6 @@ describe('createBrowserCmsClient', () => {
           summary: 'Quarterly launch update',
           listLogoUrl: 'https://demo.zving.com/zcmstest/preview/news/upload/resources/image/logo.png',
           publishUrl: 'https://demo.zving.com/news/launch-update',
-          shape: 'single-article',
-          assetCounts: {
-            images: 1,
-            audios: 0,
-            videos: 0,
-            files: 0,
-          },
-          assetHints: {
-            images: [],
-            audios: [],
-            videos: [],
-            files: [],
-          },
         },
         {
           id: 'content-2',
@@ -104,19 +91,6 @@ describe('createBrowserCmsClient', () => {
           title: 'Quarterly Results',
           summary: 'Quarterly revenue report',
           publishUrl: 'https://demo.zving.com/news/quarterly-results',
-          shape: 'single-article',
-          assetCounts: {
-            images: 0,
-            audios: 0,
-            videos: 0,
-            files: 0,
-          },
-          assetHints: {
-            images: [],
-            audios: [],
-            videos: [],
-            files: [],
-          },
         },
       ],
     }), {

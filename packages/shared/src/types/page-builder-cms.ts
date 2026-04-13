@@ -5,9 +5,7 @@ export interface PageBuilderCmsCatalogQuery {
 
 export interface PageBuilderCmsContentQuery {
   catalogId: string
-  contentSelectType?: string
   keyword?: string
-  title?: string
   pageIndex?: number
   pageSize?: number
 }
@@ -37,28 +35,6 @@ export interface PageBuilderCmsCatalogDetail {
   logoUrl?: string
 }
 
-export interface PageBuilderCmsAssetCounts {
-  images: number
-  audios: number
-  videos: number
-  files: number
-}
-
-export interface PageBuilderCmsAssetHint {
-  url?: string
-  title?: string
-  name?: string
-  type?: string
-}
-
-export type PageBuilderCmsContentShape =
-  | 'single-article'
-  | 'gallery'
-  | 'video'
-  | 'file'
-  | 'audio'
-  | 'mixed'
-
 export interface PageBuilderCmsContentSummary {
   id: string
   catalogId: string
@@ -67,14 +43,6 @@ export interface PageBuilderCmsContentSummary {
   listLogoUrl?: string
   addedAt?: string
   publishUrl: string
-  shape: PageBuilderCmsContentShape
-  assetCounts: PageBuilderCmsAssetCounts
-  assetHints: {
-    images: PageBuilderCmsAssetHint[]
-    audios: PageBuilderCmsAssetHint[]
-    videos: PageBuilderCmsAssetHint[]
-    files: PageBuilderCmsAssetHint[]
-  }
 }
 
 export interface PageBuilderCmsCatalogList {

@@ -259,12 +259,6 @@ export const api = {
     if (query.keyword) {
       params.set('keyword', query.keyword)
     }
-    if (query.title) {
-      params.set('title', query.title)
-    }
-    if (query.contentSelectType) {
-      params.set('contentSelectType', query.contentSelectType)
-    }
 
     return request<PageBuilderCmsContentList>(`/api/page-builder/cms/contents?${params.toString()}`)
   },

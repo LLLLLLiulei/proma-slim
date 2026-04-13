@@ -6,9 +6,7 @@ export const CmsContent = createCmsResourceComponent({
   name: 'CmsContent',
   props: {
     catalogId: { type: [String], required: true },
-    contentSelectType: { type: [String], required: false },
     keyword: { type: [String], required: false },
-    title: { type: [String], required: false },
     pageIndex: { type: [String, Number], required: false },
     pageSize: { type: [String, Number], required: false },
   },

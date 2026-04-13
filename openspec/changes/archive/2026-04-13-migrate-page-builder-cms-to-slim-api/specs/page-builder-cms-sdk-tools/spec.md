@@ -1,24 +1,4 @@
-# page-builder-cms-sdk-tools Specification
-
-## Purpose
-定义 `page-builder` 会话可用的宿主创建 CMS SDK tools，包括 runtime MCP server 挂载条件、只读工具面、宿主管理的鉴权上下文，以及归一化栏目与内容摘要结果。
-## Requirements
-### Requirement: Page-builder 会话必须暴露宿主创建的 CMS SDK tools
-系统 SHALL 在满足 CMS 集成启用条件时，为 `page-builder` 会话的 Agent 查询附加一个宿主创建的 runtime SDK MCP server `cms`，并仅暴露只读 CMS data tools，而不是要求用户配置外部 MCP 进程或修改工作区 `mcp.json`。
-
-#### Scenario: Page-builder 查询附加只读 CMS tools
-- **WHEN** 某个带有 `page-builder` 模板标记的会话开始执行 Agent 查询，且宿主 CMS 配置可用
-- **THEN** 系统 SHALL 为该查询附加 runtime `cms` SDK MCP server
-- **AND** 系统 SHALL 允许该查询调用 `mcp__cms__list_catalogs` 与 `mcp__cms__list_contents`
-
-#### Scenario: 普通工作区默认不附加 CMS tools
-- **WHEN** 某个不带 `page-builder` 模板标记的会话开始执行 Agent 查询
-- **THEN** 系统 SHALL 不为其默认附加 runtime `cms` SDK MCP server
-
-#### Scenario: CMS tools 首版保持只读
-- **WHEN** 系统为某个查询附加 runtime `cms` SDK MCP server
-- **THEN** 该 server SHALL 仅暴露读取栏目和读取内容列表的只读工具
-- **AND** 系统 SHALL NOT 在本次变更中暴露写入、发布或删除类 CMS 操作
+## MODIFIED Requirements
 
 ### Requirement: CMS 请求上下文必须由宿主管理
 系统 SHALL 在宿主侧管理 CMS `baseUrl`、`siteID`、`username`、`password` 与 token 刷新上下文，并且 MUST NOT 要求模型在 tool 输入中提供 Bearer token、密码或其他原始鉴权材料。

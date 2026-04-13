@@ -11,9 +11,7 @@ describe('CMS component helpers', () => {
       }),
     ).toEqual({
       catalogId: 'news',
-      contentSelectType: undefined,
       keyword: undefined,
-      title: undefined,
       pageIndex: undefined,
       pageSize: undefined,
     })

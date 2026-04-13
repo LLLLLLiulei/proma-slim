@@ -103,8 +103,9 @@ describe('AgentOrchestrator workspace runtime', () => {
   let originalClaudeConfigDir: string | undefined
   let originalClaudeHome: string | undefined
   let originalCmsBaseUrl: string | undefined
-  let originalCmsZusid: string | undefined
-  let originalCmsCurrentSite: string | undefined
+  let originalCmsSiteId: string | undefined
+  let originalCmsUsername: string | undefined
+  let originalCmsPassword: string | undefined
   let originalPlaywrightMcpUrl: string | undefined
   let originalInternalAppOrigin: string | undefined
   let originalRuntimeEnv: string | undefined
@@ -120,8 +121,9 @@ describe('AgentOrchestrator workspace runtime', () => {
     originalApiKey = process.env.ANTHROPIC_API_KEY
     originalBaseUrl = process.env.ANTHROPIC_BASE_URL
     originalCmsBaseUrl = process.env.PROMA_CMS_BASE_URL
-    originalCmsZusid = process.env.PROMA_CMS_ZUSID
-    originalCmsCurrentSite = process.env.PROMA_CMS_CURRENT_SITE
+    originalCmsSiteId = process.env.PROMA_CMS_SITE_ID
+    originalCmsUsername = process.env.PROMA_CMS_USERNAME
+    originalCmsPassword = process.env.PROMA_CMS_PASSWORD
     originalPlaywrightMcpUrl = process.env.AI_PAGE_BUILDER_PLAYWRIGHT_MCP_URL
     originalInternalAppOrigin = process.env.AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN
     originalRuntimeEnv = process.env.AI_PAGE_BUILDER_RUNTIME_ENV
@@ -157,15 +159,20 @@ describe('AgentOrchestrator workspace runtime', () => {
     } else {
       process.env.PROMA_CMS_BASE_URL = originalCmsBaseUrl
     }
-    if (originalCmsZusid === undefined) {
-      delete process.env.PROMA_CMS_ZUSID
+    if (originalCmsSiteId === undefined) {
+      delete process.env.PROMA_CMS_SITE_ID
     } else {
-      process.env.PROMA_CMS_ZUSID = originalCmsZusid
+      process.env.PROMA_CMS_SITE_ID = originalCmsSiteId
     }
-    if (originalCmsCurrentSite === undefined) {
-      delete process.env.PROMA_CMS_CURRENT_SITE
+    if (originalCmsUsername === undefined) {
+      delete process.env.PROMA_CMS_USERNAME
     } else {
-      process.env.PROMA_CMS_CURRENT_SITE = originalCmsCurrentSite
+      process.env.PROMA_CMS_USERNAME = originalCmsUsername
+    }
+    if (originalCmsPassword === undefined) {
+      delete process.env.PROMA_CMS_PASSWORD
+    } else {
+      process.env.PROMA_CMS_PASSWORD = originalCmsPassword
     }
     if (originalPlaywrightMcpUrl === undefined) {
       delete process.env.AI_PAGE_BUILDER_PLAYWRIGHT_MCP_URL
@@ -663,9 +670,10 @@ describe('AgentOrchestrator workspace runtime', () => {
   })
 
   test('does not auto-inject runtime cms sdk tools into page-builder queries', async () => {
-    process.env.PROMA_CMS_BASE_URL = 'https://demo.zving.com/zcmstest'
-    process.env.PROMA_CMS_ZUSID = 'test-zusid'
-    process.env.PROMA_CMS_CURRENT_SITE = '277'
+    process.env.PROMA_CMS_BASE_URL = 'https://demo.zving.com/manager'
+    process.env.PROMA_CMS_SITE_ID = '277'
+    process.env.PROMA_CMS_USERNAME = 'test-user'
+    process.env.PROMA_CMS_PASSWORD = 'test-pass'
 
     const adapter = new RecordingAdapter()
     const orchestrator = new AgentOrchestrator(adapter, new AgentEventBus())
@@ -695,9 +703,10 @@ describe('AgentOrchestrator workspace runtime', () => {
   })
 
   test('keeps page-builder queries on the existing string prompt path even when cms env is configured', async () => {
-    process.env.PROMA_CMS_BASE_URL = 'https://demo.zving.com/zcmstest'
-    process.env.PROMA_CMS_ZUSID = 'test-zusid'
-    process.env.PROMA_CMS_CURRENT_SITE = '277'
+    process.env.PROMA_CMS_BASE_URL = 'https://demo.zving.com/manager'
+    process.env.PROMA_CMS_SITE_ID = '277'
+    process.env.PROMA_CMS_USERNAME = 'test-user'
+    process.env.PROMA_CMS_PASSWORD = 'test-pass'
 
     const adapter = new RecordingAdapter()
     const orchestrator = new AgentOrchestrator(adapter, new AgentEventBus())
@@ -723,9 +732,10 @@ describe('AgentOrchestrator workspace runtime', () => {
   })
 
   test('keeps ordinary workspaces on the existing string prompt path without cms runtime tools', async () => {
-    process.env.PROMA_CMS_BASE_URL = 'https://demo.zving.com/zcmstest'
-    process.env.PROMA_CMS_ZUSID = 'test-zusid'
-    process.env.PROMA_CMS_CURRENT_SITE = '277'
+    process.env.PROMA_CMS_BASE_URL = 'https://demo.zving.com/manager'
+    process.env.PROMA_CMS_SITE_ID = '277'
+    process.env.PROMA_CMS_USERNAME = 'test-user'
+    process.env.PROMA_CMS_PASSWORD = 'test-pass'
 
     const adapter = new RecordingAdapter()
     const orchestrator = new AgentOrchestrator(adapter, new AgentEventBus())

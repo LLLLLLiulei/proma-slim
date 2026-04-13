@@ -3,26 +3,36 @@ import { getCmsSettingsPath } from './config-paths'
 
 export interface PageBuilderCmsConfig {
   baseUrl: string
-  zusid: string
-  currentSite: string
-  headers: Record<string, string>
-  cookie: string
+  siteID: string
+  username: string
+  password: string
 }
 
 type CmsEnv = Record<string, string | undefined>
 
 interface CmsSettingsFile {
   baseUrl?: unknown
-  zusid?: unknown
-  currentSite?: unknown
-  cookie?: unknown
-  referer?: unknown
-  acceptLanguage?: unknown
-  userAgent?: unknown
+  siteID?: unknown
+  siteId?: unknown
+  username?: unknown
+  password?: unknown
 }
 
-function normalizeBaseUrl(baseUrl: string): string {
-  return baseUrl.replace(/\/+$/, '')
+function normalizeBaseUrl(baseUrl: string): string | undefined {
+  const trimmed = baseUrl.trim()
+  if (!trimmed) {
+    return undefined
+  }
+
+  try {
+    const next = new URL(trimmed)
+    next.search = ''
+    next.hash = ''
+    next.pathname = next.pathname.replace(/\/+$/, '') || '/'
+    return next.pathname.endsWith('/manager') ? next.toString().replace(/\/+$/, '') : undefined
+  } catch {
+    return undefined
+  }
 }
 
 function readOptionalString(value: unknown): string | undefined {
@@ -38,10 +48,13 @@ function readOptionalString(value: unknown): string | undefined {
   return undefined
 }
 
-function readCmsCookieField(cookie: string, name: 'ZUSID' | 'CurrentSite'): string | undefined {
-  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const match = cookie.match(new RegExp(`(?:^|[;,，]\\s*)${escapedName}=([^;,，]+)`))
-  return match?.[1]?.trim() || undefined
+function readSiteID(value: unknown): string | undefined {
+  const next = readOptionalString(value)
+  if (!next) {
+    return undefined
+  }
+
+  return /^\d+$/.test(next) ? next : undefined
 }
 
 function readCmsSettingsFile(): CmsSettingsFile | null {
@@ -61,41 +74,23 @@ function readCmsSettingsFile(): CmsSettingsFile | null {
 
 export function resolvePageBuilderCmsConfig(env: CmsEnv = process.env): PageBuilderCmsConfig | null {
   const fileSettings = readCmsSettingsFile()
-  const fileCookie = readOptionalString(fileSettings?.cookie)
   const rawBaseUrl = env.PROMA_CMS_BASE_URL?.trim() || readOptionalString(fileSettings?.baseUrl)
-  const zusid =
-    env.PROMA_CMS_ZUSID?.trim() ||
-    readOptionalString(fileSettings?.zusid) ||
-    (fileCookie ? readCmsCookieField(fileCookie, 'ZUSID') : undefined)
-  const currentSite =
-    env.PROMA_CMS_CURRENT_SITE?.trim() ||
-    readOptionalString(fileSettings?.currentSite) ||
-    (fileCookie ? readCmsCookieField(fileCookie, 'CurrentSite') : undefined)
+  const baseUrl = rawBaseUrl ? normalizeBaseUrl(rawBaseUrl) : undefined
+  const rawSiteID = env.PROMA_CMS_SITE_ID?.trim()
+    ?? readOptionalString(fileSettings?.siteID)
+    ?? readOptionalString(fileSettings?.siteId)
+  const siteID = rawSiteID === undefined ? '1' : readSiteID(rawSiteID)
+  const username = env.PROMA_CMS_USERNAME?.trim() || readOptionalString(fileSettings?.username)
+  const password = env.PROMA_CMS_PASSWORD?.trim() || readOptionalString(fileSettings?.password)
 
-  if (!rawBaseUrl || !zusid || !currentSite) {
+  if (!baseUrl || !username || !password || !siteID) {
     return null
   }
 
-  const baseUrl = normalizeBaseUrl(rawBaseUrl)
-  const referer = env.PROMA_CMS_REFERER?.trim() || readOptionalString(fileSettings?.referer) || `${baseUrl}/app.html`
-  const acceptLanguage =
-    env.PROMA_CMS_ACCEPT_LANGUAGE?.trim() || readOptionalString(fileSettings?.acceptLanguage) || 'zh-CN,zh;q=0.9'
-  const userAgent =
-    env.PROMA_CMS_USER_AGENT?.trim() || readOptionalString(fileSettings?.userAgent) || 'Proma CMS Runtime/1.0'
-
   return {
     baseUrl,
-    zusid,
-    currentSite,
-    cookie: `ZUSID=${zusid}; CurrentSite=${currentSite}`,
-    headers: {
-      Accept: '*/*',
-      'Accept-Language': acceptLanguage,
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
-      Pragma: 'no-cache',
-      Referer: referer,
-      'User-Agent': userAgent,
-    },
+    siteID,
+    username,
+    password,
   }
 }

@@ -1,10 +1,9 @@
 import * as React from 'react'
-import { Alert, Card, Checkbox, ConfigProvider, Empty, Image, Pagination, Spin, Tag, Typography } from 'antd'
+import { Alert, Card, Checkbox, ConfigProvider, Empty, Image, Pagination, Spin, Typography } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 import { RefreshCw } from 'lucide-react'
 import type {
   PageBuilderCmsContentList,
-  PageBuilderCmsContentShape,
   PageBuilderCmsContentSummary,
 } from '@proma/shared'
 import { Button } from '@/components/ui/button'
@@ -24,15 +23,6 @@ interface CmsContentListProps {
 }
 
 const CONTENTS_PAGE_SIZE_OPTIONS = ['6', '12', '24']
-
-const SHAPE_LABELS: Record<PageBuilderCmsContentShape, string> = {
-  'single-article': '文章',
-  gallery: '图片',
-  video: '视频',
-  file: '文件',
-  audio: '音频',
-  mixed: '混合',
-}
 
 function pickPreviewImage(item: PageBuilderCmsContentSummary): string {
   return pickCmsPreviewImage(item.listLogoUrl)
@@ -107,7 +97,6 @@ function ReadyState(props: {
                     </div>
 
                     <div className="page-builder-cms-content-meta">
-                      <Tag>{SHAPE_LABELS[item.shape]}</Tag>
                       {item.addedAt ? (
                         <Typography.Text className="page-builder-cms-content-added-at">
                           {item.addedAt}

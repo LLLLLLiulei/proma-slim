@@ -8,13 +8,6 @@ export interface CmsContentItemViewModel {
   publishUrl: string
   listLogoUrl?: string
   addedAt?: string
-  shape: string
-  assetCounts: {
-    images: number
-    audios: number
-    videos: number
-    files: number
-  }
 }
 
 export function mapContent(record: PageBuilderCmsContentSummary): CmsContentItemViewModel {
@@ -26,7 +19,5 @@ export function mapContent(record: PageBuilderCmsContentSummary): CmsContentItem
     publishUrl: record.publishUrl,
     listLogoUrl: record.listLogoUrl,
     addedAt: record.addedAt,
-    shape: record.shape,
-    assetCounts: record.assetCounts,
   }
 }

@@ -47,19 +47,6 @@ const SAMPLE_CONTENT: PageBuilderCmsContentSummary = {
   listLogoUrl: 'https://example.com/logo.png',
   addedAt: '2026-04-11T08:00:00.000Z',
   publishUrl: 'https://example.com/news/launch-update',
-  shape: 'single-article',
-  assetCounts: {
-    images: 1,
-    audios: 0,
-    videos: 0,
-    files: 2,
-  },
-  assetHints: {
-    images: [],
-    audios: [],
-    videos: [],
-    files: [],
-  },
 }
 
 describe('viewmodel mappers', () => {
@@ -110,13 +97,6 @@ describe('viewmodel mappers', () => {
       publishUrl: 'https://example.com/news/launch-update',
       listLogoUrl: 'https://example.com/logo.png',
       addedAt: '2026-04-11T08:00:00.000Z',
-      shape: 'single-article',
-      assetCounts: {
-        images: 1,
-        audios: 0,
-        videos: 0,
-        files: 2,
-      },
     })
   })
 })

@@ -92,9 +92,7 @@ pageBuilderRoutes.get('/cms/contents', async (c) => {
     const gateway = createCmsGateway()
     return c.json(await gateway.listContents({
       catalogId,
-      contentSelectType: readOptionalStringQuery(c.req.query('contentSelectType')),
       keyword: readOptionalStringQuery(c.req.query('keyword')),
-      title: readOptionalStringQuery(c.req.query('title')),
       pageIndex: readOptionalIntegerQuery(c.req.query('pageIndex'), {
         min: 0,
         label: 'pageIndex',

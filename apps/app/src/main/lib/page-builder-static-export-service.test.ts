@@ -5,11 +5,33 @@ import { homedir } from 'node:os'
 import { createAgentWorkspace } from './workspace-service'
 
 const originalFetch = globalThis.fetch
+const CMS_ENV_KEYS = [
+  'PROMA_CMS_BASE_URL',
+  'PROMA_CMS_SITE_ID',
+  'PROMA_CMS_USERNAME',
+  'PROMA_CMS_PASSWORD',
+] as const
+
+const originalCmsEnv = {
+  PROMA_CMS_BASE_URL: process.env.PROMA_CMS_BASE_URL,
+  PROMA_CMS_SITE_ID: process.env.PROMA_CMS_SITE_ID,
+  PROMA_CMS_USERNAME: process.env.PROMA_CMS_USERNAME,
+  PROMA_CMS_PASSWORD: process.env.PROMA_CMS_PASSWORD,
+}
 
 afterEach(() => {
   rmSync(join(homedir(), '.proma'), { recursive: true, force: true })
   globalThis.fetch = originalFetch
   mock.restore()
+
+  for (const key of CMS_ENV_KEYS) {
+    const value = originalCmsEnv[key]
+    if (value === undefined) {
+      delete process.env[key]
+    } else {
+      process.env[key] = value
+    }
+  }
 })
 
 async function waitForTerminalJob(
@@ -210,6 +232,56 @@ describe('page-builder static export service', () => {
     expect(stagedCss).toContain('./logo.png')
     expect(existsSync(join(getPageBuilderStaticExportStagingDir(createdJob.jobId), 'export-report.json'))).toBe(true)
 
+    expect(fetchAsset).toHaveBeenCalledTimes(1)
+  })
+
+  test('localizes root-relative /assets cms resources through the cms gateway', async () => {
+    process.env.PROMA_CMS_BASE_URL = 'https://demo.zving.com/manager/'
+    process.env.PROMA_CMS_SITE_ID = '277'
+    process.env.PROMA_CMS_USERNAME = 'test-user'
+    process.env.PROMA_CMS_PASSWORD = 'test-pass'
+
+    const workspace = createAgentWorkspace('Static Export CMS Root Assets', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(
+      join(workspaceFilesDir, 'index.html'),
+      '<!doctype html><html><body><img src="/assets/images/addpicture.png" alt="cms-root-asset"></body></html>',
+      'utf-8',
+    )
+
+    const fetchAsset = mock(async (assetUrl: string) => {
+      expect(assetUrl).toBe('https://demo.zving.com/assets/images/addpicture.png')
+      return new Response('cms-image', {
+        status: 200,
+        headers: {
+          'content-type': 'image/png',
+        },
+      })
+    })
+
+    const {
+      PageBuilderStaticExportService,
+    } = await import('./page-builder-static-export-service')
+    const {
+      getPageBuilderStaticExportStagingDir,
+    } = await import('./page-builder-static-export-paths')
+
+    const service = new PageBuilderStaticExportService({
+      cmsGatewayFactory: () => ({ fetchAsset }),
+      fetchFn: mock(async () => {
+        throw new Error('unexpected remote fetch')
+      }) as unknown as typeof fetch,
+      randomUUID: () => 'job-cms-root-assets',
+    })
+
+    const createdJob = service.createJob(workspace)
+    const finishedJob = await waitForTerminalJob(service, workspace.id, createdJob.jobId)
+
+    expect(finishedJob.status).toBe('completed')
+    const stagedHtml = readFileSync(join(getPageBuilderStaticExportStagingDir(createdJob.jobId), 'index.html'), 'utf-8')
+    expect(stagedHtml).not.toContain('/assets/images/addpicture.png')
     expect(fetchAsset).toHaveBeenCalledTimes(1)
   })
 

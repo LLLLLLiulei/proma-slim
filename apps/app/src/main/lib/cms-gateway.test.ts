@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
 
 const TEST_ENV = {
-  PROMA_CMS_BASE_URL: 'https://demo.zving.com/zcmstest/',
-  PROMA_CMS_ZUSID: 'test-zusid',
-  PROMA_CMS_CURRENT_SITE: '277',
+  PROMA_CMS_BASE_URL: 'https://demo.zving.com/manager/',
+  PROMA_CMS_SITE_ID: '277',
+  PROMA_CMS_USERNAME: 'test-user',
+  PROMA_CMS_PASSWORD: 'test-pass',
 } as const
 
 afterEach(() => {
@@ -11,39 +12,33 @@ afterEach(() => {
 })
 
 describe('CmsGateway', () => {
-  test('resolves host cms config from env with normalized base url and stable headers', async () => {
+  test('resolves host cms config from env with normalized base url and siteID', async () => {
     const { resolvePageBuilderCmsConfig } = await import('./page-builder-cms-config')
 
     const config = resolvePageBuilderCmsConfig(TEST_ENV)
 
-    expect(config).toMatchObject({
-      baseUrl: 'https://demo.zving.com/zcmstest',
-      zusid: 'test-zusid',
-      currentSite: '277',
-      headers: {
-        Accept: '*/*',
-        'Accept-Language': 'zh-CN,zh;q=0.9',
-        'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
-        Pragma: 'no-cache',
-      },
+    expect(config).toEqual({
+      baseUrl: 'https://demo.zving.com/manager',
+      siteID: '277',
+      username: 'test-user',
+      password: 'test-pass',
     })
-    expect(config?.headers.Referer).toBe('https://demo.zving.com/zcmstest/app.html')
-    expect(config?.headers['User-Agent']).toContain('Proma CMS Runtime')
   })
 
-  test('lists catalogs with host-managed cookies and returns a normalized catalog tree', async () => {
+  test('lists catalogs from the slim catalogsTree endpoint and returns a normalized catalog tree', async () => {
     const { CmsGateway } = await import('./cms-gateway')
     const { resolvePageBuilderCmsConfig } = await import('./page-builder-cms-config')
+    const tokenProvider = {
+      getAuthorizationHeader: mock(async () => 'Bearer slim-token'),
+    }
     const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
       expect(String(input)).toBe(
-        'https://demo.zving.com/zcmstest/ui/dimensions/1/catalogs?contentType=Image&searchKeyWord=%E9%A6%96%E9%A1%B5',
+        'https://demo.zving.com/manager/api/catalogsTree?siteID=277&contentType=Image&keyword=%E9%A6%96%E9%A1%B5',
       )
       expect(init?.method).toBe('GET')
       expect(init?.headers).toMatchObject({
-        Cookie: 'ZUSID=test-zusid; CurrentSite=277',
-        Accept: '*/*',
-        Referer: 'https://demo.zving.com/zcmstest/app.html',
+        Accept: 'application/json',
+        Authorization: 'Bearer slim-token',
       })
 
       return new Response(JSON.stringify({
@@ -58,16 +53,18 @@ describe('CmsGateway', () => {
             contentTypeName: '文章',
             hasChild: true,
             total: 12,
-          },
-          {
-            ID: 101,
-            parentID: 100,
-            path: 'home/banner/',
-            name: 'Banner',
-            contentType: 'Image',
-            contentTypeName: '图片',
-            hasChild: false,
-            total: 3,
+            children: [
+              {
+                ID: 101,
+                parentID: 100,
+                path: 'home/banner/',
+                name: 'Banner',
+                contentType: 'Image',
+                contentTypeName: '图片',
+                hasChild: false,
+                total: 3,
+              },
+            ],
           },
         ],
       }), {
@@ -79,6 +76,7 @@ describe('CmsGateway', () => {
     const gateway = new CmsGateway({
       config: resolvePageBuilderCmsConfig(TEST_ENV)!,
       fetchFn: fetchMock as unknown as typeof fetch,
+      tokenProvider,
     })
 
     const result = await gateway.listCatalogs({
@@ -86,6 +84,30 @@ describe('CmsGateway', () => {
       searchKeyword: '首页',
     })
 
+    expect(result.items).toEqual([
+      {
+        id: '100',
+        name: '首页',
+        parentId: null,
+        path: 'home/',
+        contentType: '',
+        contentTypeName: '文章',
+        hasChild: true,
+        total: 12,
+        children: [],
+      },
+      {
+        id: '101',
+        name: 'Banner',
+        parentId: '100',
+        path: 'home/banner/',
+        contentType: 'Image',
+        contentTypeName: '图片',
+        hasChild: false,
+        total: 3,
+        children: [],
+      },
+    ])
     expect(result.tree).toEqual([
       {
         id: '100',
@@ -113,122 +135,41 @@ describe('CmsGateway', () => {
     ])
   })
 
-  test('preserves nested catalog children returned by the cms response', async () => {
+  test('assembles catalog detail from the slim catalogs endpoint', async () => {
     const { CmsGateway } = await import('./cms-gateway')
     const { resolvePageBuilderCmsConfig } = await import('./page-builder-cms-config')
-    const fetchMock = mock(async () => new Response(JSON.stringify({
-      status: 1,
-      data: [
-        {
-          ID: 17677,
-          parentID: 0,
-          path: 'lbt/',
-          name: '轮播图',
-          contentType: '',
-          contentTypeName: '',
-          hasChild: true,
-          total: 15,
-          children: [
-            {
-              ID: 17765,
-              parentID: 17677,
-              path: 'lbt/wz/',
-              name: '文章',
-              contentType: 'Article',
-              contentTypeName: '文章',
-              hasChild: false,
-              total: 11,
-            },
-          ],
-        },
-      ],
-    }), {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-    }))
-
-    const gateway = new CmsGateway({
-      config: resolvePageBuilderCmsConfig(TEST_ENV)!,
-      fetchFn: fetchMock as unknown as typeof fetch,
-    })
-
-    const result = await gateway.listCatalogs()
-
-    expect(result.items).toEqual([
-      {
-        id: '17677',
-        name: '轮播图',
-        parentId: null,
-        path: 'lbt/',
-        contentType: '',
-        contentTypeName: '',
-        hasChild: true,
-        total: 15,
-        children: [],
-      },
-      {
-        id: '17765',
-        name: '文章',
-        parentId: '17677',
-        path: 'lbt/wz/',
-        contentType: 'Article',
-        contentTypeName: '文章',
-        hasChild: false,
-        total: 11,
-        children: [],
-      },
-    ])
-    expect(result.tree).toEqual([
-      {
-        id: '17677',
-        name: '轮播图',
-        parentId: null,
-        path: 'lbt/',
-        contentType: '',
-        contentTypeName: '',
-        hasChild: true,
-        total: 15,
-        children: [
-          {
-            id: '17765',
-            name: '文章',
-            parentId: '17677',
-            path: 'lbt/wz/',
-            contentType: 'Article',
-            contentTypeName: '文章',
-            hasChild: false,
-            total: 11,
-            children: [],
-          },
-        ],
-      },
-    ])
-  })
-
-  test('normalizes cms catalog detail records into readonly detail fields', async () => {
-    const { CmsGateway } = await import('./cms-gateway')
-    const { resolvePageBuilderCmsConfig } = await import('./page-builder-cms-config')
+    const tokenProvider = {
+      getAuthorizationHeader: mock(async () => 'Bearer slim-token'),
+    }
     const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
-      expect(String(input)).toBe('https://demo.zving.com/zcmstest/ui/catalogs/17765')
+      expect(String(input)).toBe(
+        'https://demo.zving.com/manager/api/catalogs?siteID=277&level=All&pageIndex=0&pageSize=500',
+      )
       expect(init?.method).toBe('GET')
       expect(init?.headers).toMatchObject({
-        Cookie: 'ZUSID=test-zusid; CurrentSite=277',
-        Accept: '*/*',
-        Referer: 'https://demo.zving.com/zcmstest/app.html',
+        Accept: 'application/json',
+        Authorization: 'Bearer slim-token',
       })
 
       return new Response(JSON.stringify({
         status: 1,
-        data: {
-          ID: 17765,
-          innerCode: '002676000004',
-          status: 20,
-          name: '文章',
-          alias: 'lbt_wz',
-          contentType: 'Article',
-          info: '栏目描述',
-          logoSrc: '/assets/images/addpicture.png',
-        },
+        data: [
+          {
+            id: 100,
+            name: '首页',
+            alias: 'home',
+          },
+          {
+            id: 17765,
+            innerCode: '002676000004',
+            status: '20',
+            name: '文章',
+            alias: 'lbt_wz',
+            contentType: 'Article',
+            info: '栏目描述',
+            logoFile: 'upload/resources/image/logo.png',
+          },
+        ],
       }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
@@ -238,6 +179,7 @@ describe('CmsGateway', () => {
     const gateway = new CmsGateway({
       config: resolvePageBuilderCmsConfig(TEST_ENV)!,
       fetchFn: fetchMock as unknown as typeof fetch,
+      tokenProvider,
     })
 
     const result = await gateway.getCatalogDetail('17765')
@@ -252,45 +194,85 @@ describe('CmsGateway', () => {
       contentType: 'Article',
       contentTypeName: '文章',
       description: '栏目描述',
-      logoUrl: 'https://demo.zving.com/zcmstest/assets/images/addpicture.png',
+      logoUrl: 'https://demo.zving.com/manager/upload/resources/image/logo.png',
     })
   })
 
-  test('sanitizes cms auth failures without leaking raw cookie values', async () => {
+  test('continues catalog pagination when a full page is returned without total metadata', async () => {
     const { CmsGateway } = await import('./cms-gateway')
     const { resolvePageBuilderCmsConfig } = await import('./page-builder-cms-config')
-    const fetchMock = mock(async () => new Response(JSON.stringify({
-      status: 0,
-      message: '401 Unauthorized: cookie=ZUSID=test-zusid',
-    }), {
-      status: 401,
-      headers: { 'content-type': 'application/json' },
+    const tokenProvider = {
+      getAuthorizationHeader: mock(async () => 'Bearer slim-token'),
+    }
+    const firstPage = Array.from({ length: 500 }, (_, index) => ({
+      id: index + 1,
+      name: `栏目${index + 1}`,
     }))
+    const fetchMock = mock(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.endsWith('pageIndex=0&pageSize=500')) {
+        return new Response(JSON.stringify({
+          status: 1,
+          data: firstPage,
+        }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+
+      if (url.endsWith('pageIndex=1&pageSize=500')) {
+        return new Response(JSON.stringify({
+          status: 1,
+          data: [
+            {
+              id: 501,
+              innerCode: '002676000501',
+              status: '20',
+              name: '第二页栏目',
+              alias: 'page-2',
+              contentType: 'Article',
+            },
+          ],
+        }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+
+      throw new Error(`unexpected request: ${url}`)
+    })
 
     const gateway = new CmsGateway({
       config: resolvePageBuilderCmsConfig(TEST_ENV)!,
       fetchFn: fetchMock as unknown as typeof fetch,
+      tokenProvider,
     })
 
-    try {
-      await gateway.listCatalogs()
-      throw new Error('expected listCatalogs to throw')
-    } catch (error) {
-      expect(error).toBeInstanceOf(Error)
-      const message = (error as Error).message
-      expect(message).toContain('CMS 鉴权失败')
-      expect(message).not.toContain('test-zusid')
-      expect(message).not.toContain('cookie=')
-    }
+    const result = await gateway.getCatalogDetail('501')
+
+    expect(result).toMatchObject({
+      id: '501',
+      name: '第二页栏目',
+      alias: 'page-2',
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
-  test('normalizes cms content records into stable summaries, asset counts, and shapes', async () => {
+  test('normalizes slim cms content records into base summaries only', async () => {
     const { CmsGateway } = await import('./cms-gateway')
     const { resolvePageBuilderCmsConfig } = await import('./page-builder-cms-config')
-    const fetchMock = mock(async (input: RequestInfo | URL) => {
+    const tokenProvider = {
+      getAuthorizationHeader: mock(async () => 'Bearer slim-token'),
+    }
+    const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
       expect(String(input)).toBe(
-        'https://demo.zving.com/zcmstest/ui/contentcore/contents?catalogID=101&contentSelectType=&keyWord=&title=&pageIndex=0&pageSize=20',
+        'https://demo.zving.com/manager/api/catalogs/101/contents?pageIndex=0&pageSize=20&loadextend=true&keyword=banner',
       )
+      expect(init?.method).toBe('GET')
+      expect(init?.headers).toMatchObject({
+        Accept: 'application/json',
+        Authorization: 'Bearer slim-token',
+      })
 
       return new Response(JSON.stringify({
         status: 1,
@@ -298,40 +280,30 @@ describe('CmsGateway', () => {
           pageIndex: 0,
           pageSize: 20,
           total: 2,
-          list: [
+          data: [
             {
-              ID: 501,
+              id: 501,
               catalogID: 101,
               title: '首页轮播图',
               summary: '三张首页图片',
-              listLogo: 'https://demo.zving.com/zcmstest/preview/news/upload/resources/image/banner-list-logo.jpg',
+              logoFile: 'preview/news/upload/resources/image/banner-list-logo.jpg',
               link: 'https://demo.zving.com/home/banner/501.html',
               addTime: '2025-04-11 17:48:06',
-              imagesTotal: 3,
-              audiosTotal: 0,
-              videosTotal: 0,
-              filesTotal: 0,
-              extendJSON: JSON.stringify({
+              quantity: 3,
+              logoMode: 1,
+              extendJSON: {
                 images: [
                   { url: 'https://cdn.example.com/banner-1.jpg' },
-                  { url: 'https://cdn.example.com/banner-2.jpg' },
                 ],
-              }),
+              },
             },
             {
               id: 502,
-              catalogId: 101,
+              catalogID: 101,
               title: '品牌素材包',
-              description: '包含视频、音频和附件',
+              summary: '包含视频、音频和附件',
               url: 'https://demo.zving.com/home/banner/502.html',
-              imagesTotal: 0,
-              videosTotal: 1,
-              filesTotal: 1,
-              extendJSON: {
-                audios: [{ url: 'https://cdn.example.com/brand.mp3' }],
-                videos: [{ url: 'https://cdn.example.com/brand.mp4' }],
-                attachments: [{ url: 'https://cdn.example.com/brand.zip' }],
-              },
+              publishDate: '2025-04-12 10:08:00',
             },
           ],
         },
@@ -344,62 +316,111 @@ describe('CmsGateway', () => {
     const gateway = new CmsGateway({
       config: resolvePageBuilderCmsConfig(TEST_ENV)!,
       fetchFn: fetchMock as unknown as typeof fetch,
+      tokenProvider,
     })
 
     const result = await gateway.listContents({
       catalogId: '101',
+      keyword: 'banner',
       pageIndex: 0,
       pageSize: 20,
     })
 
-    expect(result).toMatchObject({
+    expect(result).toEqual({
       pageIndex: 0,
       pageSize: 20,
       total: 2,
+      totalPages: 1,
       items: [
         {
           id: '501',
           catalogId: '101',
           title: '首页轮播图',
           summary: '三张首页图片',
-          listLogoUrl: 'https://demo.zving.com/zcmstest/preview/news/upload/resources/image/banner-list-logo.jpg',
+          listLogoUrl: 'https://demo.zving.com/manager/preview/news/upload/resources/image/banner-list-logo.jpg',
           addedAt: '2025-04-11 17:48',
           publishUrl: 'https://demo.zving.com/home/banner/501.html',
-          shape: 'gallery',
-          assetCounts: {
-            images: 3,
-            audios: 0,
-            videos: 0,
-            files: 0,
-          },
-          assetHints: {
-            images: [
-              { url: 'https://cdn.example.com/banner-1.jpg' },
-              { url: 'https://cdn.example.com/banner-2.jpg' },
-            ],
-          },
         },
         {
           id: '502',
           catalogId: '101',
           title: '品牌素材包',
           summary: '包含视频、音频和附件',
+          addedAt: '2025-04-12 10:08',
           publishUrl: 'https://demo.zving.com/home/banner/502.html',
-          shape: 'mixed',
-          assetCounts: {
-            images: 0,
-            audios: 1,
-            videos: 1,
-            files: 1,
-          },
         },
       ],
     })
   })
 
+  test('keeps normalized summaries unchanged when loadextend-style fields appear upstream', async () => {
+    const { CmsGateway } = await import('./cms-gateway')
+    const { resolvePageBuilderCmsConfig } = await import('./page-builder-cms-config')
+    const tokenProvider = {
+      getAuthorizationHeader: mock(async () => 'Bearer slim-token'),
+    }
+    const fetchMock = mock(async () => {
+      const includeExtendFields = fetchMock.mock.calls.length === 1
+
+      return new Response(JSON.stringify({
+        status: 1,
+        data: {
+          pageIndex: 0,
+          pageSize: 20,
+          total: 1,
+          data: [
+            {
+              id: 501,
+              catalogID: 101,
+              title: '首页轮播图',
+              summary: '三张首页图片',
+              logoFile: 'preview/news/upload/resources/image/banner-list-logo.jpg',
+              link: 'https://demo.zving.com/home/banner/501.html',
+              addTime: '2025-04-11 17:48:06',
+              ...(includeExtendFields
+                ? {
+                    extendJSON: {
+                      images: [{ url: 'https://cdn.example.com/banner-1.jpg' }],
+                    },
+                    quantity: 3,
+                    logoMode: 1,
+                  }
+                : {}),
+            },
+          ],
+        },
+      }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    })
+
+    const gateway = new CmsGateway({
+      config: resolvePageBuilderCmsConfig(TEST_ENV)!,
+      fetchFn: fetchMock as unknown as typeof fetch,
+      tokenProvider,
+    })
+
+    const withExtend = await gateway.listContents({
+      catalogId: '101',
+      pageIndex: 0,
+      pageSize: 20,
+    })
+    const withoutExtend = await gateway.listContents({
+      catalogId: '101',
+      pageIndex: 0,
+      pageSize: 20,
+    })
+
+    expect(withExtend).toEqual(withoutExtend)
+  })
+
   test('falls back to the requested pagination when the cms content response only returns a top-level data array', async () => {
     const { CmsGateway } = await import('./cms-gateway')
     const { resolvePageBuilderCmsConfig } = await import('./page-builder-cms-config')
+    const tokenProvider = {
+      getAuthorizationHeader: mock(async () => 'Bearer slim-token'),
+    }
     const fetchMock = mock(async () => new Response(JSON.stringify({
       status: 1,
       total: 35,
@@ -414,21 +435,6 @@ describe('CmsGateway', () => {
           catalogID: 101,
           title: '第六页内容 2',
         },
-        {
-          ID: 703,
-          catalogID: 101,
-          title: '第六页内容 3',
-        },
-        {
-          ID: 704,
-          catalogID: 101,
-          title: '第六页内容 4',
-        },
-        {
-          ID: 705,
-          catalogID: 101,
-          title: '第六页内容 5',
-        },
       ],
     }), {
       status: 200,
@@ -438,6 +444,7 @@ describe('CmsGateway', () => {
     const gateway = new CmsGateway({
       config: resolvePageBuilderCmsConfig(TEST_ENV)!,
       fetchFn: fetchMock as unknown as typeof fetch,
+      tokenProvider,
     })
 
     const result = await gateway.listContents({
@@ -450,72 +457,92 @@ describe('CmsGateway', () => {
     expect(result.pageSize).toBe(6)
     expect(result.total).toBe(35)
     expect(result.totalPages).toBe(6)
-    expect(result.items).toHaveLength(5)
+    expect(result.items).toEqual([
+      {
+        id: '701',
+        catalogId: '101',
+        title: '第六页内容 1',
+        summary: '',
+        publishUrl: '',
+      },
+      {
+        id: '702',
+        catalogId: '101',
+        title: '第六页内容 2',
+        summary: '',
+        publishUrl: '',
+      },
+    ])
   })
 
-  test('does not treat successful content payload text as an auth failure', async () => {
+  test('sanitizes cms auth failures without leaking raw credentials or bearer tokens', async () => {
     const { CmsGateway } = await import('./cms-gateway')
     const { resolvePageBuilderCmsConfig } = await import('./page-builder-cms-config')
+    const tokenProvider = {
+      getAuthorizationHeader: mock(async () => 'Bearer slim-token'),
+    }
     const fetchMock = mock(async () => new Response(JSON.stringify({
-      status: 1,
-      data: {
-        total: 1,
-        list: [
-          {
-            ID: 901,
-            catalogID: 101,
-            title: '权限说明',
-            summary: '正文里包含权限字样，但这仍然是成功内容响应。',
-            publishUrl: 'https://demo.zving.com/home/banner/901.html',
-            imagesTotal: 0,
-            audiosTotal: 0,
-            videosTotal: 0,
-            filesTotal: 0,
-          },
-        ],
-      },
+      status: 0,
+      message: '401 Unauthorized: Authorization Bearer slim-token username=test-user password=test-pass',
     }), {
-      status: 200,
+      status: 401,
       headers: { 'content-type': 'application/json' },
     }))
 
     const gateway = new CmsGateway({
       config: resolvePageBuilderCmsConfig(TEST_ENV)!,
       fetchFn: fetchMock as unknown as typeof fetch,
+      tokenProvider,
     })
 
-    const result = await gateway.listContents({ catalogId: '101' })
-
-    expect(result.total).toBe(1)
-    expect(result.items).toEqual([
-      {
-        id: '901',
-        catalogId: '101',
-        title: '权限说明',
-        summary: '正文里包含权限字样，但这仍然是成功内容响应。',
-        publishUrl: 'https://demo.zving.com/home/banner/901.html',
-        shape: 'single-article',
-        assetCounts: {
-          images: 0,
-          audios: 0,
-          videos: 0,
-          files: 0,
-        },
-        assetHints: {
-          images: [],
-          audios: [],
-          videos: [],
-          files: [],
-        },
-      },
-    ])
+    try {
+      await gateway.listCatalogs()
+      throw new Error('expected listCatalogs to throw')
+    } catch (error) {
+      expect(error).toBeInstanceOf(Error)
+      const message = (error as Error).message
+      expect(message).toContain('CMS 鉴权失败')
+      expect(message).not.toContain('slim-token')
+      expect(message).not.toContain('test-user')
+      expect(message).not.toContain('test-pass')
+    }
   })
 
-  test('allows fetching same-origin cms assets outside the base path', async () => {
+  test('maps listCatalogs network failures to CmsGatewayError upstream errors', async () => {
+    const { CmsGateway, CmsGatewayError } = await import('./cms-gateway')
+    const { resolvePageBuilderCmsConfig } = await import('./page-builder-cms-config')
+    const tokenProvider = {
+      getAuthorizationHeader: mock(async () => 'Bearer slim-token'),
+    }
+    const fetchMock = mock(async () => {
+      throw new Error('socket hang up')
+    })
+
+    const gateway = new CmsGateway({
+      config: resolvePageBuilderCmsConfig(TEST_ENV)!,
+      fetchFn: fetchMock as unknown as typeof fetch,
+      tokenProvider,
+    })
+
+    await expect(gateway.listCatalogs()).rejects.toMatchObject({
+      name: 'CmsGatewayError',
+      code: 'upstream',
+      message: 'CMS 请求失败：socket hang up',
+    } satisfies Pick<InstanceType<typeof CmsGatewayError>, 'name' | 'code' | 'message'>)
+  })
+
+  test('fetches cms assets without auth headers and preserves query strings', async () => {
     const { CmsGateway } = await import('./cms-gateway')
     const { resolvePageBuilderCmsConfig } = await import('./page-builder-cms-config')
-    const fetchMock = mock(async (input: RequestInfo | URL) => {
-      expect(String(input)).toBe('https://demo.zving.com/assets/images/addpicture.png')
+    const tokenProvider = {
+      getAuthorizationHeader: mock(async () => 'Bearer slim-token'),
+    }
+    const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe(
+        'https://demo.zving.com/preview/news/upload/resources/image/banner-list-logo.jpg?width=480&height=320',
+      )
+      expect(init?.method).toBe('GET')
+      expect(init?.headers).toBeUndefined()
 
       return new Response('logo-binary', {
         status: 200,
@@ -526,11 +553,68 @@ describe('CmsGateway', () => {
     const gateway = new CmsGateway({
       config: resolvePageBuilderCmsConfig(TEST_ENV)!,
       fetchFn: fetchMock as unknown as typeof fetch,
+      tokenProvider,
     })
 
-    const response = await gateway.fetchAsset('https://demo.zving.com/assets/images/addpicture.png')
+    const response = await gateway.fetchAsset(
+      'https://demo.zving.com/preview/news/upload/resources/image/banner-list-logo.jpg?width=480&height=320',
+    )
 
     expect(response.status).toBe(200)
     expect(await response.text()).toBe('logo-binary')
+    expect(tokenProvider.getAuthorizationHeader).not.toHaveBeenCalled()
+  })
+
+  test('fetches root-relative /assets resources from the cms origin root', async () => {
+    const { CmsGateway } = await import('./cms-gateway')
+    const { resolvePageBuilderCmsConfig } = await import('./page-builder-cms-config')
+    const tokenProvider = {
+      getAuthorizationHeader: mock(async () => 'Bearer slim-token'),
+    }
+    const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe('https://demo.zving.com/assets/images/addpicture.png')
+      expect(init?.method).toBe('GET')
+      expect(init?.headers).toBeUndefined()
+
+      return new Response('asset-binary', {
+        status: 200,
+        headers: { 'content-type': 'image/png' },
+      })
+    })
+
+    const gateway = new CmsGateway({
+      config: resolvePageBuilderCmsConfig(TEST_ENV)!,
+      fetchFn: fetchMock as unknown as typeof fetch,
+      tokenProvider,
+    })
+
+    const response = await gateway.fetchAsset('/assets/images/addpicture.png')
+
+    expect(response.status).toBe(200)
+    expect(await response.text()).toBe('asset-binary')
+    expect(tokenProvider.getAuthorizationHeader).not.toHaveBeenCalled()
+  })
+
+  test('maps fetchAsset network failures to CmsGatewayError upstream errors', async () => {
+    const { CmsGateway, CmsGatewayError } = await import('./cms-gateway')
+    const { resolvePageBuilderCmsConfig } = await import('./page-builder-cms-config')
+    const tokenProvider = {
+      getAuthorizationHeader: mock(async () => 'Bearer slim-token'),
+    }
+    const fetchMock = mock(async () => {
+      throw new Error('connect ECONNRESET')
+    })
+
+    const gateway = new CmsGateway({
+      config: resolvePageBuilderCmsConfig(TEST_ENV)!,
+      fetchFn: fetchMock as unknown as typeof fetch,
+      tokenProvider,
+    })
+
+    await expect(gateway.fetchAsset('https://demo.zving.com/preview/news/upload/resources/image/banner.jpg')).rejects.toMatchObject({
+      name: 'CmsGatewayError',
+      code: 'upstream',
+      message: 'CMS 资源请求失败：connect ECONNRESET',
+    } satisfies Pick<InstanceType<typeof CmsGatewayError>, 'name' | 'code' | 'message'>)
   })
 })
