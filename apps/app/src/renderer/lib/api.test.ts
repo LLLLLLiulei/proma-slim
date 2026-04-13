@@ -281,6 +281,8 @@ describe('renderer api wrappers', () => {
         hasPreview: true,
         entryUrl: '/api/workspaces/workspace-1/preview/',
         revision: 'rev-2',
+        hasCmsRendering: false,
+        requiresSameOrigin: false,
       })
     })
     globalThis.fetch = fetchMock as unknown as typeof fetch
@@ -521,6 +523,8 @@ describe('renderer api wrappers', () => {
         hasPreview: true,
         entryUrl: '/api/workspaces/workspace-1/preview/',
         revision: 'rev-1',
+        hasCmsRendering: true,
+        requiresSameOrigin: true,
       })
     })
     globalThis.fetch = fetchMock as unknown as typeof fetch
@@ -532,6 +536,8 @@ describe('renderer api wrappers', () => {
       hasPreview: true,
       entryUrl: '/api/workspaces/workspace-1/preview/',
       revision: 'rev-1',
+      hasCmsRendering: true,
+      requiresSameOrigin: true,
     })
   })
 
@@ -552,6 +558,8 @@ describe('renderer api wrappers', () => {
         hasPreview: true,
         entryUrl: '/api/workspaces/workspace-1/preview/',
         revision: 'rev-2',
+        hasCmsRendering: false,
+        requiresSameOrigin: false,
       })
     })
     globalThis.fetch = fetchMock as unknown as typeof fetch
@@ -571,6 +579,8 @@ describe('renderer api wrappers', () => {
       hasPreview: true,
       entryUrl: '/api/workspaces/workspace-1/preview/',
       revision: 'rev-2',
+      hasCmsRendering: false,
+      requiresSameOrigin: false,
     })
   })
 
@@ -585,6 +595,8 @@ describe('renderer api wrappers', () => {
         hasPreview: true,
         entryUrl: '/api/workspaces/workspace-1/preview/',
         revision: 'rev-3',
+        hasCmsRendering: false,
+        requiresSameOrigin: false,
       })
     })
     globalThis.fetch = fetchMock as unknown as typeof fetch
@@ -598,6 +610,8 @@ describe('renderer api wrappers', () => {
       hasPreview: true,
       entryUrl: '/api/workspaces/workspace-1/preview/',
       revision: 'rev-3',
+      hasCmsRendering: false,
+      requiresSameOrigin: false,
     })
   })
 

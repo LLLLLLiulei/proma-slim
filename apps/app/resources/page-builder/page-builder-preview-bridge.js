@@ -903,6 +903,8 @@
     }
   }
 
+  const shouldWaitForCmsRenderingReady = window.__PROMA_CMS_RENDERING_PREVIEW__?.hasCmsRendering === true
+
   const init = () => {
     if (document.documentElement.hasAttribute('data-page-builder-preview-bridge')) {
       return
@@ -932,9 +934,23 @@
     scheduleReadyAnnouncements()
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init, { once: true })
-  } else {
+  const initWhenPreviewReady = () => {
+    if (shouldWaitForCmsRenderingReady) {
+      if (window.__PROMA_CMS_RENDERING_PREVIEW_READY__ === true) {
+        init()
+        return
+      }
+
+      document.addEventListener('proma:cms-rendering-ready', init, { once: true })
+      return
+    }
+
     init()
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initWhenPreviewReady, { once: true })
+  } else {
+    initWhenPreviewReady()
   }
 })()

@@ -25,6 +25,7 @@
     "@anthropic-ai/claude-agent-sdk": "0.2.76",
     "@emoji-mart/data": "^1.2.1",
     "@emoji-mart/react": "^1.1.1",
+    "@proma/page-builder-cms-rendering": "workspace:*",
     "@proma/shared": "workspace:*",
     "@proma/ui": "workspace:*",
     "@radix-ui/react-alert-dialog": "^1.1.15",

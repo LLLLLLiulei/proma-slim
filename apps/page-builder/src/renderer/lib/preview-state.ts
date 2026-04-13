@@ -9,6 +9,8 @@ export function areWorkspacePreviewStatesEqual(
   return left?.hasPreview === right?.hasPreview
     && left?.entryUrl === right?.entryUrl
     && left?.revision === right?.revision
+    && left?.hasCmsRendering === right?.hasCmsRendering
+    && left?.requiresSameOrigin === right?.requiresSameOrigin
 }
 
 export function resolveWorkspacePreviewUrl(state: WorkspacePreviewState | null): string | null {

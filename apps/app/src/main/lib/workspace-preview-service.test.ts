@@ -46,6 +46,8 @@ describe('workspace preview service', () => {
       hasPreview: false,
       entryUrl: null,
       revision: null,
+      hasCmsRendering: false,
+      requiresSameOrigin: false,
     })
 
     mkdirSync(workspaceFilesDir, { recursive: true })
@@ -56,6 +58,36 @@ describe('workspace preview service', () => {
     expect(state.entryUrl).toBe(`/api/workspaces/${workspace.id}/preview/`)
     expect(typeof state.revision).toBe('string')
     expect(state.revision?.length).toBeGreaterThan(0)
+    expect(state.hasCmsRendering).toBe(false)
+    expect(state.requiresSameOrigin).toBe(false)
+  })
+
+  test('reports CMS preview metadata and injects CMS rendering assets before the bridge', async () => {
+    const workspace = createAgentWorkspace('CMS Preview State', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(
+      join(workspaceFilesDir, 'index.html'),
+      '<!doctype html><html><body><cms-content catalog-id="news"></cms-content></body></html>',
+      'utf-8',
+    )
+
+    const state = getWorkspacePreviewState(workspace)
+    expect(state.hasCmsRendering).toBe(true)
+    expect(state.requiresSameOrigin).toBe(true)
+
+    const response = createWorkspacePreviewResponse(workspace, '/', { enablePageBuilderBridge: true })
+    const html = await response.text()
+
+    const previewAssetIndex = html.indexOf('/api/page-builder/cms-rendering-preview.js')
+    const bridgeAssetIndex = html.indexOf(getPageBuilderPreviewBridgeAssetUrl())
+
+    expect(html).toContain('data-proma-cms-rendering-importmap="true"')
+    expect(html).toContain('data-proma-cms-rendering-config="true"')
+    expect(html).toContain('data-proma-cms-rendering-loader="true"')
+    expect(previewAssetIndex).toBeGreaterThan(-1)
+    expect(bridgeAssetIndex).toBeGreaterThan(previewAssetIndex)
   })
 
   test('injects the page-builder preview bridge only when the request explicitly enables it', async () => {

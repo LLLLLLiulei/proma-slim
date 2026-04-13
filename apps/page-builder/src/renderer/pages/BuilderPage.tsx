@@ -764,6 +764,7 @@ export function BuilderPage({
           onRequestReplaceImage={handleRequestReplaceImage}
           onSelectionEvent={handleSelectionEvent}
           previewUrl={previewUrl}
+          requiresSameOrigin={previewState?.requiresSameOrigin === true}
           selectionActionState={selectionActionState}
           selectionModeEnabled={selectionModeEnabled}
           selectionToggleDisabled={isAgentStreaming}

@@ -1,5 +1,9 @@
 import { Hono } from 'hono'
 import { CmsGateway, CmsGatewayError } from '../../lib/cms-gateway'
+import {
+  readPageBuilderCmsRenderingPreviewScript,
+  readPageBuilderCmsRenderingVueScript,
+} from '../../lib/page-builder-cms-rendering-preview'
 import { deletePageBuilderProject, listPageBuilderProjects } from '../../lib/page-builder-project-service'
 import { resolvePageBuilderCmsConfig } from '../../lib/page-builder-cms-config'
 import { readPageBuilderPreviewBridgeScript } from '../../lib/page-builder-preview-bridge'
@@ -10,6 +14,24 @@ export const pageBuilderRoutes = new Hono()
 
 pageBuilderRoutes.get('/preview-bridge.js', () => {
   return new Response(readPageBuilderPreviewBridgeScript(), {
+    headers: {
+      'cache-control': 'no-store',
+      'content-type': 'application/javascript; charset=utf-8',
+    },
+  })
+})
+
+pageBuilderRoutes.get('/cms-rendering-preview.js', async () => {
+  return new Response(await readPageBuilderCmsRenderingPreviewScript(), {
+    headers: {
+      'cache-control': 'no-store',
+      'content-type': 'application/javascript; charset=utf-8',
+    },
+  })
+})
+
+pageBuilderRoutes.get('/cms-rendering-vue.js', () => {
+  return new Response(readPageBuilderCmsRenderingVueScript(), {
     headers: {
       'cache-control': 'no-store',
       'content-type': 'application/javascript; charset=utf-8',

@@ -265,6 +265,8 @@ describe('createHttpApp', () => {
       hasPreview: false,
       entryUrl: null,
       revision: null,
+      hasCmsRendering: false,
+      requiresSameOrigin: false,
     })
 
     mkdirSync(join(workspaceFilesDir, 'assets'), { recursive: true })
@@ -281,11 +283,15 @@ describe('createHttpApp', () => {
       hasPreview: boolean
       entryUrl: string | null
       revision: string | null
+      hasCmsRendering: boolean
+      requiresSameOrigin: boolean
     }
     expect(previewState.hasPreview).toBe(true)
     expect(previewState.entryUrl).toBe(`/api/workspaces/${workspace.id}/preview/`)
     expect(typeof previewState.revision).toBe('string')
     expect(previewState.revision?.length).toBeGreaterThan(0)
+    expect(previewState.hasCmsRendering).toBe(false)
+    expect(previewState.requiresSameOrigin).toBe(false)
 
     const previewResponse = await app.fetch(new Request(`http://localhost${previewState.entryUrl}`))
     expect(previewResponse.status).toBe(200)
@@ -303,9 +309,13 @@ describe('createHttpApp', () => {
       hasPreview: boolean
       entryUrl: string | null
       revision: string | null
+      hasCmsRendering: boolean
+      requiresSameOrigin: boolean
     }
     expect(updatedState.hasPreview).toBe(true)
     expect(updatedState.revision).not.toBe(previewState.revision)
+    expect(updatedState.hasCmsRendering).toBe(false)
+    expect(updatedState.requiresSameOrigin).toBe(false)
   })
 
   test('workspace preview routes stop serving stale preview content when the entry disappears', async () => {
@@ -324,6 +334,8 @@ describe('createHttpApp', () => {
       hasPreview: false,
       entryUrl: null,
       revision: null,
+      hasCmsRendering: false,
+      requiresSameOrigin: false,
     })
 
     const missingPreviewResponse = await app.fetch(new Request(`http://localhost/api/workspaces/${workspace.id}/preview/`))
@@ -562,6 +574,23 @@ describe('createHttpApp', () => {
     expect(script).toContain("document.addEventListener('mouseout', handleMouseOut, true)")
     expect(script).toContain('const scheduleReadyAnnouncements = () => {')
     expect(script).toContain('const clearReadyAnnouncementTimer = () => {')
+  })
+
+  test('page-builder routes serve CMS rendering preview assets', async () => {
+    const app = createApp()
+
+    const previewResponse = await app.fetch(new Request('http://localhost/api/page-builder/cms-rendering-preview.js'))
+    expect(previewResponse.status).toBe(200)
+    expect(previewResponse.headers.get('content-type')).toContain('application/javascript')
+    const previewScript = await previewResponse.text()
+    expect(previewScript).toContain('proma:cms-rendering-ready')
+    expect(previewScript).toContain('__PROMA_CMS_RENDERING_PREVIEW__')
+
+    const vueResponse = await app.fetch(new Request('http://localhost/api/page-builder/cms-rendering-vue.js'))
+    expect(vueResponse.status).toBe(200)
+    expect(vueResponse.headers.get('content-type')).toContain('application/javascript')
+    const vueScript = await vueResponse.text()
+    expect(vueScript).toContain('createApp')
   })
 
   test('workspace routes return a 404 JSON error when the workspace is missing', async () => {

@@ -18,6 +18,8 @@ export function writeWorkspacePreviewState(
     hasPreview: true,
     entryUrl: state.entryUrl,
     revision: state.revision,
+    hasCmsRendering: state.hasCmsRendering,
+    requiresSameOrigin: state.requiresSameOrigin,
   } satisfies WorkspacePreviewState))
 }
 
@@ -43,6 +45,8 @@ export function readWorkspacePreviewState(
       hasPreview: true,
       entryUrl: parsed.entryUrl,
       revision: parsed.revision,
+      hasCmsRendering: parsed.hasCmsRendering === true,
+      requiresSameOrigin: parsed.requiresSameOrigin === true,
     }
   } catch {
     clearWorkspacePreviewState(storage, workspaceId)

@@ -3,8 +3,16 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, resolve, sep } from 'node:path'
 import { parseHTML } from 'linkedom'
 import type { AgentWorkspace } from '@proma/shared'
+import {
+  detectCmsRenderingUsage,
+  injectCmsRenderingPreview,
+} from '@proma/page-builder-cms-rendering/preview'
 import { HttpError } from '../http/errors'
 import { getWorkspaceFilesDir } from './config-paths'
+import {
+  getPageBuilderCmsRenderingPreviewAssetUrl,
+  getPageBuilderCmsRenderingVueAssetUrl,
+} from './page-builder-cms-rendering-preview'
 import {
   injectPageBuilderPreviewBridge,
   shouldInjectPageBuilderPreviewBridge,
@@ -24,6 +32,8 @@ export interface WorkspacePreviewState {
   hasPreview: boolean
   entryUrl: string | null
   revision: string | null
+  hasCmsRendering: boolean
+  requiresSameOrigin: boolean
 }
 
 interface CreateWorkspacePreviewResponseOptions {
@@ -84,6 +94,8 @@ export function getWorkspacePreviewState(workspace: AgentWorkspace): WorkspacePr
       hasPreview: false,
       entryUrl: null,
       revision: null,
+      hasCmsRendering: false,
+      requiresSameOrigin: false,
     }
   }
 
@@ -91,11 +103,16 @@ export function getWorkspacePreviewState(workspace: AgentWorkspace): WorkspacePr
   const revisionEntries: string[] = []
   collectRevisionEntries(rootDir, rootDir, revisionEntries)
   revisionEntries.sort((left, right) => left.localeCompare(right))
+  const sourceHtml = readFileSync(entryPath, 'utf-8')
+  const hasCmsRendering = workspace.template === 'page-builder'
+    && detectCmsRenderingUsage(sourceHtml).hasCmsRendering
 
   return {
     hasPreview: true,
     entryUrl: `/api/workspaces/${encodeURIComponent(workspace.id)}/preview/`,
     revision: createHash('sha1').update(revisionEntries.join('\n')).digest('hex'),
+    hasCmsRendering,
+    requiresSameOrigin: hasCmsRendering,
   }
 }
 
@@ -200,6 +217,22 @@ function rewritePreviewHtmlCmsAssetUrls(sourceHtml: string): string {
   return changed ? serializeDocument(sourceHtml, document) : sourceHtml
 }
 
+function injectWorkspaceCmsRenderingPreview(
+  workspace: AgentWorkspace,
+  sourceHtml: string,
+): string {
+  if (workspace.template !== 'page-builder') {
+    return sourceHtml
+  }
+
+  return injectCmsRenderingPreview(sourceHtml, {
+    workspaceId: workspace.id,
+    cmsProxyBase: '/api/page-builder/cms',
+    vueAssetUrl: getPageBuilderCmsRenderingVueAssetUrl(),
+    bootstrapAssetUrl: getPageBuilderCmsRenderingPreviewAssetUrl(),
+  })
+}
+
 export function createWorkspacePreviewResponse(
   workspace: AgentWorkspace,
   requestPath: string,
@@ -217,9 +250,13 @@ export function createWorkspacePreviewResponse(
 
   if (shouldInjectBridge || shouldTransformHtml) {
     const sourceHtml = readFileSync(resolvedPath, 'utf-8')
+    const previewHtml = injectWorkspaceCmsRenderingPreview(
+      workspace,
+      rewritePreviewHtmlCmsAssetUrls(sourceHtml),
+    )
     const transformedHtml = shouldInjectBridge
-      ? injectPageBuilderPreviewBridge(rewritePreviewHtmlCmsAssetUrls(sourceHtml))
-      : rewritePreviewHtmlCmsAssetUrls(sourceHtml)
+      ? injectPageBuilderPreviewBridge(previewHtml)
+      : previewHtml
 
     return new Response(
       transformedHtml,

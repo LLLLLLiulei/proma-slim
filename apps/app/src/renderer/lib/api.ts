@@ -34,6 +34,8 @@ export interface WorkspacePreviewState {
   hasPreview: boolean
   entryUrl: string | null
   revision: string | null
+  hasCmsRendering: boolean
+  requiresSameOrigin: boolean
 }
 
 interface CreateWorkspaceOptions {

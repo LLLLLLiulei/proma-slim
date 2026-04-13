@@ -24,6 +24,8 @@ interface WorkspacePreviewState {
   hasPreview: boolean
   entryUrl: string | null
   revision: string | null
+  hasCmsRendering?: boolean
+  requiresSameOrigin?: boolean
 }
 
 interface PageBuilderImageReplacementPayload {
@@ -232,7 +234,13 @@ async function loadBuilderPage(options: {
       listSessions: async () => options.sessions,
       listWorkspaces: async () => options.workspaces,
       getWorkspacePreviewState: options.getWorkspacePreviewStateImpl ?? (async () => {
-        const states = options.previewStates ?? [{ hasPreview: false, entryUrl: null, revision: null }]
+        const states = options.previewStates ?? [{
+          hasPreview: false,
+          entryUrl: null,
+          revision: null,
+          hasCmsRendering: false,
+          requiresSameOrigin: false,
+        }]
         const state = states[Math.min(previewStateIndex, states.length - 1)]!
         previewStateIndex += 1
         return state
@@ -914,6 +922,52 @@ describe('BuilderPage', () => {
 
     expect(getLastPreviewPaneProps()).toMatchObject({
       previewUrl: null,
+    })
+  })
+
+  test('passes requiresSameOrigin metadata through to PreviewPane when CMS preview state is detected', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const { BuilderPage, getLastPreviewPaneProps } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      mockPreviewPane: true,
+      previewStates: [{
+        hasPreview: true,
+        entryUrl: `/api/workspaces/${workspace.id}/preview/`,
+        revision: 'rev-1',
+        hasCmsRendering: true,
+        requiresSameOrigin: true,
+      }],
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      previewUrl: `/api/workspaces/${workspace.id}/preview/?v=rev-1`,
+      requiresSameOrigin: true,
     })
   })
 

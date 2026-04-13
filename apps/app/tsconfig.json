@@ -5,7 +5,10 @@
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/renderer/*"]
+      "@/*": ["./src/renderer/*"],
+      "@proma/page-builder-cms-rendering": ["../../packages/page-builder-cms-rendering/src/index.ts"],
+      "@proma/page-builder-cms-rendering/preview": ["../../packages/page-builder-cms-rendering/src/preview/index.ts"],
+      "@proma/page-builder-cms-rendering/preview/build-paths": ["../../packages/page-builder-cms-rendering/src/preview/build-paths.ts"]
     }
   },
   "include": ["src/**/*"]

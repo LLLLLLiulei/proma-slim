@@ -72,6 +72,36 @@ test('page-builder preview bridge handles interaction locks without relying on a
   expect(script).toContain('if (!selectionModeEnabled || selectionInteractionLocked) return')
 })
 
+test('page-builder preview bridge waits for cms rendering readiness before initializing on CMS pages', async () => {
+  const module = await importPreviewBridgeModule()
+
+  const script = module.readPageBuilderPreviewBridgeScript()
+
+  expect(script).toContain('__PROMA_CMS_RENDERING_PREVIEW__')
+  expect(script).toContain('proma:cms-rendering-ready')
+  expect(script).toContain("document.addEventListener('proma:cms-rendering-ready', init, { once: true })")
+})
+
+test('page-builder preview bridge initializes immediately when CMS rendering was already marked ready', async () => {
+  const module = await importPreviewBridgeModule()
+
+  const script = module.readPageBuilderPreviewBridgeScript()
+
+  expect(script).toContain('__PROMA_CMS_RENDERING_PREVIEW_READY__ === true')
+  expect(script).toContain('if (window.__PROMA_CMS_RENDERING_PREVIEW_READY__ === true) {')
+  expect(script).toContain('init()')
+})
+
+test('page-builder preview bridge initializes immediately on non-CMS pages', async () => {
+  const module = await importPreviewBridgeModule()
+
+  const script = module.readPageBuilderPreviewBridgeScript()
+
+  expect(script).toContain('const shouldWaitForCmsRenderingReady = window.__PROMA_CMS_RENDERING_PREVIEW__?.hasCmsRendering === true')
+  expect(script).toContain('document.addEventListener(\'DOMContentLoaded\', initWhenPreviewReady, { once: true })')
+  expect(script).toContain('initWhenPreviewReady()')
+})
+
 test('page-builder preview bridge uses dashed hover borders and solid selected borders', async () => {
   const module = await importPreviewBridgeModule()
 

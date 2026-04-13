@@ -3,6 +3,7 @@ import type {
   PageBuilderCmsCatalogQuery,
   PageBuilderCmsContentList,
   PageBuilderCmsContentQuery,
+  PageBuilderCmsContentSummary,
 } from '@proma/shared'
 import type { CmsRuntimeClient } from './cms-runtime-client'
 
@@ -15,7 +16,7 @@ export const DEFAULT_BROWSER_CMS_API_BASE = '/api/page-builder/cms'
 
 export function createBrowserCmsClient(options: BrowserCmsClientOptions = {}): CmsRuntimeClient {
   const baseUrl = normalizeBaseUrl(options.baseUrl ?? DEFAULT_BROWSER_CMS_API_BASE)
-  const fetchFn = options.fetchFn ?? fetch
+  const fetchFn = (options.fetchFn ?? globalThis.fetch).bind(globalThis) as typeof fetch
 
   return {
     async listCatalogs(query: PageBuilderCmsCatalogQuery = {}) {
@@ -27,11 +28,13 @@ export function createBrowserCmsClient(options: BrowserCmsClientOptions = {}): C
     },
 
     async listContents(query: PageBuilderCmsContentQuery) {
-      return requestJson<PageBuilderCmsContentList>({
+      const response = await requestJson<PageBuilderCmsContentList>({
         url: `${baseUrl}/contents${toSearchSuffix(query)}`,
         errorLabel: 'Content request failed',
         fetchFn,
       })
+
+      return rewriteContentListAssetUrls(response, baseUrl)
     },
   }
 }
@@ -64,6 +67,49 @@ function shouldIncludeQueryValue(value: unknown): boolean {
   }
 
   return true
+}
+
+function rewriteContentListAssetUrls(
+  response: PageBuilderCmsContentList,
+  baseUrl: string,
+): PageBuilderCmsContentList {
+  return {
+    ...response,
+    items: response.items.map((item) => rewriteContentAssetUrls(item, baseUrl)),
+  }
+}
+
+function rewriteContentAssetUrls(
+  item: PageBuilderCmsContentSummary,
+  baseUrl: string,
+): PageBuilderCmsContentSummary {
+  return {
+    ...item,
+    listLogoUrl: rewriteAssetUrl(item.listLogoUrl, baseUrl),
+  }
+}
+
+function rewriteAssetUrl(assetUrl: string | undefined, baseUrl: string): string | undefined {
+  const normalized = assetUrl?.trim()
+  if (!normalized) {
+    return undefined
+  }
+
+  if (isProxyAssetUrl(normalized, baseUrl)) {
+    return normalized
+  }
+
+  return `${baseUrl}/assets?url=${encodeURIComponent(normalized)}`
+}
+
+function isProxyAssetUrl(assetUrl: string, baseUrl: string): boolean {
+  try {
+    const candidate = new URL(assetUrl, 'http://localhost')
+    const proxyPath = new URL(`${baseUrl}/assets`, 'http://localhost').pathname
+    return candidate.pathname === proxyPath
+  } catch {
+    return false
+  }
 }
 
 async function requestJson<TResult>(options: {

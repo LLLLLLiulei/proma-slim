@@ -100,6 +100,7 @@ export function PreviewPane({
   imageReplacementPending = false,
   interactionLocked = false,
   previewUrl,
+  requiresSameOrigin = false,
   selectionActionState = 'idle',
   selectionModeEnabled = false,
   selectionToggleDisabled = false,
@@ -115,6 +116,7 @@ export function PreviewPane({
   imageReplacementPending?: boolean
   interactionLocked?: boolean
   previewUrl: string | null
+  requiresSameOrigin?: boolean
   selectionActionState?: PreviewSelectionActionState
   selectionModeEnabled?: boolean
   selectionToggleDisabled?: boolean
@@ -135,6 +137,9 @@ export function PreviewPane({
 
     return resolveEmbeddedPreviewUrl(previewUrl)
   }, [previewUrl])
+  const previewSandbox = requiresSameOrigin
+    ? 'allow-forms allow-scripts allow-same-origin'
+    : 'allow-forms allow-scripts'
 
   const handleRefresh = React.useCallback(() => {
     if (!previewUrl) return
@@ -439,7 +444,7 @@ export function PreviewPane({
                     key={frameKey}
                     className="h-full w-full border-0 bg-background"
                     onLoad={() => setBridgeReady(false)}
-                    sandbox="allow-forms allow-scripts"
+                    sandbox={previewSandbox}
                     src={embeddedPreviewUrl ?? undefined}
                     title="网页预览"
                   />

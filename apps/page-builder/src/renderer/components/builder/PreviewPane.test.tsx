@@ -175,6 +175,27 @@ describe('PreviewPane', () => {
     expect(emptyJson).toContain('预览尚未生成')
   })
 
+  test('appends allow-same-origin only when preview metadata requires it', async () => {
+    const { PreviewPane } = await loadPreviewPane()
+    const cmsRenderer = create(
+      <PreviewPane
+        previewUrl="https://example.com/preview?v=rev-1"
+        requiresSameOrigin={true}
+      />,
+    )
+    const cmsIframe = cmsRenderer.root.findByType('iframe')
+    expect(cmsIframe.props.sandbox).toBe('allow-forms allow-scripts allow-same-origin')
+
+    const plainRenderer = create(
+      <PreviewPane
+        previewUrl="https://example.com/preview?v=rev-1"
+        requiresSameOrigin={false}
+      />,
+    )
+    const plainIframe = plainRenderer.root.findByType('iframe')
+    expect(plainIframe.props.sandbox).toBe('allow-forms allow-scripts')
+  })
+
   test('opens the plain preview URL in a new window without the bridge query flag', async () => {
     const open = mock(() => {})
     Object.defineProperty(globalThis, 'window', {
