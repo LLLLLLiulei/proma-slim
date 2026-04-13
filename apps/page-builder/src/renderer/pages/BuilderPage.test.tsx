@@ -51,6 +51,12 @@ interface PageBuilderStaticExportJob {
   expiresAt: string
   downloadUrl: string | null
   errorMessage: string | null
+  failure: {
+    code: string
+    message: string
+    component?: string
+    props?: Record<string, string>
+  } | null
   reportSummary: {
     localizedResourceCount: number
     retainedExternalLinkCount: number
@@ -2530,6 +2536,7 @@ describe('BuilderPage', () => {
       expiresAt: '2026-04-07T11:00:00.000Z',
       downloadUrl: null,
       errorMessage: null,
+      failure: null,
       reportSummary: null,
     } satisfies PageBuilderStaticExportJob))
     const getPageBuilderStaticExportJob = mock(async () => ({
@@ -2541,6 +2548,7 @@ describe('BuilderPage', () => {
       expiresAt: '2026-04-07T11:00:00.000Z',
       downloadUrl: `/api/workspaces/${workspace.id}/page-builder/export-static-jobs/job-1/download`,
       errorMessage: null,
+      failure: null,
       reportSummary: {
         localizedResourceCount: 4,
         retainedExternalLinkCount: 0,
@@ -2655,6 +2663,7 @@ describe('BuilderPage', () => {
         expiresAt: '2026-04-07T11:00:00.000Z',
         downloadUrl: `/api/workspaces/${workspace.id}/page-builder/export-static-jobs/job-2/download`,
         errorMessage: null,
+        failure: null,
         reportSummary: {
           localizedResourceCount: 3,
           retainedExternalLinkCount: 1,
@@ -2721,6 +2730,10 @@ describe('BuilderPage', () => {
       expiresAt: '2026-04-07T11:00:00.000Z',
       downloadUrl: null,
       errorMessage: '关键图片下载失败',
+      failure: {
+        code: 'export-failed',
+        message: '关键图片下载失败',
+      },
       reportSummary: {
         localizedResourceCount: 1,
         retainedExternalLinkCount: 0,

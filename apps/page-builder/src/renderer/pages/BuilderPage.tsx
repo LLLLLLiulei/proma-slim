@@ -371,7 +371,7 @@ export function BuilderPage({
     handledStaticExportJobsRef.current.add(job.jobId)
 
     if (job.status === 'failed') {
-      toast.error(job.errorMessage ?? '静态包导出失败')
+      toast.error(job.failure?.message ?? job.errorMessage ?? '静态包导出失败')
       return
     }
 

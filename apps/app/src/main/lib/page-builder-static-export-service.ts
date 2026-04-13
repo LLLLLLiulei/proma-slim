@@ -15,6 +15,12 @@ import type {
   PageBuilderStaticExportUnsupportedRuntimeDependency,
   PageBuilderStaticExportWarning,
 } from '@proma/shared'
+import {
+  CmsIslandRenderPipelineError,
+  createServerCmsClient,
+  renderCmsIslands,
+  type ServerCmsClientAdapter,
+} from '@proma/page-builder-cms-rendering'
 import { CmsGateway } from './cms-gateway'
 import { getWorkspaceFilesDir } from './config-paths'
 import {
@@ -35,6 +41,7 @@ import {
 } from './page-builder-static-export-paths'
 
 type CmsAssetGateway = Pick<CmsGateway, 'fetchAsset'>
+type CmsQueryAdapter = Pick<CmsGateway, 'listCatalogs' | 'listContents'>
 
 const MAX_REDIRECTS = 3
 const MAX_REMOTE_RESOURCE_COUNT = 128
@@ -67,6 +74,7 @@ export class PageBuilderStaticExportServiceError extends Error {
 interface PageBuilderStaticExportServiceOptions {
   fetchFn?: typeof fetch
   cmsGatewayFactory?: () => CmsAssetGateway | null
+  cmsQueryAdapterFactory?: () => CmsQueryAdapter | null
   now?: () => number
   randomUUID?: () => string
 }
@@ -108,6 +116,7 @@ interface ExportContext {
   fetchFn: typeof fetch
   cmsGateway: CmsAssetGateway | null
   cmsBaseUrl: string | null
+  cmsRuntimeClient: ReturnType<typeof createServerCmsClient>
 }
 
 type ResolvedRenderableReference =
@@ -129,12 +138,14 @@ export class PageBuilderStaticExportService {
   private readonly activeJobsByWorkspaceId = new Map<string, string>()
   private readonly fetchFn: typeof fetch
   private readonly cmsGatewayFactory?: () => CmsAssetGateway | null
+  private readonly cmsQueryAdapterFactory?: () => CmsQueryAdapter | null
   private readonly now: () => number
   private readonly randomUUID: () => string
 
   constructor(options: PageBuilderStaticExportServiceOptions = {}) {
     this.fetchFn = options.fetchFn ?? fetch
     this.cmsGatewayFactory = options.cmsGatewayFactory
+    this.cmsQueryAdapterFactory = options.cmsQueryAdapterFactory
     this.now = options.now ?? Date.now
     this.randomUUID = options.randomUUID ?? nodeRandomUUID
   }
@@ -224,6 +235,7 @@ export class PageBuilderStaticExportService {
       expiresAt: new Date(now + getPageBuilderStaticExportTtlMs()).toISOString(),
       downloadUrl: null,
       errorMessage: null,
+      failure: null,
       reportSummary: null,
     }
   }
@@ -262,6 +274,7 @@ export class PageBuilderStaticExportService {
       cpSync(workspaceFilesDir, stagingDir, { recursive: true })
 
       const cmsGateway = this.resolveCmsGateway()
+      const cmsQueryAdapter = this.resolveCmsQueryAdapter()
       const cmsBaseUrl = resolvePageBuilderCmsConfig()?.baseUrl ?? null
       const context: ExportContext = {
         workspace,
@@ -278,6 +291,9 @@ export class PageBuilderStaticExportService {
         fetchFn: this.fetchFn,
         cmsGateway,
         cmsBaseUrl,
+        cmsRuntimeClient: createServerCmsClient({
+          adapter: createStaticExportCmsAdapter(cmsQueryAdapter),
+        }),
       }
 
       this.updateSnapshot(job, { phase: 'scanning' })
@@ -297,13 +313,16 @@ export class PageBuilderStaticExportService {
         downloadUrl: buildDownloadUrl(workspace.id, jobId),
         reportSummary: report.summary,
         errorMessage: null,
+        failure: null,
       })
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      collector.failures.push({
-        code: 'export-failed',
-        message,
-      })
+      if (collector.failures.length === 0) {
+        collector.failures.push({
+          code: 'export-failed',
+          message,
+        })
+      }
 
       const report = this.createReport({
         workspace,
@@ -320,6 +339,9 @@ export class PageBuilderStaticExportService {
         fetchFn: this.fetchFn,
         cmsGateway: null,
         cmsBaseUrl: null,
+        cmsRuntimeClient: createServerCmsClient({
+          adapter: createStaticExportCmsAdapter(null),
+        }),
       })
       mkdirSync(dirname(job.reportPath), { recursive: true })
       writeFileSync(job.reportPath, JSON.stringify(report, null, 2), 'utf-8')
@@ -327,6 +349,7 @@ export class PageBuilderStaticExportService {
       this.updateSnapshot(job, {
         status: 'failed',
         errorMessage: message,
+        failure: report.failures[0] ?? null,
         reportSummary: report.summary,
       })
     } finally {
@@ -337,6 +360,15 @@ export class PageBuilderStaticExportService {
   private resolveCmsGateway(): CmsAssetGateway | null {
     if (this.cmsGatewayFactory) {
       return this.cmsGatewayFactory()
+    }
+
+    const cmsConfig = resolvePageBuilderCmsConfig()
+    return cmsConfig ? new CmsGateway({ config: cmsConfig, fetchFn: this.fetchFn }) : null
+  }
+
+  private resolveCmsQueryAdapter(): CmsQueryAdapter | null {
+    if (this.cmsQueryAdapterFactory) {
+      return this.cmsQueryAdapterFactory()
     }
 
     const cmsConfig = resolvePageBuilderCmsConfig()
@@ -360,8 +392,9 @@ export class PageBuilderStaticExportService {
 
   private async processHtmlFile(filePath: string, context: ExportContext): Promise<void> {
     const sourceHtml = readFileSync(filePath, 'utf-8')
-    const { document } = parseHTML(sourceHtml)
-    let changed = false
+    const renderedHtml = await this.renderCmsIslandsForExport(sourceHtml, context)
+    const { document } = parseHTML(renderedHtml)
+    let changed = renderedHtml !== sourceHtml
 
     for (const element of Array.from(document.querySelectorAll('*'))) {
       const tagName = element.tagName.toLowerCase()
@@ -458,6 +491,22 @@ export class PageBuilderStaticExportService {
 
     if (changed) {
       writeFileSync(filePath, serializeDocument(sourceHtml, document), 'utf-8')
+    }
+  }
+
+  private async renderCmsIslandsForExport(html: string, context: ExportContext): Promise<string> {
+    try {
+      return await renderCmsIslands({
+        html,
+        cmsClient: context.cmsRuntimeClient,
+      })
+    } catch (error) {
+      if (error instanceof CmsIslandRenderPipelineError) {
+        context.collector.failures.push(...error.failures.map(mapCmsIslandFailure))
+        throw new Error(error.failures[0]?.message ?? error.message)
+      }
+
+      throw error
     }
   }
 
@@ -790,6 +839,38 @@ function serializeDocument(sourceHtml: string, document: Document): string {
   }
 
   return `${doctypeMatch[0]}${serialized}`
+}
+
+function createStaticExportCmsAdapter(
+  queryAdapter: CmsQueryAdapter | null,
+): ServerCmsClientAdapter {
+  return {
+    async listCatalogs(query) {
+      if (!queryAdapter) {
+        throw new Error('CMS query adapter is unavailable for catalog export rendering')
+      }
+
+      return queryAdapter.listCatalogs(query)
+    },
+    async listContents(query) {
+      if (!queryAdapter) {
+        throw new Error('CMS query adapter is unavailable for content export rendering')
+      }
+
+      return queryAdapter.listContents(query)
+    },
+  }
+}
+
+function mapCmsIslandFailure(
+  failure: CmsIslandRenderPipelineError['failures'][number],
+): PageBuilderStaticExportFailure {
+  return {
+    code: failure.stage === 'prefetch' ? 'cms-island-prefetch-failed' : 'cms-island-render-failed',
+    message: failure.message,
+    component: failure.component,
+    props: failure.props,
+  }
 }
 
 function resolveRenderableReference(

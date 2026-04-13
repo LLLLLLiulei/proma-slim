@@ -673,6 +673,7 @@ describe('renderer api wrappers', () => {
         expiresAt: '2026-04-07T11:00:00.000Z',
         downloadUrl: null,
         errorMessage: null,
+        failure: null,
         reportSummary: null,
       })
     })
@@ -701,6 +702,7 @@ describe('renderer api wrappers', () => {
         expiresAt: '2026-04-07T11:00:00.000Z',
         downloadUrl: '/api/workspaces/workspace-1/page-builder/export-static-jobs/job-1/download',
         errorMessage: null,
+        failure: null,
         reportSummary: {
           localizedResourceCount: 3,
           retainedExternalLinkCount: 0,

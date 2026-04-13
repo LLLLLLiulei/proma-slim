@@ -48,6 +48,8 @@ export interface PageBuilderStaticExportFailure {
   code: string
   message: string
   resourceUrl?: string
+  component?: string
+  props?: Record<string, string>
 }
 
 export interface PageBuilderStaticExportReport {
@@ -72,5 +74,6 @@ export interface PageBuilderStaticExportJob {
   expiresAt: string
   downloadUrl: string | null
   errorMessage: string | null
+  failure: PageBuilderStaticExportFailure | null
   reportSummary: PageBuilderStaticExportReportSummary | null
 }

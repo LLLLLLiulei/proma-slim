@@ -40,7 +40,16 @@ async function waitForTerminalJob(
   },
   workspaceId: string,
   jobId: string,
-): Promise<{ status: string; errorMessage?: string | null }> {
+): Promise<{
+  status: string
+  errorMessage?: string | null
+  failure?: {
+    code: string
+    message: string
+    component?: string
+    props?: Record<string, string>
+  } | null
+}> {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     const job = service.getJob(workspaceId, jobId)
     if (job && (job.status === 'completed' || job.status === 'failed')) {
@@ -283,6 +292,189 @@ describe('page-builder static export service', () => {
     const stagedHtml = readFileSync(join(getPageBuilderStaticExportStagingDir(createdJob.jobId), 'index.html'), 'utf-8')
     expect(stagedHtml).not.toContain('/assets/images/addpicture.png')
     expect(fetchAsset).toHaveBeenCalledTimes(1)
+  })
+
+  test('renders CMS islands before resource localization so SSR-generated cms image urls are exported', async () => {
+    const workspace = createAgentWorkspace('Static Export CMS Islands', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(
+      join(workspaceFilesDir, 'index.html'),
+      `<!doctype html>
+      <html>
+        <body>
+          <section>
+            <cms-content catalog-id="news" page-index="0" page-size="1">
+              <template v-slot:default="{ items }">
+                <article>
+                  <img :src="items[0]?.listLogoUrl" alt="banner">
+                  <h2>{{ items[0]?.title }}</h2>
+                </article>
+              </template>
+            </cms-content>
+          </section>
+        </body>
+      </html>`,
+      'utf-8',
+    )
+
+    const fetchAsset = mock(async (assetUrl: string) => {
+      expect(assetUrl).toBe('https://cms.example.com/upload/resources/image/banner.jpg')
+      return new Response('cms-image', {
+        status: 200,
+        headers: {
+          'content-type': 'image/png',
+        },
+      })
+    })
+
+    const {
+      PageBuilderStaticExportService,
+    } = await import('./page-builder-static-export-service')
+    const {
+      getPageBuilderStaticExportReportPath,
+      getPageBuilderStaticExportStagingDir,
+    } = await import('./page-builder-static-export-paths')
+
+    const service = new PageBuilderStaticExportService({
+      cmsGatewayFactory: () => ({
+        fetchAsset,
+      }),
+      cmsQueryAdapterFactory: () => ({
+        async listCatalogs() {
+          return {
+            items: [],
+            tree: [],
+          }
+        },
+        async listContents() {
+          return {
+            pageIndex: 0,
+            pageSize: 1,
+            total: 1,
+            totalPages: 1,
+            items: [
+              {
+                id: 'content-1',
+                catalogId: 'news',
+                title: 'Launch Update',
+                summary: 'Quarterly launch update',
+                publishUrl: 'https://example.com/news/launch-update',
+                listLogoUrl: 'https://cms.example.com/upload/resources/image/banner.jpg',
+              },
+            ],
+          }
+        },
+      }),
+      randomUUID: () => 'job-cms-islands-success',
+    })
+
+    const createdJob = service.createJob(workspace)
+    const finishedJob = await waitForTerminalJob(service, workspace.id, createdJob.jobId)
+
+    expect(finishedJob.status).toBe('completed')
+
+    const stagedHtml = readFileSync(join(getPageBuilderStaticExportStagingDir(createdJob.jobId), 'index.html'), 'utf-8')
+    const report = JSON.parse(readFileSync(getPageBuilderStaticExportReportPath(createdJob.jobId), 'utf-8')) as {
+      localizedResources: Array<{ resourceUrl: string; via: string }>
+    }
+
+    expect(stagedHtml).toContain('Launch Update')
+    expect(stagedHtml).not.toContain('<cms-content')
+    expect(stagedHtml).not.toContain('https://cms.example.com/upload/resources/image/banner.jpg')
+    expect(report.localizedResources).toContainEqual(expect.objectContaining({
+      resourceUrl: 'https://cms.example.com/upload/resources/image/banner.jpg',
+      via: 'cms',
+    }))
+    expect(fetchAsset).toHaveBeenCalledTimes(1)
+  })
+
+  test('fails export with a structured CMS island failure when island prefetch fails', async () => {
+    const workspace = createAgentWorkspace('Static Export CMS Islands Failure', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(
+      join(workspaceFilesDir, 'index.html'),
+      `<!doctype html>
+      <html>
+        <body>
+          <cms-content catalog-id="broken" page-size="1">
+            <template v-slot:default="{ items }">
+              <article>{{ items[0]?.title }}</article>
+            </template>
+          </cms-content>
+        </body>
+      </html>`,
+      'utf-8',
+    )
+
+    const {
+      PageBuilderStaticExportService,
+    } = await import('./page-builder-static-export-service')
+    const {
+      getPageBuilderStaticExportReportPath,
+    } = await import('./page-builder-static-export-paths')
+
+    const service = new PageBuilderStaticExportService({
+      cmsGatewayFactory: () => ({
+        async fetchAsset() {
+          throw new Error('fetchAsset should not be called')
+        },
+      }),
+      cmsQueryAdapterFactory: () => ({
+        async listCatalogs() {
+          return {
+            items: [],
+            tree: [],
+          }
+        },
+        async listContents() {
+          throw new Error('upstream unavailable')
+        },
+      }),
+      randomUUID: () => 'job-cms-islands-failure',
+    })
+
+    const createdJob = service.createJob(workspace)
+    const finishedJob = await waitForTerminalJob(service, workspace.id, createdJob.jobId)
+
+    expect(finishedJob.status).toBe('failed')
+    expect(finishedJob.errorMessage).toContain('upstream unavailable')
+    expect(finishedJob.failure).toEqual(expect.objectContaining({
+      code: 'cms-island-prefetch-failed',
+      component: 'cms-content',
+      props: {
+        catalogId: 'broken',
+        pageSize: '1',
+      },
+      message: 'upstream unavailable',
+    }))
+
+    const report = JSON.parse(readFileSync(getPageBuilderStaticExportReportPath(createdJob.jobId), 'utf-8')) as {
+      failures: Array<{
+        code: string
+        message: string
+        component?: string
+        props?: Record<string, string>
+      }>
+      summary: {
+        failureCount: number
+      }
+    }
+
+    expect(report.summary.failureCount).toBe(1)
+    expect(report.failures).toHaveLength(1)
+    expect(report.failures).toContainEqual(expect.objectContaining({
+      code: 'cms-island-prefetch-failed',
+      component: 'cms-content',
+      props: {
+        catalogId: 'broken',
+        pageSize: '1',
+      },
+      message: 'upstream unavailable',
+    }))
   })
 
   test('uses the workspace name and export timestamp for the downloaded archive file name', async () => {
