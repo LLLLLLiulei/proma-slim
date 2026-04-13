@@ -319,6 +319,32 @@ export function getWorkspaceFilesDir(slug: string): string {
 }
 
 /**
+ * 获取工作区文件派生元数据目录路径
+ *
+ * @param slug 工作区 slug
+ * @returns ~/.proma/agent-workspaces/{slug}/workspace-files/.proma/
+ */
+export function getWorkspaceFilesDerivedDir(slug: string): string {
+  const dir = join(getWorkspaceFilesDir(slug), '.proma')
+
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true })
+  }
+
+  return dir
+}
+
+/**
+ * 获取工作区 CMS rendering manifest 文件路径
+ *
+ * @param slug 工作区 slug
+ * @returns ~/.proma/agent-workspaces/{slug}/workspace-files/.proma/cms-rendering-manifest.json
+ */
+export function getWorkspaceCmsRenderingManifestPath(slug: string): string {
+  return join(getWorkspaceFilesDerivedDir(slug), 'cms-rendering-manifest.json')
+}
+
+/**
  * 获取工作区本地记忆目录路径
  *
  * 简化版 Web 运行时没有接回原版的云记忆 MCP，因此需要为每个工作区显式

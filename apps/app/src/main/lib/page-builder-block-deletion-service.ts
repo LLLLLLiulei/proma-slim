@@ -1,9 +1,10 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { parseHTML } from 'linkedom'
 import type { AgentWorkspace, PageBuilderBlockDeletionPayload } from '@proma/shared'
-import { getWorkspaceFilesDir } from './config-paths'
-import { getWorkspacePreviewState, type WorkspacePreviewState } from './workspace-preview-service'
+import { type WorkspacePreviewState } from './workspace-preview-service'
+import {
+  PageBuilderWorkspaceHtmlServiceError,
+  pageBuilderWorkspaceHtmlService,
+} from './page-builder-workspace-html-service'
 
 type PageBuilderBlockDeletionErrorCode =
   | 'entry-missing'
@@ -58,17 +59,17 @@ export function savePageBuilderBlockDeletion(
   workspace: AgentWorkspace,
   payload: PageBuilderBlockDeletionPayload,
 ): WorkspacePreviewState {
-  const entryPath = join(getWorkspaceFilesDir(workspace.slug), 'index.html')
-  if (!existsSync(entryPath)) {
-    throw new PageBuilderBlockDeletionError('entry-missing', '预览入口不存在')
+  try {
+    return pageBuilderWorkspaceHtmlService.mutate(workspace, {
+      transform(currentHtml) {
+        return applyPageBuilderBlockDeletion(currentHtml, payload.selector)
+      },
+    }).previewState
+  } catch (error) {
+    if (error instanceof PageBuilderWorkspaceHtmlServiceError && error.code === 'entry-missing') {
+      throw new PageBuilderBlockDeletionError('entry-missing', '预览入口不存在')
+    }
+
+    throw error
   }
-
-  const currentHtml = readFileSync(entryPath, 'utf-8')
-  const nextHtml = applyPageBuilderBlockDeletion(currentHtml, payload.selector)
-
-  if (nextHtml !== currentHtml) {
-    writeFileSync(entryPath, nextHtml, 'utf-8')
-  }
-
-  return getWorkspacePreviewState(workspace)
 }

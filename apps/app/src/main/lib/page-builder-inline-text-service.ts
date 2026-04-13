@@ -1,9 +1,10 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { parseHTML } from 'linkedom'
 import type { AgentWorkspace, PageBuilderInlineTextSavePayload, PageBuilderInlineTextTargetDescriptor } from '@proma/shared'
-import { getWorkspaceFilesDir } from './config-paths'
-import { getWorkspacePreviewState, type WorkspacePreviewState } from './workspace-preview-service'
+import { type WorkspacePreviewState } from './workspace-preview-service'
+import {
+  PageBuilderWorkspaceHtmlServiceError,
+  pageBuilderWorkspaceHtmlService,
+} from './page-builder-workspace-html-service'
 
 const EDITABLE_TEXT_TAGS = new Set(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'a', 'button', 'span', 'label', 'div'])
 
@@ -132,22 +133,22 @@ export function savePageBuilderInlineText(
   workspace: AgentWorkspace,
   payload: PageBuilderInlineTextSavePayload,
 ): WorkspacePreviewState {
-  const entryPath = join(getWorkspaceFilesDir(workspace.slug), 'index.html')
-  if (!existsSync(entryPath)) {
-    throw new PageBuilderInlineTextSaveError('entry-missing', '预览入口不存在')
+  try {
+    return pageBuilderWorkspaceHtmlService.mutate(workspace, {
+      transform(currentHtml) {
+        return applyPageBuilderInlineTextEdit(
+          currentHtml,
+          payload.selector,
+          payload.textTargetDescriptor,
+          payload.nextText,
+        )
+      },
+    }).previewState
+  } catch (error) {
+    if (error instanceof PageBuilderWorkspaceHtmlServiceError && error.code === 'entry-missing') {
+      throw new PageBuilderInlineTextSaveError('entry-missing', '预览入口不存在')
+    }
+
+    throw error
   }
-
-  const currentHtml = readFileSync(entryPath, 'utf-8')
-  const nextHtml = applyPageBuilderInlineTextEdit(
-    currentHtml,
-    payload.selector,
-    payload.textTargetDescriptor,
-    payload.nextText,
-  )
-
-  if (nextHtml !== currentHtml) {
-    writeFileSync(entryPath, nextHtml, 'utf-8')
-  }
-
-  return getWorkspacePreviewState(workspace)
 }

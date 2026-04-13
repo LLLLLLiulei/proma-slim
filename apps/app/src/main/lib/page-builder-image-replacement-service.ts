@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { extname, join } from 'node:path'
 import { parseHTML } from 'linkedom'
 import type {
@@ -8,7 +8,11 @@ import type {
   PageBuilderImageTargetDescriptor,
 } from '@proma/shared'
 import { getWorkspaceFilesDir } from './config-paths'
-import { getWorkspacePreviewState, type WorkspacePreviewState } from './workspace-preview-service'
+import { type WorkspacePreviewState } from './workspace-preview-service'
+import {
+  PageBuilderWorkspaceHtmlServiceError,
+  pageBuilderWorkspaceHtmlService,
+} from './page-builder-workspace-html-service'
 
 type PageBuilderImageReplacementErrorCode =
   | 'entry-missing'
@@ -148,28 +152,31 @@ export async function savePageBuilderImageReplacement(
   payload: PageBuilderImageReplacementPayload,
   file: File,
 ): Promise<WorkspacePreviewState> {
-  const entryPath = join(getWorkspaceFilesDir(workspace.slug), 'index.html')
-  if (!existsSync(entryPath)) {
-    throw new PageBuilderImageReplacementError('entry-missing', '预览入口不存在')
-  }
-
   const workspaceFilesDir = getWorkspaceFilesDir(workspace.slug)
   const assetsDir = join(workspaceFilesDir, 'assets')
-  const currentHtml = readFileSync(entryPath, 'utf-8')
   const { assetRelativePath, assetPreviewPath } = buildWorkspaceAssetPath(file)
-  const nextHtml = applyPageBuilderImageReplacement(
-    currentHtml,
-    payload.selector,
-    payload.imageTargetDescriptor,
-    assetPreviewPath,
-  )
 
   mkdirSync(assetsDir, { recursive: true })
   writeFileSync(join(workspaceFilesDir, assetRelativePath), Buffer.from(await file.arrayBuffer()))
 
-  if (nextHtml !== currentHtml) {
-    writeFileSync(entryPath, nextHtml, 'utf-8')
-  }
+  try {
+    return pageBuilderWorkspaceHtmlService.mutate(workspace, {
+      transform(currentHtml) {
+        return applyPageBuilderImageReplacement(
+          currentHtml,
+          payload.selector,
+          payload.imageTargetDescriptor,
+          assetPreviewPath,
+        )
+      },
+    }).previewState
+  } catch (error) {
+    rmSync(join(workspaceFilesDir, assetRelativePath), { force: true })
 
-  return getWorkspacePreviewState(workspace)
+    if (error instanceof PageBuilderWorkspaceHtmlServiceError && error.code === 'entry-missing') {
+      throw new PageBuilderImageReplacementError('entry-missing', '预览入口不存在')
+    }
+
+    throw error
+  }
 }

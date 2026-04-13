@@ -1,6 +1,6 @@
-const CMS_ISLAND_SELECTOR = 'cms-catalog, cms-content'
+export const CMS_ISLAND_SELECTOR = 'cms-catalog, cms-content'
 
-const CMS_ISLAND_ATTRIBUTES = {
+export const CMS_ISLAND_ATTRIBUTES = {
   'cms-catalog': ['level', 'parent-id', 'content-type', 'search-keyword', 'take'],
   'cms-content': [
     'catalog-id',
@@ -36,7 +36,7 @@ export function scanCmsIslandsFromDom(root: ParentNode): CmsIslandScanResult[] {
   })
 }
 
-function isTopLevelCmsIsland(element: Element): boolean {
+export function isTopLevelCmsIsland(element: Element): boolean {
   return element.parentElement?.closest(CMS_ISLAND_SELECTOR) == null
 }
 
@@ -63,6 +63,6 @@ function normalizeCmsIslandProps(
   return props
 }
 
-function toCamelCase(value: string): string {
+export function toCamelCase(value: string): string {
   return value.replace(/-([a-z])/g, (_, char: string) => char.toUpperCase())
 }
