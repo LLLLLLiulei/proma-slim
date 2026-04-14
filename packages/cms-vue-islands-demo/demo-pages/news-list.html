@@ -1,0 +1,31 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>News List</title>
+    <style>
+      body { font-family: ui-sans-serif, system-ui, sans-serif; margin: 40px; }
+      .news-list { display: grid; gap: 16px; }
+      .news-card { padding: 16px; border: 1px solid #cbd5e1; border-radius: 16px; }
+      .news-card img { max-width: 100%; border-radius: 12px; margin-bottom: 12px; }
+      .news-card h2 { margin: 0 0 8px; }
+    </style>
+  </head>
+  <body>
+    <h1>Content Demo</h1>
+    <cms-content catalog-id="news" page-size="2">
+      <template v-slot:default="{ items }">
+        <section class="news-list">
+          <article v-for="item in items" :key="item.id" class="news-card">
+            <img v-if="item.listLogoUrl" :src="item.listLogoUrl" :alt="item.title" />
+            <h2><a :href="item.publishUrl">{{ item.title }}</a></h2>
+            <p>{{ item.summary }}</p>
+          </article>
+        </section>
+      </template>
+      <template v-slot:empty>
+        <p>No content found.</p>
+      </template>
+    </cms-content>
+  </body>
+  </html>

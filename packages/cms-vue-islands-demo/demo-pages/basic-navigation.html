@@ -1,0 +1,25 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Basic Navigation</title>
+    <style>
+      body { font-family: ui-sans-serif, system-ui, sans-serif; margin: 40px; }
+      .site-nav { display: flex; gap: 12px; }
+      .site-nav a { color: #0f172a; text-decoration: none; padding: 6px 10px; border-radius: 999px; background: #e2e8f0; }
+    </style>
+  </head>
+  <body>
+    <h1>Navigation Demo</h1>
+    <cms-catalog level="root" take="2">
+      <template v-slot:default="{ items }">
+        <nav class="site-nav">
+          <a v-for="item in items" :key="item.id" :href="item.path">{{ item.name }}</a>
+        </nav>
+      </template>
+      <template v-slot:error="{ error }">
+        <p>{{ error.message }}</p>
+      </template>
+    </cms-catalog>
+  </body>
+  </html>

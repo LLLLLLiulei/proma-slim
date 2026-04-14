@@ -1,0 +1,382 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Many Islands Performance Demo</title>
+    <style>
+      body {
+        font-family: ui-sans-serif, system-ui, sans-serif;
+        margin: 0;
+        color: #0f172a;
+        background: #f8fafc;
+      }
+
+      main {
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: 40px 24px 64px;
+      }
+
+      header {
+        margin-bottom: 32px;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin-top: 0;
+      }
+
+      .hero-copy {
+        max-width: 760px;
+        color: #475569;
+      }
+
+      .islands-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 20px;
+      }
+
+      .panel {
+        padding: 20px;
+        border: 1px solid #dbe4f0;
+        border-radius: 18px;
+        background: #ffffff;
+        box-shadow: 0 10px 30px rgba(15, 23, 42, 0.04);
+      }
+
+      .panel-title {
+        margin-bottom: 12px;
+        font-size: 18px;
+      }
+
+      .panel-note {
+        margin-bottom: 16px;
+        color: #64748b;
+        font-size: 14px;
+      }
+
+      .catalog-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .catalog-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border-radius: 999px;
+        background: #e2e8f0;
+        color: #0f172a;
+        text-decoration: none;
+      }
+
+      .catalog-meta {
+        color: #475569;
+        font-size: 12px;
+      }
+
+      .catalog-list,
+      .story-list {
+        display: grid;
+        gap: 12px;
+      }
+
+      .catalog-card,
+      .story-card,
+      .empty-card {
+        padding: 14px;
+        border-radius: 14px;
+        border: 1px solid #dbe4f0;
+        background: #f8fafc;
+      }
+
+      .catalog-card h3,
+      .story-card h3 {
+        margin-bottom: 8px;
+        font-size: 16px;
+      }
+
+      .story-card p,
+      .catalog-card p,
+      .empty-card p {
+        margin-bottom: 0;
+        color: #475569;
+      }
+
+      .empty-card {
+        border-style: dashed;
+      }
+
+      .metrics {
+        margin-top: 32px;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 12px;
+      }
+
+      .metrics strong {
+        display: block;
+        font-size: 28px;
+        margin-bottom: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <p>Performance-focused author HTML page for preview CSR and export SSR comparisons.</p>
+        <h1>Many Islands Performance Demo</h1>
+        <p class="hero-copy">
+          This page intentionally mounts a larger number of CMS islands in one author template so we can compare
+          preview hydration cost, server-rendered export output, and empty-state handling under more realistic page
+          density.
+        </p>
+      </header>
+
+      <section class="islands-grid">
+        <article class="panel">
+          <h2 class="panel-title">1. Root Navigation</h2>
+          <p class="panel-note">Top-level navigation rendered from root catalogs.</p>
+          <cms-catalog level="root" take="4">
+            <template v-slot:default="{ items }">
+              <nav class="catalog-row">
+                <a v-for="item in items" :key="item.id" :href="item.path" class="catalog-pill">
+                  <span>{{ item.name }}</span>
+                  <span class="catalog-meta">{{ item.total }}</span>
+                </a>
+              </nav>
+            </template>
+          </cms-catalog>
+        </article>
+
+        <article class="panel">
+          <h2 class="panel-title">2. Page Catalogs</h2>
+          <p class="panel-note">Filter catalogs by page-like content type.</p>
+          <cms-catalog level="root" content-type="page" take="3">
+            <template v-slot:default="{ items }">
+              <div class="catalog-list">
+                <article v-for="item in items" :key="item.id" class="catalog-card">
+                  <h3>{{ item.name }}</h3>
+                  <p>{{ item.contentTypeName }} content at {{ item.path }}</p>
+                </article>
+              </div>
+            </template>
+          </cms-catalog>
+        </article>
+
+        <article class="panel">
+          <h2 class="panel-title">3. About Children</h2>
+          <p class="panel-note">Child navigation scoped under the About catalog.</p>
+          <cms-catalog level="children" parent-id="about" take="4">
+            <template v-slot:default="{ items }">
+              <div class="catalog-row">
+                <a v-for="item in items" :key="item.id" :href="item.path" class="catalog-pill">
+                  {{ item.name }}
+                </a>
+              </div>
+            </template>
+            <template v-slot:empty>
+              <div class="empty-card">
+                <p>No child catalogs were returned.</p>
+              </div>
+            </template>
+          </cms-catalog>
+        </article>
+
+        <article class="panel">
+          <h2 class="panel-title">4. Catalog Search</h2>
+          <p class="panel-note">Keyword search against catalog names.</p>
+          <cms-catalog search-keyword="pro" take="4">
+            <template v-slot:default="{ items }">
+              <div class="catalog-list">
+                <article v-for="item in items" :key="item.id" class="catalog-card">
+                  <h3>{{ item.name }}</h3>
+                  <p>{{ item.path }}</p>
+                </article>
+              </div>
+            </template>
+          </cms-catalog>
+        </article>
+
+        <article class="panel">
+          <h2 class="panel-title">5. News Feed</h2>
+          <p class="panel-note">Recent news list with three records.</p>
+          <cms-content catalog-id="news" page-size="3">
+            <template v-slot:default="{ items }">
+              <div class="story-list">
+                <article v-for="item in items" :key="item.id" class="story-card">
+                  <h3>{{ item.title }}</h3>
+                  <p>{{ item.summary }}</p>
+                </article>
+              </div>
+            </template>
+          </cms-content>
+        </article>
+
+        <article class="panel">
+          <h2 class="panel-title">6. Hot News</h2>
+          <p class="panel-note">Hot sort path exercises a different server-side query branch.</p>
+          <cms-content catalog-id="news" page-size="2" content-select-type="Hot">
+            <template v-slot:default="{ items }">
+              <div class="story-list">
+                <article v-for="item in items" :key="item.id" class="story-card">
+                  <h3>{{ item.title }}</h3>
+                  <p>{{ item.summary }}</p>
+                </article>
+              </div>
+            </template>
+          </cms-content>
+        </article>
+
+        <article class="panel">
+          <h2 class="panel-title">7. Launch Spotlight</h2>
+          <p class="panel-note">Single-item title filter.</p>
+          <cms-content catalog-id="news" title="Launch" page-size="1">
+            <template v-slot:default="{ items }">
+              <article v-for="item in items" :key="item.id" class="story-card">
+                <h3>{{ item.title }}</h3>
+                <p>{{ item.summary }}</p>
+              </article>
+            </template>
+          </cms-content>
+        </article>
+
+        <article class="panel">
+          <h2 class="panel-title">8. Results Spotlight</h2>
+          <p class="panel-note">Keyword filter against content summary.</p>
+          <cms-content catalog-id="news" keyword="business" page-size="1">
+            <template v-slot:default="{ items }">
+              <article v-for="item in items" :key="item.id" class="story-card">
+                <h3>{{ item.title }}</h3>
+                <p>{{ item.summary }}</p>
+              </article>
+            </template>
+          </cms-content>
+        </article>
+
+        <article class="panel">
+          <h2 class="panel-title">9. Second Page</h2>
+          <p class="panel-note">Pagination path for a later slice of the same catalog.</p>
+          <cms-content catalog-id="news" page-size="2" page-index="2">
+            <template v-slot:default="{ items }">
+              <div class="story-list">
+                <article v-for="item in items" :key="item.id" class="story-card">
+                  <h3>{{ item.title }}</h3>
+                  <p>{{ item.summary }}</p>
+                </article>
+              </div>
+            </template>
+          </cms-content>
+        </article>
+
+        <article class="panel">
+          <h2 class="panel-title">10. About Content</h2>
+          <p class="panel-note">Page-style content rendered with the same island primitive.</p>
+          <cms-content catalog-id="about" page-size="1">
+            <template v-slot:default="{ items }">
+              <article v-for="item in items" :key="item.id" class="story-card">
+                <h3>{{ item.title }}</h3>
+                <p>{{ item.summary }}</p>
+              </article>
+            </template>
+          </cms-content>
+        </article>
+
+        <article class="panel">
+          <h2 class="panel-title">11. Missing Content</h2>
+          <p class="panel-note">Intentional empty-state content query.</p>
+          <cms-content catalog-id="missing" page-size="2">
+            <template v-slot:default="{ items }">
+              <div class="story-list">
+                <article v-for="item in items" :key="item.id" class="story-card">
+                  <h3>{{ item.title }}</h3>
+                  <p>{{ item.summary }}</p>
+                </article>
+              </div>
+            </template>
+            <template v-slot:empty>
+              <div class="empty-card">
+                <p>No entries returned for the synthetic missing catalog.</p>
+              </div>
+            </template>
+          </cms-content>
+        </article>
+
+        <article class="panel">
+          <h2 class="panel-title">12. Product Content Gap</h2>
+          <p class="panel-note">Catalog exists but currently has no mock content records.</p>
+          <cms-content catalog-id="products" page-size="2">
+            <template v-slot:default="{ items }">
+              <div class="story-list">
+                <article v-for="item in items" :key="item.id" class="story-card">
+                  <h3>{{ item.title }}</h3>
+                  <p>{{ item.summary }}</p>
+                </article>
+              </div>
+            </template>
+            <template v-slot:empty>
+              <div class="empty-card">
+                <p>Products has metadata but no content rows in the mock dataset yet.</p>
+              </div>
+            </template>
+          </cms-content>
+        </article>
+
+        <article class="panel">
+          <h2 class="panel-title">13. All Children</h2>
+          <p class="panel-note">Children-only listing without a parent filter.</p>
+          <cms-catalog level="children" take="4">
+            <template v-slot:default="{ items }">
+              <div class="catalog-list">
+                <article v-for="item in items" :key="item.id" class="catalog-card">
+                  <h3>{{ item.name }}</h3>
+                  <p>Child path: {{ item.path }}</p>
+                </article>
+              </div>
+            </template>
+          </cms-catalog>
+        </article>
+
+        <article class="panel">
+          <h2 class="panel-title">14. No Match Catalog Search</h2>
+          <p class="panel-note">Intentional empty-state catalog query.</p>
+          <cms-catalog search-keyword="investor" take="4">
+            <template v-slot:default="{ items }">
+              <div class="catalog-list">
+                <article v-for="item in items" :key="item.id" class="catalog-card">
+                  <h3>{{ item.name }}</h3>
+                  <p>{{ item.path }}</p>
+                </article>
+              </div>
+            </template>
+            <template v-slot:empty>
+              <div class="empty-card">
+                <p>No catalogs matched the investor keyword search.</p>
+              </div>
+            </template>
+          </cms-catalog>
+        </article>
+      </section>
+
+      <section class="metrics">
+        <article class="panel">
+          <strong>14</strong>
+          <p>Total islands on this page.</p>
+        </article>
+        <article class="panel">
+          <strong>8</strong>
+          <p>`cms-content` islands with multiple query patterns.</p>
+        </article>
+        <article class="panel">
+          <strong>6</strong>
+          <p>`cms-catalog` islands including filtered and empty results.</p>
+        </article>
+      </section>
+    </main>
+  </body>
+</html>

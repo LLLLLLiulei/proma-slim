@@ -1,14 +1,12 @@
-import { defineComponent, inject, nextTick, onMounted, onServerPrefetch, ref, type ComponentObjectPropsOptions } from 'vue'
-import { createSlotScope, renderCmsSlot, useInjectedCmsClient } from './helpers'
-import {
-  CMS_ISLAND_SETTLED_CALLBACK_KEY,
-  type CmsSlotError,
-  type CmsSlotScope,
-  type CmsRuntimeClient,
-} from '../runtime/cms-runtime-client'
+import { defineComponent, onMounted, onServerPrefetch, ref } from 'vue'
+import type { ComponentObjectPropsOptions } from 'vue'
+import { renderCmsSlot, useInjectedCmsClient } from './helpers'
+import type { CmsCatalogItemViewModel, CmsContentItemViewModel, CmsRuntimeClient, CmsSlotError } from '../runtime/cms-runtime-client'
+
+type CmsResourceItem = CmsCatalogItemViewModel | CmsContentItemViewModel
 
 export function createCmsResourceComponent<
-  TItem,
+  TItem extends CmsResourceItem,
   TProps extends ComponentObjectPropsOptions = ComponentObjectPropsOptions,
 >(options: {
   name: string
@@ -21,21 +19,9 @@ export function createCmsResourceComponent<
     props: options.props,
     setup(props, { slots }) {
       const client = useInjectedCmsClient()
-      const notifyIslandSettled = inject(CMS_ISLAND_SETTLED_CALLBACK_KEY, null)
       const items = ref<TItem[]>([])
       const loading = ref(true)
       const error = ref<CmsSlotError | null>(null)
-      let settledNotified = false
-
-      const reportIslandSettled = async () => {
-        if (settledNotified || !notifyIslandSettled) {
-          return
-        }
-
-        settledNotified = true
-        await nextTick()
-        notifyIslandSettled()
-      }
 
       const load = async () => {
         try {
@@ -49,18 +35,13 @@ export function createCmsResourceComponent<
           items.value = []
         } finally {
           loading.value = false
-          await reportIslandSettled()
         }
       }
 
-      onServerPrefetch(load)
       onMounted(load)
+      onServerPrefetch(load)
 
-      return () =>
-        renderCmsSlot(
-          createSlotScope(items.value, loading.value, error.value) as CmsSlotScope<TItem>,
-          slots,
-        )
+      return () => renderCmsSlot(items.value, loading.value, error.value, slots)
     },
   })
 }

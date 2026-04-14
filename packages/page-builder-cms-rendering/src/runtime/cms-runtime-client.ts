@@ -29,3 +29,7 @@ export type CmsComponentItemViewModel = CmsCatalogItemViewModel | CmsContentItem
 export const CMS_RUNTIME_CLIENT_KEY: InjectionKey<CmsRuntimeClient> = Symbol(
   'page-builder-cms-rendering.cms-runtime-client',
 )
+
+export const CMS_ISLAND_SETTLED_CALLBACK_KEY: InjectionKey<(() => void) | null> = Symbol(
+  'page-builder-cms-rendering.cms-island-settled-callback',
+)

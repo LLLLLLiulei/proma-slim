@@ -1,0 +1,21 @@
+{
+  "name": "@proma/cms-vue-islands-demo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun src/cli/dev.ts",
+    "export": "bun src/cli/export.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@vue/compiler-dom": "^3.5.13",
+    "@vue/server-renderer": "^3.5.13",
+    "linkedom": "^0.18.12",
+    "vue": "^3.5.13"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.0.0"
+  }
+}

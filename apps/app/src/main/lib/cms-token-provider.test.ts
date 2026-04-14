@@ -96,7 +96,13 @@ describe('CmsTokenProvider', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
 
-    resolveRequest?.(new Response(JSON.stringify({
+    const completePendingRequest = resolveRequest as ((response: Response) => void) | null
+
+    if (!completePendingRequest) {
+      throw new Error('expected a pending token refresh request')
+    }
+
+    completePendingRequest(new Response(JSON.stringify({
       status: 1,
       message: '操作成功!',
       access_token: 'Bearer slim-token-1',

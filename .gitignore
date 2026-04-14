@@ -51,19 +51,5 @@ node_modules*
 
 .tmp-proma-test/
 prompt.txt
-.superpowers/brainstorm/
+.superpowers/
 .playwright-mcp/
-CMS_INTEGRATION_GUIDE.md
-DATA_FLOW_ANALYSIS.md
-FILE_MANIFEST.md
-IMPLEMENTATION_SUMMARY.md
-QUICK_REFERENCE.txt
-README_数据流分析.md
-RESEARCH_FINDINGS.txt
-RESEARCH_INDEX.md
-SKILL_INJECTION_FEASIBILITY.md
-SUMMARY.md
-docs/CMS-EXECUTIVE-SUMMARY.md
-docs/CMS-EXPLORATION-INDEX.md
-docs/CMS-QUICK-REFERENCE.md
-docs/cms对接需求.md

@@ -10,7 +10,12 @@ function getRuleBody(css: string, selector: string): string {
     throw new Error(`Missing CSS rule for selector: ${selector}`)
   }
 
-  return match[1]
+  const ruleBody = match[1]
+  if (typeof ruleBody !== 'string') {
+    throw new Error(`Missing CSS rule body for selector: ${selector}`)
+  }
+
+  return ruleBody
 }
 
 describe('page builder home focus styles', () => {

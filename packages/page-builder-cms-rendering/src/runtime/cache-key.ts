@@ -5,7 +5,7 @@ import type {
 
 export function createCatalogQueryCacheKey(query: PageBuilderCmsCatalogQuery = {}): string {
   return serializeCacheKey('catalogs', {
-    ...(query as Record<string, unknown>),
+    ...query,
     contentType: normalizeOptionalString(query.contentType),
     searchKeyword: normalizeOptionalString(query.searchKeyword),
   })
@@ -13,7 +13,7 @@ export function createCatalogQueryCacheKey(query: PageBuilderCmsCatalogQuery = {
 
 export function createContentQueryCacheKey(query: PageBuilderCmsContentQuery): string {
   return serializeCacheKey('contents', {
-    ...(query as Record<string, unknown>),
+    ...query,
     keyword: normalizeOptionalString(query.keyword),
   })
 }

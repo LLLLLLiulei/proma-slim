@@ -1,5 +1,6 @@
 packages:
   - "packages/shared"
   - "packages/ui"
+  - "packages/cms-vue-islands-demo"
   - "packages/page-builder-cms-rendering"
   - "apps/*"

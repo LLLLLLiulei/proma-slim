@@ -2,7 +2,10 @@ import * as Vue from 'vue'
 import { CmsCatalog } from '../components/cms-catalog'
 import { CmsContent } from '../components/cms-content'
 import { createBrowserCmsClient } from '../runtime/browser-cms-client'
-import { CMS_RUNTIME_CLIENT_KEY } from '../runtime/cms-runtime-client'
+import {
+  CMS_ISLAND_SETTLED_CALLBACK_KEY,
+  CMS_RUNTIME_CLIENT_KEY,
+} from '../runtime/cms-runtime-client'
 import { compileIslandTemplate } from '../template/compile-island-template'
 import { scanCmsIslandsFromDom } from '../template/scan-cms-islands-dom'
 
@@ -62,20 +65,43 @@ function bootstrapCmsRenderingPreview(
   for (const island of islands) {
     try {
       const render = compileIslandTemplate(island.template)
-      const mountContainer = document.createElement('div')
-      mountContainer.setAttribute('data-proma-cms-rendering-island', island.component)
-      island.element.replaceWith(mountContainer)
+      const mountHost = island.element
+      mountHost.setAttribute('data-proma-cms-rendering-island', island.component)
+      let hostFinalized = false
+
+      const finalizeHost = () => {
+        if (hostFinalized) {
+          return
+        }
+
+        hostFinalized = true
+        replaceHostWithRenderedChildren(mountHost)
+        markIslandSettled()
+      }
 
       const app = Vue.createApp({ render })
       app.provide(CMS_RUNTIME_CLIENT_KEY, cmsClient)
+      app.provide(CMS_ISLAND_SETTLED_CALLBACK_KEY, finalizeHost)
       app.component('cms-catalog', CmsCatalog)
       app.component('cms-content', CmsContent)
-      app.mount(mountContainer)
-
-      void Vue.nextTick().then(markIslandSettled, markIslandSettled)
+      app.mount(mountHost)
     } catch (error) {
       console.error('[cms-rendering-preview] Failed to mount island:', error)
       markIslandSettled()
     }
   }
+}
+
+function replaceHostWithRenderedChildren(host: Element): void {
+  const ownerDocument = host.ownerDocument
+  if (!ownerDocument) {
+    return
+  }
+
+  const fragment = ownerDocument.createDocumentFragment()
+  while (host.firstChild) {
+    fragment.appendChild(host.firstChild)
+  }
+
+  host.replaceWith(fragment)
 }
