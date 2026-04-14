@@ -621,6 +621,7 @@ export function AgentView({
       userMessage: programmaticSendRequest.userMessage,
       composedUserMessage: programmaticSendRequest.composedUserMessage,
       mentionedSkills: programmaticSendRequest.mentionedSkills,
+      mentionedMcpServers: programmaticSendRequest.mentionedMcpServers ?? [],
       optimisticAttachments: [],
       attachmentFiles: [],
       clearComposerOnSuccess: false,

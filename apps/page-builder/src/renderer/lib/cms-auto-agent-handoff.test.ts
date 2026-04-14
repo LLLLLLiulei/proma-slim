@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { PageBuilderCmsSelectionResult } from '@proma/shared'
 import {
+  PAGE_BUILDER_CMS_AUTO_AGENT_HANDOFF_MCP_SERVER,
   buildPageBuilderCmsApplySkillInput,
   createPageBuilderCmsAutoAgentHandoffRequest,
 } from './cms-auto-agent-handoff'
@@ -72,6 +73,7 @@ describe('page-builder CMS auto handoff payloads', () => {
       requestId: 'handoff-1',
       userMessage: '请根据刚确认的 CMS 选择结果，判断如何应用到当前区块。',
       mentionedSkills: ['cms-binding-apply'],
+      mentionedMcpServers: [PAGE_BUILDER_CMS_AUTO_AGENT_HANDOFF_MCP_SERVER],
     })
     expect(extractSkillInputFromComposedMessage(request.composedUserMessage)).toEqual({
       version: 1,

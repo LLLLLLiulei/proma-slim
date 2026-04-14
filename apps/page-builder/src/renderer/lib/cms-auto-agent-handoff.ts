@@ -6,8 +6,11 @@ import type {
 } from '@proma/shared'
 import {
   PAGE_BUILDER_CMS_APPLY_SKILL_CONTRACT_VERSION,
+  PAGE_BUILDER_CMS_AUTO_AGENT_HANDOFF_MCP_SERVER,
   PAGE_BUILDER_CMS_AUTO_AGENT_HANDOFF_SKILL,
 } from '@proma/shared'
+
+export { PAGE_BUILDER_CMS_AUTO_AGENT_HANDOFF_MCP_SERVER } from '@proma/shared'
 
 export const PAGE_BUILDER_CMS_AUTO_AGENT_HANDOFF_MESSAGE = '请根据刚确认的 CMS 选择结果，判断如何应用到当前区块。'
 
@@ -72,5 +75,6 @@ export function createPageBuilderCmsAutoAgentHandoffRequest(
     userMessage: PAGE_BUILDER_CMS_AUTO_AGENT_HANDOFF_MESSAGE,
     composedUserMessage: `<cms_binding_apply_input>${JSON.stringify(skillInput)}</cms_binding_apply_input>`,
     mentionedSkills: [PAGE_BUILDER_CMS_AUTO_AGENT_HANDOFF_SKILL],
+    mentionedMcpServers: [PAGE_BUILDER_CMS_AUTO_AGENT_HANDOFF_MCP_SERVER],
   }
 }

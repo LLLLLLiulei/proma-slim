@@ -76,6 +76,13 @@ import {
   resolvePageBuilderPlaywrightMcpUrl,
 } from './page-builder-runtime-playwright'
 import { getWorkspacePreviewState } from './workspace-preview-service'
+import { resolvePageBuilderCmsConfig } from './page-builder-cms-config'
+import { CmsGateway } from './cms-gateway'
+import {
+  buildCmsRuntimeToolBundle,
+  CMS_RUNTIME_SERVER_NAME,
+  type CmsRuntimeToolBundle,
+} from './cms-sdk-tools'
 
 type AgentMcpServerMap = Record<string, AgentMcpServerConfig>
 
@@ -189,6 +196,27 @@ function buildWorkspaceMcpStateLines(servers: AgentMcpServerMap): string[] {
     return detail.length > 0
       ? `- ${name} (${type}, 已启用): ${detail}`
       : `- ${name} (${type}, 已启用)`
+  })
+}
+
+function resolveCmsRuntimeToolBundle(
+  workspace: import('@proma/shared').AgentWorkspace,
+): CmsRuntimeToolBundle | null {
+  if (workspace.template !== 'page-builder') {
+    return null
+  }
+
+  const cmsConfig = resolvePageBuilderCmsConfig()
+  if (!cmsConfig) {
+    return null
+  }
+
+  const gateway = new CmsGateway({
+    config: cmsConfig,
+  })
+
+  return buildCmsRuntimeToolBundle(gateway, {
+    workspace,
   })
 }
 
@@ -729,6 +757,13 @@ export class AgentOrchestrator {
     const isPageBuilderWorkspace = workspaceRuntime.workspace.template === 'page-builder'
     const priorMessages = getAgentSessionMessages(sessionId)
     const isFirstUserTurn = !priorMessages.some((message) => message.role === 'user')
+    const cmsRuntimeToolBundle = resolveCmsRuntimeToolBundle(workspaceRuntime.workspace)
+    const availableWorkspaceMcpServers: AgentMcpServerMap = {
+      ...workspaceRuntime.mcpServers,
+      ...(cmsRuntimeToolBundle ? {
+        [CMS_RUNTIME_SERVER_NAME]: cmsRuntimeToolBundle.mcpServer,
+      } : {}),
+    }
     const rollbackPendingAttachments = () => {
       if (!attachments || attachments.length === 0) {
         return
@@ -854,8 +889,13 @@ export class AgentOrchestrator {
     let resolvedAdditionalDirectories: string[] = [...workspaceRuntime.additionalDirectories]
     const suppressedDefaultPageBuilderMcp = isPageBuilderWorkspace && isFirstUserTurn
     let resolvedMcpServers: AgentMcpServerMap = suppressedDefaultPageBuilderMcp
-      ? pickMcpServersByName(workspaceRuntime.mcpServers, mentionedMcpServers ?? [])
-      : { ...workspaceRuntime.mcpServers }
+      ? {
+          ...pickMcpServersByName(availableWorkspaceMcpServers, mentionedMcpServers ?? []),
+          ...(cmsRuntimeToolBundle ? {
+            [CMS_RUNTIME_SERVER_NAME]: cmsRuntimeToolBundle.mcpServer,
+          } : {}),
+        }
+      : { ...availableWorkspaceMcpServers }
 
     try {
       // 8. 构建 SDK query
@@ -863,7 +903,7 @@ export class AgentOrchestrator {
 
       if (suppressedDefaultPageBuilderMcp) {
         console.log(
-          `[Agent 编排] page-builder 首轮消息延后挂载默认 MCP（显式提及: ${mentionedMcpServers?.join(', ') || '无'}）`,
+          `[Agent 编排] page-builder 首轮消息延后挂载默认 MCP（显式提及: ${mentionedMcpServers?.join(', ') || '无'}；宿主 CMS runtime: ${cmsRuntimeToolBundle ? '保留' : '无'}）`,
         )
       }
 
@@ -1090,8 +1130,15 @@ export class AgentOrchestrator {
       const maxTurns = appSettings.agentMaxTurns && appSettings.agentMaxTurns > 0
         ? appSettings.agentMaxTurns
         : undefined
+      const runtimeAllowedTools = cmsRuntimeToolBundle
+        && Object.prototype.hasOwnProperty.call(resolvedMcpServers, CMS_RUNTIME_SERVER_NAME)
+        ? cmsRuntimeToolBundle.allowedTools
+        : []
       const allowedTools = !bypassPermissions && permissionMode !== 'auto'
-        ? [...SAFE_TOOLS]
+        ? Array.from(new Set([
+            ...SAFE_TOOLS,
+            ...runtimeAllowedTools,
+          ]))
         : undefined
       const queryOptions: ClaudeAgentQueryOptions = {
         sessionId,

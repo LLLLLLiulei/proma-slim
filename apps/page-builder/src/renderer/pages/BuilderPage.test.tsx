@@ -1774,6 +1774,7 @@ describe('BuilderPage', () => {
       programmaticSendRequest: expect.objectContaining({
         userMessage: '请根据刚确认的 CMS 选择结果，判断如何应用到当前区块。',
         mentionedSkills: ['cms-binding-apply'],
+        mentionedMcpServers: ['cms'],
       }),
     })
     expect(getLastCmsBrowserDialogProps()).toMatchObject({

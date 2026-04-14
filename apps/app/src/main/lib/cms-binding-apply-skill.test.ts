@@ -13,6 +13,14 @@ describe('cms-binding-apply skill contract docs', () => {
     expect(contract).toContain("'malformed-payload'")
   })
 
+  test('aligns mapping kinds to catalog-driven runtime bindings instead of fixed content ids', () => {
+    const contract = readRelativeText('../../../../../packages/shared/src/types/page-builder-cms-apply.ts')
+
+    expect(contract).toContain("'catalog-nav'")
+    expect(contract).toContain("'catalog-content-list'")
+    expect(contract).not.toContain("'fixed-contents-list'")
+  })
+
   test('documents fallback when blockTypeHint is missing', () => {
     const skill = readRelativeText('../../../default-skills/cms-binding-apply/SKILL.md')
 
@@ -21,19 +29,20 @@ describe('cms-binding-apply skill contract docs', () => {
     expect(skill).toContain('contents` favor `content-list`')
   })
 
-  test('documents that ready decisions should continue with workspace file edits', () => {
+  test('documents that ready decisions should call the formal apply tool', () => {
     const skill = readRelativeText('../../../default-skills/cms-binding-apply/SKILL.md')
 
-    expect(skill).toContain('If the result is `ready`, continue with the existing workspace editing flow')
-    expect(skill).toContain('workspace-files/index.html')
-    expect(skill).toContain('Do not reply that the skill is only a template')
+    expect(skill).toContain('`ready`')
+    expect(skill).toContain('`mcp__cms__apply_cms_binding`')
+    expect(skill).not.toContain('update the preview source files directly')
   })
 
-  test('includes contract examples for missing blockTypeHint and malformed payload', () => {
+  test('includes contract examples for missing blockTypeHint, malformed payload, and fixed-content incompatibility', () => {
     const examples = readRelativeText('../../../default-skills/cms-binding-apply/references/contract-examples.md')
 
     expect(examples).toContain('## Missing blockTypeHint fallback')
     expect(examples).toContain('## Malformed payload example')
+    expect(examples).toContain('fixed content')
     expect(examples).toContain('"reasonCode": "malformed-payload"')
   })
 })

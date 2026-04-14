@@ -419,6 +419,7 @@ describe('AgentView rendering extension points', () => {
       userMessage: '请根据刚确认的 CMS 选择结果，判断如何应用到当前区块。',
       composedUserMessage: '<cms_binding_apply_input>{"version":1}</cms_binding_apply_input>',
       mentionedSkills: ['cms-binding-apply'],
+      mentionedMcpServers: ['cms'],
     }
     const { AgentView, sendMessage, getLastRichTextInputProps, getLastPendingAttachments } = await loadAgentView()
     const store = createStore()
@@ -481,6 +482,7 @@ describe('AgentView rendering extension points', () => {
       userMessage: request.userMessage,
       composedUserMessage: request.composedUserMessage,
       mentionedSkills: ['cms-binding-apply'],
+      mentionedMcpServers: ['cms'],
       workspaceId: workspace.id,
     }))
     expect(onProgrammaticSendSettled).toHaveBeenCalledWith({

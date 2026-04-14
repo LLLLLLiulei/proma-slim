@@ -17,7 +17,9 @@ export type PageBuilderCmsApplyTargetBlockKind = 'nav' | 'content-list'
 
 export type PageBuilderCmsApplyRenderMode = 'replace-current'
 
-export type PageBuilderCmsApplyMappingKind = 'catalog-nav' | 'fixed-contents-list'
+export type PageBuilderCmsApplyMappingKind = 'catalog-nav' | 'catalog-content-list'
+
+export type PageBuilderCmsApplyToolKind = 'catalog-nav' | 'content-list'
 
 export interface PageBuilderCmsApplyWorkspacePolicy {
   scope: 'target-block-only'
@@ -70,6 +72,7 @@ export interface PageBuilderCmsApplyReadyDecision {
   renderMode: PageBuilderCmsApplyRenderMode
   applyStrategy: PageBuilderCmsApplyIntent
   mappingKind: PageBuilderCmsApplyMappingKind
+  toolKind: PageBuilderCmsApplyToolKind
 }
 
 export interface PageBuilderCmsApplyNeedsClarificationDecision {
@@ -104,6 +107,7 @@ export interface PageBuilderCmsApplyExampleCatalogNavInput {
 
 export interface PageBuilderCmsApplyExampleContentListInput {
   targetBlock: PageBuilderCmsApplyTargetBlock
-  selection: Extract<PageBuilderCmsSelectionResult, { selectionKind: 'contents' }>
-  snapshotContents: PageBuilderCmsContentSummary[]
+  selection: Extract<PageBuilderCmsSelectionResult, { selectionKind: 'catalogs' }>
+  selectedCatalogId: string
+  snapshotCatalogs: PageBuilderCmsCatalog[]
 }

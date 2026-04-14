@@ -63,6 +63,35 @@ const contentApplyInput = {
     targetBlock: {
       selector: '#latest-news',
     },
+    selectionKind: 'catalogs',
+    sourceType: 'catalogs',
+    selectionMode: 'single',
+    catalogIds: ['catalog-1'],
+    snapshot: {
+      catalogs: [catalogSnapshot],
+    },
+  },
+} satisfies PageBuilderCmsApplySkillInput
+
+const fixedContentsApplyInput = {
+  version: 1,
+  entryPoint: 'cms-browser-confirm',
+  applyIntent: 'replace-current',
+  workspacePolicy: {
+    scope: 'target-block-only',
+    allowPageRewrite: false,
+    allowCrossBlockMutation: false,
+    outputTarget: 'workspace-files/index.html',
+  },
+  targetBlock: {
+    selector: '#latest-news',
+    blockTypeHint: 'content-list',
+  },
+  selection: {
+    version: 1,
+    targetBlock: {
+      selector: '#latest-news',
+    },
     selectionKind: 'contents',
     sourceType: 'contents-fixed',
     selectionMode: 'fixed-items',
@@ -80,7 +109,8 @@ const readyDecision = {
   supportedRenderModes: ['replace-current'],
   renderMode: 'replace-current',
   applyStrategy: 'replace-current',
-  mappingKind: 'fixed-contents-list',
+  mappingKind: 'catalog-content-list',
+  toolKind: 'content-list',
 } satisfies PageBuilderCmsApplyDecisionResult
 
 const needsClarificationDecision = {
@@ -129,6 +159,7 @@ type _IncompatibleReason = Assert<
 
 void catalogApplyInput
 void contentApplyInput
+void fixedContentsApplyInput
 void readyDecision
 void needsClarificationDecision
 void incompatibleDecision

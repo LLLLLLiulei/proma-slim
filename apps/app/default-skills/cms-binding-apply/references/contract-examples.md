@@ -50,11 +50,65 @@ Use these examples when interpreting or producing the `cms-binding-apply` contra
   "supportedRenderModes": ["replace-current"],
   "renderMode": "replace-current",
   "applyStrategy": "replace-current",
-  "mappingKind": "catalog-nav"
+  "mappingKind": "catalog-nav",
+  "toolKind": "catalog-nav"
 }
 ```
 
-## Fixed contents to content-list
+## Single catalog to content-list
+
+### Input
+
+```json
+{
+  "version": 1,
+  "entryPoint": "cms-browser-confirm",
+  "applyIntent": "replace-current",
+  "workspacePolicy": {
+    "scope": "target-block-only",
+    "allowPageRewrite": false,
+    "allowCrossBlockMutation": false,
+    "outputTarget": "workspace-files/index.html"
+  },
+  "targetBlock": {
+    "selector": "#latest-news",
+    "blockTypeHint": "content-list"
+  },
+  "selection": {
+    "version": 1,
+    "targetBlock": {
+      "selector": "#latest-news"
+    },
+    "selectionKind": "catalogs",
+    "sourceType": "catalogs",
+    "selectionMode": "single",
+    "catalogIds": ["news"],
+    "snapshot": {
+      "catalogs": [
+        { "id": "news", "name": "新闻" }
+      ]
+    }
+  }
+}
+```
+
+### Ready result
+
+```json
+{
+  "status": "ready",
+  "targetBlockKind": "content-list",
+  "supportedRenderModes": ["replace-current"],
+  "renderMode": "replace-current",
+  "applyStrategy": "replace-current",
+  "mappingKind": "catalog-content-list",
+  "toolKind": "content-list"
+}
+```
+
+## Fixed content selection is incompatible
+
+Fixed content IDs are outside the current runtime capability because `apply_cms_binding` only supports catalog-driven `cms-content` queries.
 
 ### Input
 
@@ -85,25 +139,20 @@ Use these examples when interpreting or producing the `cms-binding-apply` contra
     "contentIds": ["n-101", "n-102", "n-103"],
     "snapshot": {
       "contents": [
-        { "id": "n-101", "title": "标题 1" },
-        { "id": "n-102", "title": "标题 2" },
-        { "id": "n-103", "title": "标题 3" }
+        { "id": "n-101", "title": "标题 1" }
       ]
     }
   }
 }
 ```
 
-### Ready result
+### Incompatible result
 
 ```json
 {
-  "status": "ready",
-  "targetBlockKind": "content-list",
-  "supportedRenderModes": ["replace-current"],
-  "renderMode": "replace-current",
-  "applyStrategy": "replace-current",
-  "mappingKind": "fixed-contents-list"
+  "status": "incompatible",
+  "reasonCode": "unsupported-runtime-capability",
+  "message": "当前 runtime 仅支持按栏目查询的 content-list 绑定，不支持 fixed content IDs。"
 }
 ```
 
@@ -167,6 +216,7 @@ Recommended interpretation:
 - `catalogs` favor `nav`
 - `contents` favor `content-list`
 - if that fallback is still not safe enough, return `needs-clarification`
+- if the selection still depends on fixed content IDs, return `incompatible`
 
 ## Incompatible example
 

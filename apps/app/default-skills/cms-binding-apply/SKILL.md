@@ -15,7 +15,7 @@ Use this skill when all of the following are true:
 
 - The user already confirmed CMS catalogs or fixed content items.
 - The workflow already knows the target block selector.
-- The next step is deciding whether the current block can be updated with `replace-current`.
+- The next step is deciding whether the current block can be updated with `replace-current` and, if so, invoking the formal CMS apply tool.
 
 Do not use this skill when:
 
@@ -48,7 +48,7 @@ If `blockTypeHint` is missing, do not fail immediately. Use a conservative fallb
 2. Infer the block intent conservatively.
    Only two target block kinds are supported in Phase 1A: `nav` and `content-list`.
 3. Match selection to supported mappings.
-   Catalog selections may resolve to `nav`. Fixed content selections may resolve to `content-list`.
+   Catalog selections may resolve to `nav`, or when a single catalog can back a list query, to `content-list`. Fixed content selections remain incompatible in the current runtime because `contentIds` bindings are not implemented.
 4. Return one of three outcomes only.
    - `ready`: enough information, supported block kind, safe to continue
    - `needs-clarification`: one critical ambiguity remains and can be resolved with a short structured question
@@ -60,19 +60,14 @@ After classifying the request, continue in the same turn instead of stopping at 
 
 1. If the result is `incompatible`, explain the blocking reason plainly and stop.
 2. If the result is `needs-clarification`, ask exactly one short structured question through `AskUserQuestion`, then wait for the answer.
-3. If the result is `ready`, continue with the existing workspace editing flow. Do not reply that the skill is only a template or that a later module is still missing.
-4. When continuing from `ready`, inspect the current block as needed, then update the preview source files directly.
-
-For Phase 1A, prefer this write target order:
-
-- First choice: `workspace-files/index.html`
-- Secondary choice: other files under `workspace-files/` only when the current block cannot be updated safely inside `index.html`
+3. If the result is `ready`, call `mcp__cms__apply_cms_binding` in the same turn. Do not reply that the skill is only a template or that a later module is still missing.
+4. When continuing from `ready`, only pass the current `targetBlock.selector`, the supported binding kind, and the supported query props required by the formal tool. Do not edit workspace files directly.
 
 After the edits are complete:
 
 - summarize what was changed in plain language
 - keep the explanation scoped to the current target block
-- do not claim success before the file edits are actually finished
+- do not claim success before `mcp__cms__apply_cms_binding` actually succeeds
 
 ## Clarification Guardrails
 
@@ -85,6 +80,7 @@ After the edits are complete:
 
 - Keep Phase 1A scoped to the current `targetBlock.selector`.
 - Treat `replace-current` as the only supported strategy.
+- Treat fixed `contentIds`, alias queries, and other unsupported runtime fields as `incompatible`.
 - Do not propose whole-page rewrites.
 - Do not propose cross-block edits.
 

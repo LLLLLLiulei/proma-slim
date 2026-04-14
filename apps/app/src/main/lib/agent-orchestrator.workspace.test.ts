@@ -669,7 +669,7 @@ describe('AgentOrchestrator workspace runtime', () => {
     expect(adapter.lastInput?.prompt).toContain('不要对 workspace 文件使用 file:// URL')
   })
 
-  test('does not auto-inject runtime cms sdk tools into page-builder queries', async () => {
+  test('auto-injects runtime cms sdk tools into page-builder queries when cms env is configured', async () => {
     process.env.PROMA_CMS_BASE_URL = 'https://demo.zving.com/manager'
     process.env.PROMA_CMS_SITE_ID = '277'
     process.env.PROMA_CMS_USERNAME = 'test-user'
@@ -695,11 +695,101 @@ describe('AgentOrchestrator workspace runtime', () => {
       },
     )
 
-    expect(adapter.lastInput?.mcpServers).toBeUndefined()
-    expect(adapter.lastInput?.allowedTools).not.toEqual(expect.arrayContaining([
+    expect(adapter.lastInput?.mcpServers).toMatchObject({
+      cms: {
+        type: 'sdk',
+        name: 'cms',
+      },
+    })
+    expect(adapter.lastInput?.mcpServers?.cms).toHaveProperty('instance')
+    expect(adapter.lastInput?.allowedTools).toEqual(expect.arrayContaining([
       'mcp__cms__list_catalogs',
       'mcp__cms__list_contents',
+      'mcp__cms__apply_cms_binding',
     ]))
+  })
+
+  test('injects runtime cms sdk tools when page-builder explicitly mentions the cms MCP server', async () => {
+    process.env.PROMA_CMS_BASE_URL = 'https://demo.zving.com/manager'
+    process.env.PROMA_CMS_SITE_ID = '277'
+    process.env.PROMA_CMS_USERNAME = 'test-user'
+    process.env.PROMA_CMS_PASSWORD = 'test-pass'
+
+    const adapter = new RecordingAdapter()
+    const orchestrator = new AgentOrchestrator(adapter, new AgentEventBus())
+    const workspace = createAgentWorkspace('Page Builder CMS Runtime Mention', { template: 'page-builder' })
+    const session = createAgentSession('CMS runtime mention session', undefined, workspace.id)
+
+    await orchestrator.sendMessage(
+      {
+        sessionId: session.id,
+        userMessage: '读取 CMS 栏目并绑定到当前区块',
+        channelId: '',
+        mentionedMcpServers: ['cms'],
+      },
+      {
+        onError: (message) => {
+          throw new Error(message)
+        },
+        onComplete: () => {},
+        onTitleUpdated: () => {},
+      },
+    )
+
+    expect(adapter.lastInput?.mcpServers).toMatchObject({
+      cms: {
+        type: 'sdk',
+        name: 'cms',
+      },
+    })
+    expect(adapter.lastInput?.mcpServers?.cms).toHaveProperty('instance')
+    expect(adapter.lastInput?.allowedTools).toEqual(expect.arrayContaining([
+      'mcp__cms__list_catalogs',
+      'mcp__cms__list_contents',
+      'mcp__cms__apply_cms_binding',
+    ]))
+    expect(adapter.lastInput?.prompt).toContain('- MCP 服务器: cms（请使用此 MCP 服务器的工具来完成任务）')
+  })
+
+  test('injects runtime cms sdk tools when page-builder explicitly mentions the cms-binding-apply skill', async () => {
+    process.env.PROMA_CMS_BASE_URL = 'https://demo.zving.com/manager'
+    process.env.PROMA_CMS_SITE_ID = '277'
+    process.env.PROMA_CMS_USERNAME = 'test-user'
+    process.env.PROMA_CMS_PASSWORD = 'test-pass'
+
+    const adapter = new RecordingAdapter()
+    const orchestrator = new AgentOrchestrator(adapter, new AgentEventBus())
+    const workspace = createAgentWorkspace('Page Builder CMS Skill Mention', { template: 'page-builder' })
+    const session = createAgentSession('CMS skill mention session', undefined, workspace.id)
+
+    await orchestrator.sendMessage(
+      {
+        sessionId: session.id,
+        userMessage: '请使用 cms-binding-apply 处理当前区块',
+        channelId: '',
+        mentionedSkills: ['cms-binding-apply'],
+      },
+      {
+        onError: (message) => {
+          throw new Error(message)
+        },
+        onComplete: () => {},
+        onTitleUpdated: () => {},
+      },
+    )
+
+    expect(adapter.lastInput?.mcpServers).toMatchObject({
+      cms: {
+        type: 'sdk',
+        name: 'cms',
+      },
+    })
+    expect(adapter.lastInput?.allowedTools).toEqual(expect.arrayContaining([
+      'mcp__cms__list_catalogs',
+      'mcp__cms__list_contents',
+      'mcp__cms__apply_cms_binding',
+    ]))
+    expect(adapter.lastInput?.prompt).toContain('- Skill: page-builder-cms-skill-mention:cms-binding-apply（请立即调用此 Skill）')
   })
 
   test('keeps page-builder queries on the existing string prompt path even when cms env is configured', async () => {
