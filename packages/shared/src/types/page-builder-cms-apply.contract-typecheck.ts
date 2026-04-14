@@ -4,6 +4,7 @@ import type {
   PageBuilderCmsCatalog,
   PageBuilderCmsContentSummary,
 } from './page-builder-cms-apply'
+import { createPageBuilderBlockTargetSelection } from './page-builder-target-selection'
 
 type Assert<T extends true> = T
 type IsExact<T, Expected> = (<G>() => G extends T ? 1 : 2) extends (<G>() => G extends Expected ? 1 : 2)
@@ -16,21 +17,23 @@ const catalogSnapshot = {} as PageBuilderCmsCatalog
 const contentSnapshot = {} as PageBuilderCmsContentSummary
 
 const catalogApplyInput = {
-  version: 1,
+  version: 2,
   entryPoint: 'cms-browser-confirm',
   applyIntent: 'replace-current',
   workspacePolicy: {
-    scope: 'target-block-only',
+    scope: 'target-selection-only',
     allowPageRewrite: false,
     allowCrossBlockMutation: false,
     outputTarget: 'workspace-files/index.html',
   },
+  targetSelection: createPageBuilderBlockTargetSelection('#main-nav'),
   targetBlock: {
     selector: '#main-nav',
     blockTypeHint: 'nav',
   },
   selection: {
-    version: 1,
+    version: 2,
+    targetSelection: createPageBuilderBlockTargetSelection('#main-nav'),
     targetBlock: {
       selector: '#main-nav',
     },
@@ -45,21 +48,23 @@ const catalogApplyInput = {
 } satisfies PageBuilderCmsApplySkillInput
 
 const contentApplyInput = {
-  version: 1,
+  version: 2,
   entryPoint: 'cms-browser-confirm',
   applyIntent: 'replace-current',
   workspacePolicy: {
-    scope: 'target-block-only',
+    scope: 'target-selection-only',
     allowPageRewrite: false,
     allowCrossBlockMutation: false,
     outputTarget: 'workspace-files/index.html',
   },
+  targetSelection: createPageBuilderBlockTargetSelection('#latest-news'),
   targetBlock: {
     selector: '#latest-news',
     blockTypeHint: 'content-list',
   },
   selection: {
-    version: 1,
+    version: 2,
+    targetSelection: createPageBuilderBlockTargetSelection('#latest-news'),
     targetBlock: {
       selector: '#latest-news',
     },
@@ -74,21 +79,23 @@ const contentApplyInput = {
 } satisfies PageBuilderCmsApplySkillInput
 
 const fixedContentsApplyInput = {
-  version: 1,
+  version: 2,
   entryPoint: 'cms-browser-confirm',
   applyIntent: 'replace-current',
   workspacePolicy: {
-    scope: 'target-block-only',
+    scope: 'target-selection-only',
     allowPageRewrite: false,
     allowCrossBlockMutation: false,
     outputTarget: 'workspace-files/index.html',
   },
+  targetSelection: createPageBuilderBlockTargetSelection('#latest-news'),
   targetBlock: {
     selector: '#latest-news',
     blockTypeHint: 'content-list',
   },
   selection: {
-    version: 1,
+    version: 2,
+    targetSelection: createPageBuilderBlockTargetSelection('#latest-news'),
     targetBlock: {
       selector: '#latest-news',
     },

@@ -51,6 +51,17 @@ describe('cms rendering preview bootstrap', () => {
                 total: 1,
                 children: [],
               },
+              {
+                id: 'catalog-2',
+                name: '栏目 2',
+                parentId: null,
+                path: '/catalog-2',
+                contentType: 'Article',
+                contentTypeName: '文章',
+                hasChild: false,
+                total: 1,
+                children: [],
+              },
             ],
             tree: [
               {
@@ -58,6 +69,17 @@ describe('cms rendering preview bootstrap', () => {
                 name: '栏目 1',
                 parentId: null,
                 path: '/catalog-1',
+                contentType: 'Article',
+                contentTypeName: '文章',
+                hasChild: false,
+                total: 1,
+                children: [],
+              },
+              {
+                id: 'catalog-2',
+                name: '栏目 2',
+                parentId: null,
+                path: '/catalog-2',
                 contentType: 'Article',
                 contentTypeName: '文章',
                 hasChild: false,
@@ -94,11 +116,21 @@ describe('cms rendering preview bootstrap', () => {
       })
 
       const list = document.querySelector('#nav')
+      const islandRoots = Array.from(list?.children ?? []).map((child) => ({
+        tagName: child.tagName.toLowerCase(),
+        text: child.textContent?.trim() ?? null,
+        islandId: child.getAttribute('data-proma-cms-island-id'),
+        component: child.getAttribute('data-proma-cms-island-component'),
+        sourceSelector: child.getAttribute('data-proma-cms-island-source-selector'),
+        parentBlockSelector: child.getAttribute('data-proma-cms-island-parent-block-selector'),
+        editBoundary: child.getAttribute('data-proma-cms-island-edit-boundary'),
+      }))
       console.log(JSON.stringify({
         outerHTML: list?.outerHTML ?? null,
         firstChildTag: list?.firstElementChild?.tagName.toLowerCase() ?? null,
         hasWrapper: Boolean(list?.querySelector('[data-proma-cms-rendering-island]')),
         hasCmsHost: Boolean(list?.querySelector('cms-catalog, cms-content')),
+        islandRoots,
       }))
     `
 
@@ -112,11 +144,42 @@ describe('cms rendering preview bootstrap', () => {
       firstChildTag: string | null
       hasWrapper: boolean
       hasCmsHost: boolean
+      islandRoots: Array<{
+        tagName: string
+        text: string | null
+        islandId: string | null
+        component: string | null
+        sourceSelector: string | null
+        parentBlockSelector: string | null
+        editBoundary: string | null
+      }>
     }
 
     expect(result.hasWrapper).toBe(false)
     expect(result.hasCmsHost).toBe(false)
     expect(result.firstChildTag).toBe('li')
-    expect(result.outerHTML).toContain('<li class="nav-item">栏目 1</li>')
+    expect(result.outerHTML).toContain('class="nav-item">栏目 1</li>')
+    expect(result.outerHTML).toContain('class="nav-item">栏目 2</li>')
+    expect(result.islandRoots).toEqual([
+      {
+        tagName: 'li',
+        text: '栏目 1',
+        islandId: expect.any(String),
+        component: 'cms-catalog',
+        sourceSelector: 'body > ul:nth-of-type(1) > cms-catalog:nth-of-type(1)',
+        parentBlockSelector: 'body > ul:nth-of-type(1) > cms-catalog:nth-of-type(1)',
+        editBoundary: 'source-atomic',
+      },
+      {
+        tagName: 'li',
+        text: '栏目 2',
+        islandId: expect.any(String),
+        component: 'cms-catalog',
+        sourceSelector: 'body > ul:nth-of-type(1) > cms-catalog:nth-of-type(1)',
+        parentBlockSelector: 'body > ul:nth-of-type(1) > cms-catalog:nth-of-type(1)',
+        editBoundary: 'source-atomic',
+      },
+    ])
+    expect(result.islandRoots[0]?.islandId).toBe(result.islandRoots[1]?.islandId)
   })
 })

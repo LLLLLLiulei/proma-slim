@@ -12,12 +12,13 @@ If the selector and block hint are not enough to decide safely, the later snapsh
 
 ## HTML apply prerequisite
 
-In the current page-builder workflow, a `ready` result should lead directly to a block-scoped `mcp__cms__apply_cms_binding` call. The important boundary is that only `ready` may proceed to this write tool; `needs-clarification` and `incompatible` must not be treated as direct write instructions.
+In the current page-builder workflow, a `ready` result should lead directly to a target-selection-scoped `mcp__cms__apply_cms_binding` call. The important boundary is that only `ready` may proceed to this write tool; `needs-clarification` and `incompatible` must not be treated as direct write instructions.
 
 ## Phase 1A boundary
 
 - Only `replace-current`
-- Only block-scoped edits
+- Only target-selection-scoped edits
+- CMS islands remain `source-atomic`
 - Only `nav` and `content-list`
 - No CMS rebrowsing through `AskUserQuestion`
 - No page-wide rewrite

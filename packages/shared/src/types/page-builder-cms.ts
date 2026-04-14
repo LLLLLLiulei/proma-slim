@@ -58,6 +58,8 @@ export interface PageBuilderCmsContentList {
   items: PageBuilderCmsContentSummary[]
 }
 
+import type { PageBuilderTargetSelection } from './page-builder-target-selection'
+
 export type PageBuilderCmsSelectionEntryPoint =
   | 'block-toolbar'
   | 'agent-flow'
@@ -68,13 +70,15 @@ export interface PageBuilderCmsSelectionTargetBlock {
 
 export interface PageBuilderCmsSelectionRequestContext {
   entryPoint?: PageBuilderCmsSelectionEntryPoint
+  targetSelection: PageBuilderTargetSelection
   targetBlock: PageBuilderCmsSelectionTargetBlock
 }
 
-export const PAGE_BUILDER_CMS_SELECTION_RESULT_VERSION = 1
+export const PAGE_BUILDER_CMS_SELECTION_RESULT_VERSION = 2
 
 interface PageBuilderCmsSelectionResultBase {
   version: typeof PAGE_BUILDER_CMS_SELECTION_RESULT_VERSION
+  targetSelection: PageBuilderTargetSelection
   targetBlock: PageBuilderCmsSelectionTargetBlock
 }
 

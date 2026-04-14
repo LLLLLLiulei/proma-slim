@@ -8,21 +8,33 @@ Use these examples when interpreting or producing the `cms-binding-apply` contra
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "entryPoint": "cms-browser-confirm",
   "applyIntent": "replace-current",
   "workspacePolicy": {
-    "scope": "target-block-only",
+    "scope": "target-selection-only",
     "allowPageRewrite": false,
     "allowCrossBlockMutation": false,
     "outputTarget": "workspace-files/index.html"
+  },
+  "targetSelection": {
+    "kind": "block",
+    "selector": "#main-nav",
+    "parentBlockSelector": "#main-nav",
+    "editBoundary": "block"
   },
   "targetBlock": {
     "selector": "#main-nav",
     "blockTypeHint": "nav"
   },
   "selection": {
-    "version": 1,
+    "version": 2,
+    "targetSelection": {
+      "kind": "block",
+      "selector": "#main-nav",
+      "parentBlockSelector": "#main-nav",
+      "editBoundary": "block"
+    },
     "targetBlock": {
       "selector": "#main-nav"
     },
@@ -61,21 +73,33 @@ Use these examples when interpreting or producing the `cms-binding-apply` contra
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "entryPoint": "cms-browser-confirm",
   "applyIntent": "replace-current",
   "workspacePolicy": {
-    "scope": "target-block-only",
+    "scope": "target-selection-only",
     "allowPageRewrite": false,
     "allowCrossBlockMutation": false,
     "outputTarget": "workspace-files/index.html"
+  },
+  "targetSelection": {
+    "kind": "block",
+    "selector": "#latest-news",
+    "parentBlockSelector": "#latest-news",
+    "editBoundary": "block"
   },
   "targetBlock": {
     "selector": "#latest-news",
     "blockTypeHint": "content-list"
   },
   "selection": {
-    "version": 1,
+    "version": 2,
+    "targetSelection": {
+      "kind": "block",
+      "selector": "#latest-news",
+      "parentBlockSelector": "#latest-news",
+      "editBoundary": "block"
+    },
     "targetBlock": {
       "selector": "#latest-news"
     },
@@ -114,21 +138,33 @@ Fixed content IDs are outside the current runtime capability because `apply_cms_
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "entryPoint": "cms-browser-confirm",
   "applyIntent": "replace-current",
   "workspacePolicy": {
-    "scope": "target-block-only",
+    "scope": "target-selection-only",
     "allowPageRewrite": false,
     "allowCrossBlockMutation": false,
     "outputTarget": "workspace-files/index.html"
+  },
+  "targetSelection": {
+    "kind": "block",
+    "selector": "#latest-news",
+    "parentBlockSelector": "#latest-news",
+    "editBoundary": "block"
   },
   "targetBlock": {
     "selector": "#latest-news",
     "blockTypeHint": "content-list"
   },
   "selection": {
-    "version": 1,
+    "version": 2,
+    "targetSelection": {
+      "kind": "block",
+      "selector": "#latest-news",
+      "parentBlockSelector": "#latest-news",
+      "editBoundary": "block"
+    },
     "targetBlock": {
       "selector": "#latest-news"
     },
@@ -180,20 +216,32 @@ When `targetBlock.blockTypeHint` is absent, keep the decision conservative inste
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "entryPoint": "cms-browser-confirm",
   "applyIntent": "replace-current",
   "workspacePolicy": {
-    "scope": "target-block-only",
+    "scope": "target-selection-only",
     "allowPageRewrite": false,
     "allowCrossBlockMutation": false,
     "outputTarget": "workspace-files/index.html"
+  },
+  "targetSelection": {
+    "kind": "block",
+    "selector": "#latest-list",
+    "parentBlockSelector": "#latest-list",
+    "editBoundary": "block"
   },
   "targetBlock": {
     "selector": "#latest-list"
   },
   "selection": {
-    "version": 1,
+    "version": 2,
+    "targetSelection": {
+      "kind": "block",
+      "selector": "#latest-list",
+      "parentBlockSelector": "#latest-list",
+      "editBoundary": "block"
+    },
     "targetBlock": {
       "selector": "#latest-list"
     },

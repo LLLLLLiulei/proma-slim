@@ -4,6 +4,7 @@ import type {
   PageBuilderCmsSelectionRequestContext,
   PageBuilderCmsSelectionResult,
 } from './page-builder-cms'
+import { createPageBuilderBlockTargetSelection } from './page-builder-target-selection'
 
 type Assert<T extends true> = T
 type IsExact<T, Expected> = (<G>() => G extends T ? 1 : 2) extends (<G>() => G extends Expected ? 1 : 2)
@@ -14,6 +15,7 @@ type IsExact<T, Expected> = (<G>() => G extends T ? 1 : 2) extends (<G>() => G e
 
 const requestContext: PageBuilderCmsSelectionRequestContext = {
   entryPoint: 'block-toolbar',
+  targetSelection: createPageBuilderBlockTargetSelection('#hero-banner'),
   targetBlock: {
     selector: '#hero-banner',
   },
@@ -23,7 +25,8 @@ const catalogSnapshot = {} as PageBuilderCmsCatalog
 const contentSnapshot = {} as PageBuilderCmsContentSummary
 
 const catalogSelection = {
-  version: 1,
+  version: 2,
+  targetSelection: requestContext.targetSelection,
   targetBlock: requestContext.targetBlock,
   selectionKind: 'catalogs',
   sourceType: 'catalogs',
@@ -35,7 +38,8 @@ const catalogSelection = {
 } satisfies PageBuilderCmsSelectionResult
 
 const contentSelection = {
-  version: 1,
+  version: 2,
+  targetSelection: requestContext.targetSelection,
   targetBlock: requestContext.targetBlock,
   selectionKind: 'contents',
   sourceType: 'contents-fixed',

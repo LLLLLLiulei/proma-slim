@@ -8,8 +8,10 @@ import type {
   PageBuilderInlineTextSaveRequest,
   PageBuilderInlineTextSaveResult,
   PageBuilderPreviewParentMessage,
+  PageBuilderTargetSelection,
 } from '@proma/shared'
 import {
+  createPageBuilderBlockTargetSelection,
   PAGE_BUILDER_PREVIEW_BRIDGE_SOURCE,
   PAGE_BUILDER_PREVIEW_PARENT_SOURCE,
 } from '@proma/shared'
@@ -32,6 +34,7 @@ interface SelectedAnchorState {
   imageTargetDescriptor: PageBuilderImageTargetDescriptor | null
   rect: PageBuilderPreviewAnchorRect
   selector: string
+  targetSelection: PageBuilderTargetSelection
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -79,6 +82,20 @@ function isPreviewBridgeMessage(value: unknown): value is PageBuilderPreviewBrid
 
   const message = value as Partial<PageBuilderPreviewBridgeMessage>
   return message.source === PAGE_BUILDER_PREVIEW_BRIDGE_SOURCE && typeof message.type === 'string'
+}
+
+function resolvePreviewTargetSelection(
+  message: Extract<PageBuilderPreviewBridgeMessage, { type: 'hover' | 'selected' }>,
+): PageBuilderTargetSelection | null {
+  if (message.targetSelection) {
+    return message.targetSelection
+  }
+
+  if (!message.selector) {
+    return null
+  }
+
+  return createPageBuilderBlockTargetSelection(message.selector)
 }
 
 function resolveEmbeddedPreviewUrl(previewUrl: string): string {
@@ -167,26 +184,38 @@ export function PreviewPane({
 
       if (event.data.type === 'hover') {
         if (interactionLocked) return
+        const targetSelection = resolvePreviewTargetSelection(event.data)
         onSelectionEvent?.({
           type: 'hover',
-          selector: event.data.selector,
+          selector: targetSelection?.selector ?? event.data.selector,
+          targetSelection,
         })
         return
       }
 
       if (event.data.type === 'selected') {
         if (interactionLocked) return
-        const replaceImageTargetDescriptor = event.data.capabilities?.replaceImage?.supported
+        const targetSelection = resolvePreviewTargetSelection(event.data)
+        if (!targetSelection) {
+          setSelectedAnchor(null)
+          onSelectionEvent?.({ type: 'reset' })
+          return
+        }
+
+        const replaceImageTargetDescriptor = targetSelection.kind === 'block'
+          && event.data.capabilities?.replaceImage?.supported
           ? event.data.capabilities.replaceImage.targetDescriptor
           : null
         setSelectedAnchor({
           imageTargetDescriptor: replaceImageTargetDescriptor,
           rect: event.data.rect,
-          selector: event.data.selector,
+          selector: targetSelection.selector,
+          targetSelection,
         })
         onSelectionEvent?.({
           type: 'selected',
-          selector: event.data.selector,
+          selector: targetSelection.selector,
+          targetSelection,
         })
         return
       }

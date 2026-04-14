@@ -4,10 +4,11 @@ import type {
   PageBuilderCmsSelectionResult,
   PageBuilderCmsSelectionTargetBlock,
 } from './page-builder-cms'
+import type { PageBuilderTargetSelection } from './page-builder-target-selection'
 
 export type { PageBuilderCmsCatalog, PageBuilderCmsContentSummary } from './page-builder-cms'
 
-export const PAGE_BUILDER_CMS_APPLY_SKILL_CONTRACT_VERSION = 1
+export const PAGE_BUILDER_CMS_APPLY_SKILL_CONTRACT_VERSION = 2
 
 export type PageBuilderCmsApplySkillEntryPoint = 'cms-browser-confirm'
 
@@ -22,7 +23,7 @@ export type PageBuilderCmsApplyMappingKind = 'catalog-nav' | 'catalog-content-li
 export type PageBuilderCmsApplyToolKind = 'catalog-nav' | 'content-list'
 
 export interface PageBuilderCmsApplyWorkspacePolicy {
-  scope: 'target-block-only'
+  scope: 'target-selection-only'
   allowPageRewrite: false
   allowCrossBlockMutation: false
   outputTarget: 'workspace-files/index.html'
@@ -39,6 +40,7 @@ export interface PageBuilderCmsApplySkillInput {
   entryPoint: PageBuilderCmsApplySkillEntryPoint
   applyIntent: PageBuilderCmsApplyIntent
   workspacePolicy: PageBuilderCmsApplyWorkspacePolicy
+  targetSelection: PageBuilderTargetSelection
   targetBlock: PageBuilderCmsApplyTargetBlock
   selection: PageBuilderCmsSelectionResult
   uiContext?: {

@@ -11,6 +11,14 @@
   const BRIDGE_SOURCE = __PAGE_BUILDER_PREVIEW_BRIDGE_SOURCE__
   const PARENT_SOURCE = __PAGE_BUILDER_PREVIEW_PARENT_SOURCE__
   const OVERLAY_ATTR = 'data-page-builder-preview-overlay'
+  const CMS_ISLAND_ID_ATTR = 'data-proma-cms-island-id'
+  const CMS_ISLAND_COMPONENT_ATTR = 'data-proma-cms-island-component'
+  const CMS_ISLAND_SOURCE_SELECTOR_ATTR = 'data-proma-cms-island-source-selector'
+  const CMS_ISLAND_PARENT_BLOCK_SELECTOR_ATTR = 'data-proma-cms-island-parent-block-selector'
+  const CMS_ISLAND_EDIT_BOUNDARY_ATTR = 'data-proma-cms-island-edit-boundary'
+  const CMS_PASSIVE_OVERLAY_KIND = 'cms-passive'
+  const CMS_PASSIVE_LABEL_KIND = 'cms-passive-label'
+  const CMS_PASSIVE_OVERLAY_ISLAND_ATTR = 'data-page-builder-preview-overlay-island-id'
   const BLOCKED_TAGS = new Set(['HTML', 'BODY', 'HEAD', 'SCRIPT', 'STYLE', 'META', 'LINK'])
   const EDITABLE_TEXT_TAGS = new Set(['H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'P', 'A', 'BUTTON', 'SPAN', 'LABEL', 'DIV'])
   const INLINE_EDITING_ATTR = 'data-page-builder-preview-inline-editing'
@@ -20,10 +28,9 @@
   const READY_ANNOUNCEMENT_MAX_ATTEMPTS = 12
   let selectionModeEnabled = false
   let selectionInteractionLocked = false
-  let hoveredElement = null
-  let selectedElement = null
-  let hoveredSelector = null
-  let selectedSelector = null
+  let showCmsIslandOutlines = false
+  let hoveredTarget = null
+  let selectedTarget = null
   let lastSelectedRectKey = null
   let mutationObserver = null
   let readyAnnouncementAttempts = 0
@@ -31,6 +38,7 @@
   let activeInlineEdit = null
   let inlineSaveSequence = 0
   const pendingInlineSaves = new Map()
+  const passiveCmsIslandOverlays = new Map()
 
   const logBridge = () => {}
 
@@ -73,10 +81,23 @@
     ].join(':')
   }
 
-  const resolveRectKey = (selector, rect, capabilities) => {
-    if (!selector || !rect) return null
+  const createBlockTargetSelection = (selector) => ({
+    kind: 'block',
+    selector,
+    parentBlockSelector: selector,
+    editBoundary: 'block',
+  })
+
+  const resolveTargetRuntimeKey = (targetSelection, islandId) => {
+    return targetSelection.kind === 'cms-island'
+      ? 'cms-island:' + (islandId ?? targetSelection.selector)
+      : 'block:' + targetSelection.selector
+  }
+
+  const resolveRectKey = (targetSelection, rect, capabilities, islandId) => {
+    if (!targetSelection || !rect) return null
     return [
-      selector,
+      resolveTargetRuntimeKey(targetSelection, islandId),
       rect.top,
       rect.left,
       rect.right,
@@ -98,6 +119,31 @@
     }
 
     return toBridgeRect(rect)
+  }
+
+  const resolveGroupedRect = (elements) => {
+    const rects = elements
+      .filter((element) => element instanceof Element && document.contains(element))
+      .map((element) => element.getBoundingClientRect())
+      .filter((rect) => rect.width > 0 && rect.height > 0)
+
+    if (rects.length === 0) {
+      return null
+    }
+
+    const left = Math.min(...rects.map((rect) => rect.left))
+    const top = Math.min(...rects.map((rect) => rect.top))
+    const right = Math.max(...rects.map((rect) => rect.right))
+    const bottom = Math.max(...rects.map((rect) => rect.bottom))
+
+    return toBridgeRect({
+      top,
+      left,
+      right,
+      bottom,
+      width: Math.max(0, right - left),
+      height: Math.max(0, bottom - top),
+    })
   }
 
   const clearPostedSelectionRect = () => {
@@ -134,25 +180,90 @@
     })
   }
 
+  const resolveTargetRect = (target) => {
+    if (!target) {
+      return null
+    }
+
+    return target.targetSelection.kind === 'cms-island'
+      ? resolveGroupedRect(target.elements)
+      : resolveElementRect(target.primaryElement)
+  }
+
+  const refreshResolvedTarget = (target) => {
+    if (!target) {
+      return null
+    }
+
+    if (target.targetSelection.kind === 'cms-island') {
+      const elements = resolveCmsIslandRoots(target.islandId)
+      if (elements.length === 0) {
+        return null
+      }
+
+      return {
+        ...target,
+        elements,
+        primaryElement: elements[0],
+      }
+    }
+
+    try {
+      const element = document.querySelector(target.targetSelection.selector)
+      if (!(element instanceof Element)) {
+        return null
+      }
+
+      return {
+        ...target,
+        primaryElement: element,
+        elements: [element],
+      }
+    } catch {
+      return null
+    }
+  }
+
+  const resolveReplaceImageCapabilityForTarget = (target) => {
+    if (!target || target.targetSelection.kind !== 'block') {
+      return null
+    }
+
+    return resolveReplaceImageCapability(target.primaryElement)
+  }
+
   const postSelectedRect = () => {
-    if (!selectedElement || !selectedSelector) {
+    if (!selectedTarget) {
       clearPostedSelectionRect()
       return
     }
 
-    const rect = resolveElementRect(selectedElement)
+    const refreshedTarget = refreshResolvedTarget(selectedTarget)
+    if (!refreshedTarget) {
+      clearAll(true)
+      return
+    }
+
+    selectedTarget = refreshedTarget
+
+    const rect = resolveTargetRect(refreshedTarget)
     if (!rect) {
       clearAll(true)
       return
     }
 
-    const replaceImage = resolveReplaceImageCapability(selectedElement)
+    const replaceImage = resolveReplaceImageCapabilityForTarget(refreshedTarget)
     const capabilities = replaceImage
       ? {
           replaceImage,
         }
       : undefined
-    const nextKey = resolveRectKey(selectedSelector, rect, capabilities)
+    const nextKey = resolveRectKey(
+      refreshedTarget.targetSelection,
+      rect,
+      capabilities,
+      refreshedTarget.islandId,
+    )
     if (nextKey && nextKey === lastSelectedRectKey) {
       return
     }
@@ -160,7 +271,8 @@
     lastSelectedRectKey = nextKey
     postToParent({
       type: 'selected',
-      selector: selectedSelector,
+      selector: refreshedTarget.targetSelection.selector,
+      targetSelection: refreshedTarget.targetSelection,
       rect,
       ...(capabilities ? { capabilities } : {}),
     })
@@ -276,6 +388,16 @@
     return formatLabelToken(tagName) || 'Block'
   }
 
+  const resolveTargetLabel = (target) => {
+    if (!target) {
+      return ''
+    }
+
+    return target.targetSelection.kind === 'cms-island'
+      ? target.targetSelection.component
+      : resolveElementLabel(target.primaryElement)
+  }
+
   const createOverlay = (kind) => {
     const element = document.createElement('div')
     element.setAttribute(OVERLAY_ATTR, kind)
@@ -291,15 +413,6 @@
       borderRadius: '0',
       boxSizing: 'border-box',
       transition: 'all 120ms ease-out',
-      border: kind === 'selected'
-        ? '2px solid rgba(37, 99, 235, 0.92)'
-        : '2px dashed rgba(59, 130, 246, 0.65)',
-      background: kind === 'selected'
-        ? 'rgba(37, 99, 235, 0.16)'
-        : 'rgba(59, 130, 246, 0.10)',
-      boxShadow: kind === 'selected'
-        ? '0 0 0 1px rgba(255,255,255,0.8), 0 10px 28px rgba(37, 99, 235, 0.16)'
-        : '0 0 0 1px rgba(255,255,255,0.65), 0 8px 24px rgba(59, 130, 246, 0.12)',
     })
     document.body.appendChild(element)
     return element
@@ -345,14 +458,113 @@
   const hoverLabel = createOverlayLabel('hover')
   const selectedLabel = createOverlayLabel('selected')
 
-  const updateOverlay = (overlay, element) => {
-    if (!element || !document.contains(element)) {
-      overlay.style.display = 'none'
-      return
+  const hideOverlayPair = (overlay, label) => {
+    overlay.style.display = 'none'
+    label.style.display = 'none'
+    label.textContent = ''
+  }
+
+  const createPassiveCmsIslandOverlayPair = (islandId) => {
+    const overlay = createOverlay(CMS_PASSIVE_OVERLAY_KIND)
+    const label = createOverlayLabel(CMS_PASSIVE_OVERLAY_KIND)
+    overlay.setAttribute(CMS_PASSIVE_OVERLAY_ISLAND_ATTR, islandId)
+    label.setAttribute(CMS_PASSIVE_OVERLAY_ISLAND_ATTR, islandId)
+    return {
+      overlay,
+      label,
+    }
+  }
+
+  const clearPassiveCmsIslandOverlays = () => {
+    for (const { overlay, label } of passiveCmsIslandOverlays.values()) {
+      overlay.remove()
+      label.remove()
     }
 
-    const rect = element.getBoundingClientRect()
-    if (rect.width <= 0 || rect.height <= 0) {
+    passiveCmsIslandOverlays.clear()
+  }
+
+  const resolvePassiveCmsIslandTargets = () => {
+    const seenIslandIds = new Set()
+    const targets = []
+    const roots = Array.from(document.querySelectorAll('[' + CMS_ISLAND_ID_ATTR + ']'))
+      .filter((element) => element instanceof Element)
+
+    for (const root of roots) {
+      const islandId = root.getAttribute(CMS_ISLAND_ID_ATTR)
+      if (!islandId || seenIslandIds.has(islandId)) {
+        continue
+      }
+
+      const component = root.getAttribute(CMS_ISLAND_COMPONENT_ATTR)
+      const sourceSelector = root.getAttribute(CMS_ISLAND_SOURCE_SELECTOR_ATTR)
+      const parentBlockSelector = root.getAttribute(CMS_ISLAND_PARENT_BLOCK_SELECTOR_ATTR)
+      const editBoundary = root.getAttribute(CMS_ISLAND_EDIT_BOUNDARY_ATTR)
+
+      if (!component || !sourceSelector || !parentBlockSelector) {
+        continue
+      }
+
+      const elements = Array.from(document.querySelectorAll('[' + CMS_ISLAND_ID_ATTR + '="' + islandId + '"]'))
+        .filter((element) => element instanceof Element)
+      if (elements.length === 0) {
+        continue
+      }
+
+      seenIslandIds.add(islandId)
+      targets.push({
+        key: resolveTargetRuntimeKey({
+          kind: 'cms-island',
+          selector: sourceSelector,
+          parentBlockSelector,
+          component,
+          editBoundary: 'source-atomic',
+        }, islandId),
+        islandId,
+        targetSelection: {
+          kind: 'cms-island',
+          selector: sourceSelector,
+          parentBlockSelector,
+          component,
+          editBoundary: editBoundary === 'source-atomic' ? editBoundary : 'source-atomic',
+        },
+        primaryElement: elements[0],
+        elements,
+      })
+    }
+
+    return targets
+  }
+
+  const resolveOverlayBorder = (kind, target) => {
+    return kind === 'selected' && target?.targetSelection.kind !== 'cms-island'
+      ? '2px solid rgba(37, 99, 235, 0.92)'
+      : '2px dashed rgba(59, 130, 246, 0.65)'
+  }
+
+  const resolveOverlayBackground = (kind, target) => {
+    if (kind === 'selected' && target?.targetSelection.kind !== 'cms-island') {
+      return 'rgba(37, 99, 235, 0.16)'
+    }
+
+    return target?.targetSelection.kind === 'cms-island'
+      ? 'rgba(59, 130, 246, 0.07)'
+      : 'rgba(59, 130, 246, 0.10)'
+  }
+
+  const resolveOverlayShadow = (kind, target) => {
+    if (kind === 'selected' && target?.targetSelection.kind !== 'cms-island') {
+      return '0 0 0 1px rgba(255,255,255,0.8), 0 10px 28px rgba(37, 99, 235, 0.16)'
+    }
+
+    return target?.targetSelection.kind === 'cms-island'
+      ? '0 0 0 1px rgba(255,255,255,0.72), 0 8px 24px rgba(59, 130, 246, 0.10)'
+      : '0 0 0 1px rgba(255,255,255,0.65), 0 8px 24px rgba(59, 130, 246, 0.12)'
+  }
+
+  const updateOverlay = (overlay, target, kind) => {
+    const rect = resolveTargetRect(target)
+    if (!target || !rect) {
       overlay.style.display = 'none'
       return
     }
@@ -362,44 +574,113 @@
     overlay.style.top = rect.top + 'px'
     overlay.style.width = rect.width + 'px'
     overlay.style.height = rect.height + 'px'
+    overlay.style.border = resolveOverlayBorder(kind, target)
+    overlay.style.background = resolveOverlayBackground(kind, target)
+    overlay.style.boxShadow = resolveOverlayShadow(kind, target)
   }
 
-  const updateOverlayLabel = (label, element) => {
-    if (!element || !document.contains(element)) {
+  const updateOverlayLabel = (label, target) => {
+    const rect = resolveTargetRect(target)
+    if (!target || !rect) {
       label.style.display = 'none'
       label.textContent = ''
       return
     }
 
-    const rect = element.getBoundingClientRect()
-    if (rect.width <= 0 || rect.height <= 0) {
-      label.style.display = 'none'
-      label.textContent = ''
-      return
-    }
-
-    label.textContent = resolveElementLabel(element)
+    label.textContent = resolveTargetLabel(target)
     label.style.display = 'block'
-    label.style.left = rect.left + 'px'
 
-    const labelHeight = label.getBoundingClientRect().height || 24
+    const labelRect = label.getBoundingClientRect()
+    const labelWidth = labelRect.width || LABEL_MAX_WIDTH
+    const labelHeight = labelRect.height || 24
+    const desiredLeft = target.targetSelection.kind === 'cms-island'
+      ? rect.right - labelWidth
+      : rect.left
+    const maxLeft = Math.max(0, window.innerWidth - labelWidth)
     const nextTop = Math.max(0, rect.top - labelHeight - 4)
+
+    label.style.left = Math.min(Math.max(0, desiredLeft), maxLeft) + 'px'
     label.style.top = nextTop + 'px'
   }
 
-  const syncOverlays = () => {
-    const effectiveHoverElement = selectionModeEnabled && !selectionInteractionLocked && hoveredElement !== selectedElement
-      ? hoveredElement
+  const resolveEffectiveHoverTarget = () => {
+    return selectionModeEnabled
+      && !selectionInteractionLocked
+      && hoveredTarget
+      && (!selectedTarget || hoveredTarget.key !== selectedTarget.key)
+      ? hoveredTarget
       : null
+  }
 
-    updateOverlay(hoverOverlay, effectiveHoverElement)
-    updateOverlayLabel(hoverLabel, effectiveHoverElement)
-    updateOverlay(selectedOverlay, selectedElement)
-    updateOverlayLabel(selectedLabel, selectedElement)
-
-    if (selectedElement) {
-      postSelectedRect()
+  const syncPassiveCmsIslandOverlays = (effectiveHoverTarget) => {
+    if (!selectionModeEnabled || !showCmsIslandOutlines) {
+      clearPassiveCmsIslandOverlays()
+      return
     }
+
+    const passiveTargets = resolvePassiveCmsIslandTargets()
+    const activeIslandIds = new Set(passiveTargets.map((target) => target.islandId))
+    for (const [islandId, pair] of passiveCmsIslandOverlays.entries()) {
+      if (!activeIslandIds.has(islandId)) {
+        pair.overlay.remove()
+        pair.label.remove()
+        passiveCmsIslandOverlays.delete(islandId)
+      }
+    }
+
+    const hiddenIslandIds = new Set()
+    if (selectedTarget?.targetSelection.kind === 'cms-island') {
+      hiddenIslandIds.add(selectedTarget.islandId)
+    }
+    if (effectiveHoverTarget?.targetSelection.kind === 'cms-island') {
+      hiddenIslandIds.add(effectiveHoverTarget.islandId)
+    }
+
+    for (const target of passiveTargets) {
+      let pair = passiveCmsIslandOverlays.get(target.islandId)
+      if (!pair) {
+        pair = createPassiveCmsIslandOverlayPair(target.islandId)
+        passiveCmsIslandOverlays.set(target.islandId, pair)
+      }
+
+      if (hiddenIslandIds.has(target.islandId)) {
+        hideOverlayPair(pair.overlay, pair.label)
+        continue
+      }
+
+      updateOverlay(pair.overlay, target, 'hover')
+      updateOverlayLabel(pair.label, target)
+    }
+  }
+
+  const syncOverlays = () => {
+    const hadSelectedTarget = Boolean(selectedTarget)
+    hoveredTarget = refreshResolvedTarget(hoveredTarget)
+    selectedTarget = refreshResolvedTarget(selectedTarget)
+
+    if (hadSelectedTarget && !selectedTarget) {
+      clearAll(true)
+      return
+    }
+
+    if (selectedTarget === null && activeInlineEdit) {
+      discardActiveInlineEdit()
+    }
+
+    const effectiveHoverTarget = resolveEffectiveHoverTarget()
+
+    updateOverlay(hoverOverlay, effectiveHoverTarget, 'hover')
+    updateOverlayLabel(hoverLabel, effectiveHoverTarget)
+    updateOverlay(selectedOverlay, selectedTarget, 'selected')
+    updateOverlayLabel(selectedLabel, selectedTarget)
+    syncPassiveCmsIslandOverlays(effectiveHoverTarget)
+
+    if (selectedTarget) {
+      postSelectedRect()
+      return
+    }
+
+    clearPostedSelectionRect()
   }
 
   const resolveSelectableElement = (input) => {
@@ -473,6 +754,91 @@
     }
 
     return segments.join(' > ')
+  }
+
+  const resolveCmsIslandRoots = (islandId) => {
+    if (!islandId) {
+      return []
+    }
+
+    try {
+      return Array.from(document.querySelectorAll('[' + CMS_ISLAND_ID_ATTR + '="' + islandId + '"]'))
+        .filter((element) => element instanceof Element)
+    } catch {
+      return []
+    }
+  }
+
+  const resolveCmsIslandTarget = (input) => {
+    let element = input instanceof Element ? input : null
+
+    while (element) {
+      if (element.hasAttribute(OVERLAY_ATTR)) {
+        element = element.parentElement
+        continue
+      }
+
+      const islandId = element.getAttribute(CMS_ISLAND_ID_ATTR)
+      if (islandId) {
+        const component = element.getAttribute(CMS_ISLAND_COMPONENT_ATTR)
+        const sourceSelector = element.getAttribute(CMS_ISLAND_SOURCE_SELECTOR_ATTR)
+        const parentBlockSelector = element.getAttribute(CMS_ISLAND_PARENT_BLOCK_SELECTOR_ATTR)
+        const editBoundary = element.getAttribute(CMS_ISLAND_EDIT_BOUNDARY_ATTR)
+
+        if (!component || !sourceSelector || !parentBlockSelector) {
+          return null
+        }
+
+        const elements = resolveCmsIslandRoots(islandId)
+        if (elements.length === 0) {
+          return null
+        }
+
+        return {
+          key: resolveTargetRuntimeKey({
+            kind: 'cms-island',
+            selector: sourceSelector,
+            parentBlockSelector,
+            component,
+            editBoundary: 'source-atomic',
+          }, islandId),
+          islandId,
+          targetSelection: {
+            kind: 'cms-island',
+            selector: sourceSelector,
+            parentBlockSelector,
+            component,
+            editBoundary: editBoundary === 'source-atomic' ? editBoundary : 'source-atomic',
+          },
+          primaryElement: element,
+          elements,
+        }
+      }
+
+      element = element.parentElement
+    }
+
+    return null
+  }
+
+  const resolveSelectableTarget = (input) => {
+    const cmsIslandTarget = resolveCmsIslandTarget(input)
+    if (cmsIslandTarget) {
+      return cmsIslandTarget
+    }
+
+    const element = resolveSelectableElement(input)
+    const selector = element ? resolveSelector(element) : null
+    if (!element || !selector) {
+      return null
+    }
+
+    return {
+      key: resolveTargetRuntimeKey(createBlockTargetSelection(selector)),
+      targetSelection: createBlockTargetSelection(selector),
+      primaryElement: element,
+      elements: [element],
+    }
   }
 
   const hasVisibleDirectText = (element) => {
@@ -583,10 +949,11 @@
   }
 
   const resolveEditableTextHost = (input) => {
-    if (!selectedElement) {
+    if (!selectedTarget || selectedTarget.targetSelection.kind !== 'block') {
       return null
     }
 
+    const selectedElement = selectedTarget.primaryElement
     let element = input instanceof Element ? input : null
     while (element && selectedElement.contains(element)) {
       if (isEditableTextHost(element)) {
@@ -681,11 +1048,11 @@
   }
 
   const activateInlineEdit = (element) => {
-    if (!selectedElement || !selectedSelector) {
+    if (!selectedTarget || selectedTarget.targetSelection.kind !== 'block') {
       return false
     }
 
-    const descriptor = resolveEditableTextTargetDescriptor(selectedElement, element)
+    const descriptor = resolveEditableTextTargetDescriptor(selectedTarget.primaryElement, element)
     if (!descriptor) {
       return false
     }
@@ -698,7 +1065,7 @@
 
     activeInlineEdit = {
       element,
-      selector: selectedSelector,
+      selector: selectedTarget.targetSelection.selector,
       descriptor,
       originalText: element.textContent ?? '',
       previousContentEditable: element.getAttribute('contenteditable'),
@@ -735,79 +1102,76 @@
   }
 
   const clearHover = () => {
-    hoveredElement = null
-    hoveredSelector = null
-    hoverOverlay.style.display = 'none'
-    hoverLabel.style.display = 'none'
-    hoverLabel.textContent = ''
+    hoveredTarget = null
+    hideOverlayPair(hoverOverlay, hoverLabel)
   }
 
   const clearSelected = () => {
     discardActiveInlineEdit()
-    selectedElement = null
-    selectedSelector = null
+    selectedTarget = null
     clearPostedSelectionRect()
-    selectedOverlay.style.display = 'none'
-    selectedLabel.style.display = 'none'
-    selectedLabel.textContent = ''
+    hideOverlayPair(selectedOverlay, selectedLabel)
   }
 
   const clearAll = (notifyParent) => {
     logBridge('clear-all', {
       notifyParent,
       selectionModeEnabled,
-      hoveredSelector,
-      selectedSelector,
+      hoveredSelector: hoveredTarget?.targetSelection.selector ?? null,
+      selectedSelector: selectedTarget?.targetSelection.selector ?? null,
     })
     clearHover()
     clearSelected()
+    syncPassiveCmsIslandOverlays(null)
     if (notifyParent) {
       postToParent({ type: 'reset' })
     }
   }
 
-  const updateHoveredElement = (element) => {
-    const selector = element ? resolveSelector(element) : null
-    if (hoveredElement === element && hoveredSelector === selector) {
+  const updateHoveredTarget = (target) => {
+    const nextTarget = target ? refreshResolvedTarget(target) : null
+    if (hoveredTarget?.key === nextTarget?.key) {
       syncOverlays()
       return
     }
 
-    hoveredElement = element
-    hoveredSelector = selector
+    hoveredTarget = nextTarget
     syncOverlays()
     postToParent({
       type: 'hover',
-      selector,
+      selector: nextTarget?.targetSelection.selector ?? null,
+      targetSelection: nextTarget?.targetSelection ?? null,
     })
   }
 
-  const selectElement = (element) => {
-    const selector = element ? resolveSelector(element) : null
-    if (!element || !selector) {
+  const selectTarget = (target) => {
+    const nextTarget = target ? refreshResolvedTarget(target) : null
+    if (!nextTarget) {
       clearAll(true)
       return
     }
 
-    selectedElement = element
-    selectedSelector = selector
-    logBridge('select-element', { selector })
+    selectedTarget = nextTarget
+    logBridge('select-target', { selector: nextTarget.targetSelection.selector, kind: nextTarget.targetSelection.kind })
     syncOverlays()
   }
 
   const shouldRetargetSelection = (target) => {
     return Boolean(
-      selectedElement
+      selectedTarget
       && target
-      && selectedElement !== target
-      && selectedElement.contains(target),
+      && selectedTarget.targetSelection.kind === 'block'
+      && target.targetSelection.kind === 'block'
+      && selectedTarget.key !== target.key
+      && selectedTarget.primaryElement !== target.primaryElement
+      && selectedTarget.primaryElement.contains(target.primaryElement),
     )
   }
 
   const handleMouseMove = (event) => {
     if (!selectionModeEnabled || selectionInteractionLocked) return
-    const target = resolveSelectableElement(event.target)
-    updateHoveredElement(target)
+    const target = resolveSelectableTarget(event.target)
+    updateHoveredTarget(target)
   }
 
   const handleMouseOut = (event) => {
@@ -818,13 +1182,13 @@
       return
     }
 
-    updateHoveredElement(null)
+    updateHoveredTarget(null)
   }
 
   const handleClick = (event) => {
     if (!selectionModeEnabled || selectionInteractionLocked) return
 
-    const target = resolveSelectableElement(event.target)
+    const target = resolveSelectableTarget(event.target)
     if (!target) {
       clearAll(true)
       return
@@ -837,36 +1201,40 @@
     }
 
     if (shouldRetargetSelection(target)) {
-      if (activeInlineEdit && activeInlineEdit.element !== target) {
+      if (activeInlineEdit && activeInlineEdit.element !== target.primaryElement) {
         activeInlineEdit.element.blur()
       }
 
-      updateHoveredElement(target)
-      selectElement(target)
+      updateHoveredTarget(target)
+      selectTarget(target)
       return
     }
 
-    if (selectedElement && selectedElement === target) {
-      if (activeInlineEdit && activeInlineEdit.element !== target) {
+    if (selectedTarget && selectedTarget.key === target.key) {
+      if (activeInlineEdit && activeInlineEdit.element !== target.primaryElement) {
         activeInlineEdit.element.blur()
       }
 
-      updateHoveredElement(selectedElement)
-      const editableHost = resolveEditableTextHost(target)
-      if (editableHost) {
-        activateInlineEdit(editableHost)
+      updateHoveredTarget(selectedTarget)
+      if (selectedTarget.targetSelection.kind === 'block') {
+        const editableHost = resolveEditableTextHost(event.target)
+        if (editableHost) {
+          activateInlineEdit(editableHost)
+        } else {
+          syncOverlays()
+        }
       } else {
         syncOverlays()
       }
       return
     }
 
-    if (activeInlineEdit && activeInlineEdit.element !== target) {
+    if (activeInlineEdit && activeInlineEdit.element !== target.primaryElement) {
       activeInlineEdit.element.blur()
     }
 
-    updateHoveredElement(target)
-    selectElement(target)
+    updateHoveredTarget(target)
+    selectTarget(target)
   }
 
   const handleParentMessage = (event) => {
@@ -879,9 +1247,11 @@
         type: data.type,
         enabled: Boolean(data.enabled),
         locked: Boolean(data.locked),
+        showCmsIslandOutlines: Boolean(data.showCmsIslandOutlines),
       })
       selectionModeEnabled = Boolean(data.enabled)
       selectionInteractionLocked = Boolean(data.locked)
+      showCmsIslandOutlines = Boolean(data.showCmsIslandOutlines)
       if (!selectionModeEnabled) {
         clearAll(false)
       } else {
@@ -894,6 +1264,7 @@
       logBridge('parent-message', { type: data.type })
       selectionModeEnabled = false
       selectionInteractionLocked = false
+      showCmsIslandOutlines = false
       clearAll(false)
       return
     }

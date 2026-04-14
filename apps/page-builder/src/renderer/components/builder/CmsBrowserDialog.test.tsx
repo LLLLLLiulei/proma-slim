@@ -91,6 +91,12 @@ const CATALOG_DETAILS: Record<string, PageBuilderCmsCatalogDetail> = {
 
 const REQUEST_CONTEXT = {
   entryPoint: 'block-toolbar',
+  targetSelection: {
+    kind: 'block',
+    selector: '#hero-banner',
+    parentBlockSelector: '#hero-banner',
+    editBoundary: 'block',
+  },
   targetBlock: {
     selector: '#hero-banner',
   },
@@ -643,7 +649,13 @@ describe('CmsBrowserDialog', () => {
 
     const [[selection]] = onConfirmSelection.mock.calls as unknown as [[PageBuilderCmsSelectionResult]]
     expect(selection).toMatchObject({
-      version: 1,
+      version: 2,
+      targetSelection: {
+        kind: 'block',
+        selector: '#hero-banner',
+        parentBlockSelector: '#hero-banner',
+        editBoundary: 'block',
+      },
       targetBlock: {
         selector: '#hero-banner',
       },
@@ -700,7 +712,13 @@ describe('CmsBrowserDialog', () => {
 
     const [[selection]] = onConfirmSelection.mock.calls as unknown as [[PageBuilderCmsSelectionResult]]
     expect(selection).toMatchObject({
-      version: 1,
+      version: 2,
+      targetSelection: {
+        kind: 'block',
+        selector: '#hero-banner',
+        parentBlockSelector: '#hero-banner',
+        editBoundary: 'block',
+      },
       targetBlock: {
         selector: '#hero-banner',
       },
@@ -794,7 +812,13 @@ describe('CmsBrowserDialog', () => {
 
     const [[selection]] = onConfirmSelection.mock.calls as unknown as [[PageBuilderCmsSelectionResult]]
     expect(selection).toMatchObject({
-      version: 1,
+      version: 2,
+      targetSelection: {
+        kind: 'block',
+        selector: '#hero-banner',
+        parentBlockSelector: '#hero-banner',
+        editBoundary: 'block',
+      },
       targetBlock: {
         selector: '#hero-banner',
       },

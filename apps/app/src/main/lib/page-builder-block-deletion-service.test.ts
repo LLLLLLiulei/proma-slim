@@ -26,6 +26,28 @@ describe('page-builder block deletion service', () => {
     expect(() => applyPageBuilderBlockDeletion(html, '.hero')).toThrow('无法唯一定位')
   })
 
+  test('removes only the selected cms source tag when the selector targets a cms-island node', () => {
+    const html = [
+      '<!doctype html><html><body>',
+      '<section id="hero" data-proma-block-id="pb_blk_hero">',
+      '<h2>栏目</h2>',
+      '<cms-content catalog-id="news"></cms-content>',
+      '<p>保留内容</p>',
+      '</section>',
+      '</body></html>',
+    ].join('')
+
+    const updated = applyPageBuilderBlockDeletion(
+      html,
+      'body > section:nth-of-type(1) > cms-content:nth-of-type(1)',
+    )
+
+    expect(updated).toContain('<h2>栏目</h2>')
+    expect(updated).toContain('<p>保留内容</p>')
+    expect(updated).toContain('data-proma-block-id="pb_blk_hero"')
+    expect(updated).not.toContain('<cms-content')
+  })
+
   test('savePageBuilderBlockDeletion returns preview metadata recomputed from the latest html', () => {
     const workspace = createAgentWorkspace('Block Delete CMS', { template: 'page-builder' })
     const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')

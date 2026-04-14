@@ -1,6 +1,6 @@
 ---
 name: cms-binding-apply
-description: Use when a page-builder workflow already has a confirmed CMS selection and target block, and the agent must decide whether the data can replace the current block, whether short clarification is required, or whether the request is incompatible with Phase 1A.
+description: Use when a page-builder workflow already has a confirmed CMS selection and target selection, and the agent must decide whether the data can replace the current target, whether short clarification is required, or whether the request is incompatible with Phase 1A.
 ---
 
 # CMS Binding Apply
@@ -28,6 +28,7 @@ Do not use this skill when:
 The incoming payload must already be structured. Expect:
 
 - `selection`
+- `targetSelection`
 - `targetBlock`
 - `entryPoint`
 - `applyIntent`
@@ -61,7 +62,7 @@ After classifying the request, continue in the same turn instead of stopping at 
 1. If the result is `incompatible`, explain the blocking reason plainly and stop.
 2. If the result is `needs-clarification`, ask exactly one short structured question through `AskUserQuestion`, then wait for the answer.
 3. If the result is `ready`, call `mcp__cms__apply_cms_binding` in the same turn. Do not reply that the skill is only a template or that a later module is still missing.
-4. When continuing from `ready`, only pass the current `targetBlock.selector`, the supported binding kind, and the supported query props required by the formal tool. Do not edit workspace files directly.
+4. When continuing from `ready`, pass the current `targetSelection`, the compatibility `targetBlock.selector`, the supported binding kind, and the supported query props required by the formal tool. Do not edit workspace files directly.
 
 After the edits are complete:
 
@@ -78,7 +79,8 @@ After the edits are complete:
 
 ## Apply Guardrails
 
-- Keep Phase 1A scoped to the current `targetBlock.selector`.
+- Keep Phase 1A scoped to the current `targetSelection.selector`.
+- If `targetSelection.kind === 'cms-island'`, treat it as `source-atomic` and replace the whole source CMS tag instead of editing inside rendered child nodes.
 - Treat `replace-current` as the only supported strategy.
 - Treat fixed `contentIds`, alias queries, and other unsupported runtime fields as `incompatible`.
 - Do not propose whole-page rewrites.

@@ -10,6 +10,13 @@ import { compileIslandTemplate } from '../template/compile-island-template'
 import { scanCmsIslandsFromDom } from '../template/scan-cms-islands-dom'
 
 export const CMS_RENDERING_READY_EVENT = 'proma:cms-rendering-ready'
+const CMS_ISLAND_ID_ATTR = 'data-proma-cms-island-id'
+const CMS_ISLAND_COMPONENT_ATTR = 'data-proma-cms-island-component'
+const CMS_ISLAND_SOURCE_SELECTOR_ATTR = 'data-proma-cms-island-source-selector'
+const CMS_ISLAND_PARENT_BLOCK_SELECTOR_ATTR = 'data-proma-cms-island-parent-block-selector'
+const CMS_ISLAND_EDIT_BOUNDARY_ATTR = 'data-proma-cms-island-edit-boundary'
+const CMS_SOURCE_ATOMIC_EDIT_BOUNDARY = 'source-atomic'
+const BLOCKED_SELECTOR_TAGS = new Set(['HTML', 'HEAD', 'SCRIPT', 'STYLE', 'META', 'LINK'])
 
 declare global {
   interface Window {
@@ -66,6 +73,11 @@ function bootstrapCmsRenderingPreview(
     try {
       const render = compileIslandTemplate(island.template)
       const mountHost = island.element
+      const sourceSelector = resolveStableElementSelector(mountHost)
+      const parentBlockSelector = resolveParentBlockSelector(mountHost) ?? sourceSelector
+      const islandId = sourceSelector
+        ? createCmsIslandId(island.component, sourceSelector)
+        : null
       mountHost.setAttribute('data-proma-cms-rendering-island', island.component)
       let hostFinalized = false
 
@@ -75,6 +87,12 @@ function bootstrapCmsRenderingPreview(
         }
 
         hostFinalized = true
+        annotateRenderedIslandRoots(mountHost, {
+          islandId,
+          component: island.component,
+          sourceSelector,
+          parentBlockSelector,
+        })
         replaceHostWithRenderedChildren(mountHost)
         markIslandSettled()
       }
@@ -90,6 +108,83 @@ function bootstrapCmsRenderingPreview(
       markIslandSettled()
     }
   }
+}
+
+function resolveParentBlockSelector(host: Element): string | null {
+  const blockElement = host.closest('[data-proma-block-id]')
+  if (blockElement) {
+    return resolveStableElementSelector(blockElement)
+  }
+
+  return resolveStableElementSelector(host)
+}
+
+function annotateRenderedIslandRoots(
+  host: Element,
+  metadata: {
+    islandId: string | null
+    component: string
+    sourceSelector: string | null
+    parentBlockSelector: string | null
+  },
+): void {
+  if (!metadata.islandId || !metadata.sourceSelector || !metadata.parentBlockSelector) {
+    return
+  }
+
+  for (const child of Array.from(host.children)) {
+    child.setAttribute(CMS_ISLAND_ID_ATTR, metadata.islandId)
+    child.setAttribute(CMS_ISLAND_COMPONENT_ATTR, metadata.component)
+    child.setAttribute(CMS_ISLAND_SOURCE_SELECTOR_ATTR, metadata.sourceSelector)
+    child.setAttribute(CMS_ISLAND_PARENT_BLOCK_SELECTOR_ATTR, metadata.parentBlockSelector)
+    child.setAttribute(CMS_ISLAND_EDIT_BOUNDARY_ATTR, CMS_SOURCE_ATOMIC_EDIT_BOUNDARY)
+  }
+}
+
+function createCmsIslandId(component: string, sourceSelector: string): string {
+  return `cms-island-${component}-${hashString(sourceSelector)}`
+}
+
+function resolveStableElementSelector(element: Element): string | null {
+  const segments: string[] = []
+  let current: Element | null = element
+
+  while (current && !BLOCKED_SELECTOR_TAGS.has(current.tagName)) {
+    if (current.tagName === 'BODY') {
+      segments.unshift('body')
+      break
+    }
+
+    segments.unshift(`${current.tagName.toLowerCase()}:nth-of-type(${getNthOfType(current)})`)
+    current = current.parentElement
+  }
+
+  return segments.length > 0 ? segments.join(' > ') : null
+}
+
+function getNthOfType(element: Element): number {
+  let index = 1
+  let sibling = element.previousElementSibling
+
+  while (sibling) {
+    if (sibling.tagName === element.tagName) {
+      index += 1
+    }
+    sibling = sibling.previousElementSibling
+  }
+
+  return index
+}
+
+function hashString(input: string): string {
+  let hash = 2166136261
+
+  for (let index = 0; index < input.length; index += 1) {
+    hash ^= input.charCodeAt(index)
+    hash = Math.imul(hash, 16777619)
+  }
+
+  return (hash >>> 0).toString(16)
 }
 
 function replaceHostWithRenderedChildren(host: Element): void {

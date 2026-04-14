@@ -29,6 +29,21 @@ export function buildCmsRuntimeToolBundle(
   options: BuildCmsRuntimeToolBundleOptions,
 ): CmsRuntimeToolBundle {
   const renderingTools = createPageBuilderCmsRenderingTools()
+  const targetSelectionSchema = z.discriminatedUnion('kind', [
+    z.object({
+      kind: z.literal('block'),
+      selector: z.string().min(1),
+      parentBlockSelector: z.string().min(1),
+      editBoundary: z.literal('block'),
+    }),
+    z.object({
+      kind: z.literal('cms-island'),
+      selector: z.string().min(1),
+      parentBlockSelector: z.string().min(1),
+      component: z.enum(['cms-catalog', 'cms-content']),
+      editBoundary: z.literal('source-atomic'),
+    }),
+  ])
   const listCatalogsTool = tool(
     'list_catalogs',
     '列出 CMS 栏目树，支持按内容类型或关键字过滤。',
@@ -61,6 +76,7 @@ export function buildCmsRuntimeToolBundle(
     PAGE_BUILDER_CMS_APPLY_TOOL_ID,
     '将 CMS 数据绑定到当前 page-builder 区块，写入 cms-catalog 或 cms-content 标记并触发统一 HTML mutation pipeline。',
     {
+      targetSelection: targetSelectionSchema.optional(),
       targetBlock: z.object({
         selector: z.string().min(1).describe('目标区块的 CSS selector'),
       }),

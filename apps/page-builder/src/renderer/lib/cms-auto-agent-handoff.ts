@@ -12,7 +12,7 @@ import {
 
 export { PAGE_BUILDER_CMS_AUTO_AGENT_HANDOFF_MCP_SERVER } from '@proma/shared'
 
-export const PAGE_BUILDER_CMS_AUTO_AGENT_HANDOFF_MESSAGE = '请根据刚确认的 CMS 选择结果，判断如何应用到当前区块。'
+export const PAGE_BUILDER_CMS_AUTO_AGENT_HANDOFF_MESSAGE = '请根据刚确认的 CMS 选择结果，判断如何应用到当前目标。'
 
 export function buildPageBuilderCmsApplySkillInput(
   selection: PageBuilderCmsSelectionResult,
@@ -29,11 +29,12 @@ export function buildPageBuilderCmsApplySkillInput(
     entryPoint: 'cms-browser-confirm',
     applyIntent: 'replace-current',
     workspacePolicy: {
-      scope: 'target-block-only',
+      scope: 'target-selection-only',
       allowPageRewrite: false,
       allowCrossBlockMutation: false,
       outputTarget: 'workspace-files/index.html',
     },
+    targetSelection: selection.targetSelection,
     targetBlock: {
       selector: selection.targetBlock.selector,
     },

@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { parseHTML } from 'linkedom'
-import type { AgentWorkspace } from '@proma/shared'
+import type { AgentWorkspace, PageBuilderTargetSelection } from '@proma/shared'
 import type {
   CmsRenderingDiagnostic,
   CmsRenderingManifestEntry,
@@ -16,7 +16,28 @@ import { z } from 'zod'
 export const PAGE_BUILDER_CMS_APPLY_TOOL_ID = 'apply_cms_binding'
 export const PAGE_BUILDER_CMS_APPLY_TOOL_NAME = 'mcp__cms__apply_cms_binding'
 
+const pageBuilderBlockTargetSelectionSchema = z.object({
+  kind: z.literal('block'),
+  selector: z.string().min(1),
+  parentBlockSelector: z.string().min(1),
+  editBoundary: z.literal('block'),
+}).strict()
+
+const pageBuilderCmsIslandTargetSelectionSchema = z.object({
+  kind: z.literal('cms-island'),
+  selector: z.string().min(1),
+  parentBlockSelector: z.string().min(1),
+  component: z.enum(['cms-catalog', 'cms-content']),
+  editBoundary: z.literal('source-atomic'),
+}).strict()
+
+const pageBuilderTargetSelectionSchema = z.discriminatedUnion('kind', [
+  pageBuilderBlockTargetSelectionSchema,
+  pageBuilderCmsIslandTargetSelectionSchema,
+])
+
 const pageBuilderCmsBindingBaseSchema = z.object({
+  targetSelection: pageBuilderTargetSelectionSchema.optional(),
   targetBlock: z.object({
     selector: z.string().min(1),
   }).strict(),
@@ -49,6 +70,7 @@ export interface PageBuilderCmsBindingTargetBlock {
 }
 
 export interface ApplyPageBuilderCmsBindingInput {
+  targetSelection?: PageBuilderTargetSelection
   targetBlock: PageBuilderCmsBindingTargetBlock
   kind: PageBuilderCmsBindingKind
   source: Record<string, unknown>
@@ -57,13 +79,15 @@ export interface ApplyPageBuilderCmsBindingInput {
   errorTemplate?: string
 }
 
-interface NormalizedCatalogNavBindingInput extends Omit<ApplyPageBuilderCmsBindingInput, 'kind' | 'source'> {
+interface NormalizedCatalogNavBindingInput extends Omit<ApplyPageBuilderCmsBindingInput, 'kind' | 'source' | 'targetSelection'> {
   kind: 'catalog-nav'
+  targetSelection: PageBuilderTargetSelection
   source: z.infer<typeof catalogNavSourceSchema>
 }
 
-interface NormalizedContentListBindingInput extends Omit<ApplyPageBuilderCmsBindingInput, 'kind' | 'source'> {
+interface NormalizedContentListBindingInput extends Omit<ApplyPageBuilderCmsBindingInput, 'kind' | 'source' | 'targetSelection'> {
   kind: 'content-list'
+  targetSelection: PageBuilderTargetSelection
   source: z.infer<typeof contentListSourceSchema>
 }
 
@@ -104,6 +128,7 @@ export interface ApplyPageBuilderCmsBindingValidationSummary {
 export interface ApplyPageBuilderCmsBindingResult {
   applied: true
   changed: boolean
+  targetSelection: PageBuilderTargetSelection
   targetBlock: PageBuilderCmsBindingTargetBlock
   blockId: string
   component: 'cms-catalog' | 'cms-content'
@@ -142,9 +167,37 @@ export function createPageBuilderCmsRenderingTools(
         mutationResult = htmlService.mutate(workspace, {
           transform(currentHtml) {
             const { document } = parseHTML(currentHtml)
-            const block = resolveUniqueBlock(document, normalizedInput.targetBlock.selector)
-            appliedBlockId = ensureBlockId(block, createBlockId)
-            block.innerHTML = generatedHtml
+            const parentBlock = resolveUniqueBlock(
+              document,
+              normalizedInput.targetSelection.parentBlockSelector,
+              '未找到要绑定 CMS 的区块',
+              '无法唯一定位要绑定 CMS 的区块',
+            )
+            appliedBlockId = ensureBlockId(parentBlock, createBlockId)
+
+            if (normalizedInput.targetSelection.kind === 'cms-island') {
+              const sourceTarget = resolveUniqueBlock(
+                document,
+                normalizedInput.targetSelection.selector,
+                '未找到要替换的 CMS 组件',
+                '无法唯一定位要替换的 CMS 组件',
+              )
+
+              if (!parentBlock.contains(sourceTarget)) {
+                throw new PageBuilderCmsBindingApplyError('invalid-input', '目标 CMS 组件不属于当前区块')
+              }
+
+              sourceTarget.outerHTML = generatedHtml
+            } else {
+              const block = resolveUniqueBlock(
+                document,
+                normalizedInput.targetSelection.selector,
+                '未找到要绑定 CMS 的区块',
+                '无法唯一定位要绑定 CMS 的区块',
+              )
+              block.innerHTML = generatedHtml
+            }
+
             return serializeDocument(currentHtml, document)
           },
         })
@@ -170,6 +223,7 @@ export function createPageBuilderCmsRenderingTools(
       return {
         applied: true,
         changed: mutationResult.changed,
+        targetSelection: normalizedInput.targetSelection,
         targetBlock: normalizedInput.targetBlock,
         blockId: appliedBlockId,
         component,
@@ -199,9 +253,16 @@ function normalizeApplyCmsBindingInput(
   if (!templateBody) {
     throw new PageBuilderCmsBindingApplyError('invalid-input', 'templateBody 不能为空')
   }
+  const targetSelection = parsedBase.targetSelection ?? {
+    kind: 'block',
+    selector: parsedBase.targetBlock.selector,
+    parentBlockSelector: parsedBase.targetBlock.selector,
+    editBoundary: 'block',
+  } satisfies PageBuilderTargetSelection
 
   if (parsedBase.kind === 'catalog-nav') {
     return {
+      targetSelection,
       targetBlock: parsedBase.targetBlock,
       kind: 'catalog-nav',
       templateBody,
@@ -212,6 +273,7 @@ function normalizeApplyCmsBindingInput(
   }
 
   return {
+    targetSelection,
     targetBlock: parsedBase.targetBlock,
     kind: 'content-list',
     templateBody,
@@ -234,14 +296,19 @@ function parseSchema<T extends z.ZodTypeAny>(schema: T, value: unknown): z.infer
   )
 }
 
-function resolveUniqueBlock(document: Document, selector: string): Element {
+function resolveUniqueBlock(
+  document: Document,
+  selector: string,
+  notFoundMessage: string,
+  notUniqueMessage: string,
+): Element {
   const matches = document.querySelectorAll(selector)
   if (matches.length === 0) {
-    throw new PageBuilderCmsBindingApplyError('block-not-found', '未找到要绑定 CMS 的区块')
+    throw new PageBuilderCmsBindingApplyError('block-not-found', notFoundMessage)
   }
 
   if (matches.length > 1) {
-    throw new PageBuilderCmsBindingApplyError('selector-not-unique', '无法唯一定位要绑定 CMS 的区块')
+    throw new PageBuilderCmsBindingApplyError('selector-not-unique', notUniqueMessage)
   }
 
   return matches[0]!

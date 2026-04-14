@@ -103,6 +103,57 @@ describe('page-builder cms rendering apply tool', () => {
     expect(html).toContain('<cms-content catalog-id="news" page-size="6">')
   })
 
+  test('replaces only the selected cms-island source tag when the target selection is source-atomic', () => {
+    const workspace = createAgentWorkspace('CMS Apply Island Replace', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+    const entryPath = join(workspaceFilesDir, 'index.html')
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(
+      entryPath,
+      [
+        '<!doctype html><html><body>',
+        '<section id="latest-news" data-proma-block-id="pb_blk_news">',
+        '<h2>最新动态</h2>',
+        '<cms-content catalog-id="news"></cms-content>',
+        '<p class="static-note">静态尾注</p>',
+        '</section>',
+        '</body></html>',
+      ].join(''),
+      'utf-8',
+    )
+
+    const tools = createPageBuilderCmsRenderingTools({
+      now: () => '2026-04-13T00:00:00.000Z',
+    })
+
+    const result = tools.applyCmsBinding(workspace, {
+      targetSelection: {
+        kind: 'cms-island',
+        selector: 'body > section:nth-of-type(1) > cms-content:nth-of-type(1)',
+        parentBlockSelector: 'body > section:nth-of-type(1)',
+        component: 'cms-content',
+        editBoundary: 'source-atomic',
+      },
+      targetBlock: {
+        selector: '#latest-news',
+      },
+      kind: 'content-list',
+      source: {
+        catalogId: 'events',
+        pageSize: 4,
+      },
+      templateBody: '<article v-for="item in items" :key="item.id">{{ item.title }}</article>',
+    })
+
+    const html = readFileSync(entryPath, 'utf-8')
+    expect(result.blockId).toBe('pb_blk_news')
+    expect(html).toContain('<h2>最新动态</h2>')
+    expect(html).toContain('<p class="static-note">静态尾注</p>')
+    expect(html).toContain('<cms-content catalog-id="events" page-size="4">')
+    expect(html).not.toContain('<cms-content catalog-id="news"></cms-content>')
+  })
+
   test('rejects selectors that do not uniquely resolve to a target block', () => {
     const workspace = createAgentWorkspace('CMS Apply Duplicate Blocks', { template: 'page-builder' })
     const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
@@ -126,6 +177,51 @@ describe('page-builder cms rendering apply tool', () => {
       },
       templateBody: '<nav></nav>',
     })).toThrow(PageBuilderCmsBindingApplyError)
+  })
+
+  test('rejects cms-island source selectors that do not uniquely resolve', () => {
+    const workspace = createAgentWorkspace('CMS Apply Duplicate Islands', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(
+      join(workspaceFilesDir, 'index.html'),
+      [
+        '<!doctype html><html><body>',
+        '<section id="news-a" data-proma-block-id="pb_blk_a"><cms-content class="dup" catalog-id="a"></cms-content></section>',
+        '<section id="news-b" data-proma-block-id="pb_blk_b"><cms-content class="dup" catalog-id="b"></cms-content></section>',
+        '</body></html>',
+      ].join(''),
+      'utf-8',
+    )
+
+    const tools = createPageBuilderCmsRenderingTools()
+
+    try {
+      tools.applyCmsBinding(workspace, {
+        targetSelection: {
+          kind: 'cms-island',
+          selector: '.dup',
+          parentBlockSelector: '#news-a',
+          component: 'cms-content',
+          editBoundary: 'source-atomic',
+        },
+        targetBlock: {
+          selector: '#news-a',
+        },
+        kind: 'content-list',
+        source: {
+          catalogId: 'news',
+        },
+        templateBody: '<article></article>',
+      })
+      throw new Error('expected applyCmsBinding to throw')
+    } catch (error) {
+      expect(error).toBeInstanceOf(PageBuilderCmsBindingApplyError)
+      expect(error).toMatchObject({
+        code: 'selector-not-unique',
+      })
+    }
   })
 
   test('rejects fixed content id style inputs that are outside the current runtime capability', () => {

@@ -1,20 +1,32 @@
-export interface PageBuilderSelectedBlock {
-  selector: string
-}
+import type { PageBuilderTargetSelection } from '@proma/shared'
+
+export type PageBuilderSelectedTarget = PageBuilderTargetSelection
 
 export type PageBuilderPreviewSelectionEvent =
-  | { type: 'hover'; selector: string | null }
-  | { type: 'selected'; selector: string }
+  | { type: 'hover'; selector?: string | null; targetSelection: PageBuilderTargetSelection | null }
+  | { type: 'selected'; selector?: string; targetSelection: PageBuilderTargetSelection }
   | { type: 'reset' }
 
 export function decoratePageBuilderSelectionMessage(
   userMessage: string,
-  selectedBlock: PageBuilderSelectedBlock,
+  targetSelection: PageBuilderSelectedTarget,
 ): string {
+  const selectionSemantics = targetSelection.kind === 'cms-island'
+    ? {
+        previewSurface: 'cms-rendered-output',
+        updateRule: 'replace-whole-source-component',
+        forbidRenderedChildWrites: true,
+      }
+    : {
+        previewSurface: 'static-block',
+        updateRule: 'update-selected-target',
+      }
+
   return [
-    '<page_builder_selection>',
-    `selector: ${selectedBlock.selector}`,
-    '</page_builder_selection>',
+    `<page_builder_selection>${JSON.stringify({
+      targetSelection,
+      selectionSemantics,
+    })}</page_builder_selection>`,
     '',
     userMessage,
   ].join('\n')

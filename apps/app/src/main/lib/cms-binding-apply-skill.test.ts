@@ -25,6 +25,7 @@ describe('cms-binding-apply skill contract docs', () => {
     const skill = readRelativeText('../../../default-skills/cms-binding-apply/SKILL.md')
 
     expect(skill).toContain('If `blockTypeHint` is missing')
+    expect(skill).toContain('`targetSelection`')
     expect(skill).toContain('catalogs` favor `nav`')
     expect(skill).toContain('contents` favor `content-list`')
   })
@@ -44,5 +45,7 @@ describe('cms-binding-apply skill contract docs', () => {
     expect(examples).toContain('## Malformed payload example')
     expect(examples).toContain('fixed content')
     expect(examples).toContain('"reasonCode": "malformed-payload"')
+    expect(examples).toContain('"scope": "target-selection-only"')
+    expect(examples).toContain('"targetSelection"')
   })
 })

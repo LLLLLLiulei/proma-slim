@@ -8,6 +8,7 @@ import type {
   AgentWorkspace,
   PageBuilderCmsAutoAgentHandoffSettledResult,
   PageBuilderCmsSelectionResult,
+  PageBuilderTargetSelection,
 } from '@proma/shared'
 import {
   type AgentStreamState,
@@ -40,6 +41,38 @@ interface PageBuilderImageReplacementPayload {
 
 interface PageBuilderBlockDeletionPayload {
   selector: string
+}
+
+function createBlockTargetSelection(selector: string): PageBuilderTargetSelection {
+  return {
+    kind: 'block',
+    selector,
+    parentBlockSelector: selector,
+    editBoundary: 'block',
+  }
+}
+
+function createCmsIslandTargetSelection(
+  selector: string,
+  parentBlockSelector: string,
+  component: 'cms-catalog' | 'cms-content',
+): PageBuilderTargetSelection {
+  return {
+    kind: 'cms-island',
+    selector,
+    parentBlockSelector,
+    component,
+    editBoundary: 'source-atomic',
+  }
+}
+
+function extractPageBuilderSelectionPayload(message: string): unknown {
+  const match = message.match(/<page_builder_selection>\s*([\s\S]*?)\s*<\/page_builder_selection>/)
+  if (!match) {
+    throw new Error('missing page_builder_selection payload')
+  }
+
+  return JSON.parse(match[1]!)
 }
 
 interface PageBuilderStaticExportJob {
@@ -1240,10 +1273,10 @@ describe('BuilderPage', () => {
 
     await act(async () => {
       (getLastPreviewPaneProps() as {
-        onSelectionEvent?: (event: { type: string; selector?: string }) => void
+        onSelectionEvent?: (event: { type: string; targetSelection?: PageBuilderTargetSelection }) => void
       }).onSelectionEvent?.({
         type: 'selected',
-        selector: '#hero',
+        targetSelection: createBlockTargetSelection('#hero'),
       })
     })
 
@@ -1257,8 +1290,10 @@ describe('BuilderPage', () => {
       messageDecorator?: (message: string) => string
     }).messageDecorator?.('修改这里的标题')
 
-    expect(decorated).toContain('#hero')
     expect(decorated).toContain('修改这里的标题')
+    expect(extractPageBuilderSelectionPayload(decorated ?? '')).toMatchObject({
+      targetSelection: createBlockTargetSelection('#hero'),
+    })
 
     await act(async () => {
       getPreviewSelectionToggle(getLastPreviewPaneProps())?.()
@@ -1398,17 +1433,19 @@ describe('BuilderPage', () => {
 
     await act(async () => {
       (getLastPreviewPaneProps() as {
-        onSelectionEvent?: (event: { type: 'selected'; selector: string }) => void
+        onSelectionEvent?: (event: { type: 'selected'; targetSelection: PageBuilderTargetSelection }) => void
       }).onSelectionEvent?.({
         type: 'selected',
-        selector: '#hero',
+        targetSelection: createBlockTargetSelection('#hero'),
       })
     })
 
     expect(getPreviewSelectionActionState(getLastPreviewPaneProps())).toBe('selected')
-    expect((getLastAgentViewProps() as {
+    expect(extractPageBuilderSelectionPayload((getLastAgentViewProps() as {
       messageDecorator?: (message: string) => string
-    }).messageDecorator?.('继续修改')).toContain('#hero')
+    }).messageDecorator?.('继续修改') ?? '')).toMatchObject({
+      targetSelection: createBlockTargetSelection('#hero'),
+    })
 
     await act(async () => {
       setStreamingStatesForTest(store, new Map([
@@ -1426,12 +1463,12 @@ describe('BuilderPage', () => {
 
     await act(async () => {
       (getLastPreviewPaneProps() as {
-        onSelectionEvent?: (event: { type: 'selected'; selector: string }) => void
+        onSelectionEvent?: (event: { type: 'selected'; targetSelection: PageBuilderTargetSelection }) => void
         onRequestDeleteBlock?: (selector: string) => void
         onRequestOpenCmsBrowser?: () => void
       }).onSelectionEvent?.({
         type: 'selected',
-        selector: '#pricing',
+        targetSelection: createBlockTargetSelection('#pricing'),
       })
       ;(getLastPreviewPaneProps() as {
         onRequestDeleteBlock?: (selector: string) => void
@@ -1442,12 +1479,16 @@ describe('BuilderPage', () => {
       await Promise.resolve()
     })
 
-    expect((getLastAgentViewProps() as {
+    expect(extractPageBuilderSelectionPayload((getLastAgentViewProps() as {
       messageDecorator?: (message: string) => string
-    }).messageDecorator?.('继续修改')).toContain('#hero')
-    expect((getLastAgentViewProps() as {
+    }).messageDecorator?.('继续修改') ?? '')).toMatchObject({
+      targetSelection: createBlockTargetSelection('#hero'),
+    })
+    expect(extractPageBuilderSelectionPayload((getLastAgentViewProps() as {
       messageDecorator?: (message: string) => string
-    }).messageDecorator?.('继续修改')).not.toContain('#pricing')
+    }).messageDecorator?.('继续修改') ?? '')).not.toMatchObject({
+      targetSelection: createBlockTargetSelection('#pricing'),
+    })
     expect(JSON.stringify(renderer.toJSON())).not.toContain('删除区块')
     expect(getLastCmsBrowserDialogProps()).toMatchObject({ open: false })
   })
@@ -1491,17 +1532,19 @@ describe('BuilderPage', () => {
     })
     await act(async () => {
       (getLastPreviewPaneProps() as {
-        onSelectionEvent?: (event: { type: string; selector?: string }) => void
+        onSelectionEvent?: (event: { type: string; targetSelection?: PageBuilderTargetSelection }) => void
       }).onSelectionEvent?.({
         type: 'selected',
-        selector: '#pricing',
+        targetSelection: createBlockTargetSelection('#pricing'),
       })
     })
 
     expect(getPreviewSelectionActionState(getLastPreviewPaneProps())).toBe('selected')
-    expect((getLastAgentViewProps() as {
+    expect(extractPageBuilderSelectionPayload((getLastAgentViewProps() as {
       messageDecorator?: (message: string) => string
-    }).messageDecorator?.('改成更紧凑')).toContain('#pricing')
+    }).messageDecorator?.('改成更紧凑') ?? '')).toMatchObject({
+      targetSelection: createBlockTargetSelection('#pricing'),
+    })
 
     await act(async () => {
       (getLastPreviewPaneProps() as {
@@ -1570,10 +1613,10 @@ describe('BuilderPage', () => {
     })
     await act(async () => {
       (getLastPreviewPaneProps() as {
-        onSelectionEvent?: (event: { type: string; selector?: string }) => void
+        onSelectionEvent?: (event: { type: string; targetSelection?: PageBuilderTargetSelection }) => void
       }).onSelectionEvent?.({
         type: 'selected',
-        selector: '#hero-banner',
+        targetSelection: createBlockTargetSelection('#hero-banner'),
       })
     })
 
@@ -1591,9 +1634,15 @@ describe('BuilderPage', () => {
       previewUrl: `/api/workspaces/${workspace.id}/preview/?v=rev-1`,
     })
     expect(getPreviewSelectionActionState(getLastPreviewPaneProps())).toBe('selected')
-    expect((getLastAgentViewProps() as {
+    expect(extractPageBuilderSelectionPayload((getLastAgentViewProps() as {
       messageDecorator?: (message: string) => string
-    }).messageDecorator?.('帮我微调这个区块')).toContain('#hero-banner')
+    }).messageDecorator?.('帮我微调这个区块') ?? '')).toEqual({
+      targetSelection: createBlockTargetSelection('#hero-banner'),
+      selectionSemantics: {
+        previewSurface: 'static-block',
+        updateRule: 'update-selected-target',
+      },
+    })
 
     await act(async () => {
       await runIntervalsOnce()
@@ -1666,10 +1715,10 @@ describe('BuilderPage', () => {
 
     await act(async () => {
       (getLastPreviewPaneProps() as {
-        onSelectionEvent?: (event: { type: string; selector?: string }) => void
+        onSelectionEvent?: (event: { type: string; targetSelection?: PageBuilderTargetSelection }) => void
       }).onSelectionEvent?.({
         type: 'selected',
-        selector: '#hero-banner',
+        targetSelection: createBlockTargetSelection('#hero-banner'),
       })
     })
 
@@ -1683,6 +1732,12 @@ describe('BuilderPage', () => {
       open: true,
       requestContext: {
         entryPoint: 'block-toolbar',
+        targetSelection: {
+          kind: 'block',
+          selector: '#hero-banner',
+          parentBlockSelector: '#hero-banner',
+          editBoundary: 'block',
+        },
         targetBlock: {
           selector: '#hero-banner',
         },
@@ -1691,6 +1746,100 @@ describe('BuilderPage', () => {
     expect(getLastPreviewPaneProps()).toMatchObject({
       selectionModeEnabled: true,
       selectionActionState: 'selected',
+    })
+  })
+
+  test('opens the cms browser dialog with cms-island target semantics and preserves the parent block as compatibility context', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const {
+      BuilderPage,
+      getLastAgentViewProps,
+      getLastCmsBrowserDialogProps,
+      getLastPreviewPaneProps,
+    } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      mockPreviewPane: true,
+      mockCmsBrowserDialog: true,
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      (getLastPreviewPaneProps() as {
+        onSelectionEvent?: (event: { type: string; targetSelection?: PageBuilderTargetSelection }) => void
+      }).onSelectionEvent?.({
+        type: 'selected',
+        targetSelection: createCmsIslandTargetSelection(
+          'section:nth-of-type(2) > cms-content:nth-of-type(1)',
+          '[data-proma-block-id="pb_blk_news"]',
+          'cms-content',
+        ),
+      })
+    })
+
+    await act(async () => {
+      (getLastPreviewPaneProps() as {
+        onRequestOpenCmsBrowser?: () => void
+      }).onRequestOpenCmsBrowser?.()
+    })
+
+    expect(getLastCmsBrowserDialogProps()).toMatchObject({
+      open: true,
+      requestContext: {
+        entryPoint: 'block-toolbar',
+        targetSelection: {
+          kind: 'cms-island',
+          selector: 'section:nth-of-type(2) > cms-content:nth-of-type(1)',
+          parentBlockSelector: '[data-proma-block-id="pb_blk_news"]',
+          component: 'cms-content',
+          editBoundary: 'source-atomic',
+        },
+        targetBlock: {
+          selector: '[data-proma-block-id="pb_blk_news"]',
+        },
+      },
+    })
+
+    expect(extractPageBuilderSelectionPayload((getLastAgentViewProps() as {
+      messageDecorator?: (message: string) => string
+    }).messageDecorator?.('继续调整这里') ?? '')).toEqual({
+      targetSelection: {
+        kind: 'cms-island',
+        selector: 'section:nth-of-type(2) > cms-content:nth-of-type(1)',
+        parentBlockSelector: '[data-proma-block-id="pb_blk_news"]',
+        component: 'cms-content',
+        editBoundary: 'source-atomic',
+      },
+      selectionSemantics: {
+        previewSurface: 'cms-rendered-output',
+        updateRule: 'replace-whole-source-component',
+        forbidRenderedChildWrites: true,
+      },
     })
   })
 
@@ -1737,8 +1886,8 @@ describe('BuilderPage', () => {
 
     await act(async () => {
       (getLastPreviewPaneProps() as {
-        onSelectionEvent?: (event: { type: string; selector?: string }) => void
-      }).onSelectionEvent?.({ type: 'selected', selector: '#hero-banner' })
+        onSelectionEvent?: (event: { type: string; targetSelection?: PageBuilderTargetSelection }) => void
+      }).onSelectionEvent?.({ type: 'selected', targetSelection: createBlockTargetSelection('#hero-banner') })
     })
 
     await act(async () => {
@@ -1748,7 +1897,8 @@ describe('BuilderPage', () => {
     })
 
     const selection: PageBuilderCmsSelectionResult = {
-      version: 1,
+      version: 2,
+      targetSelection: createBlockTargetSelection('#hero-banner'),
       targetBlock: {
         selector: '#hero-banner',
       },
@@ -1772,7 +1922,7 @@ describe('BuilderPage', () => {
     expect(request?.requestId).toBeTruthy()
     expect(getLastAgentViewProps()).toMatchObject({
       programmaticSendRequest: expect.objectContaining({
-        userMessage: '请根据刚确认的 CMS 选择结果，判断如何应用到当前区块。',
+        userMessage: '请根据刚确认的 CMS 选择结果，判断如何应用到当前目标。',
         mentionedSkills: ['cms-binding-apply'],
         mentionedMcpServers: ['cms'],
       }),

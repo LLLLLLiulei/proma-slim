@@ -12,6 +12,7 @@ import type {
   PageBuilderInlineTextSaveRequest,
   PageBuilderInlineTextSaveResult,
   PageBuilderStaticExportJob,
+  PageBuilderTargetSelection,
 } from '@proma/shared'
 import { AgentView } from '@/components/agent'
 import {
@@ -109,7 +110,7 @@ export function BuilderPage({
   const [isDraggingSplit, setIsDraggingSplit] = React.useState(false)
   const [selectionActionState, setSelectionActionState] = React.useState<SelectionActionState>('idle')
   const [hoveredSelector, setHoveredSelector] = React.useState<string | null>(null)
-  const [selectedSelector, setSelectedSelector] = React.useState<string | null>(null)
+  const [selectedTargetSelection, setSelectedTargetSelection] = React.useState<PageBuilderTargetSelection | null>(null)
   const [pendingDeleteSelector, setPendingDeleteSelector] = React.useState<string | null>(null)
   const [cmsBrowserOpen, setCmsBrowserOpen] = React.useState(false)
   const [cmsAutoHandoffRequest, setCmsAutoHandoffRequest] = React.useState<PageBuilderCmsAutoAgentHandoffRequest | null>(null)
@@ -122,7 +123,7 @@ export function BuilderPage({
   const clearSelection = React.useCallback(() => {
     setSelectionActionState('idle')
     setHoveredSelector(null)
-    setSelectedSelector(null)
+    setSelectedTargetSelection(null)
     pendingImageReplacementRef.current = null
   }, [])
 
@@ -604,12 +605,12 @@ export function BuilderPage({
     }
 
     if (event.type === 'hover') {
-      setHoveredSelector(event.selector)
+      setHoveredSelector(event.targetSelection?.selector ?? null)
       return
     }
 
     if (event.type === 'selected') {
-      setSelectedSelector(event.selector)
+      setSelectedTargetSelection(event.targetSelection)
       setSelectionActionState('selected')
       return
     }
@@ -629,7 +630,7 @@ export function BuilderPage({
 
     setSelectionActionState('armed')
     setHoveredSelector(null)
-    setSelectedSelector(null)
+    setSelectedTargetSelection(null)
   }, [clearSelection, isAgentStreaming, selectionActionState])
 
   const handleMessageSent = React.useCallback(() => {
@@ -678,17 +679,22 @@ export function BuilderPage({
     clearSelection()
   }, [clearSelection, previewUrl])
   const cmsSelectionRequestContext = React.useMemo<PageBuilderCmsSelectionRequestContext | undefined>(() => {
-    if (!selectedSelector) {
+    if (!selectedTargetSelection) {
       return undefined
     }
 
+    const targetBlockSelector = selectedTargetSelection.kind === 'cms-island'
+      ? selectedTargetSelection.parentBlockSelector
+      : selectedTargetSelection.selector
+
     return {
       entryPoint: 'block-toolbar',
+      targetSelection: selectedTargetSelection,
       targetBlock: {
-        selector: selectedSelector,
+        selector: targetBlockSelector,
       },
     }
-  }, [selectedSelector])
+  }, [selectedTargetSelection])
   const handleCmsSelectionConfirm = React.useCallback((selection: PageBuilderCmsSelectionResult) => {
     setCmsAutoHandoffRequest(createPageBuilderCmsAutoAgentHandoffRequest(selection, {
       uiEntryPoint: cmsSelectionRequestContext?.entryPoint,
@@ -706,12 +712,12 @@ export function BuilderPage({
     }
   }, [cmsAutoHandoffRequest])
   const messageDecorator = React.useMemo(() => {
-    if (!selectedSelector) return undefined
+    if (!selectedTargetSelection) return undefined
 
     return (userMessage: string) => decoratePageBuilderSelectionMessage(userMessage, {
-      selector: selectedSelector,
+      ...selectedTargetSelection,
     })
-  }, [selectedSelector])
+  }, [selectedTargetSelection])
   if (loadState.status === 'loading') {
     return (
       <div className="page-builder-workbench flex min-h-[100dvh] items-center justify-center px-6 py-10">

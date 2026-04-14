@@ -167,6 +167,7 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
     if (activeTab === 'catalogs') {
       onConfirmSelection?.({
         version: PAGE_BUILDER_CMS_SELECTION_RESULT_VERSION,
+        targetSelection: requestContext.targetSelection,
         targetBlock: requestContext.targetBlock,
         selectionKind: 'catalogs',
         sourceType: 'catalogs',
@@ -179,6 +180,7 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
     } else {
       onConfirmSelection?.({
         version: PAGE_BUILDER_CMS_SELECTION_RESULT_VERSION,
+        targetSelection: requestContext.targetSelection,
         targetBlock: requestContext.targetBlock,
         selectionKind: 'contents',
         sourceType: 'contents-fixed',
