@@ -130,6 +130,64 @@ Use these examples when interpreting or producing the `cms-binding-apply` contra
 }
 ```
 
+## Recommended authoring shape
+
+Use `cms-catalog` / `cms-content` as the source root of the dynamic region, and keep the main list or navigation container inside the slot.
+
+```html
+<cms-catalog level="root">
+  <template v-slot:default="{ items }">
+    <ul class="nav-list">
+      <li v-for="item in items" :key="item.id">
+        <a :href="item.path">{{ item.name }}</a>
+      </li>
+    </ul>
+  </template>
+  <template v-slot:empty>
+    <nav class="nav-list nav-list--empty">暂无栏目</nav>
+  </template>
+</cms-catalog>
+
+<cms-content catalog-id="news" page-size="6">
+  <template v-slot:default="{ items }">
+    <section class="news-list">
+      <article v-for="item in items" :key="item.id">
+        <h3>{{ item.title }}</h3>
+      </article>
+    </section>
+  </template>
+  <template v-slot:error="{ error }">
+    <section class="news-list news-list--error">{{ error.message }}</section>
+  </template>
+</cms-content>
+```
+
+## Anti-pattern: major container outside the CMS slot
+
+Avoid leaving the main container outside and using the slot only for scattered item nodes.
+
+```html
+<ul class="nav-list">
+  <cms-catalog level="root">
+    <template v-slot:default="{ items }">
+      <li v-for="item in items" :key="item.id">
+        <a :href="item.path">{{ item.name }}</a>
+      </li>
+    </template>
+  </cms-catalog>
+</ul>
+
+<section class="news-list">
+  <cms-content catalog-id="news" page-size="6">
+    <template v-slot:default="{ items }">
+      <article v-for="item in items" :key="item.id">
+        <h3>{{ item.title }}</h3>
+      </article>
+    </template>
+  </cms-content>
+</section>
+```
+
 ## Fixed content selection is incompatible
 
 Fixed content IDs are outside the current runtime capability because `apply_cms_binding` only supports catalog-driven `cms-content` queries.

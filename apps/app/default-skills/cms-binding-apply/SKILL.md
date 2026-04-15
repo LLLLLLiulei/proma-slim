@@ -70,6 +70,15 @@ After the edits are complete:
 - keep the explanation scoped to the current target block
 - do not claim success before `mcp__cms__apply_cms_binding` actually succeeds
 
+## CMS Authoring Shape
+
+When the request is `ready`, prefer `cms-catalog` / `cms-content` as the source root of the dynamic region instead of leaving the main dynamic shell outside the CMS tag.
+
+- Treat `templateBody`, `emptyTemplate`, and `errorTemplate` as the place for the complete dynamic region structure of each state.
+- Keep major HTML containers inside the slot whenever they belong directly to the CMS data.
+- Put structures such as `ul`, `nav`, `section`, `article`, grid wrappers, empty states, and error states inside the relevant slot template instead of only passing item-level fragments.
+- Leave only true page-level static shells outside the CMS component.
+
 ## Clarification Guardrails
 
 - Use short, structured clarification only.
@@ -81,6 +90,7 @@ After the edits are complete:
 
 - Keep Phase 1A scoped to the current `targetSelection.selector`.
 - If `targetSelection.kind === 'cms-island'`, treat it as `source-atomic` and replace the whole source CMS tag instead of editing inside rendered child nodes.
+- When building the apply payload, prefer `cms-catalog` / `cms-content` as the source root and keep major HTML containers inside the slot.
 - Treat `replace-current` as the only supported strategy.
 - Treat fixed `contentIds`, alias queries, and other unsupported runtime fields as `incompatible`.
 - Do not propose whole-page rewrites.

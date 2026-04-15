@@ -10,6 +10,10 @@ import { resolveCmsRenderingSelectorSnapshot } from '../manifest/scan-cms-render
 const BLOCK_SELECTOR = '[data-proma-block-id]'
 const DANGEROUS_TAGS = new Set(['script', 'style'])
 const ALLOWED_STRUCTURAL_ATTRIBUTES = new Set(['id', 'class', 'style', 'title', 'role'])
+const CATALOG_OUTSIDE_SLOT_CONTAINER_TAGS = new Set(['ul', 'ol', 'nav'])
+const CONTENT_OUTSIDE_SLOT_CONTAINER_TAGS = new Set(['section', 'ul', 'ol'])
+const CATALOG_ITEM_TAGS = new Set(['li', 'a'])
+const CONTENT_ITEM_TAGS = new Set(['article', 'li'])
 
 export type CmsRenderingDiagnosticSeverity = 'error' | 'warning' | 'info'
 
@@ -130,6 +134,15 @@ export function validateCmsRendering(
         islandIndex,
       }))
     }
+
+    maybeReportOutsideSlotMajorContainerWarning(
+      island,
+      component,
+      slotInfo.defaultSlot,
+      htmlPath,
+      islandIndex,
+      diagnostics,
+    )
 
     if (!slotInfo.emptySlot) {
       diagnostics.push(createDiagnostic({
@@ -366,4 +379,92 @@ function isAllowedStructuralAttribute(attributeName: string): boolean {
   return ALLOWED_STRUCTURAL_ATTRIBUTES.has(attributeName)
     || attributeName.startsWith('data-')
     || attributeName.startsWith('aria-')
+}
+
+function maybeReportOutsideSlotMajorContainerWarning(
+  island: Element,
+  component: CmsIslandComponentName,
+  defaultSlot: SlotInfo | null,
+  htmlPath: string,
+  islandIndex: number | undefined,
+  diagnostics: CmsRenderingDiagnostic[],
+): void {
+  if (!defaultSlot) {
+    return
+  }
+
+  const parent = island.parentElement
+  if (!parent || !isOutsideSlotContainerCandidate(parent, component) || !hasOnlyIslandAsElementChild(parent, island)) {
+    return
+  }
+
+  const slotRoot = parseTemplateSlot(defaultSlot.content)
+  if (!slotContainsOnlyItemLevelNodes(slotRoot, component)) {
+    return
+  }
+
+  diagnostics.push(createDiagnostic({
+    severity: 'warning',
+    code: 'OUTSIDE_SLOT_MAJOR_CONTAINER',
+    message: 'Prefer moving the major dynamic container into the CMS slot so the cms-* tag remains the source root.',
+    element: island,
+    component,
+    htmlPath,
+    islandIndex,
+  }))
+}
+
+function isOutsideSlotContainerCandidate(
+  element: Element,
+  component: CmsIslandComponentName,
+): boolean {
+  const tagName = element.tagName.toLowerCase()
+
+  if (component === 'cms-catalog') {
+    return CATALOG_OUTSIDE_SLOT_CONTAINER_TAGS.has(tagName)
+  }
+
+  if (CONTENT_OUTSIDE_SLOT_CONTAINER_TAGS.has(tagName)) {
+    return true
+  }
+
+  if (tagName !== 'div') {
+    return false
+  }
+
+  const className = element.getAttribute('class') ?? ''
+  return /\b(grid|list|cards?|items?)\b/i.test(className)
+}
+
+function hasOnlyIslandAsElementChild(parent: Element, island: Element): boolean {
+  return Array.from(parent.children).filter((child) => child !== island).length === 0
+}
+
+function slotContainsOnlyItemLevelNodes(
+  slotRoot: ParentNode,
+  component: CmsIslandComponentName,
+): boolean {
+  const childElements = Array.from(slotRoot.childNodes)
+    .filter((node): node is Element => node.nodeType === node.ELEMENT_NODE)
+
+  if (childElements.length === 0) {
+    return false
+  }
+
+  const itemTags = component === 'cms-catalog' ? CATALOG_ITEM_TAGS : CONTENT_ITEM_TAGS
+  return childElements.every((element) => isItemLevelNode(element, itemTags))
+}
+
+function isItemLevelNode(element: Element, itemTags: ReadonlySet<string>): boolean {
+  const tagName = element.tagName.toLowerCase()
+  if (itemTags.has(tagName)) {
+    return true
+  }
+
+  if (tagName !== 'div') {
+    return false
+  }
+
+  const className = element.getAttribute('class') ?? ''
+  return /\b(card|item)\b/i.test(className)
 }

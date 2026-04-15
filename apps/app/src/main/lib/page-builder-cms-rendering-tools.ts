@@ -15,6 +15,15 @@ import { z } from 'zod'
 
 export const PAGE_BUILDER_CMS_APPLY_TOOL_ID = 'apply_cms_binding'
 export const PAGE_BUILDER_CMS_APPLY_TOOL_NAME = 'mcp__cms__apply_cms_binding'
+export const PAGE_BUILDER_CMS_TEMPLATE_FIELD_GUIDANCE =
+  'Each template field should contain the complete dynamic region structure for that state. Prefer the cms-* tag as the source root and keep major HTML containers inside the slot.'
+export const PAGE_BUILDER_CMS_TEMPLATE_BODY_DESCRIPTION =
+  `${PAGE_BUILDER_CMS_TEMPLATE_FIELD_GUIDANCE} Use templateBody for the default-state region.`
+export const PAGE_BUILDER_CMS_EMPTY_TEMPLATE_DESCRIPTION =
+  `${PAGE_BUILDER_CMS_TEMPLATE_FIELD_GUIDANCE} Use emptyTemplate for the empty-state fallback.`
+export const PAGE_BUILDER_CMS_ERROR_TEMPLATE_DESCRIPTION =
+  `${PAGE_BUILDER_CMS_TEMPLATE_FIELD_GUIDANCE} Use errorTemplate for the error-state fallback.`
+const CMS_ISLAND_SELECTOR = 'cms-catalog, cms-content'
 
 const pageBuilderBlockTargetSelectionSchema = z.object({
   kind: z.literal('block'),
@@ -43,9 +52,9 @@ const pageBuilderCmsBindingBaseSchema = z.object({
   }).strict(),
   kind: z.enum(['catalog-nav', 'content-list']),
   source: z.record(z.string(), z.unknown()),
-  templateBody: z.string().min(1),
-  emptyTemplate: z.string().optional(),
-  errorTemplate: z.string().optional(),
+  templateBody: z.string().min(1).describe(PAGE_BUILDER_CMS_TEMPLATE_BODY_DESCRIPTION),
+  emptyTemplate: z.string().describe(PAGE_BUILDER_CMS_EMPTY_TEMPLATE_DESCRIPTION).optional(),
+  errorTemplate: z.string().describe(PAGE_BUILDER_CMS_ERROR_TEMPLATE_DESCRIPTION).optional(),
 }).strict()
 
 const catalogNavSourceSchema = z.object({
@@ -74,6 +83,8 @@ export interface ApplyPageBuilderCmsBindingInput {
   targetBlock: PageBuilderCmsBindingTargetBlock
   kind: PageBuilderCmsBindingKind
   source: Record<string, unknown>
+  // Template fields should carry the complete dynamic region for each state
+  // rather than item-level fragments with the major container left outside.
   templateBody: string
   emptyTemplate?: string
   errorTemplate?: string
@@ -253,6 +264,13 @@ function normalizeApplyCmsBindingInput(
   if (!templateBody) {
     throw new PageBuilderCmsBindingApplyError('invalid-input', 'templateBody 不能为空')
   }
+  assertTemplateFieldHasNoNestedCmsIslands('templateBody', templateBody)
+  if (parsedBase.emptyTemplate) {
+    assertTemplateFieldHasNoNestedCmsIslands('emptyTemplate', parsedBase.emptyTemplate)
+  }
+  if (parsedBase.errorTemplate) {
+    assertTemplateFieldHasNoNestedCmsIslands('errorTemplate', parsedBase.errorTemplate)
+  }
   const targetSelection = parsedBase.targetSelection ?? {
     kind: 'block',
     selector: parsedBase.targetBlock.selector,
@@ -293,6 +311,24 @@ function parseSchema<T extends z.ZodTypeAny>(schema: T, value: unknown): z.infer
   throw new PageBuilderCmsBindingApplyError(
     'invalid-input',
     issue?.message ?? 'CMS 绑定参数不合法',
+  )
+}
+
+function assertTemplateFieldHasNoNestedCmsIslands(fieldName: string, template: string): void {
+  const normalizedTemplate = template.trim()
+  if (!normalizedTemplate) {
+    return
+  }
+
+  const { document } = parseHTML(`<!doctype html><html><body><div data-proma-template-root>${normalizedTemplate}</div></body></html>`)
+  const root = document.querySelector('[data-proma-template-root]')
+  if (!root?.querySelector(CMS_ISLAND_SELECTOR)) {
+    return
+  }
+
+  throw new PageBuilderCmsBindingApplyError(
+    'invalid-input',
+    `${fieldName} 不能包含 cms-catalog 或 cms-content；apply_cms_binding 会自动生成外层 CMS 标签`,
   )
 }
 

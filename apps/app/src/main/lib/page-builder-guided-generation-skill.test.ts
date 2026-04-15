@@ -59,4 +59,17 @@ describe('page-builder-guided-generation skill docs', () => {
     expect(enTemplate).toContain('current workspace')
     expect(enTemplate).not.toContain('Proma')
   })
+
+  test('documents cms slot-structured authoring guidance in the skill and workspace templates', () => {
+    const skill = readRelativeText('../../../default-skills/page-builder-guided-generation/SKILL.md')
+    const zhTemplate = readRelativeText('../../../resources/templates/page-builder-workspace-claude.zh-CN.md')
+    const enTemplate = readRelativeText('../../../resources/templates/page-builder-workspace-claude.md')
+
+    expect(skill).toContain('`cms-catalog` / `cms-content` should wrap the whole dynamic region')
+    expect(skill).toContain('put major HTML containers such as `ul`, `section`, and `article` inside the slot')
+    expect(zhTemplate).toContain('`cms-catalog` / `cms-content` 尽量作为动态区域源码根节点')
+    expect(zhTemplate).toContain('`ul`、`section`、`article` 等主要动态容器尽量写在 slot 中')
+    expect(enTemplate).toContain('prefer `cms-catalog` / `cms-content` as the source root of a dynamic region')
+    expect(enTemplate).toContain('keep major dynamic containers inside the CMS slot')
+  })
 })

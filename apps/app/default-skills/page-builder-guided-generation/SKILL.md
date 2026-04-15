@@ -164,6 +164,14 @@ For factual content:
 - do not invent hard facts such as exact prices, dates, phone numbers, certifications, or metrics
 - if hard facts are still missing, use clearly marked draft placeholders or pending labels instead of presenting invented final facts
 
+### CMS Authoring Structure
+
+When a generated region is CMS-driven, `cms-catalog` / `cms-content` should wrap the whole dynamic region.
+
+- put major HTML containers such as `ul`, `section`, and `article` inside the slot.
+- Keep empty and error fallback wrappers inside `v-slot:empty` and `v-slot:error` when they belong to the same CMS data region.
+- Leave only page-level static shells outside the CMS component.
+
 ## Iteration Rules
 
 Once a page has already been generated, default to lightweight iteration mode.

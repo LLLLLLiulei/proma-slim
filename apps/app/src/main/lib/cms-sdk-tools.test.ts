@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'bun:test'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { createAgentWorkspace } from './workspace-service'
 import { CMS_TOOL_NAMES, buildCmsRuntimeToolBundle } from './cms-sdk-tools'
 
@@ -22,5 +24,14 @@ describe('cms sdk runtime tools', () => {
     expect(bundle.allowedTools).toEqual(expect.arrayContaining([
       'mcp__cms__apply_cms_binding',
     ]))
+  })
+
+  test('documents apply_cms_binding template fields as complete dynamic regions', () => {
+    const source = readFileSync(fileURLToPath(new URL('./cms-sdk-tools.ts', import.meta.url)), 'utf-8')
+
+    expect(source).toContain('complete dynamic region')
+    expect(source).toContain('templateBody')
+    expect(source).toContain('emptyTemplate')
+    expect(source).toContain('errorTemplate')
   })
 })

@@ -43,6 +43,8 @@ This workspace is used to generate a static website that can be previewed inside
 - Treat Phase 1A as `replace-current` only and keep any proposed changes scoped to the current target block.
 - If `cms-binding-apply` reaches `ready`, continue in the same turn by calling `mcp__cms__apply_cms_binding` instead of editing workspace files directly.
 - Only pass the current block selector and the supported binding/query fields required by `mcp__cms__apply_cms_binding`. Do not bypass the formal tool with ad-hoc file writes.
+- When producing CMS-driven HTML, prefer `cms-catalog` / `cms-content` as the source root of a dynamic region, and keep major dynamic containers inside the CMS slot.
+- Put `ul`, `section`, `article`, grid/list wrappers, and empty/error shells into `templateBody`, `emptyTemplate`, or `errorTemplate` when they belong to the same CMS-backed region.
 
 ## Working Notes
 

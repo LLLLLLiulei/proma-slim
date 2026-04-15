@@ -48,4 +48,16 @@ describe('cms-binding-apply skill contract docs', () => {
     expect(examples).toContain('"scope": "target-selection-only"')
     expect(examples).toContain('"targetSelection"')
   })
+
+  test('documents slot-first cms structure guidance and anti-pattern examples', () => {
+    const skill = readRelativeText('../../../default-skills/cms-binding-apply/SKILL.md')
+    const examples = readRelativeText('../../../default-skills/cms-binding-apply/references/contract-examples.md')
+
+    expect(skill).toContain('`cms-catalog` / `cms-content` as the source root')
+    expect(skill).toContain('major HTML containers inside the slot')
+    expect(examples).toContain('## Recommended authoring shape')
+    expect(examples).toContain('## Anti-pattern: major container outside the CMS slot')
+    expect(examples).toContain('<cms-catalog')
+    expect(examples).toContain('<ul class="nav-list">')
+  })
 })

@@ -34,6 +34,15 @@
 - 只有在首版页面仍然明显不够成熟、层次不足或需要额外提质时，再使用工作区内的 `redesign-skill`（skill 名为 `redesign-existing-projects`）。
 - 如果当前任务究竟属于新设计还是重设计并不明确，先使用 `AskUserQuestion` 工具向用户确认，再开始实现。
 
+## CMS 应用与结构规则
+
+- 当 page-builder 流程已经拿到明确的 CMS 选择结果和目标区块 selector 时，优先使用工作区内的 `cms-binding-apply` skill 来判断当前 Phase 1A 是否可以应用。
+- `cms-binding-apply` 只用于 CMS 选择完成之后的兼容性判断和正式应用，不用于浏览 CMS 数据，也不替代 CMS 选择器本身。
+- 该阶段仅允许 `ready`、`needs-clarification`、`incompatible` 三种结论，并且默认只处理 `replace-current`。
+- 如果 `cms-binding-apply` 得到 `ready`，要在同一轮继续调用 `mcp__cms__apply_cms_binding`，不要绕过正式工具直接改写 workspace 文件。
+- 产出 CMS 驱动源码时，`cms-catalog` / `cms-content` 尽量作为动态区域源码根节点。
+- `ul`、`section`、`article` 等主要动态容器尽量写在 slot 中；`empty` / `error` 的主要 fallback 结构也尽量写在对应 slot 中。
+
 ## 工作说明
 
 - 当前 session 目录是一个 scratch 工作目录，不是最终发布的预览根目录。

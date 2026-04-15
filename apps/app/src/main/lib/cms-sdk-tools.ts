@@ -5,6 +5,9 @@ import type { CmsGateway } from './cms-gateway'
 import {
   PAGE_BUILDER_CMS_APPLY_TOOL_ID,
   PAGE_BUILDER_CMS_APPLY_TOOL_NAME,
+  PAGE_BUILDER_CMS_EMPTY_TEMPLATE_DESCRIPTION,
+  PAGE_BUILDER_CMS_ERROR_TEMPLATE_DESCRIPTION,
+  PAGE_BUILDER_CMS_TEMPLATE_BODY_DESCRIPTION,
   createPageBuilderCmsRenderingTools,
 } from './page-builder-cms-rendering-tools'
 
@@ -14,6 +17,9 @@ export const CMS_TOOL_NAMES = [
   'mcp__cms__list_contents',
   PAGE_BUILDER_CMS_APPLY_TOOL_NAME,
 ] as const
+
+const APPLY_CMS_BINDING_TOOL_GUIDANCE =
+  '将 CMS 数据绑定到当前 page-builder 区块，写入 cms-catalog 或 cms-content 标记并触发统一 HTML mutation pipeline。templateBody、emptyTemplate、errorTemplate 应承载 complete dynamic region，而不是只承载零散条目级碎片。'
 
 export interface CmsRuntimeToolBundle {
   mcpServer: AgentMcpServerConfig
@@ -74,7 +80,7 @@ export function buildCmsRuntimeToolBundle(
 
   const applyCmsBindingTool = tool(
     PAGE_BUILDER_CMS_APPLY_TOOL_ID,
-    '将 CMS 数据绑定到当前 page-builder 区块，写入 cms-catalog 或 cms-content 标记并触发统一 HTML mutation pipeline。',
+    APPLY_CMS_BINDING_TOOL_GUIDANCE,
     {
       targetSelection: targetSelectionSchema.optional(),
       targetBlock: z.object({
@@ -92,9 +98,9 @@ export function buildCmsRuntimeToolBundle(
         pageIndex: z.number().int().min(0).optional(),
         pageSize: z.number().int().min(1).max(100).optional(),
       }),
-      templateBody: z.string().min(1),
-      emptyTemplate: z.string().optional(),
-      errorTemplate: z.string().optional(),
+      templateBody: z.string().min(1).describe(PAGE_BUILDER_CMS_TEMPLATE_BODY_DESCRIPTION),
+      emptyTemplate: z.string().describe(PAGE_BUILDER_CMS_EMPTY_TEMPLATE_DESCRIPTION).optional(),
+      errorTemplate: z.string().describe(PAGE_BUILDER_CMS_ERROR_TEMPLATE_DESCRIPTION).optional(),
     },
     async (args) => {
       const result = renderingTools.applyCmsBinding(options.workspace, args)

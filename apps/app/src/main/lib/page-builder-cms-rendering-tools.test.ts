@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
+import { fileURLToPath } from 'node:url'
 import { createAgentWorkspace } from './workspace-service'
 import {
   PageBuilderCmsBindingApplyError,
@@ -64,6 +65,7 @@ describe('page-builder cms rendering apply tool', () => {
     })
     expect(result.generatedHtml).toContain('<cms-catalog level="root" take="3">')
     expect(result.generatedHtml).toContain('<template v-slot:default="{ items }">')
+    expect(result.generatedHtml).toContain('<nav>')
     expect(readFileSync(join(workspaceFilesDir, 'index.html'), 'utf-8')).toContain('data-proma-block-id="pb_blk_nav"')
     expect(readFileSync(join(workspaceFilesDir, '.proma', 'cms-rendering-manifest.json'), 'utf-8')).toContain('pb_blk_nav')
   })
@@ -93,14 +95,24 @@ describe('page-builder cms rendering apply tool', () => {
         catalogId: 'news',
         pageSize: 6,
       },
-      templateBody: '<article v-for="item in items" :key="item.id">{{ item.title }}</article>',
+      templateBody: '<section class="news-list"><article v-for="item in items" :key="item.id">{{ item.title }}</article></section>',
     })
 
     const html = readFileSync(join(workspaceFilesDir, 'index.html'), 'utf-8')
     expect(result.blockId).toBe('pb_blk_generated')
     expect(result.generatedHtml).toContain('<cms-content catalog-id="news" page-size="6">')
+    expect(result.generatedHtml).toContain('<section class="news-list">')
     expect(html).toContain('data-proma-block-id="pb_blk_generated"')
     expect(html).toContain('<cms-content catalog-id="news" page-size="6">')
+  })
+
+  test('documents template fields as the place for the complete dynamic region structure', () => {
+    const source = readFileSync(fileURLToPath(new URL('./page-builder-cms-rendering-tools.ts', import.meta.url)), 'utf-8')
+
+    expect(source).toContain('complete dynamic region')
+    expect(source).toContain('templateBody')
+    expect(source).toContain('emptyTemplate')
+    expect(source).toContain('errorTemplate')
   })
 
   test('replaces only the selected cms-island source tag when the target selection is source-atomic', () => {
@@ -251,5 +263,45 @@ describe('page-builder cms rendering apply tool', () => {
     })).toThrow(PageBuilderCmsBindingApplyError)
     expect(readFileSync(entryPath, 'utf-8')).not.toContain('cms-content')
     expect(existsSync(join(workspaceFilesDir, '.proma', 'cms-rendering-manifest.json'))).toBe(false)
+  })
+
+  test('rejects template fields that already contain nested cms islands', () => {
+    const workspace = createAgentWorkspace('CMS Apply Nested Island Template', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(
+      join(workspaceFilesDir, 'index.html'),
+      '<!doctype html><html><body><section id="nav" data-proma-block-id="pb_blk_nav"></section></body></html>',
+      'utf-8',
+    )
+
+    const tools = createPageBuilderCmsRenderingTools()
+
+    expect(() => tools.applyCmsBinding(workspace, {
+      targetSelection: {
+        kind: 'block',
+        selector: '#nav',
+        parentBlockSelector: '#nav',
+        editBoundary: 'block',
+      },
+      targetBlock: {
+        selector: '#nav',
+      },
+      kind: 'catalog-nav',
+      source: {
+        level: 'children',
+        parentId: '7',
+      },
+      templateBody: [
+        '<cms-catalog level="children" parent-id="7">',
+        '  <template v-slot:default="{ items }">',
+        '    <ul><li v-for="item in items" :key="item.id">{{ item.name }}</li></ul>',
+        '  </template>',
+        '</cms-catalog>',
+      ].join('\n'),
+    })).toThrow(PageBuilderCmsBindingApplyError)
+
+    expect(readFileSync(join(workspaceFilesDir, 'index.html'), 'utf-8')).not.toContain('<cms-catalog level="children" parent-id="7">\n<cms-catalog')
   })
 })

@@ -148,4 +148,66 @@ describe('validateCmsRendering', () => {
 
     expect(result.warnings.filter((diagnostic) => diagnostic.code === 'UNKNOWN_PROP')).toEqual([])
   })
+
+  test('reports warnings when the major dynamic container is kept outside the cms slot', () => {
+    const result = validateCmsRendering(`
+      <!doctype html>
+      <html>
+        <body>
+          <section data-proma-block-id="pb_blk_nav">
+            <ul class="nav-list">
+              <cms-catalog level="root">
+                <template v-slot:default="{ items }">
+                  <li v-for="item in items">{{ item.name }}</li>
+                </template>
+              </cms-catalog>
+            </ul>
+          </section>
+          <section data-proma-block-id="pb_blk_news">
+            <section class="news-list">
+              <cms-content catalog-id="news">
+                <template v-slot:default="{ items }">
+                  <article v-for="item in items">{{ item.title }}</article>
+                </template>
+              </cms-content>
+            </section>
+          </section>
+        </body>
+      </html>
+    `, {
+      htmlPath: 'index.html',
+    })
+
+    expect(result.warnings.map((diagnostic) => diagnostic.code)).toEqual(expect.arrayContaining([
+      'OUTSIDE_SLOT_MAJOR_CONTAINER',
+    ]))
+  })
+
+  test('does not warn when the major dynamic container lives inside the cms slot', () => {
+    const result = validateCmsRendering(`
+      <!doctype html>
+      <html>
+        <body>
+          <cms-catalog level="root">
+            <template v-slot:default="{ items }">
+              <ul class="nav-list">
+                <li v-for="item in items">{{ item.name }}</li>
+              </ul>
+            </template>
+          </cms-catalog>
+          <cms-content catalog-id="news">
+            <template v-slot:default="{ items }">
+              <section class="news-list">
+                <article v-for="item in items">{{ item.title }}</article>
+              </section>
+            </template>
+          </cms-content>
+        </body>
+      </html>
+    `, {
+      htmlPath: 'index.html',
+    })
+
+    expect(result.warnings.filter((diagnostic) => diagnostic.code === 'OUTSIDE_SLOT_MAJOR_CONTAINER')).toEqual([])
+  })
 })
