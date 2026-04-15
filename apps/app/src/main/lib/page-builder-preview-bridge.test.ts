@@ -6,6 +6,8 @@ import { parseHTML } from 'linkedom'
 import {
   PAGE_BUILDER_PREVIEW_PARENT_SOURCE,
 } from '@proma/shared'
+import { resolveOverlayBorder } from './page-builder-preview-bridge/overlays'
+import { shouldSyncFromMutations } from './page-builder-preview-bridge/shared'
 
 async function importPreviewBridgeModule() {
   const url = new URL(`./page-builder-preview-bridge.ts?test=${Date.now()}-${Math.random()}`, import.meta.url)
@@ -14,7 +16,137 @@ async function importPreviewBridgeModule() {
 
 afterEach(() => {
   delete process.env.PROMA_PAGE_BUILDER_PREVIEW_BRIDGE_PATH
+  delete process.env.PROMA_PAGE_BUILDER_PREVIEW_BRIDGE_ENTRY_PATH
+  delete process.env.PROMA_PAGE_BUILDER_PREVIEW_BRIDGE_SOURCE_ROOT
 })
+
+function setupPreviewBridgeDom(
+  html: string,
+  options?: {
+    cmsRendering?: boolean
+    cmsRenderingReady?: boolean
+    readyState?: 'loading' | 'complete'
+  },
+) {
+  const { document, window } = parseHTML(html)
+  const parentMessages: unknown[] = []
+  const parentWindow = {
+    postMessage(message: unknown) {
+      parentMessages.push(message)
+    },
+  }
+
+  Object.assign(globalThis, {
+    window,
+    document,
+    Node: window.Node,
+    Element: window.Element,
+    HTMLElement: window.HTMLElement,
+    SVGElement: window.SVGElement,
+    MutationObserver: undefined,
+    Event: window.Event,
+    CustomEvent: window.CustomEvent,
+  })
+
+  Object.defineProperty(window, 'parent', {
+    configurable: true,
+    value: parentWindow,
+  })
+  Object.defineProperty(window, 'innerWidth', {
+    configurable: true,
+    value: 1440,
+  })
+  Object.defineProperty(window, 'MutationObserver', {
+    configurable: true,
+    value: undefined,
+  })
+  Object.defineProperty(window, 'setInterval', {
+    configurable: true,
+    value: () => 1,
+  })
+  Object.defineProperty(window, 'clearInterval', {
+    configurable: true,
+    value: () => {},
+  })
+  Object.defineProperty(window, 'getSelection', {
+    configurable: true,
+    value: () => ({
+      removeAllRanges() {},
+      addRange() {},
+    }),
+  })
+  Object.defineProperty(document, 'createRange', {
+    configurable: true,
+    value: () => ({
+      selectNodeContents() {},
+      collapse() {},
+    }),
+  })
+  Object.defineProperty(document, 'readyState', {
+    configurable: true,
+    value: options?.readyState ?? 'complete',
+  })
+
+  if (options?.cmsRendering) {
+    Object.defineProperty(window, '__PROMA_CMS_RENDERING_PREVIEW__', {
+      configurable: true,
+      value: {
+        hasCmsRendering: true,
+      },
+    })
+  }
+
+  if (typeof options?.cmsRenderingReady === 'boolean') {
+    Object.defineProperty(window, '__PROMA_CMS_RENDERING_PREVIEW_READY__', {
+      configurable: true,
+      value: options.cmsRenderingReady,
+    })
+  }
+
+  return {
+    document,
+    window,
+    parentMessages,
+    parentWindow,
+  }
+}
+
+function dispatchSelectionMode(
+  window: Window,
+  parentWindow: unknown,
+  options?: {
+    enabled?: boolean
+    locked?: boolean
+    showCmsIslandOutlines?: boolean
+  },
+) {
+  const selectionModeEvent = new (window as Window & typeof globalThis & { Event: typeof Event }).Event('message')
+  Object.assign(selectionModeEvent, {
+    source: parentWindow,
+    data: {
+      source: PAGE_BUILDER_PREVIEW_PARENT_SOURCE,
+      type: 'selection-mode',
+      enabled: options?.enabled ?? true,
+      locked: options?.locked ?? false,
+      showCmsIslandOutlines: options?.showCmsIslandOutlines ?? false,
+    },
+  })
+  window.dispatchEvent(selectionModeEvent)
+}
+
+function setElementRect(
+  element: Element,
+  rect: {
+    top: number
+    left: number
+    right: number
+    bottom: number
+    width: number
+    height: number
+  },
+) {
+  ;(element as Element & { getBoundingClientRect(): DOMRect }).getBoundingClientRect = () => rect as DOMRect
+}
 
 test('page-builder preview bridge reads the latest script content and asset version without restarting', async () => {
   const tempDir = mkdtempSync(join(tmpdir(), 'proma-preview-bridge-'))
@@ -26,12 +158,12 @@ test('page-builder preview bridge reads the latest script content and asset vers
 
     const module = await importPreviewBridgeModule()
 
-    const firstScript = module.readPageBuilderPreviewBridgeScript()
+    const firstScript = await module.readPageBuilderPreviewBridgeScript()
     const firstAssetUrl = module.getPageBuilderPreviewBridgeAssetUrl()
 
     writeFileSync(bridgePath, 'console.info("bridge-version-b")', 'utf-8')
 
-    const secondScript = module.readPageBuilderPreviewBridgeScript()
+    const secondScript = await module.readPageBuilderPreviewBridgeScript()
     const secondAssetUrl = module.getPageBuilderPreviewBridgeAssetUrl()
 
     expect(firstScript).toContain('bridge-version-a')
@@ -44,126 +176,408 @@ test('page-builder preview bridge reads the latest script content and asset vers
   }
 })
 
-test('page-builder preview bridge bundled script includes selected rect syncing behavior', async () => {
-  const module = await importPreviewBridgeModule()
+test('page-builder preview bridge builds a single asset from a modular source entry and tracks dependency changes', async () => {
+  const tempDir = mkdtempSync(join(tmpdir(), 'proma-preview-bridge-entry-'))
+  const entryPath = join(tempDir, 'entry.ts')
+  const sharedPath = join(tempDir, 'shared.ts')
 
-  const script = module.readPageBuilderPreviewBridgeScript()
+  try {
+    writeFileSync(sharedPath, 'export const bridgeVersion = "bridge-version-a"\n', 'utf-8')
+    writeFileSync(
+      entryPath,
+      `
+        import { bridgeVersion } from './shared'
 
-  expect(script).toContain("type: 'selected'")
-  expect(script).toContain('rect,')
-  expect(script).toContain('const postSelectedRect = () => {')
-  expect(script).toContain('clearAll(true)')
+        ;(() => {
+          console.info(bridgeVersion)
+          console.info('__PAGE_BUILDER_PREVIEW_BRIDGE_SOURCE__')
+          console.info('__PAGE_BUILDER_PREVIEW_PARENT_SOURCE__')
+        })()
+      `,
+      'utf-8',
+    )
+
+    process.env.PROMA_PAGE_BUILDER_PREVIEW_BRIDGE_ENTRY_PATH = entryPath
+    process.env.PROMA_PAGE_BUILDER_PREVIEW_BRIDGE_SOURCE_ROOT = tempDir
+
+    const module = await importPreviewBridgeModule()
+
+    const firstScript = await module.readPageBuilderPreviewBridgeScript()
+    const firstAssetUrl = module.getPageBuilderPreviewBridgeAssetUrl()
+
+    writeFileSync(sharedPath, 'export const bridgeVersion = "bridge-version-b"\n', 'utf-8')
+
+    const secondScript = await module.readPageBuilderPreviewBridgeScript()
+    const secondAssetUrl = module.getPageBuilderPreviewBridgeAssetUrl()
+
+    expect(firstScript).toContain('bridge-version-a')
+    expect(firstScript).not.toContain('bridge-version-b')
+    expect(firstScript).not.toContain("from './shared'")
+    expect(firstScript).toContain('page-builder-preview-bridge')
+    expect(firstScript).toContain('page-builder-preview-parent')
+    expect(secondScript).toContain('bridge-version-b')
+    expect(secondAssetUrl).not.toBe(firstAssetUrl)
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
 })
 
-test('page-builder preview bridge filters mutation observer events triggered by its own overlays', async () => {
-  const module = await importPreviewBridgeModule()
+test('page-builder preview bridge filters mutation observer events triggered only by overlays', () => {
+  const { document, window } = parseHTML('<!doctype html><html><body><div id="content"></div></body></html>')
+  Object.assign(globalThis, {
+    Element: window.Element,
+  })
 
-  const script = module.readPageBuilderPreviewBridgeScript()
+  const overlay = document.createElement('div')
+  overlay.setAttribute('data-page-builder-preview-overlay', 'selected')
+  const content = document.querySelector('#content') as Element
 
-  expect(script).toContain('const isBridgeOverlayNode = (node) => {')
-  expect(script).toContain('const shouldSyncFromMutations = (mutations) => {')
-  expect(script).toContain('if (!shouldSyncFromMutations(mutations)) {')
+  expect(shouldSyncFromMutations([
+    {
+      type: 'childList',
+      target: overlay,
+      addedNodes: [overlay],
+      removedNodes: [],
+    } as unknown as MutationRecord,
+  ])).toBe(false)
+
+  expect(shouldSyncFromMutations([
+    {
+      type: 'childList',
+      target: content,
+      addedNodes: [content],
+      removedNodes: [],
+    } as unknown as MutationRecord,
+  ])).toBe(true)
 })
 
-test('page-builder preview bridge handles interaction locks without relying on a parent overlay', async () => {
-  const module = await importPreviewBridgeModule()
+test('page-builder preview bridge uses solid borders for selected blocks and dashed borders otherwise', () => {
+  expect(resolveOverlayBorder('selected', {
+    key: 'block:#hero',
+    targetSelection: {
+      kind: 'block',
+      selector: '#hero',
+      parentBlockSelector: '#hero',
+      editBoundary: 'block',
+    },
+    primaryElement: {} as Element,
+    elements: [],
+  })).toContain('solid')
 
-  const script = module.readPageBuilderPreviewBridgeScript()
-
-  expect(script).toContain('let showCmsIslandOutlines = false')
-  expect(script).toContain('let selectionInteractionLocked = false')
-  expect(script).toContain('locked: Boolean(data.locked)')
-  expect(script).toContain('selectionInteractionLocked = Boolean(data.locked)')
-  expect(script).toContain('showCmsIslandOutlines = Boolean(data.showCmsIslandOutlines)')
-  expect(script).toContain('if (!selectionModeEnabled || selectionInteractionLocked) return')
+  expect(resolveOverlayBorder('hover', null)).toContain('dashed')
+  expect(resolveOverlayBorder('selected', {
+    key: 'cms-island:catalog',
+    islandId: 'catalog',
+    targetSelection: {
+      kind: 'cms-island',
+      selector: '#catalog',
+      parentBlockSelector: '#catalog-parent',
+      component: 'cms-catalog',
+      editBoundary: 'source-atomic',
+    },
+    primaryElement: {} as Element,
+    elements: [],
+  })).toContain('dashed')
 })
 
 test('page-builder preview bridge waits for cms rendering readiness before initializing on CMS pages', async () => {
   const module = await importPreviewBridgeModule()
+  const script = await module.readPageBuilderPreviewBridgeScript()
+  const { document, window, parentMessages } = setupPreviewBridgeDom(
+    '<!doctype html><html><body><section id="hero">Hello</section></body></html>',
+    {
+      cmsRendering: true,
+      cmsRenderingReady: false,
+    },
+  )
 
-  const script = module.readPageBuilderPreviewBridgeScript()
+  window.eval(script)
 
-  expect(script).toContain('__PROMA_CMS_RENDERING_PREVIEW__')
-  expect(script).toContain('proma:cms-rendering-ready')
-  expect(script).toContain("document.addEventListener('proma:cms-rendering-ready', init, { once: true })")
+  expect(document.documentElement.hasAttribute('data-page-builder-preview-bridge')).toBe(false)
+  expect(parentMessages).toHaveLength(0)
+
+  document.dispatchEvent(new window.CustomEvent('proma:cms-rendering-ready'))
+
+  expect(document.documentElement.getAttribute('data-page-builder-preview-bridge')).toBe('ready')
+  expect(parentMessages.some((message) =>
+    typeof message === 'object'
+    && message !== null
+    && (message as { type?: string }).type === 'ready'
+  )).toBe(true)
 })
 
 test('page-builder preview bridge initializes immediately when CMS rendering was already marked ready', async () => {
   const module = await importPreviewBridgeModule()
+  const script = await module.readPageBuilderPreviewBridgeScript()
+  const { document, window, parentMessages } = setupPreviewBridgeDom(
+    '<!doctype html><html><body><section id="hero">Hello</section></body></html>',
+    {
+      cmsRendering: true,
+      cmsRenderingReady: true,
+    },
+  )
 
-  const script = module.readPageBuilderPreviewBridgeScript()
+  window.eval(script)
 
-  expect(script).toContain('__PROMA_CMS_RENDERING_PREVIEW_READY__ === true')
-  expect(script).toContain('if (window.__PROMA_CMS_RENDERING_PREVIEW_READY__ === true) {')
-  expect(script).toContain('init()')
+  expect(document.documentElement.getAttribute('data-page-builder-preview-bridge')).toBe('ready')
+  expect(parentMessages.some((message) =>
+    typeof message === 'object'
+    && message !== null
+    && (message as { type?: string }).type === 'ready'
+  )).toBe(true)
 })
 
 test('page-builder preview bridge initializes immediately on non-CMS pages', async () => {
   const module = await importPreviewBridgeModule()
+  const script = await module.readPageBuilderPreviewBridgeScript()
+  const { document, window } = setupPreviewBridgeDom(
+    '<!doctype html><html><body><section id="hero">Hello</section></body></html>',
+  )
 
-  const script = module.readPageBuilderPreviewBridgeScript()
+  window.eval(script)
 
-  expect(script).toContain('const shouldWaitForCmsRenderingReady = window.__PROMA_CMS_RENDERING_PREVIEW__?.hasCmsRendering === true')
-  expect(script).toContain('document.addEventListener(\'DOMContentLoaded\', initWhenPreviewReady, { once: true })')
-  expect(script).toContain('initWhenPreviewReady()')
+  expect(document.documentElement.getAttribute('data-page-builder-preview-bridge')).toBe('ready')
 })
 
-test('page-builder preview bridge uses dashed hover borders and solid selected borders', async () => {
+test('page-builder preview bridge ignores hover and selection while interaction is locked', async () => {
   const module = await importPreviewBridgeModule()
+  const script = await module.readPageBuilderPreviewBridgeScript()
+  const { document, window, parentMessages, parentWindow } = setupPreviewBridgeDom(`
+    <!doctype html>
+    <html>
+      <body>
+        <section id="hero">Hello</section>
+      </body>
+    </html>
+  `)
 
-  const script = module.readPageBuilderPreviewBridgeScript()
+  const hero = document.querySelector('#hero') as Element
+  setElementRect(hero, {
+    top: 100,
+    left: 50,
+    right: 250,
+    bottom: 180,
+    width: 200,
+    height: 80,
+  })
 
-  expect(script).toContain("? '2px solid rgba(37, 99, 235, 0.92)'")
-  expect(script).toContain(": '2px dashed rgba(59, 130, 246, 0.65)'")
+  window.eval(script)
+  parentMessages.length = 0
+
+  dispatchSelectionMode(window, parentWindow, {
+    enabled: true,
+    locked: true,
+  })
+  parentMessages.length = 0
+
+  hero.dispatchEvent(new window.Event('mousemove', {
+    bubbles: true,
+    cancelable: true,
+  }))
+  hero.dispatchEvent(new window.Event('click', {
+    bubbles: true,
+    cancelable: true,
+  }))
+
+  expect(parentMessages).toHaveLength(0)
+  expect((document.querySelector('[data-page-builder-preview-overlay="selected"]') as HTMLElement | null)?.style.display).toBe('none')
 })
 
-test('page-builder preview bridge bundled script includes inline text editing save protocol hooks', async () => {
+test('page-builder preview bridge posts inline text save requests for selected text hosts', async () => {
   const module = await importPreviewBridgeModule()
+  const script = await module.readPageBuilderPreviewBridgeScript()
+  const { document, window, parentMessages, parentWindow } = setupPreviewBridgeDom(`
+    <!doctype html>
+    <html>
+      <body>
+        <h1 id="title">旧标题</h1>
+      </body>
+    </html>
+  `)
 
-  const script = module.readPageBuilderPreviewBridgeScript()
+  const title = document.querySelector('#title') as HTMLElement
+  setElementRect(title, {
+    top: 100,
+    left: 40,
+    right: 240,
+    bottom: 150,
+    width: 200,
+    height: 50,
+  })
 
-  expect(script).toContain("'DIV'")
-  expect(script).toContain("type: 'inline-text-save-request'")
-  expect(script).toContain("inline-text-save-result")
-  expect(script).toContain('contenteditable')
-  expect(script).toContain('const resolveEditableTextTargetDescriptor = (root, element) => {')
-  expect(script).toContain('function handleInlineTextBlur(event) {')
+  window.eval(script)
+  parentMessages.length = 0
+
+  dispatchSelectionMode(window, parentWindow)
+  parentMessages.length = 0
+
+  title.dispatchEvent(new window.Event('click', {
+    bubbles: true,
+    cancelable: true,
+  }))
+  title.dispatchEvent(new window.Event('click', {
+    bubbles: true,
+    cancelable: true,
+  }))
+
+  expect(title.getAttribute('contenteditable')).toBe('true')
+  title.textContent = '新标题'
+  title.dispatchEvent(new window.Event('blur', {
+    bubbles: true,
+    cancelable: true,
+  }))
+
+  const saveRequest = parentMessages.find((message) =>
+    typeof message === 'object'
+    && message !== null
+    && (message as { type?: string }).type === 'inline-text-save-request'
+  ) as {
+    type: 'inline-text-save-request'
+    selector: string
+    previousText: string
+    nextText: string
+    textTargetDescriptor: {
+      tagName: string
+      childPath: number[]
+    }
+  } | undefined
+
+  expect(saveRequest).toMatchObject({
+    selector: '#title',
+    previousText: '旧标题',
+    nextText: '新标题',
+    textTargetDescriptor: {
+      tagName: 'h1',
+      childPath: [],
+    },
+  })
+  expect(title.getAttribute('data-page-builder-preview-inline-saving')).toBe('true')
 })
 
-test('page-builder preview bridge bundled script includes nested child selection retargeting before inline editing', async () => {
+test('page-builder preview bridge retargets nested block selections before inline editing', async () => {
   const module = await importPreviewBridgeModule()
-  const script = module.readPageBuilderPreviewBridgeScript()
+  const script = await module.readPageBuilderPreviewBridgeScript()
+  const { document, window, parentMessages, parentWindow } = setupPreviewBridgeDom(`
+    <!doctype html>
+    <html>
+      <body>
+        <section id="hero">
+          <div id="inner">Nested</div>
+        </section>
+      </body>
+    </html>
+  `)
 
-  expect(script).toContain('const shouldRetargetSelection = (target) => {')
-  expect(script).toContain('if (shouldRetargetSelection(target)) {')
+  const hero = document.querySelector('#hero') as Element
+  const inner = document.querySelector('#inner') as Element
+  setElementRect(hero, {
+    top: 80,
+    left: 30,
+    right: 330,
+    bottom: 260,
+    width: 300,
+    height: 180,
+  })
+  setElementRect(inner, {
+    top: 120,
+    left: 60,
+    right: 220,
+    bottom: 180,
+    width: 160,
+    height: 60,
+  })
+
+  window.eval(script)
+  parentMessages.length = 0
+
+  dispatchSelectionMode(window, parentWindow)
+  parentMessages.length = 0
+
+  hero.dispatchEvent(new window.Event('click', {
+    bubbles: true,
+    cancelable: true,
+  }))
+  inner.dispatchEvent(new window.Event('click', {
+    bubbles: true,
+    cancelable: true,
+  }))
+
+  const selectedMessages = parentMessages.filter((message) =>
+    typeof message === 'object'
+    && message !== null
+    && (message as { type?: string }).type === 'selected'
+  ) as Array<{
+    selector: string
+  }>
+
+  expect(selectedMessages.at(-1)).toMatchObject({
+    selector: '#inner',
+  })
 })
 
-test('page-builder preview bridge bundled script includes cms island target grouping and source-atomic selection metadata', async () => {
+test('page-builder preview bridge includes replace-image capability discovery in selected payloads', async () => {
   const module = await importPreviewBridgeModule()
-  const script = module.readPageBuilderPreviewBridgeScript()
+  const script = await module.readPageBuilderPreviewBridgeScript()
+  const { document, window, parentMessages, parentWindow } = setupPreviewBridgeDom(`
+    <!doctype html>
+    <html>
+      <body>
+        <section id="hero">
+          <img src="/hero.png" alt="hero">
+        </section>
+      </body>
+    </html>
+  `)
 
-  expect(script).toContain('data-proma-cms-island-id')
-  expect(script).toContain('data-proma-cms-island-source-selector')
-  expect(script).toContain('data-proma-cms-island-parent-block-selector')
-  expect(script).toContain('const resolveCmsIslandTarget = (input) => {')
-  expect(script).toContain('const resolveGroupedRect = (elements) => {')
-  expect(script).toContain("editBoundary: 'source-atomic'")
-  expect(script).toContain("kind: 'cms-island'")
-})
+  const hero = document.querySelector('#hero') as Element
+  setElementRect(hero, {
+    top: 60,
+    left: 20,
+    right: 340,
+    bottom: 280,
+    width: 320,
+    height: 220,
+  })
 
-test('page-builder preview bridge bundled script includes replace-image capability discovery in selected payloads', async () => {
-  const module = await importPreviewBridgeModule()
-  const script = module.readPageBuilderPreviewBridgeScript()
+  window.eval(script)
+  parentMessages.length = 0
 
-  expect(script).toContain('const resolveReplaceImageCapability = (element) => {')
-  expect(script).toContain('replaceImage')
-  expect(script).toContain('targetDescriptor')
-  expect(script).toContain("querySelectorAll('img')")
+  dispatchSelectionMode(window, parentWindow)
+  parentMessages.length = 0
+
+  hero.dispatchEvent(new window.Event('click', {
+    bubbles: true,
+    cancelable: true,
+  }))
+
+  const selectedMessage = parentMessages.find((message) =>
+    typeof message === 'object'
+    && message !== null
+    && (message as { type?: string }).type === 'selected'
+  ) as {
+    capabilities?: {
+      replaceImage?: {
+        supported: boolean
+        targetDescriptor: {
+          tagName: string
+          childPath: number[]
+        }
+      }
+    }
+  } | undefined
+
+  expect(selectedMessage?.capabilities?.replaceImage).toMatchObject({
+    supported: true,
+    targetDescriptor: {
+      tagName: 'img',
+      childPath: [0],
+    },
+  })
 })
 
 test('page-builder preview bridge promotes cms-island descendants into one source-atomic grouped selection and blocks drill-down inline editing', async () => {
   const module = await importPreviewBridgeModule()
-  const script = module.readPageBuilderPreviewBridgeScript()
+  const script = await module.readPageBuilderPreviewBridgeScript()
   const { document, window } = parseHTML(`
     <!doctype html>
     <html>
@@ -350,7 +764,7 @@ test('page-builder preview bridge promotes cms-island descendants into one sourc
 
 test('page-builder preview bridge auto-highlights cms islands when selection mode is enabled', async () => {
   const module = await importPreviewBridgeModule()
-  const script = module.readPageBuilderPreviewBridgeScript()
+  const script = await module.readPageBuilderPreviewBridgeScript()
   const { document, window } = parseHTML(`
     <!doctype html>
     <html>
@@ -497,7 +911,7 @@ test('page-builder preview bridge auto-highlights cms islands when selection mod
 
 test('page-builder preview bridge keeps cms island passive outlines disabled by default', async () => {
   const module = await importPreviewBridgeModule()
-  const script = module.readPageBuilderPreviewBridgeScript()
+  const script = await module.readPageBuilderPreviewBridgeScript()
   const { document, window } = parseHTML(`
     <!doctype html>
     <html>
@@ -588,7 +1002,7 @@ test('page-builder preview bridge keeps cms island passive outlines disabled by 
 
 test('page-builder preview bridge selects cms islands by default while passive outlines remain disabled', async () => {
   const module = await importPreviewBridgeModule()
-  const script = module.readPageBuilderPreviewBridgeScript()
+  const script = await module.readPageBuilderPreviewBridgeScript()
   const { document, window } = parseHTML(`
     <!doctype html>
     <html>
@@ -720,4 +1134,164 @@ test('page-builder preview bridge selects cms islands by default while passive o
   expect(selectedOverlay?.style.display).toBe('block')
   expect(selectedLabel?.textContent).toBe('cms-catalog')
   expect(passiveOverlays).toHaveLength(0)
+})
+
+test('page-builder preview bridge treats cms-rendered container clicks as cms-island selections', async () => {
+  const module = await importPreviewBridgeModule()
+  const script = await module.readPageBuilderPreviewBridgeScript()
+  const { document, window } = parseHTML(`
+    <!doctype html>
+    <html>
+      <body>
+        <section>
+          <div class="conference-info">
+            <p>静态标题</p>
+            <ul id="catalog-list">
+              <li
+                data-proma-cms-island-id="cms-island-1"
+                data-proma-cms-island-component="cms-catalog"
+                data-proma-cms-island-source-selector="body > section:nth-of-type(1) > div:nth-of-type(1) > ul:nth-of-type(1) > cms-catalog:nth-of-type(1)"
+                data-proma-cms-island-parent-block-selector="body > section:nth-of-type(1) > div:nth-of-type(1) > ul:nth-of-type(1) > cms-catalog:nth-of-type(1)"
+                data-proma-cms-island-edit-boundary="source-atomic"
+              >
+                <a>栏目一</a>
+              </li>
+              <li
+                data-proma-cms-island-id="cms-island-1"
+                data-proma-cms-island-component="cms-catalog"
+                data-proma-cms-island-source-selector="body > section:nth-of-type(1) > div:nth-of-type(1) > ul:nth-of-type(1) > cms-catalog:nth-of-type(1)"
+                data-proma-cms-island-parent-block-selector="body > section:nth-of-type(1) > div:nth-of-type(1) > ul:nth-of-type(1) > cms-catalog:nth-of-type(1)"
+                data-proma-cms-island-edit-boundary="source-atomic"
+              >
+                <a>栏目二</a>
+              </li>
+            </ul>
+          </div>
+        </section>
+      </body>
+    </html>
+  `)
+
+  const parentMessages: unknown[] = []
+  const parentWindow = {
+    postMessage(message: unknown) {
+      parentMessages.push(message)
+    },
+  }
+
+  Object.assign(globalThis, {
+    window,
+    document,
+    Node: window.Node,
+    Element: window.Element,
+    HTMLElement: window.HTMLElement,
+    SVGElement: window.SVGElement,
+    MutationObserver: undefined,
+    Event: window.Event,
+    CustomEvent: window.CustomEvent,
+  })
+
+  Object.defineProperty(window, 'parent', {
+    configurable: true,
+    value: parentWindow,
+  })
+  Object.defineProperty(window, 'innerWidth', {
+    configurable: true,
+    value: 1440,
+  })
+  Object.defineProperty(window, 'MutationObserver', {
+    configurable: true,
+    value: undefined,
+  })
+  Object.defineProperty(window, 'setInterval', {
+    configurable: true,
+    value: () => 1,
+  })
+  Object.defineProperty(window, 'clearInterval', {
+    configurable: true,
+    value: () => {},
+  })
+  Object.defineProperty(document, 'readyState', {
+    configurable: true,
+    value: 'complete',
+  })
+
+  const rootA = document.querySelector('#catalog-list > li:nth-of-type(1)')
+  const rootB = document.querySelector('#catalog-list > li:nth-of-type(2)')
+  const list = document.querySelector('#catalog-list')
+  rootA!.getBoundingClientRect = () => ({
+    top: 100,
+    left: 50,
+    right: 150,
+    bottom: 140,
+    width: 100,
+    height: 40,
+  } as DOMRect)
+  rootB!.getBoundingClientRect = () => ({
+    top: 145,
+    left: 50,
+    right: 170,
+    bottom: 185,
+    width: 120,
+    height: 40,
+  } as DOMRect)
+  list!.getBoundingClientRect = () => ({
+    top: 96,
+    left: 44,
+    right: 176,
+    bottom: 189,
+    width: 132,
+    height: 93,
+  } as DOMRect)
+
+  window.eval(script)
+  parentMessages.length = 0
+
+  const selectionModeEvent = new window.Event('message')
+  Object.assign(selectionModeEvent, {
+    source: parentWindow,
+    data: {
+      source: PAGE_BUILDER_PREVIEW_PARENT_SOURCE,
+      type: 'selection-mode',
+      enabled: true,
+      locked: false,
+    },
+  })
+  window.dispatchEvent(selectionModeEvent)
+  parentMessages.length = 0
+
+  list?.dispatchEvent(new window.Event('mousemove', {
+    bubbles: true,
+    cancelable: true,
+  }))
+  list?.dispatchEvent(new window.Event('click', {
+    bubbles: true,
+    cancelable: true,
+  }))
+
+  const selectedMessages = parentMessages.filter((message) =>
+    typeof message === 'object'
+    && message !== null
+    && (message as { type?: string }).type === 'selected'
+  ) as Array<{
+    selector: string
+    targetSelection: {
+      kind: string
+      selector: string
+      parentBlockSelector: string
+      component?: string
+      editBoundary: string
+    }
+  }>
+
+  expect(selectedMessages.at(-1)).toMatchObject({
+    selector: 'body > section:nth-of-type(1) > div:nth-of-type(1) > ul:nth-of-type(1) > cms-catalog:nth-of-type(1)',
+    targetSelection: {
+      kind: 'cms-island',
+      selector: 'body > section:nth-of-type(1) > div:nth-of-type(1) > ul:nth-of-type(1) > cms-catalog:nth-of-type(1)',
+      parentBlockSelector: 'body > section:nth-of-type(1) > div:nth-of-type(1) > ul:nth-of-type(1) > cms-catalog:nth-of-type(1)',
+      component: 'cms-catalog',
+      editBoundary: 'source-atomic',
+    },
+  })
 })

@@ -12,8 +12,8 @@ import { noContent } from '../responses'
 
 export const pageBuilderRoutes = new Hono()
 
-pageBuilderRoutes.get('/preview-bridge.js', () => {
-  return new Response(readPageBuilderPreviewBridgeScript(), {
+pageBuilderRoutes.get('/preview-bridge.js', async () => {
+  return new Response(await readPageBuilderPreviewBridgeScript(), {
     headers: {
       'cache-control': 'no-store',
       'content-type': 'application/javascript; charset=utf-8',

@@ -3,7 +3,10 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { strFromU8, unzipSync } from 'fflate'
-import { PAGE_BUILDER_PREVIEW_BRIDGE_SOURCE } from '@proma/shared'
+import {
+  PAGE_BUILDER_PREVIEW_BRIDGE_SOURCE,
+  PAGE_BUILDER_PREVIEW_PARENT_SOURCE,
+} from '@proma/shared'
 import { getSettings, updateSettings } from '../lib/settings-service'
 import { getUserProfile, updateUserProfile } from '../lib/user-profile-service'
 import { appendAgentMessage, createAgentSession, getAgentSessionMeta, updateAgentSessionMeta } from '../lib/agent-session-manager'
@@ -568,12 +571,11 @@ describe('createHttpApp', () => {
     expect(response.headers.get('content-type')).toContain('application/javascript')
     const script = await response.text()
     expect(script).toContain(PAGE_BUILDER_PREVIEW_BRIDGE_SOURCE)
-    expect(script).toContain('window.parent !== window')
-    expect(script).toContain("borderRadius: '0'")
-    expect(script).toContain('const resolveElementLabel = (element) => {')
-    expect(script).toContain("document.addEventListener('mouseout', handleMouseOut, true)")
-    expect(script).toContain('const scheduleReadyAnnouncements = () => {')
-    expect(script).toContain('const clearReadyAnnouncementTimer = () => {')
+    expect(script).toContain(PAGE_BUILDER_PREVIEW_PARENT_SOURCE)
+    expect(script).not.toContain('__PAGE_BUILDER_PREVIEW_BRIDGE_SOURCE__')
+    expect(script).not.toContain('__PAGE_BUILDER_PREVIEW_PARENT_SOURCE__')
+    expect(script).not.toContain("from './")
+    expect(script.trim().startsWith('(() =>')).toBe(true)
   })
 
   test('page-builder routes serve CMS rendering preview assets', async () => {
