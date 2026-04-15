@@ -2,7 +2,6 @@ import { afterEach, describe, expect, mock, test } from 'bun:test'
 
 const TEST_ENV = {
   PROMA_CMS_BASE_URL: 'https://demo.zving.com/manager/',
-  PROMA_CMS_SITE_ID: '277',
   PROMA_CMS_USERNAME: 'test-user',
   PROMA_CMS_PASSWORD: 'test-pass',
 } as const
@@ -12,17 +11,78 @@ afterEach(() => {
 })
 
 describe('CmsGateway', () => {
-  test('resolves host cms config from env with normalized base url and siteID', async () => {
+  test('resolves host cms config from env with normalized base url', async () => {
     const { resolvePageBuilderCmsConfig } = await import('./page-builder-cms-config')
 
     const config = resolvePageBuilderCmsConfig(TEST_ENV)
 
     expect(config).toEqual({
       baseUrl: 'https://demo.zving.com/manager',
-      siteID: '277',
       username: 'test-user',
       password: 'test-pass',
     })
+  })
+
+  test('lists sites from the slim sites endpoint and returns normalized site summaries', async () => {
+    const { CmsGateway } = await import('./cms-gateway')
+    const { resolvePageBuilderCmsConfig } = await import('./page-builder-cms-config')
+    const tokenProvider = {
+      getAuthorizationHeader: mock(async () => 'Bearer slim-token'),
+    }
+    const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe('https://demo.zving.com/manager/api/sites')
+      expect(init?.method).toBe('GET')
+      expect(init?.headers).toMatchObject({
+        Accept: 'application/json',
+        Authorization: 'Bearer slim-token',
+      })
+
+      return new Response(JSON.stringify({
+        status: 1,
+        data: [
+          {
+            id: 1,
+            name: '主站',
+            url: 'https://demo.zving.com',
+            parentID: 0,
+            branchInnerCode: '0001',
+          },
+          {
+            id: 14,
+            name: '新闻站',
+            url: 'https://news.demo.zving.com',
+            parentID: 1,
+            branchInnerCode: '000114',
+          },
+        ],
+      }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    })
+
+    const gateway = new CmsGateway({
+      config: resolvePageBuilderCmsConfig(TEST_ENV)!,
+      fetchFn: fetchMock as unknown as typeof fetch,
+      tokenProvider,
+    })
+
+    await expect(gateway.listSites()).resolves.toEqual([
+      {
+        id: '1',
+        name: '主站',
+        url: 'https://demo.zving.com',
+        parentId: null,
+        branchInnerCode: '0001',
+      },
+      {
+        id: '14',
+        name: '新闻站',
+        url: 'https://news.demo.zving.com',
+        parentId: '1',
+        branchInnerCode: '000114',
+      },
+    ])
   })
 
   test('lists catalogs from the slim catalogsTree endpoint and returns a normalized catalog tree', async () => {
@@ -33,7 +93,7 @@ describe('CmsGateway', () => {
     }
     const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
       expect(String(input)).toBe(
-        'https://demo.zving.com/manager/api/catalogsTree?siteID=277&contentType=Image&keyword=%E9%A6%96%E9%A1%B5',
+        'https://demo.zving.com/manager/api/catalogsTree?siteID=14&contentType=Image&keyword=%E9%A6%96%E9%A1%B5',
       )
       expect(init?.method).toBe('GET')
       expect(init?.headers).toMatchObject({
@@ -49,6 +109,7 @@ describe('CmsGateway', () => {
             parentID: 0,
             path: 'home/',
             name: '首页',
+            logoSrc: '/upload/resources/image/home.png',
             contentType: '',
             contentTypeName: '文章',
             hasChild: true,
@@ -59,6 +120,7 @@ describe('CmsGateway', () => {
                 parentID: 100,
                 path: 'home/banner/',
                 name: 'Banner',
+                logoFile: '/upload/resources/image/banner.png',
                 contentType: 'Image',
                 contentTypeName: '图片',
                 hasChild: false,
@@ -80,6 +142,7 @@ describe('CmsGateway', () => {
     })
 
     const result = await gateway.listCatalogs({
+      siteId: '14',
       contentType: 'Image',
       searchKeyword: '首页',
     })
@@ -92,6 +155,7 @@ describe('CmsGateway', () => {
         path: 'home/',
         contentType: '',
         contentTypeName: '文章',
+        logoUrl: 'https://demo.zving.com/manager/upload/resources/image/home.png',
         hasChild: true,
         total: 12,
         children: [],
@@ -103,6 +167,7 @@ describe('CmsGateway', () => {
         path: 'home/banner/',
         contentType: 'Image',
         contentTypeName: '图片',
+        logoUrl: 'https://demo.zving.com/manager/upload/resources/image/banner.png',
         hasChild: false,
         total: 3,
         children: [],
@@ -116,6 +181,7 @@ describe('CmsGateway', () => {
         path: 'home/',
         contentType: '',
         contentTypeName: '文章',
+        logoUrl: 'https://demo.zving.com/manager/upload/resources/image/home.png',
         hasChild: true,
         total: 12,
         children: [
@@ -126,6 +192,7 @@ describe('CmsGateway', () => {
             path: 'home/banner/',
             contentType: 'Image',
             contentTypeName: '图片',
+            logoUrl: 'https://demo.zving.com/manager/upload/resources/image/banner.png',
             hasChild: false,
             total: 3,
             children: [],
@@ -133,6 +200,35 @@ describe('CmsGateway', () => {
         ],
       },
     ])
+  })
+
+  test('defaults siteId to 1 when a catalog request omits it', async () => {
+    const { CmsGateway } = await import('./cms-gateway')
+    const { resolvePageBuilderCmsConfig } = await import('./page-builder-cms-config')
+    const tokenProvider = {
+      getAuthorizationHeader: mock(async () => 'Bearer slim-token'),
+    }
+    const fetchMock = mock(async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe('https://demo.zving.com/manager/api/catalogsTree?siteID=1')
+      return new Response(JSON.stringify({
+        status: 1,
+        data: [],
+      }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    })
+
+    const gateway = new CmsGateway({
+      config: resolvePageBuilderCmsConfig(TEST_ENV)!,
+      fetchFn: fetchMock as unknown as typeof fetch,
+      tokenProvider,
+    })
+
+    await expect(gateway.listCatalogs()).resolves.toEqual({
+      items: [],
+      tree: [],
+    })
   })
 
   test('assembles catalog detail from the slim catalogs endpoint', async () => {
@@ -143,7 +239,7 @@ describe('CmsGateway', () => {
     }
     const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
       expect(String(input)).toBe(
-        'https://demo.zving.com/manager/api/catalogs?siteID=277&level=All&pageIndex=0&pageSize=500',
+        'https://demo.zving.com/manager/api/catalogs?siteID=14&level=All&pageIndex=0&pageSize=500',
       )
       expect(init?.method).toBe('GET')
       expect(init?.headers).toMatchObject({
@@ -182,7 +278,7 @@ describe('CmsGateway', () => {
       tokenProvider,
     })
 
-    const result = await gateway.getCatalogDetail('17765')
+    const result = await gateway.getCatalogDetail('17765', '14')
 
     expect(result).toEqual({
       id: '17765',
@@ -248,7 +344,7 @@ describe('CmsGateway', () => {
       tokenProvider,
     })
 
-    const result = await gateway.getCatalogDetail('501')
+    const result = await gateway.getCatalogDetail('501', '14')
 
     expect(result).toMatchObject({
       id: '501',
@@ -266,7 +362,7 @@ describe('CmsGateway', () => {
     }
     const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
       expect(String(input)).toBe(
-        'https://demo.zving.com/manager/api/catalogs/101/contents?pageIndex=0&pageSize=20&loadextend=true&keyword=banner',
+        'https://demo.zving.com/manager/api/catalogs/101/contents?siteID=14&pageIndex=0&pageSize=20&loadextend=true&keyword=banner',
       )
       expect(init?.method).toBe('GET')
       expect(init?.headers).toMatchObject({
@@ -320,6 +416,7 @@ describe('CmsGateway', () => {
     })
 
     const result = await gateway.listContents({
+      siteId: '14',
       catalogId: '101',
       keyword: 'banner',
       pageIndex: 0,
@@ -402,11 +499,13 @@ describe('CmsGateway', () => {
     })
 
     const withExtend = await gateway.listContents({
+      siteId: '14',
       catalogId: '101',
       pageIndex: 0,
       pageSize: 20,
     })
     const withoutExtend = await gateway.listContents({
+      siteId: '14',
       catalogId: '101',
       pageIndex: 0,
       pageSize: 20,
@@ -448,6 +547,7 @@ describe('CmsGateway', () => {
     })
 
     const result = await gateway.listContents({
+      siteId: '14',
       catalogId: '101',
       pageIndex: 5,
       pageSize: 6,
@@ -496,7 +596,7 @@ describe('CmsGateway', () => {
     })
 
     try {
-      await gateway.listCatalogs()
+      await gateway.listCatalogs({ siteId: '14' })
       throw new Error('expected listCatalogs to throw')
     } catch (error) {
       expect(error).toBeInstanceOf(Error)
@@ -524,7 +624,7 @@ describe('CmsGateway', () => {
       tokenProvider,
     })
 
-    await expect(gateway.listCatalogs()).rejects.toMatchObject({
+    await expect(gateway.listCatalogs({ siteId: '14' })).rejects.toMatchObject({
       name: 'CmsGatewayError',
       code: 'upstream',
       message: 'CMS 请求失败：socket hang up',

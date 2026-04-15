@@ -25,6 +25,12 @@
 - **AND** 系统 SHALL 将每个 island 的 SSR 结果写回 staging HTML
 - **AND** 系统 SHALL 不在最终 staging HTML 中保留未替换的顶层 `cms-*` 标签
 
+#### Scenario: 预取与 SSR 按每个 island 的显式站点上下文执行
+- **WHEN** 某个导出页面中的多个 CMS islands 使用不同的 `site-id`
+- **THEN** 系统 SHALL 按每个 island 自身的显式 `site-id` 预取并执行 SSR
+- **AND** 当标签缺少 `site-id` 时，系统 SHALL 按 `siteId = 1` 兼容执行
+- **AND** 任务级缓存 SHALL 将 `siteId` 纳入等价查询判断
+
 #### Scenario: 服务端 SSR 输出保留原始 CMS 资源 URL
 - **WHEN** 某个 `cms-content` island 的 SSR 结果中包含来自 CMS 数据的图片或链接 URL
 - **THEN** 系统 SHALL 在 SSR 输出中保留该原始 CMS 资源 URL

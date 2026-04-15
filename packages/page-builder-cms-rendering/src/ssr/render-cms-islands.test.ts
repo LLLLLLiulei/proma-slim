@@ -59,6 +59,7 @@ function createContentResponse(query: PageBuilderCmsContentQuery): PageBuilderCm
 describe('renderCmsIslands', () => {
   test('renders top-level CMS islands into static HTML and preserves raw CMS asset urls', async () => {
     let contentCalls = 0
+    const contentQueries: PageBuilderCmsContentQuery[] = []
     const client = createServerCmsClient({
       adapter: {
         async listCatalogs() {
@@ -66,6 +67,7 @@ describe('renderCmsIslands', () => {
         },
         async listContents(query) {
           contentCalls += 1
+          contentQueries.push(query)
           return createContentResponse(query)
         },
       },
@@ -75,7 +77,7 @@ describe('renderCmsIslands', () => {
       <html>
         <body>
           <section>
-            <cms-content catalog-id="news" page-index="0" page-size="1">
+            <cms-content site-id="14" catalog-id="news" page-index="0" page-size="1">
               <template v-slot:default="{ items }">
                 <article>
                   <img :src="items[0]?.listLogoUrl" alt="banner">
@@ -85,7 +87,7 @@ describe('renderCmsIslands', () => {
             </cms-content>
           </section>
           <section>
-            <cms-content catalog-id="news" page-index="0" page-size="1">
+            <cms-content site-id="14" catalog-id="news" page-index="0" page-size="1">
               <template v-slot:default="{ items }">
                 <a :href="items[0]?.publishUrl">{{ items[0]?.title }}</a>
               </template>
@@ -104,6 +106,14 @@ describe('renderCmsIslands', () => {
     expect(rendered).toContain('https://example.com/news/launch-update')
     expect(rendered).not.toContain('<cms-content')
     expect(contentCalls).toBe(1)
+    expect(contentQueries).toEqual([
+      expect.objectContaining({
+        siteId: '14',
+        catalogId: 'news',
+        pageIndex: 0,
+        pageSize: 1,
+      }),
+    ])
   })
 
   test('raises structured failures when island prefetch fails', async () => {

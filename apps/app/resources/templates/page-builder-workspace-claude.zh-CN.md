@@ -39,7 +39,12 @@
 - 当 page-builder 流程已经拿到明确的 CMS 选择结果和目标区块 selector 时，优先使用工作区内的 `cms-binding-apply` skill 来判断当前 Phase 1A 是否可以应用。
 - `cms-binding-apply` 只用于 CMS 选择完成之后的兼容性判断和正式应用，不用于浏览 CMS 数据，也不替代 CMS 选择器本身。
 - 该阶段仅允许 `ready`、`needs-clarification`、`incompatible` 三种结论，并且默认只处理 `replace-current`。
+- 如果 `selection.siteId` 缺失或为空，必须立即停止并报错；不要为新写入标签假设 `site-id="1"`，也不要再从宿主静态配置里反推站点。
 - 如果 `cms-binding-apply` 得到 `ready`，要在同一轮继续调用 `mcp__cms__apply_cms_binding`，不要绕过正式工具直接改写 workspace 文件。
+- 调用 `mcp__cms__apply_cms_binding` 时，`templateBody` / `emptyTemplate` / `errorTemplate` 只能传 slot 内部内容，不要再包一层 `<template v-slot:...>` 或外层 `cms-*` 标签。
+- 正式工具生成的 `default` / `empty` / `error` slot 统一暴露 `{ items, loading, error, empty }`；需要这些状态时直接在 slot 内容里使用即可。
+- 只有“已确认的 CMS 选择结果”这一受控流程，才能新建 `cms-catalog` / `cms-content` 或重绑现有 CMS 标签。
+- 普通整页生成或普通页面迭代，不能凭空新增新的 `cms-*` 标签；如果页面里已经有 CMS 标签，只允许调整它们的 slot 模板、内部结构和样式，不应静默改动 `site-id`、`catalog-id`、`page-size` 等查询属性。
 - 产出 CMS 驱动源码时，`cms-catalog` / `cms-content` 尽量作为动态区域源码根节点。
 - `ul`、`section`、`article` 等主要动态容器尽量写在 slot 中；`empty` / `error` 的主要 fallback 结构也尽量写在对应 slot 中。
 

@@ -25,6 +25,11 @@
 - **THEN** 系统 SHALL 生成或更新 `workspace-files/.proma/cms-rendering-manifest.json`
 - **AND** manifest 中每个 island entry SHALL 至少包含 `blockId`、`component`、`props`、`selectorSnapshot`、`htmlPath` 和 `islandIndex`
 
+#### Scenario: manifest props 保留归一化后的 siteId
+- **WHEN** 某个 top-level CMS island 在作者态源码中显式写出 `site-id`
+- **THEN** manifest entry 的 `props` SHALL 保留归一化后的 `siteId`
+- **AND** 后续 preview、apply 与 static export SHALL 可直接复用该站点上下文
+
 #### Scenario: manifest 只索引 top-level CMS islands
 - **WHEN** 作者 HTML 在某个 `cms-*` 节点内部又出现另一个 `cms-*`
 - **THEN** manifest SHALL 仅将最外层 `cms-*` 记录为可渲染 island entry
@@ -47,6 +52,12 @@
 - **WHEN** 作者 HTML 中出现 `#default` 等 slot 简写、未知 props、可选 URL 字段缺少 `v-if` 保护、空 default slot 或缺少 empty/error slot
 - **THEN** 系统 SHALL 为这些问题输出 `warning` 或 `info` 级 diagnostics
 - **AND** diagnostics SHALL 能区分问题严重度，而不是将所有问题统一视为阻断错误
+
+#### Scenario: site-id 作为受支持属性且旧标签缺省站点仍然有效
+- **WHEN** 作者 HTML 中的 `cms-catalog` 或 `cms-content` 显式写出 `site-id`
+- **THEN** validator SHALL 将其视为受支持属性
+- **AND** 系统 SHALL NOT 将 `site-id` 标记为 unknown prop
+- **AND** 当旧标签缺少 `site-id` 时，validator SHALL 继续允许其通过，并由运行时按 `siteId = 1` 兼容执行
 
 ### Requirement: CMS rendering validator 必须为明显的“主要动态容器外置”反模式输出 warning
 系统 SHALL 对 page-builder 作者态 HTML 中明显的“主要动态容器在 CMS 组件外、slot 内只剩条目级节点”的反模式输出 warning diagnostics，以引导作者把相关 HTML 尽量组织到 CMS slot 中；该诊断 MUST 保持非阻断，不得因此把页面判定为无效。

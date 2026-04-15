@@ -1,8 +1,9 @@
 export const CMS_ISLAND_SELECTOR = 'cms-catalog, cms-content'
 
 export const CMS_ISLAND_ATTRIBUTES = {
-  'cms-catalog': ['level', 'parent-id', 'content-type', 'search-keyword', 'take'],
+  'cms-catalog': ['site-id', 'level', 'parent-id', 'content-type', 'search-keyword', 'take'],
   'cms-content': [
+    'site-id',
     'catalog-id',
     'content-select-type',
     'keyword',

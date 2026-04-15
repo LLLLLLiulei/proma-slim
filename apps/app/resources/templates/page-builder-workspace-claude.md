@@ -41,8 +41,13 @@ This workspace is used to generate a static website that can be previewed inside
 - Use `cms-binding-apply` only after CMS browsing and selection are already complete. Do not use it to browse CMS data or to replace the CMS picker.
 - Limit Phase 1A decisions to `ready`, `needs-clarification`, or `incompatible`.
 - Treat Phase 1A as `replace-current` only and keep any proposed changes scoped to the current target block.
+- If `selection.siteId` is missing or blank, stop and report an error. Do not invent `site-id="1"` for new writes and do not recover the site from host static config.
 - If `cms-binding-apply` reaches `ready`, continue in the same turn by calling `mcp__cms__apply_cms_binding` instead of editing workspace files directly.
 - Only pass the current block selector and the supported binding/query fields required by `mcp__cms__apply_cms_binding`. Do not bypass the formal tool with ad-hoc file writes.
+- For `templateBody`, `emptyTemplate`, and `errorTemplate`, pass slot inner content only. Do not include an outer `<template v-slot:...>` wrapper or an outer `cms-*` tag.
+- The generated `default`, `empty`, and `error` slots all expose the unified scope `{ items, loading, error, empty }`; use that scope inside the slot content directly.
+- Only the confirmed CMS selection flow may create a new `cms-catalog` / `cms-content` or rebind an existing one.
+- Ordinary page generation or ordinary iteration must not invent new `cms-*` tags. Existing CMS tags may have their slot templates, internal structure, and styles refined, but their binding query props should stay under the controlled CMS apply flow.
 - When producing CMS-driven HTML, prefer `cms-catalog` / `cms-content` as the source root of a dynamic region, and keep major dynamic containers inside the CMS slot.
 - Put `ul`, `section`, `article`, grid/list wrappers, and empty/error shells into `templateBody`, `emptyTemplate`, or `errorTemplate` when they belong to the same CMS-backed region.
 

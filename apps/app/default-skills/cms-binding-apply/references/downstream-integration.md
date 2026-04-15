@@ -12,7 +12,9 @@ If the selector and block hint are not enough to decide safely, the later snapsh
 
 ## HTML apply prerequisite
 
-In the current page-builder workflow, a `ready` result should lead directly to a target-selection-scoped `mcp__cms__apply_cms_binding` call. The important boundary is that only `ready` may proceed to this write tool; `needs-clarification` and `incompatible` must not be treated as direct write instructions.
+In the current page-builder workflow, a `ready` result should lead directly to a target-selection-scoped `mcp__cms__apply_cms_binding` call. The important boundary is that only `ready` with an explicit `selection.siteId` may proceed to this write tool; `needs-clarification` and `incompatible` must not be treated as direct write instructions.
+
+If `selection.siteId` is missing, the flow must stop and report a malformed payload style error. Do not substitute `siteId = 1` for new writes.
 
 ## Phase 1A boundary
 
@@ -22,3 +24,4 @@ In the current page-builder workflow, a `ready` result should lead directly to a
 - Only `nav` and `content-list`
 - No CMS rebrowsing through `AskUserQuestion`
 - No page-wide rewrite
+- No inventing new `cms-*` tags outside the controlled CMS selection flow

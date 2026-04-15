@@ -63,17 +63,21 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
   } = props
   const {
     activeTab,
+    sitesState,
     catalogsState,
     catalogDetailState,
     contentsState,
     contentsPageIndex,
     contentsPageSize,
     expandedKeys,
+    selectedSiteId,
     selectedCatalogId,
     setActiveTab,
+    setSelectedSiteId,
     setContentsPage,
     setExpandedKeys,
     setSelectedCatalogId,
+    retrySites,
     retryCatalogDetail,
     retryCatalogs,
     retryContents,
@@ -118,10 +122,14 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
   const currentSelectionCount = activeTab === 'catalogs'
     ? selectedCatalogs.length
     : selectedContents.length
-  const canConfirmSelection = !confirming && currentSelectionCount > 0 && Boolean(requestContext?.targetBlock.selector)
+  const canConfirmSelection = !confirming
+    && currentSelectionCount > 0
+    && Boolean(requestContext?.targetBlock.selector)
+    && Boolean(selectedSiteId)
   const currentSelectionSummary = activeTab === 'catalogs'
     ? `已选 ${selectedCatalogs.length} 个栏目`
     : `已选 ${selectedContents.length} 条内容`
+  const siteOptions = sitesState.data ?? []
 
   React.useEffect(() => {
     if (open) return
@@ -135,12 +143,22 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
     setCheckedContentItemsById({})
   }, [])
 
+  const clearCheckedSelections = React.useCallback(() => {
+    setCheckedCatalogIds([])
+    clearCheckedContents()
+  }, [clearCheckedContents])
+
   const handleSelectContentCatalog = React.useCallback((catalogId: string) => {
     if (catalogId !== selectedCatalogId) {
       clearCheckedContents()
     }
     setSelectedCatalogId(catalogId)
   }, [clearCheckedContents, selectedCatalogId, setSelectedCatalogId])
+
+  const handleSelectedSiteChange = React.useCallback((siteId: string) => {
+    clearCheckedSelections()
+    setSelectedSiteId(siteId)
+  }, [clearCheckedSelections, setSelectedSiteId])
 
   const handleCheckedContentChange = React.useCallback((item: PageBuilderCmsContentSummary, checked: boolean) => {
     setCheckedContentIds((previous) => checked
@@ -162,11 +180,12 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
   }, [])
 
   const handleConfirmSelection = React.useCallback(() => {
-    if (!requestContext?.targetBlock.selector || currentSelectionCount === 0) return
+    if (!requestContext?.targetBlock.selector || currentSelectionCount === 0 || !selectedSiteId) return
 
     if (activeTab === 'catalogs') {
       onConfirmSelection?.({
         version: PAGE_BUILDER_CMS_SELECTION_RESULT_VERSION,
+        siteId: selectedSiteId,
         targetSelection: requestContext.targetSelection,
         targetBlock: requestContext.targetBlock,
         selectionKind: 'catalogs',
@@ -180,6 +199,7 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
     } else {
       onConfirmSelection?.({
         version: PAGE_BUILDER_CMS_SELECTION_RESULT_VERSION,
+        siteId: selectedSiteId,
         targetSelection: requestContext.targetSelection,
         targetBlock: requestContext.targetBlock,
         selectionKind: 'contents',
@@ -198,12 +218,44 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
     currentSelectionCount,
     onConfirmSelection,
     requestContext,
+    selectedSiteId,
     selectedCatalogs,
     selectedContentCatalogIds,
     selectedContents,
   ])
 
+  const siteGuardPanel = React.useMemo(() => {
+    if (sitesState.status === 'loading' && !sitesState.data) {
+      return <CatalogPanelState message="正在加载站点..." />
+    }
+
+    if (sitesState.status === 'error') {
+      return (
+        <CatalogPanelState
+          description={sitesState.errorMessage}
+          message="站点加载失败"
+          onRetry={retrySites}
+          showRetry
+        />
+      )
+    }
+
+    if (sitesState.status === 'ready' && siteOptions.length === 0) {
+      return <CatalogPanelState message="当前没有可浏览的站点" />
+    }
+
+    if (!selectedSiteId) {
+      return <CatalogPanelState message="请选择站点" />
+    }
+
+    return null
+  }, [retrySites, selectedSiteId, siteOptions.length, sitesState.data, sitesState.errorMessage, sitesState.status])
+
   const renderCatalogTree = React.useCallback((selectionMode: 'check' | 'select') => {
+    if (siteGuardPanel) {
+      return siteGuardPanel
+    }
+
     if (catalogsState.status === 'loading' && !catalogsState.data) {
       return <CatalogPanelState message="正在加载栏目..." />
     }
@@ -264,6 +316,7 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
     setCheckedCatalogIds,
     setExpandedKeys,
     tree,
+    siteGuardPanel,
   ])
 
   return (
@@ -284,19 +337,50 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
           value={activeTab}
         >
           <div className="flex items-center justify-between border-b border-border/70 px-5 py-1.5">
-            <TabsList className="bg-muted/70">
-              <TabsTrigger className="gap-2" value="catalogs">
-                <FolderTree className="size-3.5" />
-                栏目
-              </TabsTrigger>
-              <TabsTrigger className="gap-2" value="contents">
-                <LayoutPanelLeft className="size-3.5" />
-                内容
-              </TabsTrigger>
-            </TabsList>
+            <div className="flex items-center gap-3">
+              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                <span>站点</span>
+                <select
+                  className="min-w-[180px] rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground"
+                  disabled={sitesState.status === 'loading' || siteOptions.length === 0}
+                  onChange={(event) => handleSelectedSiteChange(event.target.value)}
+                  value={selectedSiteId ?? ''}
+                >
+                  <option value="" disabled>
+                    {sitesState.status === 'loading' ? '正在加载站点...' : '请选择站点'}
+                  </option>
+                  {siteOptions.map((site) => (
+                    <option key={site.id} value={site.id}>
+                      {site.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <TabsList className="bg-muted/70">
+                <TabsTrigger className="gap-2" value="catalogs">
+                  <FolderTree className="size-3.5" />
+                  栏目
+                </TabsTrigger>
+                <TabsTrigger className="gap-2" value="contents">
+                  <LayoutPanelLeft className="size-3.5" />
+                  内容
+                </TabsTrigger>
+              </TabsList>
+            </div>
+            {sitesState.status === 'error' ? (
+              <Button className="gap-2" onClick={retrySites} size="sm" type="button" variant="outline">
+                <RefreshCw className="size-3.5" />
+                重试站点
+              </Button>
+            ) : null}
           </div>
 
           <TabsContent className="mt-0 min-h-0 flex-1 px-3 pb-2.5 pt-2 md:px-4" value="catalogs">
+            {siteGuardPanel ? (
+              <div className="h-full rounded-[20px] border border-border/70 bg-muted/15 p-3">
+                {siteGuardPanel}
+              </div>
+            ) : (
             <div className="grid h-full min-h-0 gap-2.5 lg:grid-cols-[280px_minmax(0,1fr)]">
               <div className="min-h-0 rounded-[20px] border border-border/70 bg-muted/15 p-2">
                 {renderCatalogTree('check')}
@@ -309,9 +393,15 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
                 />
               </div>
             </div>
+            )}
           </TabsContent>
 
           <TabsContent className="mt-0 min-h-0 flex-1 px-3 pb-2.5 pt-2 md:px-4" value="contents">
+            {siteGuardPanel ? (
+              <div className="h-full rounded-[20px] border border-border/70 bg-muted/15 p-3">
+                {siteGuardPanel}
+              </div>
+            ) : (
             <div className="grid h-full min-h-0 gap-2.5 lg:grid-cols-[272px_minmax(0,1fr)]">
               <div className="min-h-0 rounded-[20px] border border-border/70 bg-muted/15 p-2">
                 {renderCatalogTree('select')}
@@ -329,6 +419,7 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
                 />
               </div>
             </div>
+            )}
           </TabsContent>
 
           <div className="flex items-center justify-between border-t border-border/70 px-4 py-2.5">

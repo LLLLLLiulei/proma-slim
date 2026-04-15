@@ -5,6 +5,7 @@ export interface CmsCatalogItemViewModel {
   name: string
   path: string
   parentId: string | null
+  logoUrl?: string
   hasChild: boolean
   total: number
   contentType: string
@@ -18,6 +19,7 @@ export function mapCatalog(record: PageBuilderCmsCatalog): CmsCatalogItemViewMod
     name: record.name,
     path: record.path,
     parentId: record.parentId,
+    logoUrl: record.logoUrl,
     hasChild: record.hasChild,
     total: record.total,
     contentType: record.contentType,

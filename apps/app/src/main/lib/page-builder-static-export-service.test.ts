@@ -305,7 +305,7 @@ describe('page-builder static export service', () => {
       <html>
         <body>
           <section>
-            <cms-content catalog-id="news" page-index="0" page-size="1">
+            <cms-content site-id="14" catalog-id="news" page-index="0" page-size="1">
               <template v-slot:default="{ items }">
                 <article>
                   <img :src="items[0]?.listLogoUrl" alt="banner">
@@ -348,7 +348,13 @@ describe('page-builder static export service', () => {
             tree: [],
           }
         },
-        async listContents() {
+        async listContents(query) {
+          expect(query).toMatchObject({
+            siteId: '14',
+            catalogId: 'news',
+            pageIndex: 0,
+            pageSize: 1,
+          })
           return {
             pageIndex: 0,
             pageSize: 1,

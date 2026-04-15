@@ -3,9 +3,11 @@ import React from 'react'
 import { act, create } from 'react-test-renderer'
 import type {
   PageBuilderCmsCatalogList,
+  PageBuilderCmsCatalogQuery,
   PageBuilderCmsCatalogDetail,
   PageBuilderCmsContentList,
   PageBuilderCmsContentQuery,
+  PageBuilderCmsSiteSummary,
   PageBuilderCmsSelectionRequestContext,
   PageBuilderCmsSelectionResult,
 } from '@proma/shared'
@@ -102,6 +104,23 @@ const REQUEST_CONTEXT = {
   },
 } satisfies PageBuilderCmsSelectionRequestContext
 
+const CMS_SITES: PageBuilderCmsSiteSummary[] = [
+  {
+    id: '1',
+    name: '主站',
+    url: 'https://demo.zving.com',
+    parentId: null,
+    branchInnerCode: '0001',
+  },
+  {
+    id: '14',
+    name: '新闻站',
+    url: 'https://news.demo.zving.com',
+    parentId: '1',
+    branchInnerCode: '000114',
+  },
+]
+
 function createContentsPayload(title: string): PageBuilderCmsContentList {
   return {
     pageIndex: 0,
@@ -131,6 +150,75 @@ function createContentItem(id: string, catalogId: string, title: string) {
     listLogoUrl: 'https://demo.zving.com/zcmstest/preview/news/upload/resources/image/content-list-logo.jpg',
     addedAt: '2025-04-11 17:48',
     publishUrl: `https://demo.zving.com/${catalogId}/${id}.html`,
+  }
+}
+
+function createCatalogsForSite(rootId: string, childId: string, rootName: string): PageBuilderCmsCatalogList {
+  return {
+    items: [
+      {
+        id: rootId,
+        name: rootName,
+        parentId: null,
+        path: `${rootName}/`,
+        contentType: '',
+        contentTypeName: '文章',
+        hasChild: true,
+        total: 12,
+        children: [],
+      },
+      {
+        id: childId,
+        name: `${rootName} Banner`,
+        parentId: rootId,
+        path: `${rootName}/banner/`,
+        contentType: 'Image',
+        contentTypeName: '图片',
+        hasChild: false,
+        total: 3,
+        children: [],
+      },
+    ],
+    tree: [
+      {
+        id: rootId,
+        name: rootName,
+        parentId: null,
+        path: `${rootName}/`,
+        contentType: '',
+        contentTypeName: '文章',
+        hasChild: true,
+        total: 12,
+        children: [
+          {
+            id: childId,
+            name: `${rootName} Banner`,
+            parentId: rootId,
+            path: `${rootName}/banner/`,
+            contentType: 'Image',
+            contentTypeName: '图片',
+            hasChild: false,
+            total: 3,
+            children: [],
+          },
+        ],
+      },
+    ],
+  }
+}
+
+function createDeferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((nextResolve, nextReject) => {
+    resolve = nextResolve
+    reject = nextReject
+  })
+
+  return {
+    promise,
+    resolve,
+    reject,
   }
 }
 
@@ -306,17 +394,20 @@ function installUiMocks() {
 }
 
 async function loadCmsBrowserDialog(options?: {
+  listSites?: () => Promise<PageBuilderCmsSiteSummary[]>
   listCatalogs?: (query?: unknown) => Promise<PageBuilderCmsCatalogList>
-  getCatalogDetail?: (catalogId: string) => Promise<PageBuilderCmsCatalogDetail>
+  getCatalogDetail?: (catalogId: string, siteId?: string) => Promise<PageBuilderCmsCatalogDetail>
   listContents?: (query: PageBuilderCmsContentQuery) => Promise<PageBuilderCmsContentList>
 }) {
   const treeHarness = installUiMocks()
+  const listSites = options?.listSites ?? mock(async () => CMS_SITES)
   const listCatalogs = options?.listCatalogs ?? mock(async () => CATALOGS)
   const getCatalogDetail = options?.getCatalogDetail ?? mock(async (catalogId: string) => CATALOG_DETAILS[catalogId]!)
   const listContents = options?.listContents ?? mock(async () => createContentsPayload('首页轮播图'))
 
   mock.module('@/lib/api', () => ({
     api: {
+      listPageBuilderCmsSites: listSites,
       listPageBuilderCmsCatalogs: listCatalogs,
       getPageBuilderCmsCatalogDetail: getCatalogDetail,
       listPageBuilderCmsContents: listContents,
@@ -327,6 +418,7 @@ async function loadCmsBrowserDialog(options?: {
 
   return {
     CmsBrowserDialog: module.CmsBrowserDialog,
+    listSites,
     listCatalogs,
     getCatalogDetail,
     listContents,
@@ -352,6 +444,7 @@ describe('CmsBrowserDialog', () => {
     })
 
     expect(listCatalogs).toHaveBeenCalledTimes(1)
+    expect(listCatalogs).toHaveBeenCalledWith({ siteId: '1' })
     expect(JSON.stringify(renderer.toJSON())).toContain('从 CMS 选择数据')
     expect((getLastTreeProps() as { treeData?: Array<{ key: string }> } | null)?.treeData?.[0]?.key).toBe('100')
 
@@ -365,6 +458,7 @@ describe('CmsBrowserDialog', () => {
     })
 
     expect(listContents).toHaveBeenCalledWith(expect.objectContaining({
+      siteId: '1',
       catalogId: '100',
     }))
     expect(JSON.stringify(renderer.toJSON())).toContain('首页轮播图')
@@ -400,6 +494,7 @@ describe('CmsBrowserDialog', () => {
     })
 
     expect(listContents).toHaveBeenCalledWith(expect.objectContaining({
+      siteId: '1',
       catalogId: '100',
     }))
     expect(JSON.stringify(renderer.toJSON())).toContain('Banner 二级栏目内容')
@@ -417,7 +512,7 @@ describe('CmsBrowserDialog', () => {
       await Promise.resolve()
     })
 
-    expect(getCatalogDetail).toHaveBeenCalledWith('100')
+    expect(getCatalogDetail).toHaveBeenCalledWith('100', '1')
     expect(JSON.stringify(renderer.toJSON())).toContain('首页栏目描述')
     expect(JSON.stringify(renderer.toJSON())).toContain('内部编码')
     expect(JSON.stringify(renderer.toJSON())).toContain('001')
@@ -430,7 +525,7 @@ describe('CmsBrowserDialog', () => {
       await Promise.resolve()
     })
 
-    expect(getCatalogDetail).toHaveBeenCalledWith('101')
+    expect(getCatalogDetail).toHaveBeenCalledWith('101', '1')
     expect(JSON.stringify(renderer.toJSON())).toContain('Banner 栏目描述')
     expect(JSON.stringify(renderer.toJSON())).toContain('home_banner')
     expect(JSON.stringify(renderer.toJSON())).toContain('/api/page-builder/cms/assets?url=')
@@ -569,6 +664,7 @@ describe('CmsBrowserDialog', () => {
     })
 
     expect(listContents).toHaveBeenCalledWith(expect.objectContaining({
+      siteId: '1',
       catalogId: '100',
       pageIndex: 0,
       pageSize: 6,
@@ -592,6 +688,7 @@ describe('CmsBrowserDialog', () => {
     })
 
     expect(listContents).toHaveBeenCalledWith(expect.objectContaining({
+      siteId: '1',
       catalogId: '100',
       pageIndex: 1,
       pageSize: 6,
@@ -604,10 +701,196 @@ describe('CmsBrowserDialog', () => {
     })
 
     expect(listContents).toHaveBeenCalledWith(expect.objectContaining({
+      siteId: '1',
       catalogId: '100',
       pageIndex: 0,
       pageSize: 12,
     }))
+  })
+
+  test('switching site resets checked state and refetches site-scoped catalogs and contents', async () => {
+    const listCatalogs = mock(async () => CATALOGS)
+    const listContents = mock(async (query: PageBuilderCmsContentQuery) => ({
+      pageIndex: query.pageIndex ?? 0,
+      pageSize: query.pageSize ?? 6,
+      total: 1,
+      totalPages: 1,
+      items: [
+        createContentItem(`${query.siteId ?? '1'}-${query.catalogId}-1`, query.catalogId, `内容 ${query.catalogId}`),
+      ],
+    }))
+    const { CmsBrowserDialog, getLastTreeProps } = await loadCmsBrowserDialog({
+      listCatalogs,
+      listContents,
+    })
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <CmsBrowserDialog open onOpenChange={() => {}} requestContext={REQUEST_CONTEXT} />,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      (getLastTreeProps() as {
+        onCheck?: (checkedKeys: string[]) => void
+      } | null)?.onCheck?.(['100'])
+      await Promise.resolve()
+    })
+
+    const contentsTab = renderer.root.findAllByType('button')
+      .find((button) => flattenText(button.props.children).trim() === '内容')
+
+    await act(async () => {
+      contentsTab?.props.onClick()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    const firstCheckbox = renderer.root.findAllByType('input')[0]
+    await act(async () => {
+      firstCheckbox?.props.onChange?.({ target: { checked: true } })
+      await Promise.resolve()
+    })
+
+    expect(JSON.stringify(renderer.toJSON())).toContain('已选 1 条内容')
+    expect(listCatalogs).toHaveBeenCalledWith({ siteId: '1' })
+    expect(listContents).toHaveBeenCalledWith(expect.objectContaining({
+      siteId: '1',
+      catalogId: '100',
+    }))
+
+    const siteSelect = renderer.root.findByType('select')
+    await act(async () => {
+      siteSelect.props.onChange?.({ target: { value: '14' } })
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(listCatalogs).toHaveBeenCalledWith({ siteId: '14' })
+    expect(JSON.stringify(renderer.toJSON())).toContain('已选 0 条内容')
+  })
+
+  test('ignores stale catalog responses from the previous site after switching site', async () => {
+    const site1Catalogs = createDeferred<PageBuilderCmsCatalogList>()
+    const site14Catalogs = createDeferred<PageBuilderCmsCatalogList>()
+    const listCatalogs = mock(async (query?: PageBuilderCmsCatalogQuery) => {
+      if (query?.siteId === '14') {
+        return site14Catalogs.promise
+      }
+
+      return site1Catalogs.promise
+    })
+    const { CmsBrowserDialog, getLastTreeProps } = await loadCmsBrowserDialog({
+      listCatalogs,
+    })
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <CmsBrowserDialog open onOpenChange={() => {}} requestContext={REQUEST_CONTEXT} />,
+      )
+      await Promise.resolve()
+    })
+
+    const siteSelect = renderer.root.findByType('select')
+    await act(async () => {
+      siteSelect.props.onChange?.({ target: { value: '14' } })
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      site14Catalogs.resolve(createCatalogsForSite('200', '201', '新闻站'))
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect((getLastTreeProps() as { treeData?: Array<{ key: string }> } | null)?.treeData?.[0]?.key).toBe('200')
+
+    await act(async () => {
+      site1Catalogs.resolve(createCatalogsForSite('100', '101', '主站'))
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect((getLastTreeProps() as { treeData?: Array<{ key: string }> } | null)?.treeData?.[0]?.key).toBe('200')
+  })
+
+  test('ignores stale contents responses from the previous site after switching site', async () => {
+    const listCatalogs = mock(async (query?: PageBuilderCmsCatalogQuery) => {
+      return query?.siteId === '14'
+        ? createCatalogsForSite('200', '201', '新闻站')
+        : createCatalogsForSite('100', '101', '主站')
+    })
+    const site1Contents = createDeferred<PageBuilderCmsContentList>()
+    const site14Contents = createDeferred<PageBuilderCmsContentList>()
+    const listContents = mock(async (query: PageBuilderCmsContentQuery) => {
+      if (query.siteId === '14') {
+        return site14Contents.promise
+      }
+
+      return site1Contents.promise
+    })
+    const { CmsBrowserDialog } = await loadCmsBrowserDialog({
+      listCatalogs,
+      listContents,
+    })
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <CmsBrowserDialog open onOpenChange={() => {}} requestContext={REQUEST_CONTEXT} />,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    const contentsTab = renderer.root.findAllByType('button')
+      .find((button) => flattenText(button.props.children).trim() === '内容')
+
+    await act(async () => {
+      contentsTab?.props.onClick()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    const siteSelect = renderer.root.findByType('select')
+    await act(async () => {
+      siteSelect.props.onChange?.({ target: { value: '14' } })
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      site14Contents.resolve({
+        pageIndex: 0,
+        pageSize: 6,
+        total: 1,
+        totalPages: 1,
+        items: [createContentItem('200-1', '200', '新闻站内容')],
+      })
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(JSON.stringify(renderer.toJSON())).toContain('新闻站内容')
+
+    await act(async () => {
+      site1Contents.resolve({
+        pageIndex: 0,
+        pageSize: 6,
+        total: 1,
+        totalPages: 1,
+        items: [createContentItem('100-1', '100', '主站内容')],
+      })
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(JSON.stringify(renderer.toJSON())).toContain('新闻站内容')
+    expect(JSON.stringify(renderer.toJSON())).not.toContain('主站内容')
   })
 
   test('confirms a single catalog with a structured selection result', async () => {
@@ -649,7 +932,8 @@ describe('CmsBrowserDialog', () => {
 
     const [[selection]] = onConfirmSelection.mock.calls as unknown as [[PageBuilderCmsSelectionResult]]
     expect(selection).toMatchObject({
-      version: 2,
+      version: 3,
+      siteId: '1',
       targetSelection: {
         kind: 'block',
         selector: '#hero-banner',
@@ -712,7 +996,8 @@ describe('CmsBrowserDialog', () => {
 
     const [[selection]] = onConfirmSelection.mock.calls as unknown as [[PageBuilderCmsSelectionResult]]
     expect(selection).toMatchObject({
-      version: 2,
+      version: 3,
+      siteId: '1',
       targetSelection: {
         kind: 'block',
         selector: '#hero-banner',
@@ -812,7 +1097,8 @@ describe('CmsBrowserDialog', () => {
 
     const [[selection]] = onConfirmSelection.mock.calls as unknown as [[PageBuilderCmsSelectionResult]]
     expect(selection).toMatchObject({
-      version: 2,
+      version: 3,
+      siteId: '1',
       targetSelection: {
         kind: 'block',
         selector: '#hero-banner',

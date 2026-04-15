@@ -5,6 +5,7 @@ import { mapCatalog } from '../viewmodel/catalog'
 export const CmsCatalog = createCmsResourceComponent({
   name: 'CmsCatalog',
   props: {
+    siteId: { type: [String, Number], required: false },
     level: { type: [String], required: false },
     parentId: { type: [String], required: false },
     contentType: { type: [String], required: false },

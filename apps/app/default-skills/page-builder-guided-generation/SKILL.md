@@ -166,7 +166,11 @@ For factual content:
 
 ### CMS Authoring Structure
 
-When a generated region is CMS-driven, `cms-catalog` / `cms-content` should wrap the whole dynamic region.
+Ordinary page generation and ordinary iteration are not allowed to invent new `cms-catalog` / `cms-content` tags. New CMS source tags, or rebinding an existing CMS source tag to different query props, must go through the controlled CMS browser selection flow plus `cms-binding-apply` and `mcp__cms__apply_cms_binding`.
+
+If the page already contains CMS tags, ordinary iteration may adjust slot templates, internal structure, and styles inside the existing CMS region, but it must not silently change query props such as `site-id`, `catalog-id`, `page-size`, or similar binding fields.
+
+When an existing region is already CMS-driven, `cms-catalog` / `cms-content` should wrap the whole dynamic region.
 
 - put major HTML containers such as `ul`, `section`, and `article` inside the slot.
 - Keep empty and error fallback wrappers inside `v-slot:empty` and `v-slot:error` when they belong to the same CMS data region.

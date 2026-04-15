@@ -1897,7 +1897,8 @@ describe('BuilderPage', () => {
     })
 
     const selection: PageBuilderCmsSelectionResult = {
-      version: 2,
+      version: 3,
+      siteId: '14',
       targetSelection: createBlockTargetSelection('#hero-banner'),
       targetBlock: {
         selector: '#hero-banner',
@@ -2075,7 +2076,9 @@ describe('BuilderPage', () => {
     })
 
     const selection: PageBuilderCmsSelectionResult = {
-      version: 1,
+      version: 3,
+      siteId: '14',
+      targetSelection: createBlockTargetSelection('#hero-banner'),
       targetBlock: {
         selector: '#hero-banner',
       },

@@ -32,7 +32,8 @@ const catalogApplyInput = {
     blockTypeHint: 'nav',
   },
   selection: {
-    version: 2,
+    version: 3,
+    siteId: '14',
     targetSelection: createPageBuilderBlockTargetSelection('#main-nav'),
     targetBlock: {
       selector: '#main-nav',
@@ -63,7 +64,8 @@ const contentApplyInput = {
     blockTypeHint: 'content-list',
   },
   selection: {
-    version: 2,
+    version: 3,
+    siteId: '14',
     targetSelection: createPageBuilderBlockTargetSelection('#latest-news'),
     targetBlock: {
       selector: '#latest-news',
@@ -94,7 +96,8 @@ const fixedContentsApplyInput = {
     blockTypeHint: 'content-list',
   },
   selection: {
-    version: 2,
+    version: 3,
+    siteId: '14',
     targetSelection: createPageBuilderBlockTargetSelection('#latest-news'),
     targetBlock: {
       selector: '#latest-news',

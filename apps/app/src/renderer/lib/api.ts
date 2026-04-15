@@ -11,6 +11,7 @@ import type {
   PageBuilderCmsCatalogQuery,
   PageBuilderCmsContentList,
   PageBuilderCmsContentQuery,
+  PageBuilderCmsSiteSummary,
   PageBuilderImageReplacementPayload,
   PageBuilderInlineTextSavePayload,
   PageBuilderProjectSummary,
@@ -229,6 +230,9 @@ export const api = {
 
   listPageBuilderCmsCatalogs(query: PageBuilderCmsCatalogQuery = {}): Promise<PageBuilderCmsCatalogList> {
     const params = new URLSearchParams()
+    if (query.siteId) {
+      params.set('siteId', query.siteId)
+    }
     if (query.contentType) {
       params.set('contentType', query.contentType)
     }
@@ -243,12 +247,28 @@ export const api = {
     return request<PageBuilderCmsCatalogList>(url)
   },
 
-  getPageBuilderCmsCatalogDetail(catalogId: string): Promise<PageBuilderCmsCatalogDetail> {
-    return request<PageBuilderCmsCatalogDetail>(`/api/page-builder/cms/catalogs/${encodeURIComponent(catalogId)}`)
+  listPageBuilderCmsSites(): Promise<PageBuilderCmsSiteSummary[]> {
+    return request<PageBuilderCmsSiteSummary[]>('/api/page-builder/cms/sites')
+  },
+
+  getPageBuilderCmsCatalogDetail(catalogId: string, siteId?: string): Promise<PageBuilderCmsCatalogDetail> {
+    const params = new URLSearchParams()
+    if (siteId) {
+      params.set('siteId', siteId)
+    }
+
+    const url = params.size > 0
+      ? `/api/page-builder/cms/catalogs/${encodeURIComponent(catalogId)}?${params.toString()}`
+      : `/api/page-builder/cms/catalogs/${encodeURIComponent(catalogId)}`
+
+    return request<PageBuilderCmsCatalogDetail>(url)
   },
 
   listPageBuilderCmsContents(query: PageBuilderCmsContentQuery): Promise<PageBuilderCmsContentList> {
     const params = new URLSearchParams()
+    if (query.siteId) {
+      params.set('siteId', query.siteId)
+    }
     params.set('catalogId', query.catalogId)
     if (query.pageIndex !== undefined) {
       params.set('pageIndex', String(query.pageIndex))

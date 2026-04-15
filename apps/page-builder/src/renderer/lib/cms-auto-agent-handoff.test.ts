@@ -18,7 +18,8 @@ function extractSkillInputFromComposedMessage(composedUserMessage: string): unkn
 describe('page-builder CMS auto handoff payloads', () => {
   test('builds the apply skill input with phase 1A defaults and without invented optional block fields', () => {
     const selection: PageBuilderCmsSelectionResult = {
-      version: 2,
+      version: 3,
+      siteId: '14',
       targetSelection: {
         kind: 'block',
         selector: '#hero-banner',
@@ -63,7 +64,8 @@ describe('page-builder CMS auto handoff payloads', () => {
 
   test('creates a programmatic handoff request that carries hidden structured payload and forced skill mention', () => {
     const selection: PageBuilderCmsSelectionResult = {
-      version: 2,
+      version: 3,
+      siteId: '14',
       targetSelection: {
         kind: 'cms-island',
         selector: 'section:nth-of-type(1) > cms-content:nth-of-type(1)',
@@ -96,6 +98,7 @@ describe('page-builder CMS auto handoff payloads', () => {
     })
     expect(request.composedUserMessage).toContain('当前目标已经是一个 cms-island，必须整体替换现有 cms 源标签，不能在它里面再包一层新的 cms-catalog 或 cms-content。')
     expect(request.composedUserMessage).toContain('优先让 cms-* 标签作为动态区域源码根节点，并把 ul、nav、section、article 等主要动态容器写进 slot。')
+    expect(request.composedUserMessage).toContain('新写入或重绑的 cms-* 标签必须显式写出 site-id，并且该值必须等于 selection.siteId。')
     expect(extractSkillInputFromComposedMessage(request.composedUserMessage)).toEqual({
       version: 2,
       entryPoint: 'cms-browser-confirm',
@@ -121,5 +124,30 @@ describe('page-builder CMS auto handoff payloads', () => {
         notes: ['opened-from:block-toolbar'],
       },
     })
+  })
+
+  test('rejects malformed selections that omit siteId before building the handoff payload', () => {
+    const selection = {
+      version: 3,
+      targetSelection: {
+        kind: 'block',
+        selector: '#hero-banner',
+        parentBlockSelector: '#hero-banner',
+        editBoundary: 'block',
+      },
+      targetBlock: {
+        selector: '#hero-banner',
+      },
+      selectionKind: 'catalogs',
+      sourceType: 'catalogs',
+      selectionMode: 'single',
+      catalogIds: ['catalog-1'],
+      snapshot: {
+        catalogs: [],
+      },
+    } as unknown as PageBuilderCmsSelectionResult
+
+    expect(() => buildPageBuilderCmsApplySkillInput(selection)).toThrow('CMS 选择结果缺少 siteId')
+    expect(() => createPageBuilderCmsAutoAgentHandoffRequest(selection)).toThrow('CMS 选择结果缺少 siteId')
   })
 })

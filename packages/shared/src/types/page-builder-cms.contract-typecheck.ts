@@ -1,6 +1,7 @@
 import type {
   PageBuilderCmsCatalog,
   PageBuilderCmsContentSummary,
+  PageBuilderCmsSiteSummary,
   PageBuilderCmsSelectionRequestContext,
   PageBuilderCmsSelectionResult,
 } from './page-builder-cms'
@@ -23,9 +24,11 @@ const requestContext: PageBuilderCmsSelectionRequestContext = {
 
 const catalogSnapshot = {} as PageBuilderCmsCatalog
 const contentSnapshot = {} as PageBuilderCmsContentSummary
+const siteSummary = {} as PageBuilderCmsSiteSummary
 
 const catalogSelection = {
-  version: 2,
+  version: 3,
+  siteId: '14',
   targetSelection: requestContext.targetSelection,
   targetBlock: requestContext.targetBlock,
   selectionKind: 'catalogs',
@@ -38,7 +41,8 @@ const catalogSelection = {
 } satisfies PageBuilderCmsSelectionResult
 
 const contentSelection = {
-  version: 2,
+  version: 3,
+  siteId: '14',
   targetSelection: requestContext.targetSelection,
   targetBlock: requestContext.targetBlock,
   selectionKind: 'contents',
@@ -54,6 +58,10 @@ const contentSelection = {
 type CatalogBranch = Extract<PageBuilderCmsSelectionResult, { selectionKind: 'catalogs' }>
 type ContentBranch = Extract<PageBuilderCmsSelectionResult, { selectionKind: 'contents' }>
 
+type _SiteSummaryId = Assert<IsExact<PageBuilderCmsSiteSummary['id'], string>>
+type _SiteSummaryName = Assert<IsExact<PageBuilderCmsSiteSummary['name'], string>>
+type _SiteSummaryParentId = Assert<IsExact<PageBuilderCmsSiteSummary['parentId'], string | null>>
+type _SelectionSiteId = Assert<IsExact<PageBuilderCmsSelectionResult['siteId'], string>>
 type _CatalogSelectionMode = Assert<IsExact<CatalogBranch['selectionMode'], 'single' | 'multiple'>>
 type _CatalogSourceType = Assert<IsExact<CatalogBranch['sourceType'], 'catalogs'>>
 type _ContentSelectionMode = Assert<IsExact<ContentBranch['selectionMode'], 'fixed-items'>>
@@ -61,3 +69,4 @@ type _ContentSourceType = Assert<IsExact<ContentBranch['sourceType'], 'contents-
 
 void catalogSelection
 void contentSelection
+void siteSummary

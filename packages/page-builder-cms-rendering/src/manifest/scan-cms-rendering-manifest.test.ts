@@ -8,14 +8,14 @@ describe('scanCmsRenderingManifest', () => {
       <html>
         <body>
           <section data-proma-block-id="pb_blk_nav">
-            <cms-catalog level="root" take="4">
+            <cms-catalog site-id="14" level="root" take="4">
               <template v-slot:default="{ items }">
                 <nav>{{ items.length }}</nav>
               </template>
             </cms-catalog>
           </section>
           <section id="news-list">
-            <cms-content catalog-id="news" page-size="3">
+            <cms-content site-id="14" catalog-id="news" page-size="3">
               <template v-slot:default="{ items }">
                 <article>{{ items.length }}</article>
               </template>
@@ -37,6 +37,7 @@ describe('scanCmsRenderingManifest', () => {
           selectorSnapshot: '[data-proma-block-id="pb_blk_nav"]',
           component: 'cms-catalog',
           props: {
+            siteId: '14',
             level: 'root',
             take: '4',
           },
@@ -48,6 +49,7 @@ describe('scanCmsRenderingManifest', () => {
           selectorSnapshot: '#news-list',
           component: 'cms-content',
           props: {
+            siteId: '14',
             catalogId: 'news',
             pageSize: '3',
           },

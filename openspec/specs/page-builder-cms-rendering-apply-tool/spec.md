@@ -52,13 +52,24 @@
 
 #### Scenario: `catalog-nav` 仅映射到受支持的 `cms-catalog` props
 - **WHEN** 调用方请求生成 `catalog-nav` 绑定
-- **THEN** 系统 SHALL 只生成 `level`、`parent-id`、`content-type`、`search-keyword` 与 `take` 这些当前受支持的 `cms-catalog` 属性
+- **THEN** 系统 SHALL 只生成 `site-id`、`level`、`parent-id`、`content-type`、`search-keyword` 与 `take` 这些当前受支持的 `cms-catalog` 属性
 - **AND** 生成的 slot 模板 SHALL 使用完整 `v-slot:default` 写法，而不是 `#default` 等简写
 
 #### Scenario: `content-list` 仅映射到受支持的 `cms-content` props
 - **WHEN** 调用方请求生成 `content-list` 绑定
-- **THEN** 系统 SHALL 只生成 `catalog-id`、`keyword`、`page-index` 与 `page-size` 这些当前受支持的 `cms-content` 属性
+- **THEN** 系统 SHALL 只生成 `site-id`、`catalog-id`、`keyword`、`page-index` 与 `page-size` 这些当前受支持的 `cms-content` 属性
 - **AND** 系统 SHALL 要求 `catalog-id` 作为该绑定的最小必要字段
+
+#### Scenario: 新生成的 CMS 标签始终显式写出 site-id
+- **WHEN** `apply_cms_binding` 成功生成新的 `cms-catalog` 或 `cms-content`
+- **THEN** 系统 SHALL 在生成后的作者态标签上显式写出 `site-id`
+- **AND** 该值 SHALL 来自当前正式输入中的显式 `siteId`
+
+#### Scenario: 新建或重绑 CMS 标签时缺少 siteId 立即失败
+- **WHEN** `apply_cms_binding` 试图生成新的 `cms-catalog` 或 `cms-content`，但调用输入缺少显式 `siteId`
+- **THEN** 系统 SHALL 拒绝本次 apply
+- **AND** 系统 SHALL NOT 擅自写出 `site-id="1"` 或任何其他猜测值
+- **AND** 系统 SHALL NOT 产生新的 CMS 组件标记
 
 #### Scenario: 未支持的 source 字段被拒绝
 - **WHEN** 调用输入包含 `catalogIds`、固定 `contentIds`、`contentSelectType`、alias 查询或其他当前 runtime 未支持的字段

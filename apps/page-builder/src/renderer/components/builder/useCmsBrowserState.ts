@@ -4,6 +4,7 @@ import type {
   PageBuilderCmsCatalogDetail,
   PageBuilderCmsCatalogList,
   PageBuilderCmsContentList,
+  PageBuilderCmsSiteSummary,
 } from '@proma/shared'
 import { api } from '@/lib/api'
 
@@ -21,17 +22,21 @@ interface UseCmsBrowserStateOptions {
 
 interface UseCmsBrowserStateResult {
   activeTab: CmsBrowserTab
+  sitesState: CmsAsyncState<PageBuilderCmsSiteSummary[]>
   catalogsState: CmsAsyncState<PageBuilderCmsCatalogList>
   catalogDetailState: CmsAsyncState<PageBuilderCmsCatalogDetail>
   contentsState: CmsAsyncState<PageBuilderCmsContentList>
   contentsPageIndex: number
   contentsPageSize: number
   expandedKeys: string[]
+  selectedSiteId: string | null
   selectedCatalogId: string | null
   setActiveTab: (value: CmsBrowserTab) => void
+  setSelectedSiteId: (siteId: string) => void
   setContentsPage: (page: number, pageSize?: number) => void
   setExpandedKeys: (keys: string[]) => void
   setSelectedCatalogId: (catalogId: string) => void
+  retrySites: () => void
   retryCatalogDetail: () => void
   retryCatalogs: () => void
   retryContents: () => void
@@ -73,24 +78,107 @@ function findInitialExpandedKeys(catalogs: PageBuilderCmsCatalog[]): string[] {
   return firstRoot?.id ? [firstRoot.id] : []
 }
 
+function resolveDefaultSiteId(sites: PageBuilderCmsSiteSummary[]): string | null {
+  if (sites.length === 0) {
+    return null
+  }
+
+  return sites.find((site) => site.id === '1')?.id ?? sites[0]?.id ?? null
+}
+
 export function useCmsBrowserState(options: UseCmsBrowserStateOptions): UseCmsBrowserStateResult {
   const { open } = options
   const [activeTab, setActiveTabState] = React.useState<CmsBrowserTab>('catalogs')
+  const [sitesState, setSitesState] = React.useState<CmsAsyncState<PageBuilderCmsSiteSummary[]>>(() => createIdleState())
   const [catalogsState, setCatalogsState] = React.useState<CmsAsyncState<PageBuilderCmsCatalogList>>(() => createIdleState())
   const [catalogDetailState, setCatalogDetailState] = React.useState<CmsAsyncState<PageBuilderCmsCatalogDetail>>(() => createIdleState())
   const [contentsState, setContentsState] = React.useState<CmsAsyncState<PageBuilderCmsContentList>>(() => createIdleState())
+  const [selectedSiteId, setSelectedSiteIdState] = React.useState<string | null>(null)
   const [selectedCatalogId, setSelectedCatalogIdState] = React.useState<string | null>(null)
   const [contentsPageIndex, setContentsPageIndex] = React.useState(0)
   const [contentsPageSize, setContentsPageSize] = React.useState(DEFAULT_CONTENTS_PAGE_SIZE)
   const [expandedKeys, setExpandedKeys] = React.useState<string[]>([])
   const catalogDetailCacheRef = React.useRef(new Map<string, PageBuilderCmsCatalogDetail>())
   const contentCacheRef = React.useRef(new Map<string, PageBuilderCmsContentList>())
+  const sitesRequestVersionRef = React.useRef(0)
+  const catalogsRequestVersionRef = React.useRef(0)
+  const catalogDetailRequestVersionRef = React.useRef(0)
+  const contentsRequestVersionRef = React.useRef(0)
 
-  const getContentCacheKey = React.useCallback((catalogId: string, pageIndex: number, pageSize: number) => (
-    `${catalogId}:${pageIndex}:${pageSize}`
+  const getContentCacheKey = React.useCallback((siteId: string, catalogId: string, pageIndex: number, pageSize: number) => (
+    `${siteId}:${catalogId}:${pageIndex}:${pageSize}`
   ), [])
 
-  const ensureCatalogsLoaded = React.useCallback(async (force = false) => {
+  const getCatalogDetailCacheKey = React.useCallback((siteId: string, catalogId: string) => (
+    `${siteId}:${catalogId}`
+  ), [])
+
+  const resetSiteScopedState = React.useCallback(() => {
+    catalogsRequestVersionRef.current += 1
+    catalogDetailRequestVersionRef.current += 1
+    contentsRequestVersionRef.current += 1
+    catalogDetailCacheRef.current.clear()
+    contentCacheRef.current.clear()
+    setCatalogsState(createIdleState())
+    setCatalogDetailState(createIdleState())
+    setContentsState(createIdleState())
+    setSelectedCatalogIdState(null)
+    setContentsPageIndex(0)
+    setContentsPageSize(DEFAULT_CONTENTS_PAGE_SIZE)
+    setExpandedKeys([])
+  }, [])
+
+  const resetAllState = React.useCallback(() => {
+    sitesRequestVersionRef.current += 1
+    resetSiteScopedState()
+    setSitesState(createIdleState())
+    setSelectedSiteIdState(null)
+    setActiveTabState('catalogs')
+  }, [resetSiteScopedState])
+
+  const ensureSitesLoaded = React.useCallback(async (force = false) => {
+    if (!open) return
+    if (!force && (sitesState.status === 'loading' || sitesState.status === 'ready')) {
+      return
+    }
+
+    setSitesState((previous) => ({
+      status: 'loading',
+      data: previous.data,
+      errorMessage: null,
+    }))
+    const requestVersion = ++sitesRequestVersionRef.current
+
+    try {
+      const result = await api.listPageBuilderCmsSites()
+      if (requestVersion !== sitesRequestVersionRef.current) {
+        return
+      }
+      setSitesState({
+        status: 'ready',
+        data: result,
+        errorMessage: null,
+      })
+      setSelectedSiteIdState((previous) => {
+        if (previous && result.some((site) => site.id === previous)) {
+          return previous
+        }
+
+        return resolveDefaultSiteId(result)
+      })
+    } catch (error) {
+      if (requestVersion !== sitesRequestVersionRef.current) {
+        return
+      }
+      setSitesState({
+        status: 'error',
+        data: null,
+        errorMessage: toErrorMessage(error, '加载 CMS 站点失败'),
+      })
+    }
+  }, [open, sitesState.status])
+
+  const ensureCatalogsLoaded = React.useCallback(async (siteId: string, force = false) => {
     if (!open) return
     if (!force && (catalogsState.status === 'loading' || catalogsState.status === 'ready')) {
       return
@@ -101,9 +189,13 @@ export function useCmsBrowserState(options: UseCmsBrowserStateOptions): UseCmsBr
       data: previous.data,
       errorMessage: null,
     }))
+    const requestVersion = ++catalogsRequestVersionRef.current
 
     try {
-      const result = await api.listPageBuilderCmsCatalogs()
+      const result = await api.listPageBuilderCmsCatalogs({ siteId })
+      if (requestVersion !== catalogsRequestVersionRef.current) {
+        return
+      }
       setCatalogsState({
         status: 'ready',
         data: result,
@@ -113,6 +205,9 @@ export function useCmsBrowserState(options: UseCmsBrowserStateOptions): UseCmsBr
       setExpandedKeys((previous) => previous.length > 0 ? previous : findInitialExpandedKeys(result.tree))
       setSelectedCatalogIdState((previous) => previous ?? findFirstCatalogId(result.tree))
     } catch (error) {
+      if (requestVersion !== catalogsRequestVersionRef.current) {
+        return
+      }
       setCatalogsState({
         status: 'error',
         data: null,
@@ -122,6 +217,7 @@ export function useCmsBrowserState(options: UseCmsBrowserStateOptions): UseCmsBr
   }, [catalogsState.status, open])
 
   const ensureContentsLoaded = React.useCallback(async (
+    siteId: string,
     catalogId: string,
     pageIndex: number,
     pageSize: number,
@@ -129,7 +225,7 @@ export function useCmsBrowserState(options: UseCmsBrowserStateOptions): UseCmsBr
   ) => {
     if (!open) return
 
-    const cacheKey = getContentCacheKey(catalogId, pageIndex, pageSize)
+    const cacheKey = getContentCacheKey(siteId, catalogId, pageIndex, pageSize)
 
     if (!force) {
       const cached = contentCacheRef.current.get(cacheKey)
@@ -148,9 +244,13 @@ export function useCmsBrowserState(options: UseCmsBrowserStateOptions): UseCmsBr
       data: null,
       errorMessage: null,
     })
+    const requestVersion = ++contentsRequestVersionRef.current
 
     try {
-      const result = await api.listPageBuilderCmsContents({ catalogId, pageIndex, pageSize })
+      const result = await api.listPageBuilderCmsContents({ siteId, catalogId, pageIndex, pageSize })
+      if (requestVersion !== contentsRequestVersionRef.current) {
+        return
+      }
       contentCacheRef.current.set(cacheKey, result)
       setContentsState({
         status: 'ready',
@@ -158,6 +258,9 @@ export function useCmsBrowserState(options: UseCmsBrowserStateOptions): UseCmsBr
         errorMessage: null,
       })
     } catch (error) {
+      if (requestVersion !== contentsRequestVersionRef.current) {
+        return
+      }
       setContentsState({
         status: 'error',
         data: null,
@@ -166,11 +269,13 @@ export function useCmsBrowserState(options: UseCmsBrowserStateOptions): UseCmsBr
     }
   }, [getContentCacheKey, open])
 
-  const ensureCatalogDetailLoaded = React.useCallback(async (catalogId: string, force = false) => {
+  const ensureCatalogDetailLoaded = React.useCallback(async (siteId: string, catalogId: string, force = false) => {
     if (!open) return
 
+    const cacheKey = getCatalogDetailCacheKey(siteId, catalogId)
+
     if (!force) {
-      const cached = catalogDetailCacheRef.current.get(catalogId)
+      const cached = catalogDetailCacheRef.current.get(cacheKey)
       if (cached) {
         setCatalogDetailState({
           status: 'ready',
@@ -186,34 +291,52 @@ export function useCmsBrowserState(options: UseCmsBrowserStateOptions): UseCmsBr
       data: null,
       errorMessage: null,
     })
+    const requestVersion = ++catalogDetailRequestVersionRef.current
 
     try {
-      const result = await api.getPageBuilderCmsCatalogDetail(catalogId)
-      catalogDetailCacheRef.current.set(catalogId, result)
+      const result = await api.getPageBuilderCmsCatalogDetail(catalogId, siteId)
+      if (requestVersion !== catalogDetailRequestVersionRef.current) {
+        return
+      }
+      catalogDetailCacheRef.current.set(cacheKey, result)
       setCatalogDetailState({
         status: 'ready',
         data: result,
         errorMessage: null,
       })
     } catch (error) {
+      if (requestVersion !== catalogDetailRequestVersionRef.current) {
+        return
+      }
       setCatalogDetailState({
         status: 'error',
         data: null,
         errorMessage: toErrorMessage(error, '加载 CMS 栏目详情失败'),
       })
     }
-  }, [open])
+  }, [getCatalogDetailCacheKey, open])
 
   React.useEffect(() => {
-    if (!open) return
-    setActiveTabState('catalogs')
-    if (catalogsState.status === 'idle') {
-      void ensureCatalogsLoaded()
+    if (!open) {
+      resetAllState()
+      return
     }
-  }, [catalogsState.status, ensureCatalogsLoaded, open])
+
+    if (sitesState.status === 'idle') {
+      void ensureSitesLoaded()
+    }
+  }, [ensureSitesLoaded, open, resetAllState, sitesState.status])
 
   React.useEffect(() => {
-    if (!open || activeTab !== 'contents') return
+    if (!open || !selectedSiteId) return
+
+    if (catalogsState.status === 'idle') {
+      void ensureCatalogsLoaded(selectedSiteId)
+    }
+  }, [catalogsState.status, ensureCatalogsLoaded, open, selectedSiteId])
+
+  React.useEffect(() => {
+    if (!open || activeTab !== 'contents' || !selectedSiteId) return
 
     const nextCatalogId = selectedCatalogId ?? findFirstCatalogId(catalogsState.data?.tree ?? [])
     if (!nextCatalogId) return
@@ -223,7 +346,7 @@ export function useCmsBrowserState(options: UseCmsBrowserStateOptions): UseCmsBr
       return
     }
 
-    void ensureContentsLoaded(nextCatalogId, contentsPageIndex, contentsPageSize)
+    void ensureContentsLoaded(selectedSiteId, nextCatalogId, contentsPageIndex, contentsPageSize)
   }, [
     activeTab,
     catalogsState.data,
@@ -231,13 +354,14 @@ export function useCmsBrowserState(options: UseCmsBrowserStateOptions): UseCmsBr
     contentsPageSize,
     ensureContentsLoaded,
     open,
+    selectedSiteId,
     selectedCatalogId,
   ])
 
   React.useEffect(() => {
-    if (!open || activeTab !== 'catalogs' || !selectedCatalogId) return
-    void ensureCatalogDetailLoaded(selectedCatalogId)
-  }, [activeTab, ensureCatalogDetailLoaded, open, selectedCatalogId])
+    if (!open || activeTab !== 'catalogs' || !selectedCatalogId || !selectedSiteId) return
+    void ensureCatalogDetailLoaded(selectedSiteId, selectedCatalogId)
+  }, [activeTab, ensureCatalogDetailLoaded, open, selectedCatalogId, selectedSiteId])
 
   const setActiveTab = React.useCallback((value: CmsBrowserTab) => {
     setActiveTabState(value)
@@ -248,6 +372,15 @@ export function useCmsBrowserState(options: UseCmsBrowserStateOptions): UseCmsBr
 
     setSelectedCatalogIdState((previous) => previous ?? findFirstCatalogId(catalogsState.data?.tree ?? []))
   }, [catalogsState.data])
+
+  const setSelectedSiteId = React.useCallback((siteId: string) => {
+    if (selectedSiteId === siteId) {
+      return
+    }
+
+    resetSiteScopedState()
+    setSelectedSiteIdState(siteId)
+  }, [resetSiteScopedState, selectedSiteId])
 
   const setSelectedCatalogId = React.useCallback((catalogId: string) => {
     setSelectedCatalogIdState((previous) => previous === catalogId ? previous : catalogId)
@@ -260,44 +393,55 @@ export function useCmsBrowserState(options: UseCmsBrowserStateOptions): UseCmsBr
   }, [contentsPageSize])
 
   const retryCatalogs = React.useCallback(() => {
-    void ensureCatalogsLoaded(true)
-  }, [ensureCatalogsLoaded])
+    if (!selectedSiteId) return
+    void ensureCatalogsLoaded(selectedSiteId, true)
+  }, [ensureCatalogsLoaded, selectedSiteId])
+
+  const retrySites = React.useCallback(() => {
+    void ensureSitesLoaded(true)
+  }, [ensureSitesLoaded])
 
   const retryCatalogDetail = React.useCallback(() => {
-    if (!selectedCatalogId) return
-    catalogDetailCacheRef.current.delete(selectedCatalogId)
-    void ensureCatalogDetailLoaded(selectedCatalogId, true)
-  }, [ensureCatalogDetailLoaded, selectedCatalogId])
+    if (!selectedCatalogId || !selectedSiteId) return
+    catalogDetailCacheRef.current.delete(getCatalogDetailCacheKey(selectedSiteId, selectedCatalogId))
+    void ensureCatalogDetailLoaded(selectedSiteId, selectedCatalogId, true)
+  }, [ensureCatalogDetailLoaded, getCatalogDetailCacheKey, selectedCatalogId, selectedSiteId])
 
   const retryContents = React.useCallback(() => {
-    if (!selectedCatalogId) return
+    if (!selectedCatalogId || !selectedSiteId) return
     contentCacheRef.current.delete(getContentCacheKey(
+      selectedSiteId,
       selectedCatalogId,
       contentsPageIndex,
       contentsPageSize,
     ))
-    void ensureContentsLoaded(selectedCatalogId, contentsPageIndex, contentsPageSize, true)
+    void ensureContentsLoaded(selectedSiteId, selectedCatalogId, contentsPageIndex, contentsPageSize, true)
   }, [
     contentsPageIndex,
     contentsPageSize,
     ensureContentsLoaded,
     getContentCacheKey,
+    selectedSiteId,
     selectedCatalogId,
   ])
 
   return {
     activeTab,
+    sitesState,
     catalogsState,
     catalogDetailState,
     contentsState,
     contentsPageIndex,
     contentsPageSize,
     expandedKeys,
+    selectedSiteId,
     selectedCatalogId,
     setActiveTab,
+    setSelectedSiteId,
     setContentsPage,
     setExpandedKeys,
     setSelectedCatalogId,
+    retrySites,
     retryCatalogDetail,
     retryCatalogs,
     retryContents,

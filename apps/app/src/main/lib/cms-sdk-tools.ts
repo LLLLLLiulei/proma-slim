@@ -19,7 +19,7 @@ export const CMS_TOOL_NAMES = [
 ] as const
 
 const APPLY_CMS_BINDING_TOOL_GUIDANCE =
-  '将 CMS 数据绑定到当前 page-builder 区块，写入 cms-catalog 或 cms-content 标记并触发统一 HTML mutation pipeline。templateBody、emptyTemplate、errorTemplate 应承载 complete dynamic region，而不是只承载零散条目级碎片。'
+  '将 CMS 数据绑定到当前 page-builder 区块，写入 cms-catalog 或 cms-content 标记并触发统一 HTML mutation pipeline。templateBody、emptyTemplate、errorTemplate 应承载 complete dynamic region，并且只传 slot 内部内容，不要包含外层 <template v-slot:...> 包装或外层 cms-* 标签。'
 
 export interface CmsRuntimeToolBundle {
   mcpServer: AgentMcpServerConfig
@@ -50,10 +50,12 @@ export function buildCmsRuntimeToolBundle(
       editBoundary: z.literal('source-atomic'),
     }),
   ])
+  const targetSelectionInputSchema = z.union([targetSelectionSchema, z.string().min(1)])
   const listCatalogsTool = tool(
     'list_catalogs',
     '列出 CMS 栏目树，支持按内容类型或关键字过滤。',
     {
+      siteId: z.string().min(1).optional(),
       contentType: z.string().optional(),
       searchKeyword: z.string().optional(),
     },
@@ -67,6 +69,7 @@ export function buildCmsRuntimeToolBundle(
     'list_contents',
     '列出 CMS 栏目下的内容摘要。',
     {
+      siteId: z.string().min(1).optional(),
       catalogId: z.string().min(1),
       keyword: z.string().optional(),
       pageIndex: z.number().int().min(0).optional(),
@@ -82,12 +85,13 @@ export function buildCmsRuntimeToolBundle(
     PAGE_BUILDER_CMS_APPLY_TOOL_ID,
     APPLY_CMS_BINDING_TOOL_GUIDANCE,
     {
-      targetSelection: targetSelectionSchema.optional(),
+      targetSelection: targetSelectionInputSchema.optional(),
       targetBlock: z.object({
         selector: z.string().min(1).describe('目标区块的 CSS selector'),
       }),
       kind: z.enum(['catalog-nav', 'content-list']),
       source: z.object({
+        siteId: z.string().min(1).optional(),
         level: z.string().optional(),
         parentId: z.string().optional(),
         contentType: z.string().optional(),
@@ -103,7 +107,10 @@ export function buildCmsRuntimeToolBundle(
       errorTemplate: z.string().describe(PAGE_BUILDER_CMS_ERROR_TEMPLATE_DESCRIPTION).optional(),
     },
     async (args) => {
-      const result = renderingTools.applyCmsBinding(options.workspace, args)
+      const result = renderingTools.applyCmsBinding(options.workspace, {
+        ...args,
+        targetSelection: normalizeTargetSelectionInput(args.targetSelection, targetSelectionSchema),
+      })
       return toToolResult(result)
     },
   )
@@ -115,6 +122,24 @@ export function buildCmsRuntimeToolBundle(
     }),
     allowedTools: [...CMS_TOOL_NAMES],
   }
+}
+
+function normalizeTargetSelectionInput(
+  value: unknown,
+  schema: z.ZodType<unknown>,
+): unknown {
+  if (typeof value !== 'string') {
+    return value
+  }
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(value)
+  } catch {
+    throw new Error('targetSelection 必须是对象或合法的 JSON 字符串')
+  }
+
+  return schema.parse(parsed)
 }
 
 function toToolResult(payload: unknown) {

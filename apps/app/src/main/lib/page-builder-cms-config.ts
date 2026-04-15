@@ -3,7 +3,6 @@ import { getCmsSettingsPath } from './config-paths'
 
 export interface PageBuilderCmsConfig {
   baseUrl: string
-  siteID: string
   username: string
   password: string
 }
@@ -12,8 +11,6 @@ type CmsEnv = Record<string, string | undefined>
 
 interface CmsSettingsFile {
   baseUrl?: unknown
-  siteID?: unknown
-  siteId?: unknown
   username?: unknown
   password?: unknown
 }
@@ -48,15 +45,6 @@ function readOptionalString(value: unknown): string | undefined {
   return undefined
 }
 
-function readSiteID(value: unknown): string | undefined {
-  const next = readOptionalString(value)
-  if (!next) {
-    return undefined
-  }
-
-  return /^\d+$/.test(next) ? next : undefined
-}
-
 function readCmsSettingsFile(): CmsSettingsFile | null {
   const settingsPath = getCmsSettingsPath()
   if (!existsSync(settingsPath)) {
@@ -76,20 +64,15 @@ export function resolvePageBuilderCmsConfig(env: CmsEnv = process.env): PageBuil
   const fileSettings = readCmsSettingsFile()
   const rawBaseUrl = env.PROMA_CMS_BASE_URL?.trim() || readOptionalString(fileSettings?.baseUrl)
   const baseUrl = rawBaseUrl ? normalizeBaseUrl(rawBaseUrl) : undefined
-  const rawSiteID = env.PROMA_CMS_SITE_ID?.trim()
-    ?? readOptionalString(fileSettings?.siteID)
-    ?? readOptionalString(fileSettings?.siteId)
-  const siteID = rawSiteID === undefined ? '1' : readSiteID(rawSiteID)
   const username = env.PROMA_CMS_USERNAME?.trim() || readOptionalString(fileSettings?.username)
   const password = env.PROMA_CMS_PASSWORD?.trim() || readOptionalString(fileSettings?.password)
 
-  if (!baseUrl || !username || !password || !siteID) {
+  if (!baseUrl || !username || !password) {
     return null
   }
 
   return {
     baseUrl,
-    siteID,
     username,
     password,
   }

@@ -5,6 +5,7 @@ import { mapContent } from '../viewmodel/content'
 export const CmsContent = createCmsResourceComponent({
   name: 'CmsContent',
   props: {
+    siteId: { type: [String, Number], required: false },
     catalogId: { type: [String], required: true },
     keyword: { type: [String], required: false },
     pageIndex: { type: [String, Number], required: false },

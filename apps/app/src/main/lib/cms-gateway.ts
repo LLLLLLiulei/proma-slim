@@ -6,6 +6,7 @@ import type {
   PageBuilderCmsContentList,
   PageBuilderCmsContentQuery,
   PageBuilderCmsContentSummary,
+  PageBuilderCmsSiteSummary,
 } from '@proma/shared'
 import {
   CmsTokenProviderError,
@@ -28,6 +29,7 @@ export type NormalizedCmsCatalogDetail = PageBuilderCmsCatalogDetail
 export type NormalizedCmsContentSummary = PageBuilderCmsContentSummary
 export type NormalizedCmsCatalogList = PageBuilderCmsCatalogList
 export type NormalizedCmsContentList = PageBuilderCmsContentList
+export type NormalizedCmsSiteSummary = PageBuilderCmsSiteSummary
 
 export class CmsGatewayError extends Error {
   constructor(
@@ -59,22 +61,30 @@ export class CmsGateway {
     })
   }
 
+  async listSites(): Promise<NormalizedCmsSiteSummary[]> {
+    const payload = await this.requestJson('/api/sites', {})
+    const items = extractSiteArray(payload)
+
+    return items.map((item) => normalizeSiteSummary(item))
+  }
+
   async listCatalogs(query: CmsCatalogQuery = {}): Promise<NormalizedCmsCatalogList> {
+    const siteId = resolveSiteId(query.siteId)
     const payload = await this.requestJson('/api/catalogsTree', {
-      siteID: this.config.siteID,
+      siteID: siteId,
       ...(query.contentType ? { contentType: query.contentType } : {}),
       ...(query.searchKeyword ? { keyword: query.searchKeyword } : {}),
     })
 
-    const items = normalizeCatalogs(extractCatalogArray(payload))
+    const items = normalizeCatalogs(extractCatalogArray(payload), this.config.baseUrl)
     return {
       items,
       tree: buildCatalogTree(items),
     }
   }
 
-  async getCatalogDetail(catalogId: string): Promise<NormalizedCmsCatalogDetail> {
-    const items = await this.fetchCatalogMetadata()
+  async getCatalogDetail(catalogId: string, siteId?: string): Promise<NormalizedCmsCatalogDetail> {
+    const items = await this.fetchCatalogMetadata(resolveSiteId(siteId))
     const catalog = items.find((item) => readString(item.id ?? item.ID) === catalogId)
 
     if (!catalog) {
@@ -85,9 +95,11 @@ export class CmsGateway {
   }
 
   async listContents(query: CmsContentQuery): Promise<NormalizedCmsContentList> {
+    const siteId = resolveSiteId(query.siteId)
     const payload = await this.requestJson(
       `/api/catalogs/${encodeURIComponent(query.catalogId)}/contents`,
       {
+        siteID: siteId,
         pageIndex: String(query.pageIndex ?? 0),
         pageSize: String(query.pageSize ?? 20),
         loadextend: 'true',
@@ -124,13 +136,13 @@ export class CmsGateway {
     return response
   }
 
-  private async fetchCatalogMetadata(): Promise<Record<string, unknown>[]> {
+  private async fetchCatalogMetadata(siteId: string): Promise<Record<string, unknown>[]> {
     const items: Record<string, unknown>[] = []
     let pageIndex = 0
 
     while (true) {
       const payload = await this.requestJson('/api/catalogs', {
-        siteID: this.config.siteID,
+        siteID: siteId,
         level: 'All',
         pageIndex: String(pageIndex),
         pageSize: String(CATALOGS_PAGE_SIZE),
@@ -328,15 +340,62 @@ function extractCatalogArray(payload: unknown): unknown[] {
   throw new CmsGatewayError('invalid_response', 'CMS 栏目响应缺少 data 数组')
 }
 
-function normalizeCatalogs(items: unknown[]): NormalizedCmsCatalog[] {
+function extractSiteArray(payload: unknown): unknown[] {
+  const root = asRecord(payload)
+  if (!root) {
+    throw new CmsGatewayError('invalid_response', 'CMS 站点响应格式不正确')
+  }
+
+  if (Array.isArray(root.data)) {
+    return root.data
+  }
+
+  throw new CmsGatewayError('invalid_response', 'CMS 站点响应缺少 data 数组')
+}
+
+function normalizeSiteSummary(item: unknown): NormalizedCmsSiteSummary {
+  const record = asRecord(item)
+  if (!record) {
+    throw new CmsGatewayError('invalid_response', 'CMS 站点条目格式不正确')
+  }
+
+  const id = readString(record.id ?? record.ID)
+  const name = readString(record.name)
+  const url = readString(record.url) ?? ''
+  const branchInnerCode = readString(record.branchInnerCode) ?? ''
+
+  if (!id || !name) {
+    throw new CmsGatewayError('invalid_response', 'CMS 站点条目缺少 id 或 name')
+  }
+
+  return {
+    id,
+    name,
+    url,
+    parentId: normalizeParentId(record.parentId ?? record.parentID),
+    branchInnerCode,
+  }
+}
+
+function resolveSiteId(siteId: string | undefined): string {
+  const next = siteId?.trim()
+  return next || '1'
+}
+
+function normalizeParentId(value: unknown): string | null {
+  const parentValue = readString(value)
+  return !parentValue || parentValue === '0' ? null : parentValue
+}
+
+function normalizeCatalogs(items: unknown[], baseUrl: string): NormalizedCmsCatalog[] {
   const tree = items
-    .map((item) => normalizeCatalogNode(item))
+    .map((item) => normalizeCatalogNode(item, baseUrl))
     .filter((item): item is NormalizedCmsCatalog => item !== null)
 
   return flattenCatalogTree(tree)
 }
 
-function normalizeCatalogNode(item: unknown): NormalizedCmsCatalog | null {
+function normalizeCatalogNode(item: unknown, baseUrl: string): NormalizedCmsCatalog | null {
   const record = asRecord(item)
   if (!record) {
     return null
@@ -349,9 +408,13 @@ function normalizeCatalogNode(item: unknown): NormalizedCmsCatalog | null {
 
   const parentValue = readString(record.parentID ?? record.parentId)
   const parentId = !parentValue || parentValue === '0' ? null : parentValue
+  const logoUrl = resolveCmsAssetUrl(
+    baseUrl,
+    readString(record.logoSrc ?? record.logoFile ?? record.logoUrl ?? record.logo),
+  )
   const children = Array.isArray(record.children)
     ? record.children
-        .map((child) => normalizeCatalogNode(child))
+        .map((child) => normalizeCatalogNode(child, baseUrl))
         .filter((child): child is NormalizedCmsCatalog => child !== null)
     : []
 
@@ -362,6 +425,7 @@ function normalizeCatalogNode(item: unknown): NormalizedCmsCatalog | null {
     path: readString(record.path) || '',
     contentType: readString(record.contentType) || '',
     contentTypeName: readString(record.contentTypeName) || '',
+    ...(logoUrl ? { logoUrl } : {}),
     hasChild: children.length > 0 || readBoolean(record.hasChild) || (readNumber(record.childCount) ?? 0) > 0,
     total: readNumber(record.total) ?? 0,
     children,

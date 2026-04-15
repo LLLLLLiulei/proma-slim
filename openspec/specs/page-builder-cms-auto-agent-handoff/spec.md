@@ -30,7 +30,14 @@
 - **AND** 系统 SHALL 生成 `workspacePolicy.allowCrossBlockMutation: false`
 - **AND** 系统 SHALL 生成 `workspacePolicy.outputTarget: 'workspace-files/index.html'`
 - **AND** 系统 SHALL 保留原始 `selection`
+- **AND** 系统 SHALL 保留 `selection.siteId`
 - **AND** 系统 SHALL 保留 `targetSelection`
+
+#### Scenario: 缺少 selection.siteId 时阻断自动 handoff
+- **WHEN** 系统准备根据 CMS 选择结果构建自动 handoff 输入，但 `selection.siteId` 缺失、为空或不可用
+- **THEN** 系统 SHALL 阻断本次自动 handoff
+- **AND** 系统 SHALL NOT 继续构建 `cms-binding-apply` 输入
+- **AND** 系统 SHALL 不得假设 `siteId = 1` 或写出任何新的 `cms-*` 标签
 
 #### Scenario: CMS island handoff 输入显式声明 source-atomic 边界
 - **WHEN** 系统为某个 `cms-island` 目标构建 handoff 输入

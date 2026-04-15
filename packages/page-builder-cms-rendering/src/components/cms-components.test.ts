@@ -161,6 +161,7 @@ describe('CMS rendering components', () => {
     const html = await renderCmsComponent(
       CmsContent,
       {
+        siteId: '14',
         catalogId: 'news',
         pageIndex: '0',
         pageSize: '2',
@@ -176,6 +177,7 @@ describe('CMS rendering components', () => {
     )
 
     expect(capturedQuery).toMatchObject({
+      siteId: '14',
       catalogId: 'news',
       pageIndex: 0,
       pageSize: 2,
@@ -283,6 +285,7 @@ describe('CMS rendering components', () => {
   })
 
   test('cms-catalog filters tree results by level, parentId and take while preserving descendants', async () => {
+    let capturedCatalogQuery: Record<string, unknown> | null = null
     const html = await renderCmsComponent(
       CmsCatalog,
       {
@@ -297,9 +300,17 @@ describe('CMS rendering components', () => {
             h('p', scope.items[0]?.children[0]?.name ?? 'missing-child'),
           ]),
       },
-      createClient(),
+      createClient({
+        async listCatalogs(query) {
+          capturedCatalogQuery = query ?? null
+          return CATALOG_RESPONSE
+        },
+      }),
     )
 
+    expect(capturedCatalogQuery).toMatchObject({
+      siteId: '1',
+    })
     expect(html).toContain('<p>新闻</p>')
     expect(html).toContain('<p>深度报道</p>')
     expect(html).not.toContain('活动')

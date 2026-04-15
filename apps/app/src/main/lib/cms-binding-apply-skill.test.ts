@@ -55,9 +55,27 @@ describe('cms-binding-apply skill contract docs', () => {
 
     expect(skill).toContain('`cms-catalog` / `cms-content` as the source root')
     expect(skill).toContain('major HTML containers inside the slot')
+    expect(skill).toContain('slot inner content only')
+    expect(skill).toContain('`{ items, loading, error, empty }`')
     expect(examples).toContain('## Recommended authoring shape')
+    expect(examples).toContain('## Recommended apply tool payload shape')
     expect(examples).toContain('## Anti-pattern: major container outside the CMS slot')
+    expect(examples).toContain('## Anti-pattern: outer slot wrapper inside templateBody')
     expect(examples).toContain('<cms-catalog')
     expect(examples).toContain('<ul class="nav-list">')
+  })
+
+  test('documents explicit siteId requirements and controlled CMS creation boundaries', () => {
+    const skill = readRelativeText('../../../default-skills/cms-binding-apply/SKILL.md')
+    const examples = readRelativeText('../../../default-skills/cms-binding-apply/references/contract-examples.md')
+    const downstream = readRelativeText('../../../default-skills/cms-binding-apply/references/downstream-integration.md')
+
+    expect(skill).toContain('`selection.siteId` is missing or blank')
+    expect(skill).toContain('Do not guess `siteId = 1`')
+    expect(skill).toContain('Only the confirmed CMS browser selection flow may create a new `cms-catalog` / `cms-content`')
+    expect(examples).toContain('"siteId": "14"')
+    expect(examples).toContain('site-id="14"')
+    expect(examples).toContain('## Controlled creation boundary')
+    expect(downstream).toContain('only `ready` with an explicit `selection.siteId` may proceed')
   })
 })

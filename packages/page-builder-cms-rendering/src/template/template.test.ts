@@ -56,12 +56,12 @@ describe('template utilities', () => {
     const islands = scanCmsIslands(`
       <main>
         <section>plain html</section>
-        <cms-catalog level="root" take="2">
+        <cms-catalog site-id="14" level="root" take="2">
           <template #default="{ items }">
             <nav>{{ items.length }}</nav>
           </template>
         </cms-catalog>
-        <cms-content catalog-id="news" page-index="0" page-size="3" keyword="launch"></cms-content>
+        <cms-content site-id="14" catalog-id="news" page-index="0" page-size="3" keyword="launch"></cms-content>
       </main>
     `)
 
@@ -74,6 +74,7 @@ describe('template utilities', () => {
     expect(catalogIsland).toMatchObject({
       component: 'cms-catalog',
       props: {
+        siteId: '14',
         level: 'root',
         take: '2',
       },
@@ -84,6 +85,7 @@ describe('template utilities', () => {
     expect(contentIsland).toMatchObject({
       component: 'cms-content',
       props: {
+        siteId: '14',
         catalogId: 'news',
         pageIndex: '0',
         pageSize: '3',

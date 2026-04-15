@@ -28,7 +28,8 @@ Use these examples when interpreting or producing the `cms-binding-apply` contra
     "blockTypeHint": "nav"
   },
   "selection": {
-    "version": 2,
+    "version": 3,
+    "siteId": "14",
     "targetSelection": {
       "kind": "block",
       "selector": "#main-nav",
@@ -93,7 +94,8 @@ Use these examples when interpreting or producing the `cms-binding-apply` contra
     "blockTypeHint": "content-list"
   },
   "selection": {
-    "version": 2,
+    "version": 3,
+    "siteId": "14",
     "targetSelection": {
       "kind": "block",
       "selector": "#latest-news",
@@ -135,31 +137,59 @@ Use these examples when interpreting or producing the `cms-binding-apply` contra
 Use `cms-catalog` / `cms-content` as the source root of the dynamic region, and keep the main list or navigation container inside the slot.
 
 ```html
-<cms-catalog level="root">
-  <template v-slot:default="{ items }">
+<cms-catalog site-id="14" level="root">
+  <template v-slot:default="{ items, loading, error, empty }">
     <ul class="nav-list">
       <li v-for="item in items" :key="item.id">
         <a :href="item.path">{{ item.name }}</a>
       </li>
     </ul>
   </template>
-  <template v-slot:empty>
+  <template v-slot:empty="{ items, loading, error, empty }">
     <nav class="nav-list nav-list--empty">暂无栏目</nav>
   </template>
 </cms-catalog>
 
-<cms-content catalog-id="news" page-size="6">
-  <template v-slot:default="{ items }">
+<cms-content site-id="14" catalog-id="news" page-size="6">
+  <template v-slot:default="{ items, loading, error, empty }">
     <section class="news-list">
       <article v-for="item in items" :key="item.id">
         <h3>{{ item.title }}</h3>
       </article>
     </section>
   </template>
-  <template v-slot:error="{ error }">
+  <template v-slot:error="{ items, loading, error, empty }">
     <section class="news-list news-list--error">{{ error.message }}</section>
   </template>
 </cms-content>
+```
+
+## Recommended apply tool payload shape
+
+When calling `mcp__cms__apply_cms_binding`, pass slot inner content in `templateBody`, `emptyTemplate`, and `errorTemplate`. Do not include outer `<template ...>` wrappers there because the tool writes those wrappers for you.
+
+```json
+{
+  "targetSelection": {
+    "kind": "cms-island",
+    "selector": "#latest-news > cms-content:nth-of-type(1)",
+    "parentBlockSelector": "#latest-news",
+    "component": "cms-content",
+    "editBoundary": "source-atomic"
+  },
+  "targetBlock": {
+    "selector": "#latest-news"
+  },
+  "kind": "content-list",
+  "source": {
+    "siteId": "14",
+    "catalogId": "news",
+    "pageSize": 6
+  },
+  "templateBody": "<section class=\"news-list\"><article v-for=\"item in items\" :key=\"item.id\">{{ item.title }}</article></section>",
+  "emptyTemplate": "<section class=\"news-list news-list--empty\">暂无内容</section>",
+  "errorTemplate": "<section class=\"news-list news-list--error\">{{ error?.message }}</section>"
+}
 ```
 
 ## Anti-pattern: major container outside the CMS slot
@@ -168,7 +198,7 @@ Avoid leaving the main container outside and using the slot only for scattered i
 
 ```html
 <ul class="nav-list">
-  <cms-catalog level="root">
+  <cms-catalog site-id="14" level="root">
     <template v-slot:default="{ items }">
       <li v-for="item in items" :key="item.id">
         <a :href="item.path">{{ item.name }}</a>
@@ -178,7 +208,7 @@ Avoid leaving the main container outside and using the slot only for scattered i
 </ul>
 
 <section class="news-list">
-  <cms-content catalog-id="news" page-size="6">
+  <cms-content site-id="14" catalog-id="news" page-size="6">
     <template v-slot:default="{ items }">
       <article v-for="item in items" :key="item.id">
         <h3>{{ item.title }}</h3>
@@ -186,6 +216,20 @@ Avoid leaving the main container outside and using the slot only for scattered i
     </template>
   </cms-content>
 </section>
+```
+
+## Anti-pattern: outer slot wrapper inside templateBody
+
+Avoid passing the whole `<template v-slot:default>` wrapper into `templateBody`. The formal tool already adds that wrapper.
+
+```html
+<template #default="{ items, loading, error, empty }">
+  <section class="news-list">
+    <article v-for="item in items" :key="item.id">
+      <h3>{{ item.title }}</h3>
+    </article>
+  </section>
+</template>
 ```
 
 ## Fixed content selection is incompatible
@@ -216,7 +260,8 @@ Fixed content IDs are outside the current runtime capability because `apply_cms_
     "blockTypeHint": "content-list"
   },
   "selection": {
-    "version": 2,
+    "version": 3,
+    "siteId": "14",
     "targetSelection": {
       "kind": "block",
       "selector": "#latest-news",
@@ -247,6 +292,18 @@ Fixed content IDs are outside the current runtime capability because `apply_cms_
   "status": "incompatible",
   "reasonCode": "unsupported-runtime-capability",
   "message": "当前 runtime 仅支持按栏目查询的 content-list 绑定，不支持 fixed content IDs。"
+}
+```
+
+## Missing selection.siteId is malformed
+
+New or rebound CMS tags may only be produced from the controlled CMS browser selection flow, and that flow must provide `selection.siteId`.
+
+```json
+{
+  "status": "incompatible",
+  "reasonCode": "malformed-payload",
+  "message": "selection.siteId 缺失，不能继续生成或重绑 cms-* 标签。"
 }
 ```
 
@@ -293,7 +350,8 @@ When `targetBlock.blockTypeHint` is absent, keep the decision conservative inste
     "selector": "#latest-list"
   },
   "selection": {
-    "version": 2,
+    "version": 3,
+    "siteId": "14",
     "targetSelection": {
       "kind": "block",
       "selector": "#latest-list",
@@ -323,6 +381,21 @@ Recommended interpretation:
 - `contents` favor `content-list`
 - if that fallback is still not safe enough, return `needs-clarification`
 - if the selection still depends on fixed content IDs, return `incompatible`
+
+## Controlled creation boundary
+
+Use the formal CMS selection flow when a page needs a new CMS source tag or an existing CMS source tag must be rebound.
+
+- Allowed:
+  - confirmed CMS browser selection
+  - structured `cms-binding-apply` input
+  - `ready` decision
+  - `mcp__cms__apply_cms_binding`
+- Not allowed:
+  - ordinary page generation inventing a new `cms-catalog` / `cms-content`
+  - ordinary iteration silently changing `site-id`, `catalog-id`, `page-size`, or similar query props
+
+If the page already contains CMS tags, ordinary iteration may still adjust slot templates, internal structure, and styles inside the existing CMS region.
 
 ## Incompatible example
 

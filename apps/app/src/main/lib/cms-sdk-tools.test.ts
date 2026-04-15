@@ -30,8 +30,65 @@ describe('cms sdk runtime tools', () => {
     const source = readFileSync(fileURLToPath(new URL('./cms-sdk-tools.ts', import.meta.url)), 'utf-8')
 
     expect(source).toContain('complete dynamic region')
+    expect(source).toContain('slot 内部内容')
+    expect(source).toContain('不要包含外层 <template v-slot:...> 包装')
     expect(source).toContain('templateBody')
     expect(source).toContain('emptyTemplate')
     expect(source).toContain('errorTemplate')
+  })
+
+  test('forwards explicit siteId through the sdk list tools', async () => {
+    const workspace = createAgentWorkspace('CMS Tool Site Context', { template: 'page-builder' })
+    const catalogCalls: unknown[] = []
+    const contentCalls: unknown[] = []
+    const gateway = {
+      listCatalogs: async (query: unknown) => {
+        catalogCalls.push(query)
+        return { items: [], tree: [] }
+      },
+      listContents: async (query: unknown) => {
+        contentCalls.push(query)
+        return { pageIndex: 0, pageSize: 20, total: 0, totalPages: 0, items: [] }
+      },
+    }
+
+    const bundle = buildCmsRuntimeToolBundle(gateway as never, {
+      workspace,
+    })
+    const tools = (bundle.mcpServer as {
+      instance: {
+        _registeredTools: Record<string, {
+          inputSchema: { parse: (input: unknown) => unknown }
+          handler: (args: unknown, extra: unknown) => Promise<unknown>
+        }>
+      }
+    }).instance._registeredTools
+
+    const parsedCatalogArgs = tools.list_catalogs.inputSchema.parse({
+      siteId: '14',
+      contentType: 'Image',
+      searchKeyword: '首页',
+    })
+    await tools.list_catalogs.handler(parsedCatalogArgs, undefined)
+
+    const parsedContentArgs = tools.list_contents.inputSchema.parse({
+      siteId: '14',
+      catalogId: '101',
+      pageIndex: 1,
+      pageSize: 10,
+    })
+    await tools.list_contents.handler(parsedContentArgs, undefined)
+
+    expect(catalogCalls).toEqual([{
+      siteId: '14',
+      contentType: 'Image',
+      searchKeyword: '首页',
+    }])
+    expect(contentCalls).toEqual([{
+      siteId: '14',
+      catalogId: '101',
+      pageIndex: 1,
+      pageSize: 10,
+    }])
   })
 })

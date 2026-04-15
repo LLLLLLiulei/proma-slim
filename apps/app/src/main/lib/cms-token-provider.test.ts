@@ -2,7 +2,6 @@ import { afterEach, describe, expect, mock, test } from 'bun:test'
 
 const TEST_CONFIG = {
   baseUrl: 'https://demo.zving.com/manager',
-  siteID: '277',
   username: 'test-user',
   password: 'test-pass',
 } as const
@@ -143,5 +142,33 @@ describe('CmsTokenProvider', () => {
       expect(message).not.toContain('test-user')
       expect(message).not.toContain('test-pass')
     }
+  })
+
+  test('reuses the shared provider for the same auth config without a site dimension', async () => {
+    const { getSharedCmsTokenProvider } = await import('./cms-token-provider')
+    const fetchMock = mock(async () => new Response(JSON.stringify({
+      status: 1,
+      message: '操作成功!',
+      access_token: 'Bearer slim-token-1',
+      expires_in: 18000,
+    }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }))
+
+    const providerA = getSharedCmsTokenProvider({
+      config: TEST_CONFIG,
+      fetchFn: fetchMock as unknown as typeof fetch,
+    })
+    const providerB = getSharedCmsTokenProvider({
+      config: {
+        baseUrl: 'https://demo.zving.com/manager',
+        username: 'test-user',
+        password: 'test-pass',
+      },
+      fetchFn: fetchMock as unknown as typeof fetch,
+    })
+
+    expect(providerA).toBe(providerB)
   })
 })

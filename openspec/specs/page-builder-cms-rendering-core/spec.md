@@ -19,6 +19,11 @@
 - **THEN** 系统 SHALL 使这些方法接受 `PageBuilderCmsCatalogQuery` 与 `PageBuilderCmsContentQuery`
 - **AND** 系统 SHALL 使这些方法返回 `PageBuilderCmsCatalogList` 与 `PageBuilderCmsContentList`
 
+#### Scenario: 归一化 query 契约显式包含 siteId 维度
+- **WHEN** 任意 consumer 为 `cms-catalog` 或 `cms-content` 发起 CMS 查询
+- **THEN** 系统 SHALL 允许在 `PageBuilderCmsCatalogQuery` 与 `PageBuilderCmsContentQuery` 中显式传入 `siteId`
+- **AND** 当作者态标签缺少显式站点时，运行时 SHALL 按 `siteId = 1` 兼容执行
+
 #### Scenario: Content 查询保留 0-based pageIndex 语义
 - **WHEN** `cms-content` 相关查询传入 `pageIndex` 为 `0`
 - **THEN** 系统 SHALL 在归一化后的 runtime query 中保留该值
@@ -31,6 +36,11 @@
 - **WHEN** preview 与 static export 为同一内置 CMS 组件分别注入不同的 `CmsRuntimeClient` 实现
 - **THEN** 该组件 SHALL 通过注入 client 完成取数
 - **AND** 组件本身 SHALL 不要求感知当前运行在浏览器 preview 还是服务端 export 环境
+
+#### Scenario: 内置 CMS 组件接受作者态 site-id 并传入 runtime query
+- **WHEN** 作者 HTML 中的 `cms-catalog` 或 `cms-content` 显式写出 `site-id`
+- **THEN** 系统 SHALL 让组件 props 接受该站点属性
+- **AND** 组件 SHALL 将其归一化为 runtime query 中的 `siteId`
 
 ### Requirement: 内置 CMS 组件必须暴露稳定的 ViewModel 与 slot scope 合同
 系统 SHALL 使 `cms-catalog` 与 `cms-content` 先将归一化 CMS 数据映射为稳定 ViewModel，再向模板暴露统一的 slot scope 合同 `{ items, loading, error, empty }`。
@@ -61,6 +71,11 @@
 - **WHEN** 作者 HTML 同时包含普通 HTML、`cms-catalog` 和 `cms-content`
 - **THEN** 系统 SHALL 仅返回 `cms-catalog` 与 `cms-content` 的扫描结果
 - **AND** 每个扫描结果 SHALL 至少包含组件名、原始模板源码和归一化 props
+
+#### Scenario: 模板扫描将作者态 site-id 归一化为 siteId
+- **WHEN** 作者 HTML 中的 `cms-catalog` 或 `cms-content` 写有 `site-id`
+- **THEN** 扫描结果 SHALL 在归一化 props 中返回 `siteId`
+- **AND** 后续 manifest、preview 与 SSR SHALL 可直接复用该归一化结果
 
 #### Scenario: 编译工具使用作者模板生成可复用 render 表示
 - **WHEN** 某个已扫描的 CMS island 模板被传入编译工具

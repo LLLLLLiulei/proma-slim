@@ -16,9 +16,21 @@ export const PAGE_BUILDER_CMS_AUTO_AGENT_HANDOFF_MESSAGE = '请根据刚确认�
 
 const CMS_AUTO_AGENT_HANDOFF_BASE_INSTRUCTIONS = [
   '请严格遵守以下 CMS 作者态约束：',
+  '- 只有当前这次“已确认的 CMS 选择结果”对应的受控插入流程可以新写入或重绑 cms-* 标签；普通页面生成或普通迭代不能凭空新增 cms-catalog / cms-content。',
   '- 优先让 cms-* 标签作为动态区域源码根节点，并把 ul、nav、section、article 等主要动态容器写进 slot。',
   '- 不要把主要动态容器留在 cms-* 外面、只在 slot 中保留 li、article 等条目级碎片。',
+  '- 新写入或重绑的 cms-* 标签必须显式写出 site-id，并且该值必须等于 selection.siteId。',
+  '- 如果 selection.siteId 缺失，必须立即停止并报错；不能假设 site-id=1，也不能从宿主静态配置推断站点。',
 ]
+
+function requireSelectionSiteId(selection: PageBuilderCmsSelectionResult): string {
+  const siteId = typeof selection.siteId === 'string' ? selection.siteId.trim() : ''
+  if (!siteId) {
+    throw new Error('CMS 选择结果缺少 siteId')
+  }
+
+  return siteId
+}
 
 export function buildPageBuilderCmsApplySkillInput(
   selection: PageBuilderCmsSelectionResult,
@@ -26,6 +38,7 @@ export function buildPageBuilderCmsApplySkillInput(
     uiEntryPoint?: PageBuilderCmsSelectionEntryPoint
   },
 ): PageBuilderCmsApplySkillInput {
+  requireSelectionSiteId(selection)
   const notes = options?.uiEntryPoint
     ? [`opened-from:${options.uiEntryPoint}`]
     : undefined
@@ -66,10 +79,12 @@ function resolveCmsAutoAgentHandoffRequestId(explicitRequestId?: string): string
 }
 
 function buildCmsAutoAgentHandoffInstructions(selection: PageBuilderCmsSelectionResult): string {
+  const siteId = requireSelectionSiteId(selection)
   const lines = [...CMS_AUTO_AGENT_HANDOFF_BASE_INSTRUCTIONS]
   if (selection.targetSelection?.kind === 'cms-island') {
     lines.push('- 当前目标已经是一个 cms-island，必须整体替换现有 cms 源标签，不能在它里面再包一层新的 cms-catalog 或 cms-content。')
   }
+  lines.push(`- 当前受控 CMS 选择结果的 selection.siteId = "${siteId}"。`)
 
   return lines.join('\n')
 }

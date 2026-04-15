@@ -11,6 +11,7 @@
 - **WHEN** 用户在 `page-builder` 中确认一次 CMS 栏目选择或固定内容条目选择
 - **THEN** 系统 SHALL 向专用 skill 传入一个结构化 `selection` 对象
 - **AND** 该 `selection` SHALL 复用最新的 `PageBuilderCmsSelectionResult` 协议
+- **AND** 该输入 SHALL 保留显式 `selection.siteId`
 - **AND** 该输入 SHALL 保留 `selectionKind`、`sourceType`、`selectionMode`、`catalogIds`、`contentIds` 与 `snapshot` 等稳定字段
 
 #### Scenario: skill 输入必须携带目标选择与执行护栏
@@ -40,6 +41,15 @@
 - **WHEN** `cms-binding-apply` 返回 `needs-clarification` 或 `incompatible`
 - **THEN** 系统 SHALL NOT 调用 `mcp__cms__apply_cms_binding`
 - **AND** 系统 SHALL NOT 将该结果视为任何直接文件写入指令
+
+### Requirement: CMS 自动应用专用 skill 必须把 siteId 视为正式写入的硬前置条件
+系统 SHALL 将 `selection.siteId` 视为新建或重绑 `cms-catalog` / `cms-content` 的硬前置条件；当该字段缺失时，skill MUST 返回阻断性结果，而不得继续形成 `ready`、猜测站点或退化为隐式默认站点写入。
+
+#### Scenario: selection.siteId 缺失时返回 incompatible
+- **WHEN** `cms-binding-apply` 收到的结构化输入中缺少 `selection.siteId`
+- **THEN** 系统 SHALL 返回 `incompatible`
+- **AND** 拒绝原因 SHALL 表达正式 CMS 写入缺少显式站点上下文
+- **AND** 系统 SHALL NOT 继续调用 `mcp__cms__apply_cms_binding`
 
 ### Requirement: CMS 自动应用专用 skill 必须返回可判定的结构化决策结果
 系统 SHALL 使 CMS 自动应用专用 skill 返回可机器判定的结构化结果，并 SHALL 将结果收敛为 `ready`、`needs-clarification` 与 `incompatible` 三类，而不是只返回不可控的自由文本结论。对于 `ready`，该结果 MUST 表示当前输入已经具备调用正式 `apply_cms_binding` 工具的最小必要信息，而不是继续让 skill 自行承担文件写入。
@@ -125,3 +135,16 @@
 - **WHEN** 当前目标为 `targetSelection.kind: cms-island`，且该动态区域存在“主要容器在外、slot 内只剩条目级节点”的可替代结构
 - **THEN** skill SHALL 默认优先推荐把主要动态容器一起收敛进新的 CMS slot 模板
 - **AND** skill SHALL NOT 把保留该反模式结构当作默认推荐结果
+
+### Requirement: 只有 CMS 选择插入流程可以新建 cms-* 标签
+系统 SHALL 将新建 `cms-catalog` / `cms-content` 标签限定为“CMS 选择确认 -> 自动 handoff -> `cms-binding-apply` -> `apply_cms_binding`”这条受控链路的结果；普通页面生成或普通迭代流程 MUST NOT 凭空发明新的 CMS 标签。
+
+#### Scenario: 普通生成流程不得自行新建 cms-* 标签
+- **WHEN** Agent 处于普通页面生成、普通页面改版或其他非 CMS 选择插入流程
+- **THEN** 系统 SHALL NOT 让其自行新建 `cms-catalog` 或 `cms-content`
+- **AND** 若需要新建 CMS 标签，系统 SHALL 要求先回到 CMS 选择插入流程获取正式选择结果
+
+#### Scenario: 普通迭代流程可调整已有 CMS 标签的 slot 与样式
+- **WHEN** 页面中已经存在 `cms-catalog` 或 `cms-content`，且当前任务只是普通迭代或局部调整
+- **THEN** 系统 MAY 调整这些已有 CMS 标签的 slot 模板、内部结构和样式
+- **AND** 系统 SHALL NOT 在该流程中擅自改写其查询属性或新建额外 CMS 标签

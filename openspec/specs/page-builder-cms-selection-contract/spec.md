@@ -31,9 +31,14 @@
 
 #### Scenario: 确认结果返回统一协议外壳
 - **WHEN** 用户在 CMS 选择器中点击确认选择
-- **THEN** 系统 SHALL 返回带有 `version`、`targetSelection`、`selectionKind`、`sourceType` 和 `selectionMode` 的结果对象
+- **THEN** 系统 SHALL 返回带有 `version`、`siteId`、`targetSelection`、`selectionKind`、`sourceType` 和 `selectionMode` 的结果对象
 - **AND** `version` SHALL 升级为新的 contract 版本，以反映 `targetSelection` 的引入
 - **AND** 系统 SHALL 使下游消费者无需根据空数组、当前页签或其他 UI 状态推断业务语义
+
+#### Scenario: 确认结果显式保留当前站点上下文
+- **WHEN** 用户在某个站点上下文中确认栏目或内容选择
+- **THEN** 系统 SHALL 在确认结果顶层返回对应的 `siteId`
+- **AND** 后续 handoff、skill 输入与 apply tool SHALL 能直接复用该站点上下文
 
 #### Scenario: CMS island 结果继续暴露 parent block 兼容上下文
 - **WHEN** 系统为某个 `cms-island` 目标生成 CMS 选择确认结果

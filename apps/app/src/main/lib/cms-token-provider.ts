@@ -134,7 +134,6 @@ export function getSharedCmsTokenProvider(
   const fetchFn = options.fetchFn ?? fetch
   const cacheKey = [
     options.config.baseUrl,
-    options.config.siteID,
     options.config.username,
     options.config.password,
   ].join('\n')

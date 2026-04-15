@@ -1,13 +1,23 @@
 export interface PageBuilderCmsCatalogQuery {
+  siteId?: string
   contentType?: string
   searchKeyword?: string
 }
 
 export interface PageBuilderCmsContentQuery {
+  siteId?: string
   catalogId: string
   keyword?: string
   pageIndex?: number
   pageSize?: number
+}
+
+export interface PageBuilderCmsSiteSummary {
+  id: string
+  name: string
+  url: string
+  parentId: string | null
+  branchInnerCode: string
 }
 
 export interface PageBuilderCmsCatalog {
@@ -17,6 +27,7 @@ export interface PageBuilderCmsCatalog {
   path: string
   contentType: string
   contentTypeName: string
+  logoUrl?: string
   hasChild: boolean
   total: number
   children: PageBuilderCmsCatalog[]
@@ -74,10 +85,11 @@ export interface PageBuilderCmsSelectionRequestContext {
   targetBlock: PageBuilderCmsSelectionTargetBlock
 }
 
-export const PAGE_BUILDER_CMS_SELECTION_RESULT_VERSION = 2
+export const PAGE_BUILDER_CMS_SELECTION_RESULT_VERSION = 3
 
 interface PageBuilderCmsSelectionResultBase {
   version: typeof PAGE_BUILDER_CMS_SELECTION_RESULT_VERSION
+  siteId: string
   targetSelection: PageBuilderTargetSelection
   targetBlock: PageBuilderCmsSelectionTargetBlock
 }

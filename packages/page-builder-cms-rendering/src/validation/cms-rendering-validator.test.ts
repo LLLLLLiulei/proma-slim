@@ -59,14 +59,14 @@ describe('validateCmsRendering', () => {
       <html>
         <body>
           <section id="news">
-            <cms-content catalog-id="news" mystery="unexpected">
+            <cms-content site-id="14" catalog-id="news" mystery="unexpected">
               <template #default="{ items }">
                 <img :src="item.listLogoUrl">
               </template>
             </cms-content>
           </section>
           <section id="catalogs">
-            <cms-catalog level="root">
+            <cms-catalog site-id="14" level="root">
               <template v-slot:default="{ items }"></template>
             </cms-catalog>
           </section>
@@ -147,6 +147,31 @@ describe('validateCmsRendering', () => {
     })
 
     expect(result.warnings.filter((diagnostic) => diagnostic.code === 'UNKNOWN_PROP')).toEqual([])
+  })
+
+  test('accepts legacy tags without site-id while keeping site-id out of unknown-prop warnings', () => {
+    const result = validateCmsRendering(`
+      <!doctype html>
+      <html>
+        <body>
+          <cms-content site-id="14" catalog-id="news">
+            <template v-slot:default="{ items }">
+              <article>{{ items.length }}</article>
+            </template>
+          </cms-content>
+          <cms-catalog level="root">
+            <template v-slot:default="{ items }">
+              <ul><li v-for="item in items">{{ item.name }}</li></ul>
+            </template>
+          </cms-catalog>
+        </body>
+      </html>
+    `, {
+      htmlPath: 'index.html',
+    })
+
+    expect(result.warnings.filter((diagnostic) => diagnostic.code === 'UNKNOWN_PROP')).toEqual([])
+    expect(result.valid).toBe(true)
   })
 
   test('reports warnings when the major dynamic container is kept outside the cms slot', () => {

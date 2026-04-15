@@ -353,7 +353,7 @@ describe('renderer api wrappers', () => {
 
   test('listPageBuilderCmsCatalogs requests the page-builder cms catalogs endpoint with query params', async () => {
     const fetchMock = mock(async (input: RequestInfo | URL) => {
-      expect(String(input)).toBe('/api/page-builder/cms/catalogs?contentType=Image&searchKeyword=%E9%A6%96%E9%A1%B5')
+      expect(String(input)).toBe('/api/page-builder/cms/catalogs?siteId=14&contentType=Image&searchKeyword=%E9%A6%96%E9%A1%B5')
       return jsonResponse({
         items: [],
         tree: [],
@@ -363,6 +363,7 @@ describe('renderer api wrappers', () => {
 
     const { api } = await import('./api')
     const result = await api.listPageBuilderCmsCatalogs({
+      siteId: '14',
       contentType: 'Image',
       searchKeyword: '首页',
     })
@@ -373,9 +374,38 @@ describe('renderer api wrappers', () => {
     })
   })
 
+  test('listPageBuilderCmsSites requests the page-builder cms sites endpoint', async () => {
+    const fetchMock = mock(async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe('/api/page-builder/cms/sites')
+      return jsonResponse([
+        {
+          id: '1',
+          name: '主站',
+          url: 'https://demo.zving.com',
+          parentId: null,
+          branchInnerCode: '0001',
+        },
+      ])
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const { api } = await import('./api')
+    const result = await api.listPageBuilderCmsSites()
+
+    expect(result).toEqual([
+      {
+        id: '1',
+        name: '主站',
+        url: 'https://demo.zving.com',
+        parentId: null,
+        branchInnerCode: '0001',
+      },
+    ])
+  })
+
   test('listPageBuilderCmsContents requests the page-builder cms contents endpoint with query params', async () => {
     const fetchMock = mock(async (input: RequestInfo | URL) => {
-      expect(String(input)).toBe('/api/page-builder/cms/contents?catalogId=101&pageIndex=1&pageSize=10&keyword=banner')
+      expect(String(input)).toBe('/api/page-builder/cms/contents?siteId=14&catalogId=101&pageIndex=1&pageSize=10&keyword=banner')
       return jsonResponse({
         pageIndex: 1,
         pageSize: 10,
@@ -388,6 +418,7 @@ describe('renderer api wrappers', () => {
 
     const { api } = await import('./api')
     const result = await api.listPageBuilderCmsContents({
+      siteId: '14',
       catalogId: '101',
       pageIndex: 1,
       pageSize: 10,
@@ -405,7 +436,7 @@ describe('renderer api wrappers', () => {
 
   test('getPageBuilderCmsCatalogDetail requests the page-builder cms catalog detail endpoint', async () => {
     const fetchMock = mock(async (input: RequestInfo | URL) => {
-      expect(String(input)).toBe('/api/page-builder/cms/catalogs/17765')
+      expect(String(input)).toBe('/api/page-builder/cms/catalogs/17765?siteId=14')
       return jsonResponse({
         id: '17765',
         innerCode: '002676000004',
@@ -422,7 +453,7 @@ describe('renderer api wrappers', () => {
     globalThis.fetch = fetchMock as unknown as typeof fetch
 
     const { api } = await import('./api')
-    const result = await api.getPageBuilderCmsCatalogDetail('17765')
+    const result = await api.getPageBuilderCmsCatalogDetail('17765', '14')
 
     expect(result).toEqual({
       id: '17765',

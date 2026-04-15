@@ -56,10 +56,20 @@ pageBuilderRoutes.delete('/projects/:workspaceId', (c) => {
   return noContent()
 })
 
+pageBuilderRoutes.get('/cms/sites', async (c) => {
+  try {
+    const gateway = createCmsGateway()
+    return c.json(await gateway.listSites())
+  } catch (error) {
+    throw mapCmsGatewayError(error)
+  }
+})
+
 pageBuilderRoutes.get('/cms/catalogs', async (c) => {
   try {
     const gateway = createCmsGateway()
     return c.json(await gateway.listCatalogs({
+      siteId: readOptionalSiteIdQuery(c.req.query('siteId')),
       contentType: readOptionalStringQuery(c.req.query('contentType')),
       searchKeyword: readOptionalStringQuery(c.req.query('searchKeyword')),
     }))
@@ -76,7 +86,10 @@ pageBuilderRoutes.get('/cms/catalogs/:catalogId', async (c) => {
 
   try {
     const gateway = createCmsGateway()
-    return c.json(await gateway.getCatalogDetail(catalogId))
+    return c.json(await gateway.getCatalogDetail(
+      catalogId,
+      readOptionalSiteIdQuery(c.req.query('siteId')),
+    ))
   } catch (error) {
     throw mapCmsGatewayError(error)
   }
@@ -91,6 +104,7 @@ pageBuilderRoutes.get('/cms/contents', async (c) => {
   try {
     const gateway = createCmsGateway()
     return c.json(await gateway.listContents({
+      siteId: readOptionalSiteIdQuery(c.req.query('siteId')),
       catalogId,
       keyword: readOptionalStringQuery(c.req.query('keyword')),
       pageIndex: readOptionalIntegerQuery(c.req.query('pageIndex'), {
@@ -161,6 +175,15 @@ function mapCmsGatewayError(error: unknown): Error {
 function readOptionalStringQuery(value: string | undefined): string | undefined {
   const next = value?.trim()
   return next ? next : undefined
+}
+
+function readOptionalSiteIdQuery(value: string | undefined): string | undefined {
+  const parsed = readOptionalIntegerQuery(value, {
+    min: 1,
+    label: 'siteId',
+  })
+
+  return parsed === undefined ? undefined : String(parsed)
 }
 
 function readOptionalIntegerQuery(

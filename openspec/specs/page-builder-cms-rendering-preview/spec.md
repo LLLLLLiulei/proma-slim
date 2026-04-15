@@ -56,3 +56,9 @@
 - **WHEN** 浏览器端某个 `cms-catalog` 或 `cms-content` island 首次取数
 - **THEN** 系统 SHALL 通过宿主暴露的 `/api/page-builder/cms/*` 路由完成 CMS 数据请求
 - **AND** 系统 SHALL 不要求 island 直接持有外部 CMS 的鉴权信息
+
+#### Scenario: island 运行时按显式 site-id 或默认站点 1 取数
+- **WHEN** 浏览器端某个 `cms-catalog` 或 `cms-content` island 首次取数
+- **THEN** 系统 SHALL 优先使用该 island 作者态源码中的显式 `site-id`
+- **AND** 当该标签缺少 `site-id` 时，系统 SHALL 按 `siteId = 1` 兼容执行
+- **AND** 浏览器端缓存键 SHALL 包含 `siteId` 维度

@@ -12,8 +12,11 @@ export interface CatalogDisplayOptions {
   take?: number
 }
 
+const DEFAULT_CMS_SITE_ID = '1'
+
 export function createCatalogQuery(props: Record<string, unknown>): PageBuilderCmsCatalogQuery {
   return {
+    siteId: normalizeCmsSiteId(props.siteId),
     contentType: normalizeOptionalString(props.contentType),
     searchKeyword: normalizeOptionalString(props.searchKeyword),
   }
@@ -29,6 +32,7 @@ export function createCatalogDisplayOptions(props: Record<string, unknown>): Cat
 
 export function createContentQuery(props: Record<string, unknown>): PageBuilderCmsContentQuery {
   return {
+    siteId: normalizeCmsSiteId(props.siteId),
     catalogId: String(props.catalogId ?? '').trim(),
     keyword: normalizeOptionalString(props.keyword),
     pageIndex: normalizeNonNegativeInteger(props.pageIndex),
@@ -123,6 +127,14 @@ function normalizeOptionalString(value: unknown): string | undefined {
 
   const normalized = value.trim()
   return normalized ? normalized : undefined
+}
+
+function normalizeCmsSiteId(value: unknown): string {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return String(value)
+  }
+
+  return normalizeOptionalString(value) ?? DEFAULT_CMS_SITE_ID
 }
 
 function normalizePositiveInteger(value: unknown): number | undefined {
