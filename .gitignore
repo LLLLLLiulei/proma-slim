@@ -53,3 +53,7 @@ node_modules*
 prompt.txt
 .superpowers/
 .playwright-mcp/
+
+docs/
+
+openspec/changes/add-cms-vue-islands-demo/

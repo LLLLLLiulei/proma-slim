@@ -94,6 +94,8 @@ describe('page-builder CMS auto handoff payloads', () => {
       mentionedSkills: ['cms-binding-apply'],
       mentionedMcpServers: [PAGE_BUILDER_CMS_AUTO_AGENT_HANDOFF_MCP_SERVER],
     })
+    expect(request.composedUserMessage).toContain('当前目标已经是一个 cms-island，必须整体替换现有 cms 源标签，不能在它里面再包一层新的 cms-catalog 或 cms-content。')
+    expect(request.composedUserMessage).toContain('优先让 cms-* 标签作为动态区域源码根节点，并把 ul、nav、section、article 等主要动态容器写进 slot。')
     expect(extractSkillInputFromComposedMessage(request.composedUserMessage)).toEqual({
       version: 2,
       entryPoint: 'cms-browser-confirm',

@@ -1918,7 +1918,10 @@ describe('BuilderPage', () => {
       }).onConfirmSelection?.(selection)
     })
 
-    const request = (getLastAgentViewProps()?.programmaticSendRequest ?? null) as { requestId: string } | null
+    const request = (getLastAgentViewProps()?.programmaticSendRequest ?? null) as {
+      requestId: string
+      composedUserMessage?: string
+    } | null
     expect(request?.requestId).toBeTruthy()
     expect(getLastAgentViewProps()).toMatchObject({
       programmaticSendRequest: expect.objectContaining({
@@ -1927,6 +1930,9 @@ describe('BuilderPage', () => {
         mentionedMcpServers: ['cms'],
       }),
     })
+    expect(request?.composedUserMessage).toContain(
+      '优先让 cms-* 标签作为动态区域源码根节点，并把 ul、nav、section、article 等主要动态容器写进 slot。',
+    )
     expect(getLastCmsBrowserDialogProps()).toMatchObject({
       open: true,
       confirming: true,

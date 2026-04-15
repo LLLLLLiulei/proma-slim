@@ -182,4 +182,101 @@ describe('cms rendering preview bootstrap', () => {
     ])
     expect(result.islandRoots[0]?.islandId).toBe(result.islandRoots[1]?.islandId)
   })
+
+  test('prefers the enclosing block selector over a block id that was written onto the cms source tag itself', () => {
+    const packageDir = new URL('../../', import.meta.url)
+    const bootstrapModuleUrl = new URL('./cms-rendering-preview-bootstrap.ts', import.meta.url).href
+    const script = `
+      import { parseHTML } from 'linkedom'
+
+      const { document, window } = parseHTML(\`<!doctype html>
+        <html>
+          <body>
+            <section data-proma-block-id="pb_blk_section">
+              <cms-catalog data-proma-block-id="pb_blk_nested" level="children" parent-id="8">
+                <template v-slot:default="{ items }">
+                  <ul class="nav-list">
+                    <li v-for="item in items" :key="item.id" class="nav-item">{{ item.name }}</li>
+                  </ul>
+                </template>
+              </cms-catalog>
+            </section>
+          </body>
+        </html>\`)
+
+      Object.assign(globalThis, {
+        window,
+        document,
+        Node: window.Node,
+        Element: window.Element,
+        HTMLElement: window.HTMLElement,
+        SVGElement: window.SVGElement,
+        MutationObserver: window.MutationObserver,
+        CustomEvent: window.CustomEvent,
+        Event: window.Event,
+        navigator: window.navigator,
+        fetch: async () => new Response(JSON.stringify({
+          items: [
+            {
+              id: 'catalog-1',
+              name: '栏目 1',
+              parentId: '8',
+              path: '/catalog-1',
+              contentType: 'Article',
+              contentTypeName: '文章',
+              hasChild: false,
+              total: 1,
+              children: [],
+            },
+          ],
+          tree: [],
+        }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      })
+
+      window.__PROMA_CMS_RENDERING_PREVIEW__ = {
+        workspaceId: 'workspace-1',
+        cmsProxyBase: '/api/page-builder/cms',
+        vueAssetUrl: '/api/page-builder/cms-rendering-vue.js',
+        bootstrapAssetUrl: '/api/page-builder/cms-rendering-preview.js',
+        hasCmsRendering: true,
+      }
+
+      await import(${JSON.stringify(bootstrapModuleUrl)})
+
+      await new Promise((resolve) => {
+        if (window.__PROMA_CMS_RENDERING_PREVIEW_READY__) {
+          setTimeout(resolve, 0)
+          return
+        }
+
+        document.addEventListener('proma:cms-rendering-ready', () => {
+          setTimeout(resolve, 0)
+        }, { once: true })
+      })
+
+      const firstRoot = document.querySelector('.nav-list')
+      console.log(JSON.stringify({
+        sourceSelector: firstRoot?.getAttribute('data-proma-cms-island-source-selector') ?? null,
+        parentBlockSelector: firstRoot?.getAttribute('data-proma-cms-island-parent-block-selector') ?? null,
+      }))
+    `
+
+    const stdout = execFileSync(process.execPath, ['--eval', script], {
+      cwd: packageDir,
+      encoding: 'utf-8',
+    }).trim()
+
+    const result = JSON.parse(stdout) as {
+      sourceSelector: string | null
+      parentBlockSelector: string | null
+    }
+
+    expect(result).toEqual({
+      sourceSelector: 'body > section:nth-of-type(1) > cms-catalog:nth-of-type(1)',
+      parentBlockSelector: 'body > section:nth-of-type(1)',
+    })
+  })
 })

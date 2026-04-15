@@ -111,7 +111,7 @@ function bootstrapCmsRenderingPreview(
 }
 
 function resolveParentBlockSelector(host: Element): string | null {
-  const blockElement = host.closest('[data-proma-block-id]')
+  const blockElement = host.parentElement?.closest('[data-proma-block-id]') ?? null
   if (blockElement) {
     return resolveStableElementSelector(blockElement)
   }
