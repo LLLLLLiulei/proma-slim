@@ -193,6 +193,8 @@ const PROMPT_TOO_LONG_PATTERNS = [
   'prompt_too_long',
   'input is too long',
   'context_length_exceeded',
+  'context window limit',
+  'reached its context window limit',
   'maximum context length',
   'token limit',
   'exceeds the model',

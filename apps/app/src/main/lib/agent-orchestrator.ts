@@ -1190,6 +1190,10 @@ export class AgentOrchestrator {
             updateAgentSessionMeta(sessionId, { sdkSessionId })
             existingSdkSessionId = sdkSessionId
             persistedSdkSessionId = sdkSessionId
+            queryOptions.resumeSessionId = sdkSessionId
+            if (!isCompactCommand) {
+              queryOptions.prompt = contextualMessage
+            }
             console.log(`[Agent 编排] 已保存 SDK session_id: ${sdkSessionId}`)
           } catch {
             // 索引更新失败不影响主流程
@@ -1223,37 +1227,136 @@ export class AgentOrchestrator {
       let persistedSdkSessionId = existingSdkSessionId
       /** Watchdog 触发标记（死锁被检测到时设为 true） */
       let abortedByWatchdog = false
+      /** 已尝试的上下文压缩恢复次数（每条用户消息最多一次） */
+      let attemptedCompactRecovery = false
+      /** 自动 compact 后跳过 retry 退避/提示 */
+      let skipRetryDelayOnce = false
+
+      const attemptCompactRecovery = async (
+        source: 'typed_error' | 'catch',
+      ): Promise<'recovered' | 'failed' | 'aborted'> => {
+        if (attemptedCompactRecovery) {
+          return 'failed'
+        }
+
+        const resumeSessionId = capturedSdkSessionId ?? existingSdkSessionId
+        if (!resumeSessionId) {
+          console.warn(`[Agent 编排] ${source} 路径检测到上下文过长，但当前无可恢复的 sdkSessionId`)
+          return 'failed'
+        }
+
+        attemptedCompactRecovery = true
+        stderrChunks.length = 0
+        console.log(`[Agent 编排] ${source} 路径检测到上下文过长，尝试自动执行 /compact (resume=${resumeSessionId})`)
+
+        try {
+          let compactCompleted = false
+          let sawCompacting = false
+          let sawCompactComplete = false
+
+          for await (const event of this.adapter.query({
+            ...queryOptions,
+            prompt: '/compact',
+            resumeSessionId,
+            // /compact 不需要工具，避免在嵌套 query 中重复连接 runtime SDK MCP transport。
+            mcpServers: undefined,
+          } as ClaudeAgentQueryOptions)) {
+            if (!this.activeSessions.has(sessionId)) {
+              if (sawCompacting && !sawCompactComplete) {
+                this.eventBus.emit(sessionId, { type: 'compact_complete' })
+              }
+              console.log(`[Agent 编排] 自动 /compact 期间会话 ${sessionId} 已被用户中止`)
+              return 'aborted'
+            }
+
+            if (event.type === 'typed_error') {
+              if (sawCompacting && !sawCompactComplete) {
+                this.eventBus.emit(sessionId, { type: 'compact_complete' })
+              }
+              console.error(`[Agent 编排] 自动 /compact 返回 typed_error: ${event.error.code} - ${event.error.message}`)
+              return 'failed'
+            }
+
+            if (event.type === 'error') {
+              if (sawCompacting && !sawCompactComplete) {
+                this.eventBus.emit(sessionId, { type: 'compact_complete' })
+              }
+              console.error(`[Agent 编排] 自动 /compact 返回 error: ${event.message}`)
+              return 'failed'
+            }
+
+            if (event.type === 'compacting' || event.type === 'compact_complete' || event.type === 'status_notice') {
+              if (event.type === 'compacting') {
+                sawCompacting = true
+              } else if (event.type === 'compact_complete') {
+                sawCompactComplete = true
+              }
+              this.eventBus.emit(sessionId, event)
+            }
+
+            if (event.type === 'complete') {
+              compactCompleted = true
+            }
+          }
+
+          if (!compactCompleted) {
+            if (sawCompacting && !sawCompactComplete) {
+              this.eventBus.emit(sessionId, { type: 'compact_complete' })
+            }
+            console.error('[Agent 编排] 自动 /compact 未收到 complete 事件')
+            return 'failed'
+          }
+
+          existingSdkSessionId = resumeSessionId
+          capturedSdkSessionId = resumeSessionId
+          queryOptions.resumeSessionId = resumeSessionId
+          if (!isCompactCommand) {
+            queryOptions.prompt = contextualMessage
+          }
+          stderrChunks.length = 0
+          console.log('[Agent 编排] 自动 /compact 成功，准备重放原始用户消息')
+          return 'recovered'
+        } catch (compactError) {
+          this.eventBus.emit(sessionId, { type: 'compact_complete' })
+          console.error('[Agent 编排] 自动 /compact 失败:', compactError)
+          return this.activeSessions.has(sessionId) ? 'failed' : 'aborted'
+        }
+      }
 
       for (let attempt = 1; attempt <= MAX_AUTO_RETRIES + 1; attempt++) {
         // 非首次尝试：等待 + 发送重试事件到 UI
         if (attempt > 1) {
-          const delayMs = getRetryDelayMs(attempt - 1)
-          const delaySec = delayMs / 1000
-          const attemptData: RetryAttempt = {
-            attempt: attempt - 1,
-            timestamp: Date.now(),
-            reason: lastRetryableError ?? '未知错误',
-            errorMessage: lastRetryableError ?? '',
-            delaySeconds: delaySec,
-          }
+          if (skipRetryDelayOnce) {
+            skipRetryDelayOnce = false
+          } else {
+            const delayMs = getRetryDelayMs(attempt - 1)
+            const delaySec = delayMs / 1000
+            const attemptData: RetryAttempt = {
+              attempt: attempt - 1,
+              timestamp: Date.now(),
+              reason: lastRetryableError ?? '未知错误',
+              errorMessage: lastRetryableError ?? '',
+              delaySeconds: delaySec,
+            }
 
-          this.eventBus.emit(sessionId, {
-            type: 'retrying',
-            attempt: attempt - 1,
-            maxAttempts: MAX_AUTO_RETRIES,
-            delaySeconds: delaySec,
-            reason: lastRetryableError ?? '未知错误',
-          })
-          this.eventBus.emit(sessionId, { type: 'retry_attempt', attemptData })
+            this.eventBus.emit(sessionId, {
+              type: 'retrying',
+              attempt: attempt - 1,
+              maxAttempts: MAX_AUTO_RETRIES,
+              delaySeconds: delaySec,
+              reason: lastRetryableError ?? '未知错误',
+            })
+            this.eventBus.emit(sessionId, { type: 'retry_attempt', attemptData })
 
-          console.log(`[Agent 编排] 第 ${attempt - 1} 次重试，等待 ${delaySec}s...`)
-          await new Promise((r) => setTimeout(r, delayMs))
+            console.log(`[Agent 编排] 第 ${attempt - 1} 次重试，等待 ${delaySec}s...`)
+            await new Promise((r) => setTimeout(r, delayMs))
 
-          // 等待期间如果会话被中止，退出
-          if (!this.activeSessions.has(sessionId)) {
-            this.persistAssistantMessage(sessionId, accumulatedText, accumulatedEvents, resolvedModel)
-            callbacks.onComplete(getAgentSessionMessages(sessionId))
-            return
+            // 等待期间如果会话被中止，退出
+            if (!this.activeSessions.has(sessionId)) {
+              this.persistAssistantMessage(sessionId, accumulatedText, accumulatedEvents, resolvedModel)
+              callbacks.onComplete(getAgentSessionMessages(sessionId))
+              return
+            }
           }
         }
 
@@ -1339,6 +1442,29 @@ export class AgentOrchestrator {
 
             // typed_error：判断是否可自动重试
             if (event.type === 'typed_error') {
+              const shouldAttemptCompactRecovery = event.error.code === 'prompt_too_long'
+                || isPromptTooLongError(event.error.message, event.error.originalError ?? '')
+
+              if (shouldAttemptCompactRecovery) {
+                this.persistAssistantMessage(sessionId, accumulatedText, accumulatedEvents, resolvedModel)
+                accumulatedText = ''
+                accumulatedEvents.length = 0
+
+                const compactRecoveryResult = await attemptCompactRecovery('typed_error')
+                if (compactRecoveryResult === 'aborted') {
+                  if (!loopAbort.signal.aborted) loopAbort.abort()
+                  await watchdogDone
+                  callbacks.onComplete(getAgentSessionMessages(sessionId))
+                  return
+                }
+                if (compactRecoveryResult === 'recovered') {
+                  shouldRetryFromTypedError = true
+                  skipRetryDelayOnce = attempt > 1
+                  attempt -= 1
+                  break
+                }
+              }
+
               if (isAutoRetryableTypedError(event.error) && attempt <= MAX_AUTO_RETRIES) {
                 lastRetryableError = event.error.title
                   ? `${event.error.title}: ${event.error.message}`
@@ -1559,6 +1685,28 @@ export class AgentOrchestrator {
           const stderrOutput = stderrChunks.join('').trim()
           const apiError = extractApiError(stderrOutput)
           const rawErrorMessage = error instanceof Error ? error.message : ''
+          const isPromptTooLong = isPromptTooLongError(
+            apiError?.message ?? '',
+            rawErrorMessage,
+            stderrOutput,
+          )
+
+          if (isPromptTooLong) {
+            this.persistAssistantMessage(sessionId, accumulatedText, accumulatedEvents, resolvedModel)
+            accumulatedText = ''
+            accumulatedEvents.length = 0
+
+            const compactRecoveryResult = await attemptCompactRecovery('catch')
+            if (compactRecoveryResult === 'aborted') {
+              callbacks.onComplete(getAgentSessionMessages(sessionId))
+              return
+            }
+            if (compactRecoveryResult === 'recovered') {
+              skipRetryDelayOnce = attempt > 1
+              attempt -= 1
+              continue
+            }
+          }
 
           // 判断是否可重试
           if (isAutoRetryableCatchError(apiError, rawErrorMessage) && attempt <= MAX_AUTO_RETRIES) {
@@ -1597,13 +1745,6 @@ export class AgentOrchestrator {
 
           // 保存错误消息到 JSONL
           try {
-            // 检测是否为 prompt too long 错误
-            const isPromptTooLong = isPromptTooLongError(
-              userFacingError,
-              error instanceof Error ? (error.stack ?? error.message) : String(error),
-              stderrOutput,
-            )
-
             const errMsg: AgentMessage = {
               id: randomUUID(),
               role: 'status',
