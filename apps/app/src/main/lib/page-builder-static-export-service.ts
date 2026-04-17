@@ -869,7 +869,12 @@ function mapCmsIslandFailure(
     code: failure.stage === 'prefetch' ? 'cms-island-prefetch-failed' : 'cms-island-render-failed',
     message: failure.message,
     component: failure.component,
-    props: failure.props,
+    props: Object.fromEntries(
+      Object.entries(failure.props).map(([key, value]) => [
+        key,
+        Array.isArray(value) ? value.join(',') : value,
+      ]),
+    ),
   }
 }
 

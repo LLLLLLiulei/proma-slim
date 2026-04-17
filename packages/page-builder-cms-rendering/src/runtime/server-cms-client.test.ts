@@ -36,6 +36,9 @@ const CATALOG_RESPONSE: PageBuilderCmsCatalogList = {
 }
 
 function createContentResponse(query: PageBuilderCmsContentQuery): PageBuilderCmsContentList {
+  const sourceCatalogId = query.catalogId ?? query.ids?.[0] ?? 'fixed'
+  const sourceLabel = query.ids?.join(',') ?? query.catalogId ?? 'fixed'
+
   return {
     pageIndex: query.pageIndex ?? 0,
     pageSize: query.pageSize ?? 20,
@@ -43,9 +46,9 @@ function createContentResponse(query: PageBuilderCmsContentQuery): PageBuilderCm
     totalPages: 1,
     items: [
       {
-        id: `${query.catalogId}-${query.pageIndex ?? 0}-${query.pageSize ?? 20}-${query.keyword ?? 'none'}`,
-        catalogId: query.catalogId,
-        title: `title:${query.catalogId}:${query.pageIndex ?? 0}:${query.pageSize ?? 20}:${query.keyword ?? 'none'}`,
+        id: `${sourceLabel}-${query.pageIndex ?? 0}-${query.pageSize ?? 20}-${query.keyword ?? 'none'}`,
+        catalogId: sourceCatalogId,
+        title: `title:${sourceLabel}:${query.pageIndex ?? 0}:${query.pageSize ?? 20}:${query.keyword ?? 'none'}`,
         summary: 'summary',
         publishUrl: 'https://example.com/content',
         listLogoUrl: 'https://cms.example.com/logo.png',
@@ -114,6 +117,39 @@ describe('createServerCmsClient', () => {
     expect(seenQueries).toHaveLength(2)
     expect(first.items[0]?.title).toBe('title:news:0:1:none')
     expect(second.items[0]?.title).toBe('title:news:1:1:none')
+  })
+
+  test('keeps ordered fixed ids in the cache key so different id orders do not collide', async () => {
+    const seenQueries: PageBuilderCmsContentQuery[] = []
+    const client = createServerCmsClient({
+      adapter: {
+        async listCatalogs() {
+          return CATALOG_RESPONSE
+        },
+        async listContents(query) {
+          seenQueries.push(query)
+          return createContentResponse(query)
+        },
+      },
+    })
+
+    const first = await client.listContents({
+      siteId: '14',
+      catalogId: 'news',
+      ids: ['content-2', 'content-1'],
+    })
+    const second = await client.listContents({
+      siteId: '14',
+      catalogId: 'news',
+      ids: ['content-1', 'content-2'],
+    })
+
+    expect(seenQueries).toEqual([
+      { siteId: '14', catalogId: 'news', ids: ['content-2', 'content-1'] },
+      { siteId: '14', catalogId: 'news', ids: ['content-1', 'content-2'] },
+    ])
+    expect(first.items[0]?.title).toContain('content-2,content-1')
+    expect(second.items[0]?.title).toContain('content-1,content-2')
   })
 
   test('does not share cached catalog results across different export tasks', async () => {

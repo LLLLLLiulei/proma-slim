@@ -38,6 +38,8 @@ const CATALOG_RESPONSE: PageBuilderCmsCatalogList = {
 }
 
 function createContentResponse(query: PageBuilderCmsContentQuery): PageBuilderCmsContentList {
+  const sourceCatalogId = query.catalogId ?? query.ids?.[0] ?? 'fixed'
+
   return {
     pageIndex: query.pageIndex ?? 0,
     pageSize: query.pageSize ?? 20,
@@ -46,7 +48,7 @@ function createContentResponse(query: PageBuilderCmsContentQuery): PageBuilderCm
     items: [
       {
         id: 'content-1',
-        catalogId: query.catalogId,
+        catalogId: sourceCatalogId,
         title: 'Launch Update',
         summary: 'Quarterly launch update',
         publishUrl: 'https://example.com/news/launch-update',
@@ -113,6 +115,88 @@ describe('renderCmsIslands', () => {
         pageIndex: 0,
         pageSize: 1,
       }),
+    ])
+  })
+
+  test('renders fixed-id cms-content islands in order and falls back to the empty slot when all ids are invalid', async () => {
+    const contentQueries: PageBuilderCmsContentQuery[] = []
+    const client = createServerCmsClient({
+      adapter: {
+        async listCatalogs() {
+          return CATALOG_RESPONSE
+        },
+        async listContents(query) {
+          contentQueries.push(query)
+          return {
+            pageIndex: 0,
+            pageSize: 2,
+            total: 0,
+            totalPages: 1,
+            items: query.ids?.some((id) => id.startsWith('missing-'))
+              ? []
+              : [
+                  {
+                    id: 'content-2',
+                    catalogId: 'news',
+                    title: '第二条',
+                    summary: '第二条摘要',
+                    publishUrl: 'https://example.com/news/2',
+                  },
+                  {
+                    id: 'content-1',
+                    catalogId: 'news',
+                    title: '第一条',
+                    summary: '第一条摘要',
+                    publishUrl: 'https://example.com/news/1',
+                  },
+                ],
+          }
+        },
+      },
+    })
+
+    const html = `<!doctype html>
+      <html>
+        <body>
+          <section id="ordered">
+            <cms-content site-id="14" catalog-id="news" ids="content-2,content-1">
+              <template v-slot:default="{ items }">
+                <ul>
+                  <li v-for="item in items" :key="item.id">{{ item.title }}</li>
+                </ul>
+              </template>
+              <template v-slot:empty>
+                <p>empty-default</p>
+              </template>
+            </cms-content>
+          </section>
+          <section id="empty">
+            <cms-content site-id="14" catalog-id="news" ids="missing-1,missing-2">
+              <template v-slot:default="{ items }">
+                <ul>
+                  <li v-for="item in items" :key="item.id">{{ item.title }}</li>
+                </ul>
+              </template>
+              <template v-slot:empty>
+                <p>all-invalid-empty</p>
+              </template>
+            </cms-content>
+          </section>
+        </body>
+      </html>`
+
+    const rendered = await renderCmsIslands({
+      html,
+      cmsClient: client,
+    })
+
+    expect(rendered).toContain('第二条')
+    expect(rendered).toContain('第一条')
+    expect(rendered.indexOf('第二条')).toBeLessThan(rendered.indexOf('第一条'))
+    expect(rendered).toContain('all-invalid-empty')
+    expect(contentQueries).toEqual([
+      { siteId: '14', catalogId: 'news', ids: ['content-2', 'content-1'] },
+      { siteId: '14', catalogId: 'news', ids: ['missing-1', 'missing-2'] },
     ])
   })
 

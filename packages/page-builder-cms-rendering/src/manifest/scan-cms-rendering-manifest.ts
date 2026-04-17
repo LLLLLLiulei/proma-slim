@@ -2,8 +2,9 @@ import { parseHTML } from 'linkedom'
 import {
   CMS_ISLAND_SELECTOR,
   isTopLevelCmsIsland,
-  toCamelCase,
   type CmsIslandComponentName,
+  type CmsIslandPropValue,
+  normalizeCmsIslandProps,
 } from '../template/scan-cms-islands-dom'
 import {
   CMS_RENDERING_MANIFEST_VERSION,
@@ -123,19 +124,9 @@ function resolveFallbackSelectorTarget(element: Element): Element {
   return element
 }
 
-function normalizeManifestProps(element: Element): Record<string, string> {
-  const props: Record<string, string> = {}
-
-  for (const attribute of Array.from(element.attributes)) {
-    const normalizedValue = attribute.value.trim()
-    if (!normalizedValue) {
-      continue
-    }
-
-    props[toCamelCase(attribute.name)] = normalizedValue
-  }
-
-  return props
+function normalizeManifestProps(element: Element): Record<string, CmsIslandPropValue> {
+  const component = element.tagName.toLowerCase() as CmsIslandComponentName
+  return normalizeCmsIslandProps(component, element)
 }
 
 function normalizeOptionalAttribute(element: Element | null, attributeName: string): string | null {

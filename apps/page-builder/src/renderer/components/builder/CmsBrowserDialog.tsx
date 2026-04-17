@@ -31,6 +31,22 @@ interface CmsBrowserDialogProps {
 
 export type CmsBrowserDialogSelection = PageBuilderCmsSelectionResult
 
+function buildCatalogTreeLookup(catalogs: PageBuilderCmsCatalog[]): Map<string, PageBuilderCmsCatalog> {
+  const catalogById = new Map<string, PageBuilderCmsCatalog>()
+
+  const visit = (items: PageBuilderCmsCatalog[]) => {
+    for (const item of items) {
+      catalogById.set(item.id, item)
+      if (item.children.length > 0) {
+        visit(item.children)
+      }
+    }
+  }
+
+  visit(catalogs)
+  return catalogById
+}
+
 function CatalogPanelState(props: {
   message: string
   description?: string | null
@@ -92,6 +108,10 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
     () => new Map(catalogItems.map((catalog) => [catalog.id, catalog])),
     [catalogItems],
   )
+  const catalogTreeById = React.useMemo(
+    () => buildCatalogTreeLookup(tree),
+    [tree],
+  )
   const emptyContentsState = React.useMemo(() => ({
     status: 'ready' as const,
     data: {
@@ -115,20 +135,56 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
       .filter((content): content is PageBuilderCmsContentSummary => content !== undefined),
     [checkedContentIds, checkedContentItemsById],
   )
-  const selectedContentCatalogIds = React.useMemo(
-    () => [...new Set(selectedContents.map((content) => content.catalogId).filter(Boolean))],
+  const selectedContentCatalogId = React.useMemo(
+    () => selectedContents[0]?.catalogId ?? undefined,
     [selectedContents],
   )
-  const currentSelectionCount = activeTab === 'catalogs'
-    ? selectedCatalogs.length
-    : selectedContents.length
+  const selectedCatalog = React.useMemo(
+    () => selectedCatalogId
+      ? catalogTreeById.get(selectedCatalogId) ?? catalogById.get(selectedCatalogId) ?? null
+      : null,
+    [catalogById, catalogTreeById, selectedCatalogId],
+  )
+  const selectedCatalogHasDirectChildren = Boolean(selectedCatalog && selectedCatalog.children.length > 0)
   const canConfirmSelection = !confirming
-    && currentSelectionCount > 0
     && Boolean(requestContext?.targetBlock.selector)
     && Boolean(selectedSiteId)
-  const currentSelectionSummary = activeTab === 'catalogs'
-    ? `已选 ${selectedCatalogs.length} 个栏目`
-    : `已选 ${selectedContents.length} 条内容`
+    && (activeTab === 'catalogs'
+      ? selectedCatalogs.length > 0 || selectedCatalogHasDirectChildren
+      : selectedContents.length > 0 || Boolean(selectedCatalog))
+  const currentSelectionSummary = React.useMemo(() => {
+    if (activeTab === 'catalogs') {
+      if (selectedCatalogs.length > 0) {
+        return `已选 ${selectedCatalogs.length} 个栏目`
+      }
+
+      if (!selectedCatalog) {
+        return '请选择栏目'
+      }
+
+      if (!selectedCatalogHasDirectChildren) {
+        return '当前栏目下没有可用子栏目'
+      }
+
+      return '将使用当前栏目下的直接子栏目'
+    }
+
+    if (selectedContents.length > 0) {
+      return `已选 ${selectedContents.length} 条内容`
+    }
+
+    if (!selectedCatalog) {
+      return '请选择栏目'
+    }
+
+    return '将使用当前栏目下的内容列表'
+  }, [
+    activeTab,
+    selectedCatalog,
+    selectedCatalogHasDirectChildren,
+    selectedCatalogs.length,
+    selectedContents.length,
+  ])
   const siteOptions = sitesState.data ?? []
 
   React.useEffect(() => {
@@ -180,47 +236,94 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
   }, [])
 
   const handleConfirmSelection = React.useCallback(() => {
-    if (!requestContext?.targetBlock.selector || currentSelectionCount === 0 || !selectedSiteId) return
+    if (!requestContext?.targetBlock.selector || !selectedSiteId) return
 
     if (activeTab === 'catalogs') {
+      if (selectedCatalogs.length > 0) {
+        onConfirmSelection?.({
+          version: PAGE_BUILDER_CMS_SELECTION_RESULT_VERSION,
+          siteId: selectedSiteId,
+          targetSelection: requestContext.targetSelection,
+          targetBlock: requestContext.targetBlock,
+          selectionKind: 'catalogs',
+          sourceType: 'catalogs-by-ids',
+          selectionMode: 'fixed-items',
+          catalogIds: selectedCatalogs.map((catalog) => catalog.id),
+          snapshot: {
+            catalogs: selectedCatalogs,
+          },
+        })
+        return
+      }
+
+      if (!selectedCatalog || !selectedCatalogHasDirectChildren) {
+        return
+      }
+
       onConfirmSelection?.({
         version: PAGE_BUILDER_CMS_SELECTION_RESULT_VERSION,
         siteId: selectedSiteId,
         targetSelection: requestContext.targetSelection,
         targetBlock: requestContext.targetBlock,
         selectionKind: 'catalogs',
-        sourceType: 'catalogs',
-        selectionMode: selectedCatalogs.length === 1 ? 'single' : 'multiple',
-        catalogIds: selectedCatalogs.map((catalog) => catalog.id),
+        sourceType: 'catalogs-by-parent',
+        selectionMode: 'children-of-parent',
+        parentCatalogId: selectedCatalog.id,
         snapshot: {
-          catalogs: selectedCatalogs,
+          parentCatalog: selectedCatalog,
         },
       })
     } else {
+      if (selectedContents.length > 0) {
+        if (!selectedContentCatalogId) {
+          return
+        }
+
+        onConfirmSelection?.({
+          version: PAGE_BUILDER_CMS_SELECTION_RESULT_VERSION,
+          siteId: selectedSiteId,
+          targetSelection: requestContext.targetSelection,
+          targetBlock: requestContext.targetBlock,
+          selectionKind: 'contents',
+          sourceType: 'contents-by-ids',
+          selectionMode: 'fixed-items',
+          catalogId: selectedContentCatalogId,
+          contentIds: selectedContents.map((content) => content.id),
+          snapshot: {
+            contents: selectedContents,
+          },
+        })
+        return
+      }
+
+      if (!selectedCatalog) {
+        return
+      }
+
       onConfirmSelection?.({
         version: PAGE_BUILDER_CMS_SELECTION_RESULT_VERSION,
         siteId: selectedSiteId,
         targetSelection: requestContext.targetSelection,
         targetBlock: requestContext.targetBlock,
         selectionKind: 'contents',
-        sourceType: 'contents-fixed',
-        selectionMode: 'fixed-items',
-        catalogIds: selectedContentCatalogIds,
-        contentIds: selectedContents.map((content) => content.id),
+        sourceType: 'contents-by-catalog',
+        selectionMode: 'by-catalog',
+        catalogId: selectedCatalog.id,
         snapshot: {
-          contents: selectedContents,
+          catalog: selectedCatalog,
         },
       })
     }
 
   }, [
     activeTab,
-    currentSelectionCount,
     onConfirmSelection,
     requestContext,
+    selectedCatalog,
+    selectedCatalogHasDirectChildren,
     selectedSiteId,
     selectedCatalogs,
-    selectedContentCatalogIds,
+    selectedContentCatalogId,
     selectedContents,
   ])
 

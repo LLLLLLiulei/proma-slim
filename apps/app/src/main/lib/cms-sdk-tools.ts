@@ -1,6 +1,6 @@
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
-import type { AgentMcpServerConfig, AgentWorkspace } from '@proma/shared'
+import type { AgentMcpServerConfig, AgentWorkspace, PageBuilderTargetSelection } from '@proma/shared'
 import type { CmsGateway } from './cms-gateway'
 import {
   PAGE_BUILDER_CMS_APPLY_TOOL_ID,
@@ -19,7 +19,7 @@ export const CMS_TOOL_NAMES = [
 ] as const
 
 const APPLY_CMS_BINDING_TOOL_GUIDANCE =
-  '将 CMS 数据绑定到当前 page-builder 区块，写入 cms-catalog 或 cms-content 标记并触发统一 HTML mutation pipeline。templateBody、emptyTemplate、errorTemplate 应承载 complete dynamic region，并且只传 slot 内部内容，不要包含外层 <template v-slot:...> 包装或外层 cms-* 标签。'
+  '将 CMS 数据绑定到当前 page-builder 区块，写入 cms-catalog 或 cms-content 标记并触发统一 HTML mutation pipeline。templateBody、emptyTemplate、errorTemplate 应承载 complete dynamic region，并且只传 slot 内部内容，不要包含外层 <template v-slot:...> 包装或外层 cms-* 标签。不要根据 CMS 浏览弹框当前的分页大小推断页面绑定的 pageSize。只有用户明确要求条数，或需要保留当前目标已有的 page-size 时，才传 source.pageSize。固定内容 ids 禁止传 pageSize；如需限制栏目数量应使用 take。'
 
 export interface CmsRuntimeToolBundle {
   mcpServer: AgentMcpServerConfig
@@ -56,6 +56,7 @@ export function buildCmsRuntimeToolBundle(
     '列出 CMS 栏目树，支持按内容类型或关键字过滤。',
     {
       siteId: z.string().min(1).optional(),
+      ids: z.array(z.string().min(1)).optional(),
       contentType: z.string().optional(),
       searchKeyword: z.string().optional(),
     },
@@ -70,12 +71,14 @@ export function buildCmsRuntimeToolBundle(
     '列出 CMS 栏目下的内容摘要。',
     {
       siteId: z.string().min(1).optional(),
-      catalogId: z.string().min(1),
+      ids: z.array(z.string().min(1)).optional(),
+      catalogId: z.string().min(1).optional(),
       keyword: z.string().optional(),
       pageIndex: z.number().int().min(0).optional(),
       pageSize: z.number().int().min(1).max(100).optional(),
     },
     async (args) => {
+      assertValidListContentsToolArgs(args)
       const result = await gateway.listContents(args)
       return toToolResult(result)
     },
@@ -92,15 +95,16 @@ export function buildCmsRuntimeToolBundle(
       kind: z.enum(['catalog-nav', 'content-list']),
       source: z.object({
         siteId: z.string().min(1).optional(),
+        ids: z.array(z.string().min(1)).optional(),
         level: z.string().optional(),
         parentId: z.string().optional(),
         contentType: z.string().optional(),
         searchKeyword: z.string().optional(),
-        take: z.number().int().min(0).optional(),
+        take: z.number().int().min(0).optional().describe('仅 catalog-nav 使用；如需限制栏目数量应使用 take，不要传 pageSize。'),
         catalogId: z.string().optional(),
         keyword: z.string().optional(),
         pageIndex: z.number().int().min(0).optional(),
-        pageSize: z.number().int().min(1).max(100).optional(),
+        pageSize: z.number().int().min(1).max(100).optional().describe('仅 content-list 的按栏目查询使用；不要根据 CMS 浏览弹框当前的分页大小推断页面绑定的 pageSize。'),
       }),
       templateBody: z.string().min(1).describe(PAGE_BUILDER_CMS_TEMPLATE_BODY_DESCRIPTION),
       emptyTemplate: z.string().describe(PAGE_BUILDER_CMS_EMPTY_TEMPLATE_DESCRIPTION).optional(),
@@ -126,10 +130,10 @@ export function buildCmsRuntimeToolBundle(
 
 function normalizeTargetSelectionInput(
   value: unknown,
-  schema: z.ZodType<unknown>,
-): unknown {
+  schema: z.ZodType<PageBuilderTargetSelection>,
+): PageBuilderTargetSelection | undefined {
   if (typeof value !== 'string') {
-    return value
+    return value as PageBuilderTargetSelection | undefined
   }
 
   let parsed: unknown
@@ -148,5 +152,14 @@ function toToolResult(payload: unknown) {
       type: 'text' as const,
       text: JSON.stringify(payload, null, 2),
     }],
+  }
+}
+
+function assertValidListContentsToolArgs(args: {
+  ids?: string[]
+  catalogId?: string
+}) {
+  if (args.ids?.length && !args.catalogId) {
+    throw new Error('固定内容 ids 查询必须同时提供 catalogId')
   }
 }

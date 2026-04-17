@@ -72,6 +72,19 @@ describe('cache-key', () => {
     expect(withAdditionalField).not.toBe(base)
   })
 
+  test('treats ordered ids as part of the content cache identity', () => {
+    const first = createContentQueryCacheKey({
+      siteId: '14',
+      ids: ['content-2', 'content-1'],
+    })
+    const second = createContentQueryCacheKey({
+      siteId: '14',
+      ids: ['content-1', 'content-2'],
+    })
+
+    expect(first).not.toBe(second)
+  })
+
   test('includes additional runtime query fields when generating catalog cache keys', () => {
     const base = createCatalogQueryCacheKey({
       contentType: 'Article',
@@ -89,5 +102,18 @@ describe('cache-key', () => {
     const withAdditionalField = createCatalogQueryCacheKey(queryWithAdditionalField)
 
     expect(withAdditionalField).not.toBe(base)
+  })
+
+  test('treats ordered ids as part of the catalog cache identity', () => {
+    const first = createCatalogQueryCacheKey({
+      siteId: '14',
+      ids: ['102', '101'],
+    })
+    const second = createCatalogQueryCacheKey({
+      siteId: '14',
+      ids: ['101', '102'],
+    })
+
+    expect(first).not.toBe(second)
   })
 })

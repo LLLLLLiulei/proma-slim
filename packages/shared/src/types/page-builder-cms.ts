@@ -1,12 +1,14 @@
 export interface PageBuilderCmsCatalogQuery {
   siteId?: string
+  ids?: string[]
   contentType?: string
   searchKeyword?: string
 }
 
 export interface PageBuilderCmsContentQuery {
   siteId?: string
-  catalogId: string
+  ids?: string[]
+  catalogId?: string
   keyword?: string
   pageIndex?: number
   pageSize?: number
@@ -85,7 +87,7 @@ export interface PageBuilderCmsSelectionRequestContext {
   targetBlock: PageBuilderCmsSelectionTargetBlock
 }
 
-export const PAGE_BUILDER_CMS_SELECTION_RESULT_VERSION = 3
+export const PAGE_BUILDER_CMS_SELECTION_RESULT_VERSION = 5
 
 interface PageBuilderCmsSelectionResultBase {
   version: typeof PAGE_BUILDER_CMS_SELECTION_RESULT_VERSION
@@ -94,21 +96,41 @@ interface PageBuilderCmsSelectionResultBase {
   targetBlock: PageBuilderCmsSelectionTargetBlock
 }
 
-export interface PageBuilderCmsCatalogSelectionResult extends PageBuilderCmsSelectionResultBase {
+export interface PageBuilderCmsCatalogsByParentSelectionResult extends PageBuilderCmsSelectionResultBase {
   selectionKind: 'catalogs'
-  sourceType: 'catalogs'
-  selectionMode: 'single' | 'multiple'
+  sourceType: 'catalogs-by-parent'
+  selectionMode: 'children-of-parent'
+  parentCatalogId: string
+  snapshot: {
+    parentCatalog: PageBuilderCmsCatalog
+  }
+}
+
+export interface PageBuilderCmsCatalogsByIdsSelectionResult extends PageBuilderCmsSelectionResultBase {
+  selectionKind: 'catalogs'
+  sourceType: 'catalogs-by-ids'
+  selectionMode: 'fixed-items'
   catalogIds: string[]
   snapshot: {
     catalogs: PageBuilderCmsCatalog[]
   }
 }
 
-export interface PageBuilderCmsFixedContentsSelectionResult extends PageBuilderCmsSelectionResultBase {
+export interface PageBuilderCmsContentsByCatalogSelectionResult extends PageBuilderCmsSelectionResultBase {
   selectionKind: 'contents'
-  sourceType: 'contents-fixed'
+  sourceType: 'contents-by-catalog'
+  selectionMode: 'by-catalog'
+  catalogId: string
+  snapshot: {
+    catalog: PageBuilderCmsCatalog
+  }
+}
+
+export interface PageBuilderCmsContentsByIdsSelectionResult extends PageBuilderCmsSelectionResultBase {
+  selectionKind: 'contents'
+  sourceType: 'contents-by-ids'
   selectionMode: 'fixed-items'
-  catalogIds: string[]
+  catalogId: string
   contentIds: string[]
   snapshot: {
     contents: PageBuilderCmsContentSummary[]
@@ -116,5 +138,7 @@ export interface PageBuilderCmsFixedContentsSelectionResult extends PageBuilderC
 }
 
 export type PageBuilderCmsSelectionResult =
-  | PageBuilderCmsCatalogSelectionResult
-  | PageBuilderCmsFixedContentsSelectionResult
+  | PageBuilderCmsCatalogsByParentSelectionResult
+  | PageBuilderCmsCatalogsByIdsSelectionResult
+  | PageBuilderCmsContentsByCatalogSelectionResult
+  | PageBuilderCmsContentsByIdsSelectionResult

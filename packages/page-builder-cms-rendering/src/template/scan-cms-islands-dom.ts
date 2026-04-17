@@ -1,24 +1,24 @@
 export const CMS_ISLAND_SELECTOR = 'cms-catalog, cms-content'
 
 export const CMS_ISLAND_ATTRIBUTES = {
-  'cms-catalog': ['site-id', 'level', 'parent-id', 'content-type', 'search-keyword', 'take'],
+  'cms-catalog': ['site-id', 'ids', 'level', 'parent-id', 'content-type', 'search-keyword', 'take'],
   'cms-content': [
     'site-id',
+    'ids',
     'catalog-id',
-    'content-select-type',
     'keyword',
-    'title',
     'page-index',
     'page-size',
   ],
 } as const
 
 export type CmsIslandComponentName = keyof typeof CMS_ISLAND_ATTRIBUTES
+export type CmsIslandPropValue = string | string[]
 
 export interface CmsIslandScanResult {
   component: CmsIslandComponentName
   template: string
-  props: Record<string, string>
+  props: Record<string, CmsIslandPropValue>
   element: Element
 }
 
@@ -41,11 +41,11 @@ export function isTopLevelCmsIsland(element: Element): boolean {
   return element.parentElement?.closest(CMS_ISLAND_SELECTOR) == null
 }
 
-function normalizeCmsIslandProps(
+export function normalizeCmsIslandProps(
   component: CmsIslandComponentName,
   element: Element,
-): Record<string, string> {
-  const props: Record<string, string> = {}
+): Record<string, CmsIslandPropValue> {
+  const props: Record<string, CmsIslandPropValue> = {}
 
   for (const attributeName of CMS_ISLAND_ATTRIBUTES[component]) {
     const value = element.getAttribute(attributeName)
@@ -58,7 +58,10 @@ function normalizeCmsIslandProps(
       continue
     }
 
-    props[toCamelCase(attributeName)] = normalizedValue
+    const propName = toCamelCase(attributeName)
+    props[propName] = propName === 'ids'
+      ? normalizedValue.split(',').map((item) => item.trim()).filter(Boolean)
+      : normalizedValue
   }
 
   return props

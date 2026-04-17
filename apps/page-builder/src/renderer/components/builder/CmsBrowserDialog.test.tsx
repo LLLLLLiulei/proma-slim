@@ -395,7 +395,7 @@ function installUiMocks() {
 
 async function loadCmsBrowserDialog(options?: {
   listSites?: () => Promise<PageBuilderCmsSiteSummary[]>
-  listCatalogs?: (query?: unknown) => Promise<PageBuilderCmsCatalogList>
+  listCatalogs?: (query?: PageBuilderCmsCatalogQuery) => Promise<PageBuilderCmsCatalogList>
   getCatalogDetail?: (catalogId: string, siteId?: string) => Promise<PageBuilderCmsCatalogDetail>
   listContents?: (query: PageBuilderCmsContentQuery) => Promise<PageBuilderCmsContentList>
 }) {
@@ -716,7 +716,11 @@ describe('CmsBrowserDialog', () => {
       total: 1,
       totalPages: 1,
       items: [
-        createContentItem(`${query.siteId ?? '1'}-${query.catalogId}-1`, query.catalogId, `内容 ${query.catalogId}`),
+        createContentItem(
+          `${query.siteId ?? '1'}-${query.catalogId ?? 'catalog'}-1`,
+          query.catalogId ?? 'catalog',
+          `内容 ${query.catalogId ?? 'catalog'}`,
+        ),
       ],
     }))
     const { CmsBrowserDialog, getLastTreeProps } = await loadCmsBrowserDialog({
@@ -770,7 +774,7 @@ describe('CmsBrowserDialog', () => {
     })
 
     expect(listCatalogs).toHaveBeenCalledWith({ siteId: '14' })
-    expect(JSON.stringify(renderer.toJSON())).toContain('已选 0 条内容')
+    expect(JSON.stringify(renderer.toJSON())).toContain('将使用当前栏目下的内容列表')
   })
 
   test('ignores stale catalog responses from the previous site after switching site', async () => {
@@ -893,9 +897,9 @@ describe('CmsBrowserDialog', () => {
     expect(JSON.stringify(renderer.toJSON())).not.toContain('主站内容')
   })
 
-  test('confirms a single catalog with a structured selection result', async () => {
+  test('confirms the highlighted catalog as a parent-source selection when no fixed catalogs are checked', async () => {
     const onConfirmSelection = mock(() => {})
-    const { CmsBrowserDialog, getLastTreeProps } = await loadCmsBrowserDialog()
+    const { CmsBrowserDialog } = await loadCmsBrowserDialog()
 
     let renderer!: ReturnType<typeof create>
     await act(async () => {
@@ -911,17 +915,11 @@ describe('CmsBrowserDialog', () => {
       await Promise.resolve()
     })
 
-    await act(async () => {
-      (getLastTreeProps() as {
-        onCheck?: (checkedKeys: string[]) => void
-      } | null)?.onCheck?.(['100'])
-      await Promise.resolve()
-    })
-
     const confirmButton = renderer.root.findAllByType('button')
       .find((button) => flattenText(button.props.children).trim() === '确认选择')
 
     expect(confirmButton).not.toBeUndefined()
+    expect(confirmButton?.props.disabled).toBe(false)
 
     await act(async () => {
       confirmButton?.props.onClick()
@@ -932,7 +930,7 @@ describe('CmsBrowserDialog', () => {
 
     const [[selection]] = onConfirmSelection.mock.calls as unknown as [[PageBuilderCmsSelectionResult]]
     expect(selection).toMatchObject({
-      version: 3,
+      version: 5,
       siteId: '1',
       targetSelection: {
         kind: 'block',
@@ -944,22 +942,21 @@ describe('CmsBrowserDialog', () => {
         selector: '#hero-banner',
       },
       selectionKind: 'catalogs',
-      sourceType: 'catalogs',
-      selectionMode: 'single',
-      catalogIds: ['100'],
+      sourceType: 'catalogs-by-parent',
+      selectionMode: 'children-of-parent',
+      parentCatalogId: '100',
       snapshot: {
-        catalogs: [
-          expect.objectContaining({ id: '100' }),
-        ],
+        parentCatalog: expect.objectContaining({ id: '100' }),
       },
     })
     expect(selection).not.toHaveProperty('tab')
     expect(selection).not.toHaveProperty('contents')
     expect(selection).not.toHaveProperty('querySpec')
     expect(selection).not.toHaveProperty('limit')
+    expect(selection).not.toHaveProperty('catalogIds')
   })
 
-  test('confirms multiple catalogs with a structured selection result', async () => {
+  test('confirms fixed catalog ids when one or more catalogs are checked', async () => {
     const onConfirmSelection = mock(() => {})
     const { CmsBrowserDialog, getLastTreeProps } = await loadCmsBrowserDialog()
 
@@ -996,7 +993,7 @@ describe('CmsBrowserDialog', () => {
 
     const [[selection]] = onConfirmSelection.mock.calls as unknown as [[PageBuilderCmsSelectionResult]]
     expect(selection).toMatchObject({
-      version: 3,
+      version: 5,
       siteId: '1',
       targetSelection: {
         kind: 'block',
@@ -1008,8 +1005,8 @@ describe('CmsBrowserDialog', () => {
         selector: '#hero-banner',
       },
       selectionKind: 'catalogs',
-      sourceType: 'catalogs',
-      selectionMode: 'multiple',
+      sourceType: 'catalogs-by-ids',
+      selectionMode: 'fixed-items',
       catalogIds: ['100', '101'],
       snapshot: {
         catalogs: [
@@ -1018,9 +1015,115 @@ describe('CmsBrowserDialog', () => {
         ],
       },
     })
+    expect(selection).not.toHaveProperty('parentCatalogId')
   })
 
-  test('clears checked contents when switching content catalogs and confirms fixed content items', async () => {
+  test('disables parent-source confirmation when the highlighted catalog has no direct children', async () => {
+    const onConfirmSelection = mock(() => {})
+    const { CmsBrowserDialog, getLastTreeProps } = await loadCmsBrowserDialog()
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <CmsBrowserDialog
+          onConfirmSelection={onConfirmSelection}
+          open
+          onOpenChange={() => {}}
+          requestContext={REQUEST_CONTEXT}
+        />,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      (getLastTreeProps() as {
+        onSelect?: (selectedKeys: string[]) => void
+      } | null)?.onSelect?.(['101'])
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    const confirmButton = renderer.root.findAllByType('button')
+      .find((button) => flattenText(button.props.children).trim() === '确认选择')
+
+    expect(confirmButton?.props.disabled).toBe(true)
+    expect(JSON.stringify(renderer.toJSON())).toContain('当前栏目下没有可用子栏目')
+
+    await act(async () => {
+      confirmButton?.props.onClick()
+      await Promise.resolve()
+    })
+
+    expect(onConfirmSelection).toHaveBeenCalledTimes(0)
+  })
+
+  test('confirms the highlighted catalog as a dynamic contents source when no fixed content is checked', async () => {
+    const onConfirmSelection = mock(() => {})
+    const { CmsBrowserDialog } = await loadCmsBrowserDialog({
+      listContents: mock(async () => createContentsPayload('首页轮播图')),
+    })
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <CmsBrowserDialog
+          onConfirmSelection={onConfirmSelection}
+          open
+          onOpenChange={() => {}}
+          requestContext={REQUEST_CONTEXT}
+        />,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    const contentsTab = renderer.root.findAllByType('button')
+      .find((button) => flattenText(button.props.children).trim() === '内容')
+
+    await act(async () => {
+      contentsTab?.props.onClick()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    const confirmButton = renderer.root.findAllByType('button')
+      .find((button) => flattenText(button.props.children).trim() === '确认选择')
+
+    expect(confirmButton?.props.disabled).toBe(false)
+
+    await act(async () => {
+      confirmButton?.props.onClick()
+      await Promise.resolve()
+    })
+
+    expect(onConfirmSelection).toHaveBeenCalledTimes(1)
+
+    const [[selection]] = onConfirmSelection.mock.calls as unknown as [[PageBuilderCmsSelectionResult]]
+    expect(selection).toMatchObject({
+      version: 5,
+      siteId: '1',
+      targetSelection: {
+        kind: 'block',
+        selector: '#hero-banner',
+        parentBlockSelector: '#hero-banner',
+        editBoundary: 'block',
+      },
+      targetBlock: {
+        selector: '#hero-banner',
+      },
+      selectionKind: 'contents',
+      sourceType: 'contents-by-catalog',
+      selectionMode: 'by-catalog',
+      catalogId: '100',
+      snapshot: {
+        catalog: expect.objectContaining({ id: '100' }),
+      },
+    })
+    expect(selection).not.toHaveProperty('contentIds')
+  })
+
+  test('clears checked contents when switching content catalogs and confirms fixed content ids', async () => {
     const onConfirmSelection = mock(() => {})
     const { CmsBrowserDialog, getLastTreeProps } = await loadCmsBrowserDialog({
       listContents: mock(async (query: PageBuilderCmsContentQuery) => ({
@@ -1029,8 +1132,8 @@ describe('CmsBrowserDialog', () => {
         total: 2,
         totalPages: 1,
         items: [
-          createContentItem(`${query.catalogId}-1`, query.catalogId, `内容 ${query.catalogId} - A`),
-          createContentItem(`${query.catalogId}-2`, query.catalogId, `内容 ${query.catalogId} - B`),
+          createContentItem(`${query.catalogId ?? 'catalog'}-1`, query.catalogId ?? 'catalog', `内容 ${query.catalogId ?? 'catalog'} - A`),
+          createContentItem(`${query.catalogId ?? 'catalog'}-2`, query.catalogId ?? 'catalog', `内容 ${query.catalogId ?? 'catalog'} - B`),
         ],
       })),
     })
@@ -1075,7 +1178,7 @@ describe('CmsBrowserDialog', () => {
       await Promise.resolve()
     })
 
-    expect(JSON.stringify(renderer.toJSON())).toContain('已选 0 条内容')
+    expect(JSON.stringify(renderer.toJSON())).toContain('将使用当前栏目下的内容列表')
     expect(JSON.stringify(renderer.toJSON())).toContain('内容 101')
 
     const [secondCheckbox, thirdCheckbox] = renderer.root.findAllByType('input')
@@ -1097,7 +1200,7 @@ describe('CmsBrowserDialog', () => {
 
     const [[selection]] = onConfirmSelection.mock.calls as unknown as [[PageBuilderCmsSelectionResult]]
     expect(selection).toMatchObject({
-      version: 3,
+      version: 5,
       siteId: '1',
       targetSelection: {
         kind: 'block',
@@ -1109,9 +1212,9 @@ describe('CmsBrowserDialog', () => {
         selector: '#hero-banner',
       },
       selectionKind: 'contents',
-      sourceType: 'contents-fixed',
+      sourceType: 'contents-by-ids',
       selectionMode: 'fixed-items',
-      catalogIds: ['101'],
+      catalogId: '101',
       contentIds: ['101-1', '101-2'],
       snapshot: {
         contents: [
@@ -1133,6 +1236,7 @@ describe('CmsBrowserDialog', () => {
     expect(selection).not.toHaveProperty('latestByCatalog')
     expect(selection).not.toHaveProperty('querySpec')
     expect(selection).not.toHaveProperty('limit')
+    expect(selection).not.toHaveProperty('catalogIds')
   })
 
   test('toggles content selection when the user clicks a card', async () => {
@@ -1166,7 +1270,7 @@ describe('CmsBrowserDialog', () => {
       await Promise.resolve()
     })
 
-    expect(JSON.stringify(renderer.toJSON())).toContain('已选 0 条内容')
+    expect(JSON.stringify(renderer.toJSON())).toContain('将使用当前栏目下的内容列表')
 
     const firstCard = renderer.root.findAllByType('article')[0]
 
@@ -1182,7 +1286,7 @@ describe('CmsBrowserDialog', () => {
       await Promise.resolve()
     })
 
-    expect(JSON.stringify(renderer.toJSON())).toContain('已选 0 条内容')
+    expect(JSON.stringify(renderer.toJSON())).toContain('将使用当前栏目下的内容列表')
   })
 
   test('renders cms content cards with proxied listLogo, added time, and single-line summary metadata', async () => {

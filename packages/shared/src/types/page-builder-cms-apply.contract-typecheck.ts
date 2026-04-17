@@ -1,5 +1,7 @@
 import type {
   PageBuilderCmsApplyDecisionResult,
+  PageBuilderCmsApplyExampleCatalogNavInput,
+  PageBuilderCmsApplyExampleContentListInput,
   PageBuilderCmsApplySkillInput,
   PageBuilderCmsCatalog,
   PageBuilderCmsContentSummary,
@@ -17,7 +19,7 @@ const catalogSnapshot = {} as PageBuilderCmsCatalog
 const contentSnapshot = {} as PageBuilderCmsContentSummary
 
 const catalogApplyInput = {
-  version: 2,
+  version: 3,
   entryPoint: 'cms-browser-confirm',
   applyIntent: 'replace-current',
   workspacePolicy: {
@@ -32,16 +34,48 @@ const catalogApplyInput = {
     blockTypeHint: 'nav',
   },
   selection: {
-    version: 3,
+    version: 5,
     siteId: '14',
     targetSelection: createPageBuilderBlockTargetSelection('#main-nav'),
     targetBlock: {
       selector: '#main-nav',
     },
     selectionKind: 'catalogs',
-    sourceType: 'catalogs',
-    selectionMode: 'multiple',
-    catalogIds: ['catalog-1', 'catalog-2'],
+    sourceType: 'catalogs-by-parent',
+    selectionMode: 'children-of-parent',
+    parentCatalogId: 'catalog-parent',
+    snapshot: {
+      parentCatalog: catalogSnapshot,
+    },
+  },
+} satisfies PageBuilderCmsApplySkillInput
+
+const catalogListApplyInput = {
+  version: 3,
+  entryPoint: 'cms-browser-confirm',
+  applyIntent: 'replace-current',
+  workspacePolicy: {
+    scope: 'target-selection-only',
+    allowPageRewrite: false,
+    allowCrossBlockMutation: false,
+    outputTarget: 'workspace-files/index.html',
+  },
+  targetSelection: createPageBuilderBlockTargetSelection('#featured-catalogs'),
+  targetBlock: {
+    selector: '#featured-catalogs',
+    blockTypeHint: 'catalog-list',
+  },
+  selection: {
+    version: 5,
+    siteId: '14',
+    targetSelection: createPageBuilderBlockTargetSelection('#featured-catalogs'),
+    targetBlock: {
+      selector: '#featured-catalogs',
+    },
+    selectionKind: 'catalogs',
+    sourceType: 'catalogs-by-ids',
+    selectionMode: 'fixed-items',
+    catalogIds: ['catalog-1'],
     snapshot: {
       catalogs: [catalogSnapshot],
     },
@@ -49,7 +83,7 @@ const catalogApplyInput = {
 } satisfies PageBuilderCmsApplySkillInput
 
 const contentApplyInput = {
-  version: 2,
+  version: 3,
   entryPoint: 'cms-browser-confirm',
   applyIntent: 'replace-current',
   workspacePolicy: {
@@ -64,48 +98,48 @@ const contentApplyInput = {
     blockTypeHint: 'content-list',
   },
   selection: {
-    version: 3,
-    siteId: '14',
-    targetSelection: createPageBuilderBlockTargetSelection('#latest-news'),
-    targetBlock: {
-      selector: '#latest-news',
-    },
-    selectionKind: 'catalogs',
-    sourceType: 'catalogs',
-    selectionMode: 'single',
-    catalogIds: ['catalog-1'],
-    snapshot: {
-      catalogs: [catalogSnapshot],
-    },
-  },
-} satisfies PageBuilderCmsApplySkillInput
-
-const fixedContentsApplyInput = {
-  version: 2,
-  entryPoint: 'cms-browser-confirm',
-  applyIntent: 'replace-current',
-  workspacePolicy: {
-    scope: 'target-selection-only',
-    allowPageRewrite: false,
-    allowCrossBlockMutation: false,
-    outputTarget: 'workspace-files/index.html',
-  },
-  targetSelection: createPageBuilderBlockTargetSelection('#latest-news'),
-  targetBlock: {
-    selector: '#latest-news',
-    blockTypeHint: 'content-list',
-  },
-  selection: {
-    version: 3,
+    version: 5,
     siteId: '14',
     targetSelection: createPageBuilderBlockTargetSelection('#latest-news'),
     targetBlock: {
       selector: '#latest-news',
     },
     selectionKind: 'contents',
-    sourceType: 'contents-fixed',
+    sourceType: 'contents-by-catalog',
+    selectionMode: 'by-catalog',
+    catalogId: 'catalog-1',
+    snapshot: {
+      catalog: catalogSnapshot,
+    },
+  },
+} satisfies PageBuilderCmsApplySkillInput
+
+const fixedContentsApplyInput = {
+  version: 3,
+  entryPoint: 'cms-browser-confirm',
+  applyIntent: 'replace-current',
+  workspacePolicy: {
+    scope: 'target-selection-only',
+    allowPageRewrite: false,
+    allowCrossBlockMutation: false,
+    outputTarget: 'workspace-files/index.html',
+  },
+  targetSelection: createPageBuilderBlockTargetSelection('#latest-news'),
+  targetBlock: {
+    selector: '#latest-news',
+    blockTypeHint: 'content-list',
+  },
+  selection: {
+    version: 5,
+    siteId: '14',
+    targetSelection: createPageBuilderBlockTargetSelection('#latest-news'),
+    targetBlock: {
+      selector: '#latest-news',
+    },
+    selectionKind: 'contents',
+    sourceType: 'contents-by-ids',
     selectionMode: 'fixed-items',
-    catalogIds: ['catalog-1'],
+    catalogId: 'catalog-1',
     contentIds: ['content-1'],
     snapshot: {
       contents: [contentSnapshot],
@@ -115,12 +149,12 @@ const fixedContentsApplyInput = {
 
 const readyDecision = {
   status: 'ready',
-  targetBlockKind: 'content-list',
+  targetBlockKind: 'catalog-list',
   supportedRenderModes: ['replace-current'],
   renderMode: 'replace-current',
   applyStrategy: 'replace-current',
-  mappingKind: 'catalog-content-list',
-  toolKind: 'content-list',
+  mappingKind: 'catalog-nav',
+  toolKind: 'catalog-nav',
 } satisfies PageBuilderCmsApplyDecisionResult
 
 const needsClarificationDecision = {
@@ -148,6 +182,19 @@ const malformedPayloadDecision = {
 } satisfies PageBuilderCmsApplyDecisionResult
 
 type _ApplyInputIntent = Assert<IsExact<PageBuilderCmsApplySkillInput['applyIntent'], 'replace-current'>>
+type _TargetBlockKind = Assert<IsExact<PageBuilderCmsApplySkillInput['targetBlock']['blockTypeHint'], 'nav' | 'catalog-list' | 'content-list' | undefined>>
+type _ExampleCatalogNavSelection = Assert<
+  IsExact<
+    PageBuilderCmsApplyExampleCatalogNavInput['selection'],
+    Extract<PageBuilderCmsApplySkillInput['selection'], { selectionKind: 'catalogs' }>
+  >
+>
+type _ExampleContentListSelection = Assert<
+  IsExact<
+    PageBuilderCmsApplyExampleContentListInput['selection'],
+    Extract<PageBuilderCmsApplySkillInput['selection'], { selectionKind: 'contents' }>
+  >
+>
 type _ReadyStatus = Assert<IsExact<Extract<PageBuilderCmsApplyDecisionResult, { status: 'ready' }>['renderMode'], 'replace-current'>>
 type _ClarificationKind = Assert<
   IsExact<
@@ -168,6 +215,7 @@ type _IncompatibleReason = Assert<
 >
 
 void catalogApplyInput
+void catalogListApplyInput
 void contentApplyInput
 void fixedContentsApplyInput
 void readyDecision

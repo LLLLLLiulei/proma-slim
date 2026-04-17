@@ -29,7 +29,10 @@ describe('page builder preview selection helpers', () => {
       },
       selectionSemantics: {
         previewSurface: 'static-block',
-        updateRule: 'update-selected-target',
+        updateRule: 'replace-selected-target-in-place',
+        preserveExistingStructure: true,
+        forbidSiblingInsertion: true,
+        fallbackOnIncompatibleStructure: 'ask-user-question',
       },
     })
   })
@@ -55,6 +58,7 @@ describe('page builder preview selection helpers', () => {
         previewSurface: 'cms-rendered-output',
         updateRule: 'replace-whole-source-component',
         forbidRenderedChildWrites: true,
+        forbidSiblingInsertion: true,
       },
     })
   })

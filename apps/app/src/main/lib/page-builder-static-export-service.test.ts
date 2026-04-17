@@ -396,6 +396,124 @@ describe('page-builder static export service', () => {
     expect(fetchAsset).toHaveBeenCalledTimes(1)
   })
 
+  test('renders fixed-id CMS islands in order and falls back to empty when all ids are invalid', async () => {
+    const workspace = createAgentWorkspace('Static Export CMS Fixed Ids', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(
+      join(workspaceFilesDir, 'index.html'),
+      `<!doctype html>
+      <html>
+        <body>
+          <section id="ordered">
+            <cms-content site-id="14" ids="content-2,content-1">
+              <template v-slot:default="{ items }">
+                <ul>
+                  <li v-for="item in items" :key="item.id">{{ item.title }}</li>
+                </ul>
+              </template>
+              <template v-slot:empty>
+                <p>ordered-empty</p>
+              </template>
+            </cms-content>
+          </section>
+          <section id="empty">
+            <cms-content site-id="14" ids="missing-1,missing-2">
+              <template v-slot:default="{ items }">
+                <ul>
+                  <li v-for="item in items" :key="item.id">{{ item.title }}</li>
+                </ul>
+              </template>
+              <template v-slot:empty>
+                <p>all-invalid-empty</p>
+              </template>
+            </cms-content>
+          </section>
+        </body>
+      </html>`,
+      'utf-8',
+    )
+
+    const contentQueries: Array<Record<string, unknown>> = []
+
+    const {
+      PageBuilderStaticExportService,
+    } = await import('./page-builder-static-export-service')
+    const {
+      getPageBuilderStaticExportStagingDir,
+    } = await import('./page-builder-static-export-paths')
+
+    const service = new PageBuilderStaticExportService({
+      cmsGatewayFactory: () => ({
+        async fetchAsset() {
+          throw new Error('fetchAsset should not be called for fixed-id text-only export')
+        },
+      }),
+      cmsQueryAdapterFactory: () => ({
+        async listCatalogs() {
+          return {
+            items: [],
+            tree: [],
+          }
+        },
+        async listContents(query) {
+          contentQueries.push(query as Record<string, unknown>)
+          if (query.ids?.includes('missing-1')) {
+            return {
+              pageIndex: 0,
+              pageSize: 0,
+              total: 0,
+              totalPages: 1,
+              items: [],
+            }
+          }
+
+          return {
+            pageIndex: 0,
+            pageSize: 2,
+            total: 2,
+            totalPages: 1,
+            items: [
+              {
+                id: 'content-2',
+                catalogId: 'news',
+                title: '第二条',
+                summary: '第二条摘要',
+                publishUrl: 'https://example.com/news/2',
+              },
+              {
+                id: 'content-1',
+                catalogId: 'news',
+                title: '第一条',
+                summary: '第一条摘要',
+                publishUrl: 'https://example.com/news/1',
+              },
+            ],
+          }
+        },
+      }),
+      randomUUID: () => 'job-cms-fixed-ids-success',
+    })
+
+    const createdJob = service.createJob(workspace)
+    const finishedJob = await waitForTerminalJob(service, workspace.id, createdJob.jobId)
+
+    expect(finishedJob.status).toBe('completed')
+
+    const stagedHtml = readFileSync(join(getPageBuilderStaticExportStagingDir(createdJob.jobId), 'index.html'), 'utf-8')
+
+    expect(stagedHtml).toContain('第二条')
+    expect(stagedHtml).toContain('第一条')
+    expect(stagedHtml.indexOf('第二条')).toBeLessThan(stagedHtml.indexOf('第一条'))
+    expect(stagedHtml).toContain('all-invalid-empty')
+    expect(stagedHtml).not.toContain('<cms-content')
+    expect(contentQueries).toEqual([
+      { siteId: '14', catalogId: 'news', ids: ['content-2', 'content-1'] },
+      { siteId: '14', catalogId: 'news', ids: ['missing-1', 'missing-2'] },
+    ])
+  })
+
   test('fails export with a structured CMS island failure when island prefetch fails', async () => {
     const workspace = createAgentWorkspace('Static Export CMS Islands Failure', { template: 'page-builder' })
     const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')

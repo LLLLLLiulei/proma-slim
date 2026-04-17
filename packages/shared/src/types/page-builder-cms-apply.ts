@@ -8,13 +8,13 @@ import type { PageBuilderTargetSelection } from './page-builder-target-selection
 
 export type { PageBuilderCmsCatalog, PageBuilderCmsContentSummary } from './page-builder-cms'
 
-export const PAGE_BUILDER_CMS_APPLY_SKILL_CONTRACT_VERSION = 2
+export const PAGE_BUILDER_CMS_APPLY_SKILL_CONTRACT_VERSION = 3
 
 export type PageBuilderCmsApplySkillEntryPoint = 'cms-browser-confirm'
 
 export type PageBuilderCmsApplyIntent = 'replace-current'
 
-export type PageBuilderCmsApplyTargetBlockKind = 'nav' | 'content-list'
+export type PageBuilderCmsApplyTargetBlockKind = 'nav' | 'catalog-list' | 'content-list'
 
 export type PageBuilderCmsApplyRenderMode = 'replace-current'
 
@@ -109,7 +109,7 @@ export interface PageBuilderCmsApplyExampleCatalogNavInput {
 
 export interface PageBuilderCmsApplyExampleContentListInput {
   targetBlock: PageBuilderCmsApplyTargetBlock
-  selection: Extract<PageBuilderCmsSelectionResult, { selectionKind: 'catalogs' }>
+  selection: Extract<PageBuilderCmsSelectionResult, { selectionKind: 'contents' }>
   selectedCatalogId: string
   snapshotCatalogs: PageBuilderCmsCatalog[]
 }

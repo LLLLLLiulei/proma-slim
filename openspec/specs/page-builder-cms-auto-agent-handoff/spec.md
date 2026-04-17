@@ -18,7 +18,7 @@
 - **AND** 系统 SHALL NOT 为该次 handoff 创建新的 Agent 会话或独立对话线程
 
 ### Requirement: CMS 自动 handoff 必须组装统一的 `PageBuilderCmsApplySkillInput`
-系统 SHALL 在发起 CMS 自动 handoff 前，将确认结果组装为统一的 `PageBuilderCmsApplySkillInput`，并 SHALL 为第一阶段填入稳定的默认运行边界，而不得将关键字段留给模型自行从自由文本中反推；该输入 MUST 以 `targetSelection` 作为规范化目标入口，并 SHALL 在需要时保留 `targetBlock` 作为 parent block 上下文。
+系统 SHALL 在发起 CMS 自动 handoff 前，将确认结果组装为统一的 `PageBuilderCmsApplySkillInput`，并 SHALL 为第一阶段填入稳定的默认运行边界，而不得将关键字段留给模型自行从自由文本中反推；该输入 MUST 以 `targetSelection` 作为规范化目标入口，并 SHALL 在需要时保留 `targetBlock` 作为 parent block 上下文；该输入 MUST 原样保留新的 `sourceType` 与对应 durable payload。
 
 #### Scenario: handoff 输入使用 selection-scoped Phase 1A 默认值
 - **WHEN** 系统为一次 CMS 确认结果构建 handoff 输入
@@ -31,6 +31,8 @@
 - **AND** 系统 SHALL 生成 `workspacePolicy.outputTarget: 'workspace-files/index.html'`
 - **AND** 系统 SHALL 保留原始 `selection`
 - **AND** 系统 SHALL 保留 `selection.siteId`
+- **AND** 系统 SHALL 保留 `selection.sourceType` 及其对应的 `parentCatalogId`、`catalogId`、`catalogIds`、`contentIds` 与 `snapshot`
+- **AND** 当 `selection.sourceType = contents-by-ids` 时，系统 SHALL 保留单一 `selection.catalogId`
 - **AND** 系统 SHALL 保留 `targetSelection`
 
 #### Scenario: 缺少 selection.siteId 时阻断自动 handoff
@@ -50,7 +52,6 @@
 - **WHEN** 系统在 handoff 时没有稳定来源可判断 `blockTypeHint`、`blockLabel` 或 `snapshotAvailable`
 - **THEN** 系统 SHALL 允许这些字段缺失
 - **AND** 系统 SHALL NOT 仅依据 `selector` 字符串伪造这些字段
-
 ### Requirement: CMS 自动 handoff 必须分离可见消息、隐藏结构化 payload 与强制 skill 注入
 系统 SHALL 将自动 handoff 的可见时间线文本、隐藏运行时 payload 与 skill 装载指令分离处理，以保证用户可读性与运行时稳定性同时成立；当目标是 `cms-island` 时，隐藏 payload MUST 显式表达该目标的 source-atomic 组件语义。
 

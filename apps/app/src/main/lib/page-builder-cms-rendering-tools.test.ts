@@ -111,6 +111,75 @@ describe('page-builder cms rendering apply tool', () => {
     expect(html).toContain('<cms-content site-id="14" catalog-id="news" page-size="6">')
   })
 
+  test('applies catalog-nav parent-source bindings with children-level props only', () => {
+    const workspace = createAgentWorkspace('CMS Apply Parent Catalogs', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(
+      join(workspaceFilesDir, 'index.html'),
+      '<!doctype html><html><body><section id="catalog-nav" data-proma-block-id="pb_blk_catalogs"></section></body></html>',
+      'utf-8',
+    )
+
+    const tools = createPageBuilderCmsRenderingTools({
+      now: () => '2026-04-13T00:00:00.000Z',
+    })
+
+    const result = tools.applyCmsBinding(workspace, {
+      targetBlock: {
+        selector: '#catalog-nav',
+      },
+      kind: 'catalog-nav',
+      source: {
+        siteId: '14',
+        parentId: '7',
+      } as never,
+      templateBody: '<nav><a v-for="item in items" :key="item.id" :href="item.path">{{ item.name }}</a></nav>',
+    })
+
+    expect(result.generatedHtml).toContain('<cms-catalog site-id="14" level="children" parent-id="7">')
+    expect(result.generatedHtml).not.toContain('ids=')
+    expect(result.generatedHtml).not.toContain('content-type=')
+    expect(result.generatedHtml).not.toContain('search-keyword=')
+  })
+
+  test('applies catalog-nav fixed-id bindings and keeps ordered ids in html and manifest props', () => {
+    const workspace = createAgentWorkspace('CMS Apply Fixed Catalogs', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(
+      join(workspaceFilesDir, 'index.html'),
+      '<!doctype html><html><body><section id="catalog-grid" data-proma-block-id="pb_blk_catalog_grid"></section></body></html>',
+      'utf-8',
+    )
+
+    const tools = createPageBuilderCmsRenderingTools({
+      now: () => '2026-04-13T00:00:00.000Z',
+    })
+
+    const result = tools.applyCmsBinding(workspace, {
+      targetBlock: {
+        selector: '#catalog-grid',
+      },
+      kind: 'catalog-nav',
+      source: {
+        siteId: '14',
+        ids: ['cat-b', 'cat-a'],
+      } as never,
+      templateBody: '<section class="catalog-grid"><article v-for="item in items" :key="item.id">{{ item.name }}</article></section>',
+    })
+
+    expect(result.generatedHtml).toContain('<cms-catalog site-id="14" ids="cat-b,cat-a">')
+    expect(result.generatedHtml).not.toContain('level=')
+    expect(result.generatedHtml).not.toContain('parent-id=')
+    expect(result.manifest.entry?.props).toEqual(expect.objectContaining({
+      siteId: '14',
+      ids: ['cat-b', 'cat-a'],
+    }))
+  })
+
   test('documents template fields as the place for the complete dynamic region structure', () => {
     const source = readFileSync(fileURLToPath(new URL('./page-builder-cms-rendering-tools.ts', import.meta.url)), 'utf-8')
 
@@ -304,17 +373,85 @@ describe('page-builder cms rendering apply tool', () => {
     })
 
     const html = readFileSync(entryPath, 'utf-8')
+    expect(result.blockId).toBe('pb_blk_news')
     expect(result.targetSelection).toMatchObject({
       kind: 'cms-island',
       selector: '#latest-news > cms-content:nth-of-type(1)',
-      parentBlockSelector: '#latest-news > cms-content:nth-of-type(1)',
+      parentBlockSelector: '#latest-news',
       component: 'cms-content',
       editBoundary: 'source-atomic',
+    })
+    expect(result.manifest.entry).toMatchObject({
+      blockId: 'pb_blk_news',
+      component: 'cms-content',
+      props: expect.objectContaining({
+        siteId: '14',
+        catalogId: 'events',
+        pageSize: '4',
+      }),
     })
     expect(html).toContain('<p class="static-note">静态尾注</p>')
     expect(html).toContain('<cms-content site-id="14" catalog-id="events" page-size="4">')
     expect(html).not.toContain('<cms-content catalog-id="news">')
     expect(html).not.toContain('<cms-content catalog-id="news"><cms-content')
+  })
+
+  test('returns the manifest entry for the replaced cms island instead of the first island in the same block', () => {
+    const workspace = createAgentWorkspace('CMS Apply Correct Manifest Entry', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+    const entryPath = join(workspaceFilesDir, 'index.html')
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(
+      entryPath,
+      [
+        '<!doctype html><html><body>',
+        '<section id="news-block" data-proma-block-id="pb_blk_news">',
+        '<cms-catalog site-id="1" ids="nav-a">',
+        '  <template v-slot:default="{ items }"><nav>{{ items.length }}</nav></template>',
+        '</cms-catalog>',
+        '<cms-content catalog-id="legacy-news">',
+        '  <template v-slot:default="{ items }"><div>{{ items.length }}</div></template>',
+        '</cms-content>',
+        '</section>',
+        '</body></html>',
+      ].join(''),
+      'utf-8',
+    )
+
+    const tools = createPageBuilderCmsRenderingTools({
+      now: () => '2026-04-13T00:00:00.000Z',
+    })
+
+    const result = tools.applyCmsBinding(workspace, {
+      targetSelection: {
+        kind: 'cms-island',
+        selector: '#news-block > cms-content:nth-of-type(1)',
+        parentBlockSelector: '#news-block',
+        component: 'cms-content',
+        editBoundary: 'source-atomic',
+      },
+      targetBlock: {
+        selector: '#news-block',
+      },
+      kind: 'content-list',
+      source: {
+        siteId: '14',
+        catalogId: 'events',
+      },
+      templateBody: '<article v-for="item in items" :key="item.id">{{ item.title }}</article>',
+    })
+
+    expect(result.manifest.entryCount).toBe(2)
+    expect(result.manifest.entry).toMatchObject({
+      blockId: 'pb_blk_news',
+      component: 'cms-content',
+      props: expect.objectContaining({
+        siteId: '14',
+        catalogId: 'events',
+      }),
+    })
+    expect(result.manifest.entry?.component).not.toBe('cms-catalog')
   })
 
   test('rejects selectors that do not uniquely resolve to a target block', () => {
@@ -389,8 +526,8 @@ describe('page-builder cms rendering apply tool', () => {
     }
   })
 
-  test('rejects fixed content id style inputs that are outside the current runtime capability', () => {
-    const workspace = createAgentWorkspace('CMS Apply Unsupported Input', { template: 'page-builder' })
+  test('applies fixed content ids through content-list bindings', () => {
+    const workspace = createAgentWorkspace('CMS Apply Fixed Contents', { template: 'page-builder' })
     const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
     const entryPath = join(workspaceFilesDir, 'index.html')
 
@@ -403,19 +540,97 @@ describe('page-builder cms rendering apply tool', () => {
 
     const tools = createPageBuilderCmsRenderingTools()
 
+    const result = tools.applyCmsBinding(workspace, {
+      targetBlock: {
+        selector: '#latest-news',
+      },
+      kind: 'content-list',
+      source: {
+        siteId: '14',
+        catalogId: 'news',
+        ids: ['n-2', 'n-1'],
+      } as never,
+      templateBody: '<article></article>',
+    })
+
+    expect(result.generatedHtml).toContain('<cms-content site-id="14" catalog-id="news" ids="n-2,n-1">')
+    expect(readFileSync(entryPath, 'utf-8')).toContain('<cms-content site-id="14" catalog-id="news" ids="n-2,n-1">')
+  })
+
+  test('rejects fixed ids mixed with paging or keyword query props for cms bindings', () => {
+    const workspace = createAgentWorkspace('CMS Apply Mixed Source', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+    const entryPath = join(workspaceFilesDir, 'index.html')
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(
+      entryPath,
+      '<!doctype html><html><body><section id="latest-news"></section><section id="catalog-nav"></section></body></html>',
+      'utf-8',
+    )
+
+    const tools = createPageBuilderCmsRenderingTools()
+
     expect(() => tools.applyCmsBinding(workspace, {
       targetBlock: {
         selector: '#latest-news',
       },
       kind: 'content-list',
       source: {
+        siteId: '14',
         catalogId: 'news',
-        contentIds: ['n-1'],
+        ids: ['n-1'],
+        pageSize: 3,
       } as never,
       templateBody: '<article></article>',
     })).toThrow(PageBuilderCmsBindingApplyError)
-    expect(readFileSync(entryPath, 'utf-8')).not.toContain('cms-content')
-    expect(existsSync(join(workspaceFilesDir, '.proma', 'cms-rendering-manifest.json'))).toBe(false)
+
+    expect(() => tools.applyCmsBinding(workspace, {
+      targetBlock: {
+        selector: '#catalog-nav',
+      },
+      kind: 'catalog-nav',
+      source: {
+        siteId: '14',
+        parentId: '7',
+        ids: ['cat-1'],
+      } as never,
+      templateBody: '<nav></nav>',
+    })).toThrow(PageBuilderCmsBindingApplyError)
+
+    expect(readFileSync(entryPath, 'utf-8')).not.toContain('<cms-content')
+    expect(readFileSync(entryPath, 'utf-8')).not.toContain('<cms-catalog')
+  })
+
+  test('rejects catalog-nav bindings that try to use pageSize and tells callers to use take', () => {
+    const workspace = createAgentWorkspace('CMS Apply Catalog Page Size', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+    const entryPath = join(workspaceFilesDir, 'index.html')
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(
+      entryPath,
+      '<!doctype html><html><body><section id="catalog-nav"></section></body></html>',
+      'utf-8',
+    )
+
+    const tools = createPageBuilderCmsRenderingTools()
+
+    expect(() => tools.applyCmsBinding(workspace, {
+      targetBlock: {
+        selector: '#catalog-nav',
+      },
+      kind: 'catalog-nav',
+      source: {
+        siteId: '14',
+        level: 'children',
+        parentId: '7',
+        pageSize: 6,
+      } as never,
+      templateBody: '<nav></nav>',
+    })).toThrow('catalog-nav 不支持 source.pageSize；如需限制栏目数量请使用 source.take')
+
+    expect(readFileSync(entryPath, 'utf-8')).not.toContain('<cms-catalog')
   })
 
   test('rejects template fields that already contain nested cms islands', () => {

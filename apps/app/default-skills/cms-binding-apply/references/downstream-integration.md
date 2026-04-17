@@ -16,12 +16,14 @@ In the current page-builder workflow, a `ready` result should lead directly to a
 
 If `selection.siteId` is missing, the flow must stop and report a malformed payload style error. Do not substitute `siteId = 1` for new writes.
 
+If `selection.sourceType = contents-by-ids`, the downstream apply step must also preserve the single `selection.catalogId`; do not generate a fixed-content `cms-content` tag with bare `ids` only.
+
 ## Phase 1A boundary
 
 - Only `replace-current`
 - Only target-selection-scoped edits
 - CMS islands remain `source-atomic`
-- Only `nav` and `content-list`
+- Only `nav`, `catalog-list`, and `content-list`
 - No CMS rebrowsing through `AskUserQuestion`
 - No page-wide rewrite
 - No inventing new `cms-*` tags outside the controlled CMS selection flow

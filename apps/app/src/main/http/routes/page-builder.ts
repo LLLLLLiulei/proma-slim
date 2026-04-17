@@ -66,12 +66,21 @@ pageBuilderRoutes.get('/cms/sites', async (c) => {
 })
 
 pageBuilderRoutes.get('/cms/catalogs', async (c) => {
+  const ids = readOrderedIdsQuery(c.req.query('ids'))
+  const contentType = readOptionalStringQuery(c.req.query('contentType'))
+  const searchKeyword = readOptionalStringQuery(c.req.query('searchKeyword'))
+
+  if (ids && (contentType || searchKeyword)) {
+    throw new HttpError(400, 'ids 不能与 contentType 或 searchKeyword 混用')
+  }
+
   try {
     const gateway = createCmsGateway()
     return c.json(await gateway.listCatalogs({
       siteId: readOptionalSiteIdQuery(c.req.query('siteId')),
-      contentType: readOptionalStringQuery(c.req.query('contentType')),
-      searchKeyword: readOptionalStringQuery(c.req.query('searchKeyword')),
+      ids,
+      contentType,
+      searchKeyword,
     }))
   } catch (error) {
     throw mapCmsGatewayError(error)
@@ -96,7 +105,13 @@ pageBuilderRoutes.get('/cms/catalogs/:catalogId', async (c) => {
 })
 
 pageBuilderRoutes.get('/cms/contents', async (c) => {
+  const ids = readOrderedIdsQuery(c.req.query('ids'))
   const catalogId = readOptionalStringQuery(c.req.query('catalogId'))
+
+  if (ids && (c.req.query('keyword') || c.req.query('pageIndex') || c.req.query('pageSize'))) {
+    throw new HttpError(400, 'ids 不能与 keyword、pageIndex 或 pageSize 混用')
+  }
+
   if (!catalogId) {
     throw new HttpError(400, 'catalogId 不能为空')
   }
@@ -105,6 +120,7 @@ pageBuilderRoutes.get('/cms/contents', async (c) => {
     const gateway = createCmsGateway()
     return c.json(await gateway.listContents({
       siteId: readOptionalSiteIdQuery(c.req.query('siteId')),
+      ids,
       catalogId,
       keyword: readOptionalStringQuery(c.req.query('keyword')),
       pageIndex: readOptionalIntegerQuery(c.req.query('pageIndex'), {
@@ -162,6 +178,10 @@ function mapCmsGatewayError(error: unknown): Error {
   }
 
   if (error instanceof CmsGatewayError) {
+    if (error.code === 'invalid_request') {
+      return new HttpError(400, error.message)
+    }
+
     if (error.code === 'config') {
       return new HttpError(503, error.message)
     }
@@ -184,6 +204,20 @@ function readOptionalSiteIdQuery(value: string | undefined): string | undefined 
   })
 
   return parsed === undefined ? undefined : String(parsed)
+}
+
+function readOrderedIdsQuery(value: string | undefined): string[] | undefined {
+  const normalized = value?.trim()
+  if (!normalized) {
+    return undefined
+  }
+
+  const ids = normalized
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+
+  return ids.length > 0 ? ids : undefined
 }
 
 function readOptionalIntegerQuery(

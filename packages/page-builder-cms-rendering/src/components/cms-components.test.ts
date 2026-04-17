@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { renderToString } from '@vue/server-renderer'
 import type {
   PageBuilderCmsCatalogList,
+  PageBuilderCmsCatalogQuery,
   PageBuilderCmsContentList,
   PageBuilderCmsContentQuery,
 } from '@proma/shared'
@@ -285,7 +286,7 @@ describe('CMS rendering components', () => {
   })
 
   test('cms-catalog filters tree results by level, parentId and take while preserving descendants', async () => {
-    let capturedCatalogQuery: Record<string, unknown> | null = null
+    let capturedCatalogQuery: PageBuilderCmsCatalogQuery | null = null
     const html = await renderCmsComponent(
       CmsCatalog,
       {
@@ -314,5 +315,98 @@ describe('CMS rendering components', () => {
     expect(html).toContain('<p>新闻</p>')
     expect(html).toContain('<p>深度报道</p>')
     expect(html).not.toContain('活动')
+  })
+
+  test('cms-catalog forwards ordered fixed ids to the injected runtime client', async () => {
+    let capturedCatalogQuery: PageBuilderCmsCatalogQuery | null = null
+    const html = await renderCmsComponent(
+      CmsCatalog,
+      {
+        siteId: '14',
+        ids: 'events, news',
+      },
+      {
+        default: (scope) =>
+          h('div', scope.items.map((item) => item.name).join(',')),
+      },
+      createClient({
+        async listCatalogs(query) {
+          capturedCatalogQuery = query ?? null
+          return {
+            ...CATALOG_RESPONSE,
+            items: [CATALOG_RESPONSE.items[2]!, CATALOG_RESPONSE.items[1]!],
+            tree: [CATALOG_RESPONSE.tree[0]!],
+          }
+        },
+      }),
+    )
+
+    expect(capturedCatalogQuery).toMatchObject({
+      siteId: '14',
+      ids: ['events', 'news'],
+    })
+    expect(html).toContain('活动,新闻')
+  })
+
+  test('cms-content forwards ordered fixed ids to the injected runtime client', async () => {
+    let capturedQuery: PageBuilderCmsContentQuery | null = null
+    const client = createClient({
+      async listContents(query) {
+        capturedQuery = query
+        return {
+          ...CONTENT_RESPONSE,
+          items: [CONTENT_RESPONSE.items[1]!, CONTENT_RESPONSE.items[0]!],
+        }
+      },
+    })
+
+    const html = await renderCmsComponent(
+      CmsContent,
+      {
+        siteId: '14',
+        catalogId: 'news',
+        ids: 'content-2, content-1',
+      },
+      {
+        default: (scope) =>
+          h('section', [
+            h('h2', scope.items[0]?.title ?? 'missing'),
+            h('p', scope.items[1]?.title ?? 'missing'),
+          ]),
+      },
+      client,
+    )
+
+    expect(capturedQuery).toMatchObject({
+      siteId: '14',
+      catalogId: 'news',
+      ids: ['content-2', 'content-1'],
+    })
+    expect(html).toContain('Quarterly Results')
+    expect(html).toContain('Launch Update')
+  })
+
+  test('cms-content renders the error slot when ids are mixed with paging props', async () => {
+    let called = false
+    const html = await renderCmsComponent(
+      CmsContent,
+      {
+        catalogId: 'news',
+        ids: 'content-1',
+        pageSize: 3,
+      },
+      {
+        error: (scope) => h('p', scope.error?.message ?? 'missing-error'),
+      },
+      createClient({
+        async listContents() {
+          called = true
+          return CONTENT_RESPONSE
+        },
+      }),
+    )
+
+    expect(called).toBe(false)
+    expect(html).toContain('cms-content ids cannot be combined with query props')
   })
 })

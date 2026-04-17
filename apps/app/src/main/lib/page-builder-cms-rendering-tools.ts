@@ -5,6 +5,7 @@ import type {
   CmsRenderingDiagnostic,
   CmsRenderingManifestEntry,
 } from '@proma/page-builder-cms-rendering'
+import { resolveCmsRenderingSelectorSnapshot } from '@proma/page-builder-cms-rendering'
 import {
   PageBuilderWorkspaceHtmlServiceError,
   pageBuilderWorkspaceHtmlService,
@@ -24,6 +25,7 @@ export const PAGE_BUILDER_CMS_EMPTY_TEMPLATE_DESCRIPTION =
 export const PAGE_BUILDER_CMS_ERROR_TEMPLATE_DESCRIPTION =
   `${PAGE_BUILDER_CMS_TEMPLATE_FIELD_GUIDANCE} Use errorTemplate for the error-state fallback.`
 const CMS_ISLAND_SELECTOR = 'cms-catalog, cms-content'
+const BLOCKED_PARENT_BLOCK_TAGS = new Set(['HTML', 'BODY', 'HEAD'])
 
 const pageBuilderBlockTargetSelectionSchema = z.object({
   kind: z.literal('block'),
@@ -59,6 +61,7 @@ const pageBuilderCmsBindingBaseSchema = z.object({
 
 const catalogNavSourceSchema = z.object({
   siteId: z.union([z.string(), z.number().int()]).optional(),
+  ids: z.union([z.string(), z.array(z.string().min(1))]).optional(),
   level: z.string().optional(),
   parentId: z.string().optional(),
   contentType: z.string().optional(),
@@ -68,7 +71,8 @@ const catalogNavSourceSchema = z.object({
 
 const contentListSourceSchema = z.object({
   siteId: z.union([z.string(), z.number().int()]).optional(),
-  catalogId: z.string().min(1),
+  ids: z.union([z.string(), z.array(z.string().min(1))]).optional(),
+  catalogId: z.string().min(1).optional(),
   keyword: z.string().optional(),
   pageIndex: z.union([z.string(), z.number().int().min(0)]).optional(),
   pageSize: z.union([z.string(), z.number().int().min(1)]).optional(),
@@ -110,6 +114,7 @@ type NormalizedApplyPageBuilderCmsBindingInput =
 
 interface NormalizedCatalogNavSource {
   siteId: string
+  ids?: string[]
   level?: string
   parentId?: string
   contentType?: string
@@ -119,7 +124,8 @@ interface NormalizedCatalogNavSource {
 
 interface NormalizedContentListSource {
   siteId: string
-  catalogId: string
+  ids?: string[]
+  catalogId?: string
   keyword?: string
   pageIndex?: string | number
   pageSize?: string | number
@@ -168,6 +174,13 @@ export interface ApplyPageBuilderCmsBindingResult {
   previewState: WorkspacePreviewState
 }
 
+interface ResolvedApplyTargetContext {
+  effectiveTargetSelection: PageBuilderTargetSelection
+  parentBlock: Element
+  sourceTarget: Element | null
+  islandIndex: number | null
+}
+
 type PageBuilderWorkspaceHtmlServiceLike = Pick<typeof pageBuilderWorkspaceHtmlService, 'mutate'>
 
 export interface CreatePageBuilderCmsRenderingToolsOptions {
@@ -192,26 +205,24 @@ export function createPageBuilderCmsRenderingTools(
 
       let appliedBlockId = ''
       let effectiveTargetSelection = normalizedInput.targetSelection
+      let appliedIslandIndex: number | null = null
       let mutationResult: PageBuilderWorkspaceHtmlMutationResult
 
       try {
         mutationResult = htmlService.mutate(workspace, {
           transform(currentHtml) {
             const { document } = parseHTML(currentHtml)
-            effectiveTargetSelection = resolveEffectiveTargetSelection(
+            const targetContext = resolveApplyTargetContext(
               document,
               normalizedInput.targetSelection,
             )
-            const parentBlock = resolveUniqueBlock(
-              document,
-              effectiveTargetSelection.parentBlockSelector,
-              '未找到要绑定 CMS 的区块',
-              '无法唯一定位要绑定 CMS 的区块',
-            )
+            effectiveTargetSelection = targetContext.effectiveTargetSelection
+            const parentBlock = targetContext.parentBlock
             appliedBlockId = ensureBlockId(parentBlock, createBlockId)
+            appliedIslandIndex = targetContext.islandIndex
 
             if (effectiveTargetSelection.kind === 'cms-island') {
-              const sourceTarget = resolveUniqueBlock(
+              const sourceTarget = targetContext.sourceTarget ?? resolveUniqueBlock(
                 document,
                 effectiveTargetSelection.selector,
                 '未找到要替换的 CMS 组件',
@@ -253,7 +264,11 @@ export function createPageBuilderCmsRenderingTools(
       }
 
       const component = normalizedInput.kind === 'catalog-nav' ? 'cms-catalog' : 'cms-content'
-      const manifestEntry = mutationResult.manifest.entries.find((entry) => entry.blockId === appliedBlockId) ?? null
+      const manifestEntry = resolveAppliedManifestEntry(
+        mutationResult.manifest.entries,
+        appliedBlockId,
+        appliedIslandIndex,
+      )
 
       return {
         applied: true,
@@ -308,6 +323,7 @@ function normalizeApplyCmsBindingInput(
   } satisfies PageBuilderTargetSelection
 
   if (parsedBase.kind === 'catalog-nav') {
+    assertCatalogNavSourceDoesNotUsePageSize(parsedBase.source)
     return {
       targetSelection,
       targetBlock: parsedBase.targetBlock,
@@ -354,17 +370,80 @@ function normalizeTargetSelectionInput(value: unknown): PageBuilderTargetSelecti
   return parseSchema(pageBuilderTargetSelectionSchema, value)
 }
 
+function assertCatalogNavSourceDoesNotUsePageSize(source: Record<string, unknown>): void {
+  if (
+    Object.prototype.hasOwnProperty.call(source, 'pageSize')
+    || Object.prototype.hasOwnProperty.call(source, 'page-size')
+  ) {
+    throw new PageBuilderCmsBindingApplyError(
+      'invalid-input',
+      'catalog-nav 不支持 source.pageSize；如需限制栏目数量请使用 source.take',
+    )
+  }
+}
+
 function normalizeCatalogNavSource(source: z.infer<typeof catalogNavSourceSchema>): NormalizedCatalogNavSource {
+  const ids = normalizeBindingIds(source.ids)
+  if (ids) {
+    if (
+      source.level !== undefined
+      || source.parentId !== undefined
+      || source.contentType !== undefined
+      || source.searchKeyword !== undefined
+      || source.take !== undefined
+    ) {
+      throw new PageBuilderCmsBindingApplyError('invalid-input', 'catalog-nav ids 不能与查询来源字段混用')
+    }
+
+    return {
+      siteId: normalizeBindingSiteId(source.siteId),
+      ids,
+    }
+  }
+
   return {
-    ...source,
     siteId: normalizeBindingSiteId(source.siteId),
+    level: source.parentId ? 'children' : source.level,
+    parentId: source.parentId,
+    contentType: source.contentType,
+    searchKeyword: source.searchKeyword,
+    take: source.take,
   }
 }
 
 function normalizeContentListSource(source: z.infer<typeof contentListSourceSchema>): NormalizedContentListSource {
+  const ids = normalizeBindingIds(source.ids)
+  if (ids) {
+    const catalogId = source.catalogId?.trim()
+    if (!catalogId) {
+      throw new PageBuilderCmsBindingApplyError('invalid-input', 'content-list fixed ids require source.catalogId')
+    }
+
+    if (
+      source.keyword !== undefined
+      || source.pageIndex !== undefined
+      || source.pageSize !== undefined
+    ) {
+      throw new PageBuilderCmsBindingApplyError('invalid-input', 'content-list ids 不能与 keyword、pageIndex 或 pageSize 混用')
+    }
+
+    return {
+      siteId: normalizeBindingSiteId(source.siteId),
+      catalogId,
+      ids,
+    }
+  }
+
+  if (!source.catalogId?.trim()) {
+    throw new PageBuilderCmsBindingApplyError('invalid-input', 'source.catalogId 不能为空')
+  }
+
   return {
-    ...source,
     siteId: normalizeBindingSiteId(source.siteId),
+    catalogId: source.catalogId.trim(),
+    keyword: source.keyword,
+    pageIndex: source.pageIndex,
+    pageSize: source.pageSize,
   }
 }
 
@@ -385,6 +464,28 @@ function normalizeBindingSiteId(value: string | number | undefined): string {
   }
 
   throw new PageBuilderCmsBindingApplyError('invalid-input', 'source.siteId 必须是大于等于 1 的整数')
+}
+
+function normalizeBindingIds(value: string | string[] | undefined): string[] | undefined {
+  const entries = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+      ? value.split(',')
+      : []
+
+  if (entries.length === 0) {
+    return undefined
+  }
+
+  const normalized = entries
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+
+  if (normalized.length === 0) {
+    throw new PageBuilderCmsBindingApplyError('invalid-input', 'source.ids 不能为空')
+  }
+
+  return normalized
 }
 
 function parseSchema<T extends z.ZodTypeAny>(schema: T, value: unknown): z.infer<T> {
@@ -486,6 +587,105 @@ function resolveEffectiveTargetSelection(
   }
 }
 
+function resolveApplyTargetContext(
+  document: Document,
+  targetSelection: PageBuilderTargetSelection,
+): ResolvedApplyTargetContext {
+  const effectiveTargetSelection = resolveEffectiveTargetSelection(document, targetSelection)
+
+  if (targetSelection.kind !== 'cms-island' && effectiveTargetSelection.kind === 'cms-island') {
+    const sourceTarget = resolveUniqueBlock(
+      document,
+      effectiveTargetSelection.selector,
+      '未找到要替换的 CMS 组件',
+      '无法唯一定位要替换的 CMS 组件',
+    )
+    const parentBlock = resolveImplicitParentBlockForCmsElement(sourceTarget)
+    const parentBlockSelector = resolveCmsRenderingSelectorSnapshot(parentBlock) ?? effectiveTargetSelection.parentBlockSelector
+
+    return {
+      effectiveTargetSelection: {
+        ...effectiveTargetSelection,
+        parentBlockSelector,
+      },
+      parentBlock,
+      sourceTarget,
+      islandIndex: resolveTopLevelCmsIslandIndex(document, sourceTarget),
+    }
+  }
+
+  if (effectiveTargetSelection.kind === 'cms-island') {
+    const sourceTarget = resolveUniqueBlock(
+      document,
+      effectiveTargetSelection.selector,
+      '未找到要替换的 CMS 组件',
+      '无法唯一定位要替换的 CMS 组件',
+    )
+    const parentBlock = resolveUniqueBlock(
+      document,
+      effectiveTargetSelection.parentBlockSelector,
+      '未找到要绑定 CMS 的区块',
+      '无法唯一定位要绑定 CMS 的区块',
+    )
+
+    return {
+      effectiveTargetSelection,
+      parentBlock,
+      sourceTarget,
+      islandIndex: resolveTopLevelCmsIslandIndex(document, sourceTarget),
+    }
+  }
+
+  return {
+    effectiveTargetSelection,
+    parentBlock: resolveUniqueBlock(
+      document,
+      effectiveTargetSelection.parentBlockSelector,
+      '未找到要绑定 CMS 的区块',
+      '无法唯一定位要绑定 CMS 的区块',
+    ),
+    sourceTarget: null,
+    islandIndex: null,
+  }
+}
+
+function resolveImplicitParentBlockForCmsElement(sourceTarget: Element): Element {
+  const blockAncestor = sourceTarget.parentElement?.closest('[data-proma-block-id]') ?? null
+  if (blockAncestor) {
+    return blockAncestor
+  }
+
+  const parentElement = sourceTarget.parentElement
+  if (parentElement && !BLOCKED_PARENT_BLOCK_TAGS.has(parentElement.tagName)) {
+    return parentElement
+  }
+
+  return sourceTarget
+}
+
+function resolveTopLevelCmsIslandIndex(document: Document, element: Element): number | null {
+  const islands = Array.from(document.querySelectorAll(CMS_ISLAND_SELECTOR))
+    .filter((candidate) => candidate.parentElement?.closest(CMS_ISLAND_SELECTOR) == null)
+
+  const islandIndex = islands.findIndex((candidate) => candidate === element)
+  return islandIndex >= 0 ? islandIndex : null
+}
+
+function resolveAppliedManifestEntry(
+  entries: CmsRenderingManifestEntry[],
+  blockId: string,
+  islandIndex: number | null,
+): CmsRenderingManifestEntry | null {
+  if (islandIndex !== null) {
+    const matchedEntry = entries.find((entry) => entry.islandIndex === islandIndex)
+    if (matchedEntry) {
+      return matchedEntry
+    }
+  }
+
+  return entries.find((entry) => entry.blockId === blockId) ?? null
+}
+
 function resolveCmsComponentName(element: Element): 'cms-catalog' | 'cms-content' | null {
   const localName = element.localName.toLowerCase()
   if (localName === 'cms-catalog' || localName === 'cms-content') {
@@ -571,6 +771,13 @@ function generateCmsBindingHtml(
 }
 
 function buildCatalogNavProps(source: NormalizedCatalogNavSource): string {
+  if (source.ids) {
+    return buildProps([
+      ['site-id', source.siteId],
+      ['ids', source.ids.join(',')],
+    ])
+  }
+
   return buildProps([
     ['site-id', source.siteId],
     ['level', source.level],
@@ -582,6 +789,14 @@ function buildCatalogNavProps(source: NormalizedCatalogNavSource): string {
 }
 
 function buildContentListProps(source: NormalizedContentListSource): string {
+  if (source.ids) {
+    return buildProps([
+      ['site-id', source.siteId],
+      ['catalog-id', source.catalogId],
+      ['ids', source.ids.join(',')],
+    ])
+  }
+
   return buildProps([
     ['site-id', source.siteId],
     ['catalog-id', source.catalogId],

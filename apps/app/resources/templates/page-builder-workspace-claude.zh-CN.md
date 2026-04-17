@@ -43,6 +43,9 @@
 - 如果 `cms-binding-apply` 得到 `ready`，要在同一轮继续调用 `mcp__cms__apply_cms_binding`，不要绕过正式工具直接改写 workspace 文件。
 - 调用 `mcp__cms__apply_cms_binding` 时，`templateBody` / `emptyTemplate` / `errorTemplate` 只能传 slot 内部内容，不要再包一层 `<template v-slot:...>` 或外层 `cms-*` 标签。
 - 正式工具生成的 `default` / `empty` / `error` slot 统一暴露 `{ items, loading, error, empty }`；需要这些状态时直接在 slot 内容里使用即可。
+- 在 CMS 应用前，先检查当前选中目标在源码中的现有结构、类名和主要布局骨架；如果兼容，应优先保留这些现有样式结构，只替换为 CMS 数据绑定。
+- 当前 CMS 应用默认是“原位替换当前选中目标”，不要在它旁边追加一个新的 `cms-catalog` / `cms-content` 并把原区块保留下来。
+- 如果当前目标结构与所选 CMS 数据不能安全兼容，优先使用 `AskUserQuestion` 做一次简短澄清，不要擅自把它改造成新的通用图文列表、卡片列表或导航模板。
 - 只有“已确认的 CMS 选择结果”这一受控流程，才能新建 `cms-catalog` / `cms-content` 或重绑现有 CMS 标签。
 - 普通整页生成或普通页面迭代，不能凭空新增新的 `cms-*` 标签；如果页面里已经有 CMS 标签，只允许调整它们的 slot 模板、内部结构和样式，不应静默改动 `site-id`、`catalog-id`、`page-size` 等查询属性。
 - 产出 CMS 驱动源码时，`cms-catalog` / `cms-content` 尽量作为动态区域源码根节点。

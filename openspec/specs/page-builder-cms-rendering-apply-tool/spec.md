@@ -48,17 +48,26 @@
 - **AND** 系统 SHALL NOT 写回任何部分修改
 
 ### Requirement: `apply_cms_binding` 工具必须只生成当前 runtime 已支持的组件与 props
-系统 SHALL 只为当前正式 runtime 已支持的 `cms-catalog` 与 `cms-content` 组件生成标记，并 MUST 将 binding source 收敛到当前已实现的 props 集合，而不得在本 change 中提前承诺尚未闭环的查询模型或属性。
+系统 SHALL 只为当前正式 runtime 已支持的 `cms-catalog` 与 `cms-content` 组件生成标记，并 MUST 将 binding source 收敛到当前已实现的 props 集合；该集合 MUST 同时支持“查询式来源”和“fixed-ids 来源”，而不得要求上层通过手工拼装或全量加载绕过正式来源模型；对于固定集合来源，作者态标签 MUST 使用稳定的 `ids` 属性按顺序序列化。
 
-#### Scenario: `catalog-nav` 仅映射到受支持的 `cms-catalog` props
+#### Scenario: `catalog-nav` 绑定可生成父栏目来源或固定栏目集合来源
 - **WHEN** 调用方请求生成 `catalog-nav` 绑定
-- **THEN** 系统 SHALL 只生成 `site-id`、`level`、`parent-id`、`content-type`、`search-keyword` 与 `take` 这些当前受支持的 `cms-catalog` 属性
+- **THEN** 系统 SHALL 生成 `cms-catalog` 标记
+- **AND** 当来源模式为父栏目来源时，系统 SHALL 只生成 `site-id`、`level="children"` 与 `parent-id`
+- **AND** 当来源模式为固定栏目集合时，系统 SHALL 只生成 `site-id` 与 `ids`
 - **AND** 生成的 slot 模板 SHALL 使用完整 `v-slot:default` 写法，而不是 `#default` 等简写
 
-#### Scenario: `content-list` 仅映射到受支持的 `cms-content` props
+#### Scenario: `content-list` 绑定可生成按栏目取内容来源或固定内容集合来源
 - **WHEN** 调用方请求生成 `content-list` 绑定
-- **THEN** 系统 SHALL 只生成 `site-id`、`catalog-id`、`keyword`、`page-index` 与 `page-size` 这些当前受支持的 `cms-content` 属性
-- **AND** 系统 SHALL 要求 `catalog-id` 作为该绑定的最小必要字段
+- **THEN** 系统 SHALL 生成 `cms-content` 标记
+- **AND** 当来源模式为按栏目取内容时，系统 SHALL 只生成 `site-id`、`catalog-id`、`keyword`、`page-index` 与 `page-size`
+- **AND** 当来源模式为固定内容集合时，系统 SHALL 生成 `site-id`、`catalog-id` 与 `ids`
+
+#### Scenario: fixed-ids 来源按输入顺序写出稳定 `ids` 属性
+- **WHEN** `apply_cms_binding` 成功生成 fixed-ids 模式的 `cms-catalog` 或 `cms-content`
+- **THEN** 系统 SHALL 将 `ids` 作为作者态显式属性写出
+- **AND** `ids` SHALL 按输入顺序稳定序列化
+- **AND** 系统 SHALL 不改写该顺序
 
 #### Scenario: 新生成的 CMS 标签始终显式写出 site-id
 - **WHEN** `apply_cms_binding` 成功生成新的 `cms-catalog` 或 `cms-content`
@@ -71,11 +80,10 @@
 - **AND** 系统 SHALL NOT 擅自写出 `site-id="1"` 或任何其他猜测值
 - **AND** 系统 SHALL NOT 产生新的 CMS 组件标记
 
-#### Scenario: 未支持的 source 字段被拒绝
-- **WHEN** 调用输入包含 `catalogIds`、固定 `contentIds`、`contentSelectType`、alias 查询或其他当前 runtime 未支持的字段
+#### Scenario: 混合来源字段或未支持字段被拒绝
+- **WHEN** 调用输入同时混用 `ids` 与 `parent-id`、`catalog-id`、分页查询字段，或包含 alias 查询、`contentSelectType` 等当前 runtime 未支持的字段
 - **THEN** 系统 SHALL 拒绝本次 apply
 - **AND** 系统 SHALL NOT 写入任何新的 CMS 组件标记
-
 ### Requirement: `apply_cms_binding` 工具必须返回结构化 apply 摘要
 系统 SHALL 为 `apply_cms_binding` 返回可供 skill、宿主和测试直接消费的结构化结果，而不是只返回自然语言说明；该摘要 MUST 明确反映本次写入围绕哪个 `targetSelection` 执行。
 

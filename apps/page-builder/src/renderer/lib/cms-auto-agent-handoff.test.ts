@@ -18,7 +18,7 @@ function extractSkillInputFromComposedMessage(composedUserMessage: string): unkn
 describe('page-builder CMS auto handoff payloads', () => {
   test('builds the apply skill input with phase 1A defaults and without invented optional block fields', () => {
     const selection: PageBuilderCmsSelectionResult = {
-      version: 3,
+      version: 5,
       siteId: '14',
       targetSelection: {
         kind: 'block',
@@ -30,9 +30,9 @@ describe('page-builder CMS auto handoff payloads', () => {
         selector: '#hero-banner',
       },
       selectionKind: 'contents',
-      sourceType: 'contents-fixed',
+      sourceType: 'contents-by-ids',
       selectionMode: 'fixed-items',
-      catalogIds: ['catalog-1'],
+      catalogId: 'catalog-1',
       contentIds: ['content-1'],
       snapshot: {
         contents: [],
@@ -40,7 +40,7 @@ describe('page-builder CMS auto handoff payloads', () => {
     }
 
     expect(buildPageBuilderCmsApplySkillInput(selection)).toEqual({
-      version: 2,
+      version: 3,
       entryPoint: 'cms-browser-confirm',
       applyIntent: 'replace-current',
       workspacePolicy: {
@@ -59,12 +59,15 @@ describe('page-builder CMS auto handoff payloads', () => {
         selector: '#hero-banner',
       },
       selection,
+      uiContext: {
+        userIntent: 'Preserve the current selected target structure and styles when compatible. Replace the selected target in place, and do not append a sibling CMS block.',
+      },
     })
   })
 
   test('creates a programmatic handoff request that carries hidden structured payload and forced skill mention', () => {
     const selection: PageBuilderCmsSelectionResult = {
-      version: 3,
+      version: 5,
       siteId: '14',
       targetSelection: {
         kind: 'cms-island',
@@ -77,11 +80,21 @@ describe('page-builder CMS auto handoff payloads', () => {
         selector: '[data-proma-block-id="pb_blk_news"]',
       },
       selectionKind: 'catalogs',
-      sourceType: 'catalogs',
-      selectionMode: 'single',
-      catalogIds: ['catalog-1'],
+      sourceType: 'catalogs-by-parent',
+      selectionMode: 'children-of-parent',
+      parentCatalogId: 'catalog-1',
       snapshot: {
-        catalogs: [],
+        parentCatalog: {
+          id: 'catalog-1',
+          name: '新闻',
+          parentId: null,
+          path: 'news/',
+          contentType: 'Article',
+          contentTypeName: '文章',
+          hasChild: true,
+          total: 12,
+          children: [],
+        },
       },
     }
 
@@ -99,8 +112,12 @@ describe('page-builder CMS auto handoff payloads', () => {
     expect(request.composedUserMessage).toContain('当前目标已经是一个 cms-island，必须整体替换现有 cms 源标签，不能在它里面再包一层新的 cms-catalog 或 cms-content。')
     expect(request.composedUserMessage).toContain('优先让 cms-* 标签作为动态区域源码根节点，并把 ul、nav、section、article 等主要动态容器写进 slot。')
     expect(request.composedUserMessage).toContain('新写入或重绑的 cms-* 标签必须显式写出 site-id，并且该值必须等于 selection.siteId。')
+    expect(request.composedUserMessage).toContain('不要把 CMS 浏览弹框里的分页大小当作页面绑定时的默认 page-size。')
+    expect(request.composedUserMessage).toContain('必须先检查当前目标区块的现有源码结构、类名和主要布局骨架；在兼容时优先复用它们，只替换为 CMS 数据绑定。')
+    expect(request.composedUserMessage).toContain('不要在当前选中区块旁边追加一个新的 cms-catalog / cms-content 并把原区块保留下来；必须原位替换当前目标。')
+    expect(request.composedUserMessage).toContain('如果当前目标结构与所选 CMS 数据无法安全兼容，先通过 AskUserQuestion 发起一个简短澄清，而不是擅自改造成新的通用列表或图文卡片。')
     expect(extractSkillInputFromComposedMessage(request.composedUserMessage)).toEqual({
-      version: 2,
+      version: 3,
       entryPoint: 'cms-browser-confirm',
       applyIntent: 'replace-current',
       workspacePolicy: {
@@ -121,6 +138,7 @@ describe('page-builder CMS auto handoff payloads', () => {
       },
       selection,
       uiContext: {
+        userIntent: 'Preserve the current selected target structure and styles when compatible. Replace the selected target in place, and do not append a sibling CMS block.',
         notes: ['opened-from:block-toolbar'],
       },
     })
@@ -128,7 +146,7 @@ describe('page-builder CMS auto handoff payloads', () => {
 
   test('rejects malformed selections that omit siteId before building the handoff payload', () => {
     const selection = {
-      version: 3,
+      version: 5,
       targetSelection: {
         kind: 'block',
         selector: '#hero-banner',
@@ -139,8 +157,8 @@ describe('page-builder CMS auto handoff payloads', () => {
         selector: '#hero-banner',
       },
       selectionKind: 'catalogs',
-      sourceType: 'catalogs',
-      selectionMode: 'single',
+      sourceType: 'catalogs-by-ids',
+      selectionMode: 'fixed-items',
       catalogIds: ['catalog-1'],
       snapshot: {
         catalogs: [],

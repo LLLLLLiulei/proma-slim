@@ -33,6 +33,30 @@ describe('createBrowserCmsClient', () => {
     expect(result).toEqual({ items: [], tree: [] })
   })
 
+  test('serializes ordered fixed catalog ids as a single query param', async () => {
+    const fetchMock = mock(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), 'https://example.com')
+
+      expect(url.pathname).toBe('/api/page-builder/cms/catalogs')
+      expect(url.searchParams.get('siteId')).toBe('14')
+      expect(url.searchParams.get('ids')).toBe('102,999,101')
+
+      return new Response(JSON.stringify({ items: [], tree: [] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    })
+
+    const client = createBrowserCmsClient({
+      fetchFn: fetchMock as unknown as typeof fetch,
+    })
+
+    await expect(client.listCatalogs({
+      siteId: '14',
+      ids: ['102', '999', '101'],
+    })).resolves.toEqual({ items: [], tree: [] })
+  })
+
   test('preserves pageIndex=0 when serializing content queries', async () => {
     const fetchMock = mock(async (input: RequestInfo | URL) => {
       const url = new URL(String(input), 'https://example.com')
@@ -68,6 +92,41 @@ describe('createBrowserCmsClient', () => {
     })
 
     expect(result.pageIndex).toBe(0)
+  })
+
+  test('serializes ordered fixed content ids as a single query param', async () => {
+    const fetchMock = mock(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), 'https://example.com')
+
+      expect(url.pathname).toBe('/api/page-builder/cms/contents')
+      expect(url.searchParams.get('siteId')).toBe('14')
+      expect(url.searchParams.get('catalogId')).toBe('news')
+      expect(url.searchParams.get('ids')).toBe('502,999,501')
+
+      return new Response(JSON.stringify({
+        pageIndex: 0,
+        pageSize: 2,
+        total: 0,
+        totalPages: 0,
+        items: [],
+      }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    })
+
+    const client = createBrowserCmsClient({
+      fetchFn: fetchMock as unknown as typeof fetch,
+    })
+
+    await expect(client.listContents({
+      siteId: '14',
+      catalogId: 'news',
+      ids: ['502', '999', '501'],
+    })).resolves.toMatchObject({
+      pageIndex: 0,
+      pageSize: 2,
+    })
   })
 
   test('proxies content list logo images through the cms asset endpoint', async () => {

@@ -74,12 +74,37 @@ export function validateCmsRendering(
     const islandIndex = topLevelIslandIndexByElement.get(island)
     const slotInfo = collectSlotInfo(island)
     const catalogId = island.getAttribute('catalog-id')?.trim()
+    const orderedIds = readOrderedIdsAttribute(island.getAttribute('ids'))
 
     if (component === 'cms-content' && !catalogId) {
       diagnostics.push(createDiagnostic({
         severity: 'error',
         code: 'MISSING_CATALOG_ID',
-        message: 'cms-content requires a catalog-id attribute.',
+        message: orderedIds ? 'cms-content ids require catalog-id.' : 'cms-content requires catalog-id.',
+        element: island,
+        component,
+        htmlPath,
+        islandIndex,
+      }))
+    }
+
+    if (component === 'cms-content' && orderedIds && hasConflictingContentIdsProps(island)) {
+      diagnostics.push(createDiagnostic({
+        severity: 'error',
+        code: 'CONFLICTING_SOURCE_PROPS',
+        message: 'cms-content ids cannot be combined with catalog query props.',
+        element: island,
+        component,
+        htmlPath,
+        islandIndex,
+      }))
+    }
+
+    if (component === 'cms-catalog' && orderedIds && hasConflictingCatalogIdsProps(island)) {
+      diagnostics.push(createDiagnostic({
+        severity: 'error',
+        code: 'CONFLICTING_SOURCE_PROPS',
+        message: 'cms-catalog ids cannot be combined with catalog query props.',
         element: island,
         component,
         htmlPath,
@@ -379,6 +404,38 @@ function isAllowedStructuralAttribute(attributeName: string): boolean {
   return ALLOWED_STRUCTURAL_ATTRIBUTES.has(attributeName)
     || attributeName.startsWith('data-')
     || attributeName.startsWith('aria-')
+}
+
+function readOrderedIdsAttribute(value: string | null): string[] | null {
+  const normalized = value?.trim()
+  if (!normalized) {
+    return null
+  }
+
+  const ids = normalized
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+
+  return ids.length > 0 ? ids : null
+}
+
+function hasConflictingCatalogIdsProps(island: Element): boolean {
+  return hasNonEmptyAttribute(island, 'level')
+    || hasNonEmptyAttribute(island, 'parent-id')
+    || hasNonEmptyAttribute(island, 'content-type')
+    || hasNonEmptyAttribute(island, 'search-keyword')
+    || hasNonEmptyAttribute(island, 'take')
+}
+
+function hasConflictingContentIdsProps(island: Element): boolean {
+  return hasNonEmptyAttribute(island, 'keyword')
+    || hasNonEmptyAttribute(island, 'page-index')
+    || hasNonEmptyAttribute(island, 'page-size')
+}
+
+function hasNonEmptyAttribute(element: Element, attributeName: string): boolean {
+  return Boolean(element.getAttribute(attributeName)?.trim())
 }
 
 function maybeReportOutsideSlotMajorContainerWarning(

@@ -1897,16 +1897,16 @@ describe('BuilderPage', () => {
     })
 
     const selection: PageBuilderCmsSelectionResult = {
-      version: 3,
+      version: 5,
       siteId: '14',
       targetSelection: createBlockTargetSelection('#hero-banner'),
       targetBlock: {
         selector: '#hero-banner',
       },
       selectionKind: 'contents',
-      sourceType: 'contents-fixed',
+      sourceType: 'contents-by-ids',
       selectionMode: 'fixed-items',
-      catalogIds: ['101'],
+      catalogId: '101',
       contentIds: ['501'],
       snapshot: {
         contents: [],
@@ -2076,16 +2076,16 @@ describe('BuilderPage', () => {
     })
 
     const selection: PageBuilderCmsSelectionResult = {
-      version: 3,
+      version: 5,
       siteId: '14',
       targetSelection: createBlockTargetSelection('#hero-banner'),
       targetBlock: {
         selector: '#hero-banner',
       },
       selectionKind: 'contents',
-      sourceType: 'contents-fixed',
+      sourceType: 'contents-by-ids',
       selectionMode: 'fixed-items',
-      catalogIds: ['101'],
+      catalogId: '101',
       contentIds: ['501'],
       snapshot: {
         contents: [],

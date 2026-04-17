@@ -40,21 +40,22 @@ If `selection.siteId` is missing or blank, stop immediately and treat the payloa
 
 If `blockTypeHint` is missing, do not fail immediately. Use a conservative fallback:
 
-- `catalogs` favor `nav`
 - `contents` favor `content-list`
-- if the block intent is still ambiguous after that fallback, return `needs-clarification`
+- `catalogs` may resolve to `nav` or `catalog-list`
+- if the block intent is still ambiguous after that fallback, return `needs-clarification` with one short structured question
 
 ## Decision Rules
 
 1. Validate the contract first.
    Reject payloads that do not match the Phase 1A contract or that request anything other than `replace-current`. Missing core fields such as `selection`, `selection.siteId`, or `targetBlock` must return `incompatible` with `reasonCode: malformed-payload`.
 2. Infer the block intent conservatively.
-   Only two target block kinds are supported in Phase 1A: `nav` and `content-list`.
+   Only three target block kinds are supported in Phase 1A: `nav`, `catalog-list`, and `content-list`.
 3. Match selection to supported mappings.
-   Catalog selections may resolve to `nav`, or when a single catalog can back a list query, to `content-list`. Fixed content selections remain incompatible in the current runtime because `contentIds` bindings are not implemented.
+   `catalogs-by-parent` / `catalogs-by-ids` may resolve to `nav` or `catalog-list`. `contents-by-catalog` / `contents-by-ids` resolve to `content-list`. If a catalog source lacks a stable `nav` vs `catalog-list` intent, return `needs-clarification` instead of guessing.
+   When `sourceType = contents-by-ids`, treat it as a single-catalog fixed content set and preserve both `selection.catalogId` and ordered `selection.contentIds`.
 4. Return one of three outcomes only.
    - `ready`: enough information, supported block kind, safe to continue
-   - `needs-clarification`: one critical ambiguity remains and can be resolved with a short structured question
+   - `needs-clarification`: one critical ambiguity remains and can be resolved with one short structured question
    - `incompatible`: unsupported block kind, mismatched selection, page reflow, unsupported runtime, or unsupported strategy
 
 ## Execution Flow In The Current Workspace
@@ -65,12 +66,22 @@ After classifying the request, continue in the same turn instead of stopping at 
 2. If the result is `needs-clarification`, ask exactly one short structured question through `AskUserQuestion`, then wait for the answer.
 3. If the result is `ready`, call `mcp__cms__apply_cms_binding` in the same turn. Do not reply that the skill is only a template or that a later module is still missing.
 4. When continuing from `ready`, pass the current `targetSelection` as an object instead of a JSON string, the compatibility `targetBlock.selector`, and the supported binding/query props required by the formal tool. For new or rebound CMS tags, always include `source.siteId = selection.siteId`. `templateBody`, `emptyTemplate`, and `errorTemplate` must contain slot inner content only, not an outer `<template v-slot:...>` wrapper or an outer `cms-*` tag. Do not edit workspace files directly.
+   For fixed content ids, always include both `source.catalogId = selection.catalogId` and `source.ids = selection.contentIds`.
+   Before building the apply payload, inspect the current target block in the workspace source and preserve the existing outer shell, classes, and major layout structure whenever they are still compatible with the selected CMS data.
+   Treat the task as an in-place replacement of the selected target, not as permission to add a new generic list, card grid, or extra wrapper beside the current block.
+   Do not infer `source.pageSize` from the CMS browser pagination state. The browser page size is only for browsing, not a page binding default.
+   For `contents-by-catalog`, omit `source.pageSize` unless the user explicitly requested a count or the current target already has a `page-size` that must be preserved.
+   For `contents-by-ids`, never pass `source.pageSize`.
+   For `catalog-nav`, never pass `source.pageSize`; use `source.take` instead when an explicit catalog count is needed.
 
 This skill is also the creation boundary for new CMS source tags:
 
 - Only the confirmed CMS browser selection flow may create a new `cms-catalog` / `cms-content` or rebind an existing one.
 - Ordinary page generation or ordinary page iteration must not invent new `cms-*` tags on their own.
 - If the current page already contains CMS tags, ordinary iteration may adjust slot templates, internal structure, and styles, but must not silently change query props such as `site-id`, `catalog-id`, `page-size`, or similar binding fields.
+- During the controlled CMS apply flow, still prefer preserving the current selected block's outer shell, classes, and layout skeleton when the selected CMS data can fit inside that structure.
+- Do not append a sibling `cms-catalog` / `cms-content` next to the selected target and leave the old block behind. The selected target must be replaced in place.
+- If preserving the current structure is not safely compatible with the selected CMS data, return `needs-clarification` and ask one short `AskUserQuestion` instead of inventing a new generic list or card layout.
 
 After the edits are complete:
 
@@ -91,7 +102,7 @@ When the request is `ready`, prefer `cms-catalog` / `cms-content` as the source 
 
 ## Clarification Guardrails
 
-- Use short, structured clarification only.
+- Use one short, structured clarification only.
 - Ask only when one critical ambiguity blocks a safe decision.
 - Do not re-run CMS browsing through `AskUserQuestion`.
 - Do not ask broad creative questions once the CMS selection is already fixed.
@@ -101,11 +112,18 @@ When the request is `ready`, prefer `cms-catalog` / `cms-content` as the source 
 - Keep Phase 1A scoped to the current `targetSelection.selector`.
 - If `targetSelection.kind === 'cms-island'`, treat it as `source-atomic` and replace the whole source CMS tag instead of editing inside rendered child nodes.
 - Still pass the explicit `targetSelection` object whenever the workflow already has it. If it is accidentally omitted and `targetBlock.selector` already points to a `cms-catalog` / `cms-content`, the formal tool will infer `source-atomic` replacement, but that is only a safety net.
+- Before calling `mcp__cms__apply_cms_binding`, inspect the current target block source and reuse the existing shell, classes, and visual skeleton whenever they remain compatible.
 - When building the apply payload, prefer `cms-catalog` / `cms-content` as the source root and keep major HTML containers inside the slot.
+- Do not append a new CMS sibling beside the selected target.
+- If the current target is image-like, hero-like, media-like, or otherwise strongly structured, prefer preserving that structure and binding CMS data into it rather than converting it into a generic list.
 - Newly written or rebound `cms-*` tags must explicitly include `site-id`, and that value must equal `selection.siteId`.
 - If `selection.siteId` is missing, stop with a malformed-payload style error instead of inventing a fallback.
+- Do not infer `source.pageSize` from the CMS browser pagination state.
+- For `contents-by-catalog`, omit `source.pageSize` unless the user explicitly requested a count.
+- For `contents-by-ids`, never pass `source.pageSize`.
+- For `catalog-nav`, never pass `source.pageSize`; use `source.take` instead.
 - Treat `replace-current` as the only supported strategy.
-- Treat fixed `contentIds`, alias queries, and other unsupported runtime fields as `incompatible`.
+- Treat unsupported source-mode / target-kind combinations, alias queries, and other unsupported runtime fields as `incompatible`.
 - Do not propose whole-page rewrites.
 - Do not propose cross-block edits.
 

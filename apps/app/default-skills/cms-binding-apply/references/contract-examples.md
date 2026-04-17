@@ -8,7 +8,7 @@ Use these examples when interpreting or producing the `cms-binding-apply` contra
 
 ```json
 {
-  "version": 2,
+  "version": 3,
   "entryPoint": "cms-browser-confirm",
   "applyIntent": "replace-current",
   "workspacePolicy": {
@@ -28,7 +28,7 @@ Use these examples when interpreting or producing the `cms-binding-apply` contra
     "blockTypeHint": "nav"
   },
   "selection": {
-    "version": 3,
+    "version": 5,
     "siteId": "14",
     "targetSelection": {
       "kind": "block",
@@ -40,15 +40,14 @@ Use these examples when interpreting or producing the `cms-binding-apply` contra
       "selector": "#main-nav"
     },
     "selectionKind": "catalogs",
-    "sourceType": "catalogs",
-    "selectionMode": "multiple",
-    "catalogIds": ["news", "products", "about"],
+    "sourceType": "catalogs-by-parent",
+    "selectionMode": "children-of-parent",
+    "parentCatalogId": "news-root",
     "snapshot": {
-      "catalogs": [
-        { "id": "news", "name": "新闻" },
-        { "id": "products", "name": "产品" },
-        { "id": "about", "name": "关于我们" }
-      ]
+      "parentCatalog": {
+        "id": "news-root",
+        "name": "新闻中心"
+      }
     }
   }
 }
@@ -68,13 +67,79 @@ Use these examples when interpreting or producing the `cms-binding-apply` contra
 }
 ```
 
-## Single catalog to content-list
+## Catalogs to catalog-list
 
 ### Input
 
 ```json
 {
-  "version": 2,
+  "version": 3,
+  "entryPoint": "cms-browser-confirm",
+  "applyIntent": "replace-current",
+  "workspacePolicy": {
+    "scope": "target-selection-only",
+    "allowPageRewrite": false,
+    "allowCrossBlockMutation": false,
+    "outputTarget": "workspace-files/index.html"
+  },
+  "targetSelection": {
+    "kind": "block",
+    "selector": "#featured-catalogs",
+    "parentBlockSelector": "#featured-catalogs",
+    "editBoundary": "block"
+  },
+  "targetBlock": {
+    "selector": "#featured-catalogs",
+    "blockTypeHint": "catalog-list"
+  },
+  "selection": {
+    "version": 5,
+    "siteId": "14",
+    "targetSelection": {
+      "kind": "block",
+      "selector": "#featured-catalogs",
+      "parentBlockSelector": "#featured-catalogs",
+      "editBoundary": "block"
+    },
+    "targetBlock": {
+      "selector": "#featured-catalogs"
+    },
+    "selectionKind": "catalogs",
+    "sourceType": "catalogs-by-ids",
+    "selectionMode": "fixed-items",
+    "catalogIds": ["news", "products", "about"],
+    "snapshot": {
+      "catalogs": [
+        { "id": "news", "name": "新闻" },
+        { "id": "products", "name": "产品" },
+        { "id": "about", "name": "关于我们" }
+      ]
+    }
+  }
+}
+```
+
+### Ready result
+
+```json
+{
+  "status": "ready",
+  "targetBlockKind": "catalog-list",
+  "supportedRenderModes": ["replace-current"],
+  "renderMode": "replace-current",
+  "applyStrategy": "replace-current",
+  "mappingKind": "catalog-content-list",
+  "toolKind": "catalog-nav"
+}
+```
+
+## Fixed contents to content-list
+
+### Input
+
+```json
+{
+  "version": 3,
   "entryPoint": "cms-browser-confirm",
   "applyIntent": "replace-current",
   "workspacePolicy": {
@@ -94,7 +159,7 @@ Use these examples when interpreting or producing the `cms-binding-apply` contra
     "blockTypeHint": "content-list"
   },
   "selection": {
-    "version": 3,
+    "version": 5,
     "siteId": "14",
     "targetSelection": {
       "kind": "block",
@@ -105,13 +170,15 @@ Use these examples when interpreting or producing the `cms-binding-apply` contra
     "targetBlock": {
       "selector": "#latest-news"
     },
-    "selectionKind": "catalogs",
-    "sourceType": "catalogs",
-    "selectionMode": "single",
-    "catalogIds": ["news"],
+    "selectionKind": "contents",
+    "sourceType": "contents-by-ids",
+    "selectionMode": "fixed-items",
+    "catalogId": "news",
+    "contentIds": ["n-101", "n-102", "n-103"],
     "snapshot": {
-      "catalogs": [
-        { "id": "news", "name": "新闻" }
+      "contents": [
+        { "id": "n-101", "title": "标题 1" },
+        { "id": "n-102", "title": "标题 2" }
       ]
     }
   }
@@ -137,11 +204,11 @@ Use these examples when interpreting or producing the `cms-binding-apply` contra
 Use `cms-catalog` / `cms-content` as the source root of the dynamic region, and keep the main list or navigation container inside the slot.
 
 ```html
-<cms-catalog site-id="14" level="root">
+<cms-catalog site-id="14" ids="news,products,about">
   <template v-slot:default="{ items, loading, error, empty }">
     <ul class="nav-list">
       <li v-for="item in items" :key="item.id">
-        <a :href="item.path">{{ item.name }}</a>
+        <a :href="item.link || item.url || item.path">{{ item.name }}</a>
       </li>
     </ul>
   </template>
@@ -150,7 +217,7 @@ Use `cms-catalog` / `cms-content` as the source root of the dynamic region, and 
   </template>
 </cms-catalog>
 
-<cms-content site-id="14" catalog-id="news" page-size="6">
+<cms-content site-id="14" catalog-id="news" ids="n-101,n-102,n-103">
   <template v-slot:default="{ items, loading, error, empty }">
     <section class="news-list">
       <article v-for="item in items" :key="item.id">
@@ -160,6 +227,21 @@ Use `cms-catalog` / `cms-content` as the source root of the dynamic region, and 
   </template>
   <template v-slot:error="{ items, loading, error, empty }">
     <section class="news-list news-list--error">{{ error.message }}</section>
+  </template>
+</cms-content>
+```
+
+## Recommended: preserve the current target shell when compatible
+
+If the selected block already has a strong visual structure, keep that shell and only replace its data source.
+
+```html
+<cms-content site-id="14" catalog-id="news" ids="n-101">
+  <template v-slot:default="{ items, loading, error, empty }">
+    <a class="hero-card" :href="items[0]?.link || items[0]?.url || '#'">
+      <img class="hero-card__image" :src="items[0]?.listLogoUrl" :alt="items[0]?.title || ''">
+      <span class="hero-card__title">{{ items[0]?.title }}</span>
+    </a>
   </template>
 </cms-content>
 ```
@@ -184,7 +266,7 @@ When calling `mcp__cms__apply_cms_binding`, pass slot inner content in `template
   "source": {
     "siteId": "14",
     "catalogId": "news",
-    "pageSize": 6
+    "ids": ["n-101", "n-102", "n-103"]
   },
   "templateBody": "<section class=\"news-list\"><article v-for=\"item in items\" :key=\"item.id\">{{ item.title }}</article></section>",
   "emptyTemplate": "<section class=\"news-list news-list--empty\">暂无内容</section>",
@@ -198,17 +280,17 @@ Avoid leaving the main container outside and using the slot only for scattered i
 
 ```html
 <ul class="nav-list">
-  <cms-catalog site-id="14" level="root">
+  <cms-catalog site-id="14" ids="news,products,about">
     <template v-slot:default="{ items }">
       <li v-for="item in items" :key="item.id">
-        <a :href="item.path">{{ item.name }}</a>
+        <a :href="item.link || item.url || item.path">{{ item.name }}</a>
       </li>
     </template>
   </cms-catalog>
 </ul>
 
 <section class="news-list">
-  <cms-content site-id="14" catalog-id="news" page-size="6">
+  <cms-content site-id="14" catalog-id="news" ids="n-101,n-102,n-103">
     <template v-slot:default="{ items }">
       <article v-for="item in items" :key="item.id">
         <h3>{{ item.title }}</h3>
@@ -232,68 +314,24 @@ Avoid passing the whole `<template v-slot:default>` wrapper into `templateBody`.
 </template>
 ```
 
-## Fixed content selection is incompatible
+## Anti-pattern: append a new CMS block beside the selected target
 
-Fixed content IDs are outside the current runtime capability because `apply_cms_binding` only supports catalog-driven `cms-content` queries.
+Avoid leaving the original selected block in place and inserting a second CMS-driven sibling beside it.
 
-### Input
-
-```json
-{
-  "version": 2,
-  "entryPoint": "cms-browser-confirm",
-  "applyIntent": "replace-current",
-  "workspacePolicy": {
-    "scope": "target-selection-only",
-    "allowPageRewrite": false,
-    "allowCrossBlockMutation": false,
-    "outputTarget": "workspace-files/index.html"
-  },
-  "targetSelection": {
-    "kind": "block",
-    "selector": "#latest-news",
-    "parentBlockSelector": "#latest-news",
-    "editBoundary": "block"
-  },
-  "targetBlock": {
-    "selector": "#latest-news",
-    "blockTypeHint": "content-list"
-  },
-  "selection": {
-    "version": 3,
-    "siteId": "14",
-    "targetSelection": {
-      "kind": "block",
-      "selector": "#latest-news",
-      "parentBlockSelector": "#latest-news",
-      "editBoundary": "block"
-    },
-    "targetBlock": {
-      "selector": "#latest-news"
-    },
-    "selectionKind": "contents",
-    "sourceType": "contents-fixed",
-    "selectionMode": "fixed-items",
-    "catalogIds": ["news"],
-    "contentIds": ["n-101", "n-102", "n-103"],
-    "snapshot": {
-      "contents": [
-        { "id": "n-101", "title": "标题 1" }
-      ]
-    }
-  }
-}
+```html
+<div class="hero-card">
+  <img src="/static/banner.jpg" alt="">
+</div>
+<cms-content site-id="14" catalog-id="news" ids="n-101">
+  <template v-slot:default="{ items }">
+    <section class="news-list">
+      <article>{{ items[0]?.title }}</article>
+    </section>
+  </template>
+</cms-content>
 ```
 
-### Incompatible result
-
-```json
-{
-  "status": "incompatible",
-  "reasonCode": "unsupported-runtime-capability",
-  "message": "当前 runtime 仅支持按栏目查询的 content-list 绑定，不支持 fixed content IDs。"
-}
-```
+Instead, replace the selected target in place and reuse its shell when compatible.
 
 ## Missing selection.siteId is malformed
 
@@ -315,11 +353,11 @@ Use `needs-clarification` only when one short question can unlock a safe decisio
 {
   "status": "needs-clarification",
   "clarification": {
-    "kind": "catalog-nav-scope",
-    "question": "多个栏目需要按一级导航平铺，还是保留层级结构？",
+    "kind": "target-block-intent",
+    "question": "当前区块更适合呈现为导航条还是栏目列表？",
     "options": [
-      { "label": "平铺一级栏目", "value": "flat-top-level" },
-      { "label": "保留层级结构", "value": "preserve-hierarchy" }
+      { "label": "导航条", "value": "nav" },
+      { "label": "栏目列表", "value": "catalog-list" }
     ]
   }
 }
@@ -331,7 +369,7 @@ When `targetBlock.blockTypeHint` is absent, keep the decision conservative inste
 
 ```json
 {
-  "version": 2,
+  "version": 3,
   "entryPoint": "cms-browser-confirm",
   "applyIntent": "replace-current",
   "workspacePolicy": {
@@ -350,7 +388,7 @@ When `targetBlock.blockTypeHint` is absent, keep the decision conservative inste
     "selector": "#latest-list"
   },
   "selection": {
-    "version": 3,
+    "version": 5,
     "siteId": "14",
     "targetSelection": {
       "kind": "block",
@@ -361,14 +399,14 @@ When `targetBlock.blockTypeHint` is absent, keep the decision conservative inste
     "targetBlock": {
       "selector": "#latest-list"
     },
-    "selectionKind": "contents",
-    "sourceType": "contents-fixed",
+    "selectionKind": "catalogs",
+    "sourceType": "catalogs-by-ids",
     "selectionMode": "fixed-items",
-    "catalogIds": ["news"],
-    "contentIds": ["n-201"],
+    "catalogIds": ["news", "events"],
     "snapshot": {
-      "contents": [
-        { "id": "n-201", "title": "标题 A" }
+      "catalogs": [
+        { "id": "news", "name": "新闻" },
+        { "id": "events", "name": "活动" }
       ]
     }
   }
@@ -377,10 +415,9 @@ When `targetBlock.blockTypeHint` is absent, keep the decision conservative inste
 
 Recommended interpretation:
 
-- `catalogs` favor `nav`
 - `contents` favor `content-list`
-- if that fallback is still not safe enough, return `needs-clarification`
-- if the selection still depends on fixed content IDs, return `incompatible`
+- `catalogs` may resolve to `nav` or `catalog-list`
+- if that fallback is still not safe enough, return `needs-clarification` with one short structured question
 
 ## Controlled creation boundary
 
@@ -393,7 +430,7 @@ Use the formal CMS selection flow when a page needs a new CMS source tag or an e
   - `mcp__cms__apply_cms_binding`
 - Not allowed:
   - ordinary page generation inventing a new `cms-catalog` / `cms-content`
-  - ordinary iteration silently changing `site-id`, `catalog-id`, `page-size`, or similar query props
+  - ordinary iteration silently changing `site-id`, `catalog-id`, `ids`, `page-size`, or similar binding props
 
 If the page already contains CMS tags, ordinary iteration may still adjust slot templates, internal structure, and styles inside the existing CMS region.
 
@@ -405,7 +442,7 @@ Use `incompatible` when the selection cannot be applied safely inside Phase 1A.
 {
   "status": "incompatible",
   "reasonCode": "unsupported-block-kind",
-  "message": "当前区块不属于第一阶段支持的 nav 或 content-list 类型。"
+  "message": "当前区块不属于第一阶段支持的 nav、catalog-list 或 content-list 类型。"
 }
 ```
 

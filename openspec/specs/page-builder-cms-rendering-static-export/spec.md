@@ -17,7 +17,7 @@
 - **AND** 系统 SHALL 不复用另一个任务中遗留的缓存结果
 
 ### Requirement: 静态导出必须使用共享 CMS island 管线预取并固化顶层 islands
-系统 SHALL 在 page-builder 离线静态导出中复用共享的 CMS island 扫描、模板编译和组件 contract，对 staging HTML 中的顶层 `cms-catalog` 与 `cms-content` 先完成预取，再逐 island 执行 SSR，并将结果替换回 staging HTML。
+系统 SHALL 在 page-builder 离线静态导出中复用共享的 CMS island 扫描、模板编译和组件 contract，对 staging HTML 中的顶层 `cms-catalog` 与 `cms-content` 先完成预取，再逐 island 执行 SSR，并将结果替换回 staging HTML；当 island 使用 fixed-ids 来源时，导出期预取 MUST 走受控取数路径，而不得通过全量栏目树或整站内容列表退化实现。
 
 #### Scenario: 包含多个顶层 CMS islands 的页面被固化为静态 HTML
 - **WHEN** 某个导出页面的 staging HTML 中包含多个顶层 `cms-catalog` 或 `cms-content`
@@ -36,6 +36,13 @@
 - **THEN** 系统 SHALL 在 SSR 输出中保留该原始 CMS 资源 URL
 - **AND** 系统 SHALL NOT 将其改写为 preview 专用的 `/api/page-builder/cms/assets?...` 代理地址
 
+#### Scenario: fixed-ids 来源通过受控读取预取并保持顺序
+- **WHEN** 某个 `cms-catalog` 或 `cms-content` island 使用作者态 `ids` 来源
+- **THEN** 系统 SHALL 对固定栏目 `ids` 只预取这些有序 `ids` 对应的栏目
+- **AND** 对固定内容 `ids`，系统 SHALL 在作者态 `catalog-id` 对应的单一栏目范围内解析这些内容
+- **AND** 系统 SHALL NOT 通过全量栏目树或整站内容列表加载来模拟 fixed-ids 行为
+- **AND** 预取结果 SHALL 保持输入顺序并默认丢弃失效项
+- **AND** 当所有 id 都失效时，导出期 SSR SHALL 渲染 empty 状态
 ### Requirement: CMS island 导出失败必须上浮为结构化渲染失败
 系统 SHALL 将 CMS island 的预取失败、模板编译失败或 SSR 失败视为导出期结构化失败，并至少记录失败来源组件和归一化 props，而不是静默导出空内容或未替换的占位结果。
 

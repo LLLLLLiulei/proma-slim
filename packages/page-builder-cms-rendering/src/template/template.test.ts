@@ -56,12 +56,12 @@ describe('template utilities', () => {
     const islands = scanCmsIslands(`
       <main>
         <section>plain html</section>
-        <cms-catalog site-id="14" level="root" take="2">
+        <cms-catalog site-id="14" ids="events,news">
           <template #default="{ items }">
             <nav>{{ items.length }}</nav>
           </template>
         </cms-catalog>
-        <cms-content site-id="14" catalog-id="news" page-index="0" page-size="3" keyword="launch"></cms-content>
+        <cms-content site-id="14" catalog-id="news" ids="c-2,c-1"></cms-content>
       </main>
     `)
 
@@ -75,8 +75,7 @@ describe('template utilities', () => {
       component: 'cms-catalog',
       props: {
         siteId: '14',
-        level: 'root',
-        take: '2',
+        ids: ['events', 'news'],
       },
     })
     expect(catalogIsland.template).toContain('<cms-catalog')
@@ -87,9 +86,7 @@ describe('template utilities', () => {
       props: {
         siteId: '14',
         catalogId: 'news',
-        pageIndex: '0',
-        pageSize: '3',
-        keyword: 'launch',
+        ids: ['c-2', 'c-1'],
       },
     })
   })

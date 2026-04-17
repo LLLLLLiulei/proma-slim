@@ -5,7 +5,7 @@ export type CmsIslandRenderStage = 'prefetch' | 'render'
 export interface CmsIslandRenderFailure {
   stage: CmsIslandRenderStage
   component: CmsIslandComponentName
-  props: Record<string, string>
+  props: Record<string, string | string[]>
   message: string
 }
 

@@ -21,6 +21,7 @@ import {
 
 const AUTH_FAILURE_MESSAGE = 'CMS 鉴权失败，请检查宿主配置中的账号密码是否正确'
 const CATALOGS_PAGE_SIZE = 500
+const CONTENTS_PAGE_SIZE = 100
 
 export type CmsCatalogQuery = PageBuilderCmsCatalogQuery
 export type CmsContentQuery = PageBuilderCmsContentQuery
@@ -33,7 +34,7 @@ export type NormalizedCmsSiteSummary = PageBuilderCmsSiteSummary
 
 export class CmsGatewayError extends Error {
   constructor(
-    readonly code: 'config' | 'auth' | 'upstream' | 'invalid_response',
+    readonly code: 'config' | 'auth' | 'upstream' | 'invalid_response' | 'invalid_request',
     message: string,
   ) {
     super(message)
@@ -70,6 +71,12 @@ export class CmsGateway {
 
   async listCatalogs(query: CmsCatalogQuery = {}): Promise<NormalizedCmsCatalogList> {
     const siteId = resolveSiteId(query.siteId)
+    const ids = normalizeOrderedIds(query.ids)
+    if (ids) {
+      assertValidCatalogExactIdsQuery(query, ids)
+      return this.listCatalogsByIds(siteId, ids)
+    }
+
     const payload = await this.requestJson('/api/catalogsTree', {
       siteID: siteId,
       ...(query.contentType ? { contentType: query.contentType } : {}),
@@ -96,8 +103,15 @@ export class CmsGateway {
 
   async listContents(query: CmsContentQuery): Promise<NormalizedCmsContentList> {
     const siteId = resolveSiteId(query.siteId)
+    const ids = normalizeOrderedIds(query.ids)
+    if (ids) {
+      const catalogId = assertValidContentExactIdsQuery(query, ids)
+      return this.listContentsByIds(siteId, catalogId, ids)
+    }
+
+    const catalogId = normalizeRequiredId(query.catalogId, 'catalogId')
     const payload = await this.requestJson(
-      `/api/catalogs/${encodeURIComponent(query.catalogId)}/contents`,
+      `/api/catalogs/${encodeURIComponent(catalogId)}/contents`,
       {
         siteID: siteId,
         pageIndex: String(query.pageIndex ?? 0),
@@ -165,6 +179,99 @@ export class CmsGateway {
       }
 
       pageIndex += 1
+    }
+  }
+
+  private async listCatalogsByIds(
+    siteId: string,
+    ids: string[],
+  ): Promise<NormalizedCmsCatalogList> {
+    const items = (
+      await Promise.all(ids.map((catalogId) => this.fetchCatalogById(siteId, catalogId)))
+    ).flatMap((item) => {
+      if (!item) {
+        return []
+      }
+
+      const normalized = normalizeCatalogNode(item, this.config.baseUrl)
+      return normalized ? [stripCatalogChildren(normalized)] : []
+    })
+
+    return {
+      items,
+      tree: items.map((item) => ({ ...item, children: [] })),
+    }
+  }
+
+  private async fetchCatalogById(
+    siteId: string,
+    catalogId: string,
+  ): Promise<Record<string, unknown> | null> {
+    const payload = await this.requestJson('/api/catalogs', {
+      siteID: siteId,
+      id: catalogId,
+      level: 'CurrentAndChild',
+    })
+
+    return findCatalogRecord(payload, catalogId)
+  }
+
+  private async listContentsByIds(
+    siteId: string,
+    catalogId: string,
+    ids: string[],
+  ): Promise<NormalizedCmsContentList> {
+    const targetIds = new Set(ids)
+    const itemsById = new Map<string, NormalizedCmsContentSummary>()
+    let pageIndex = 0
+
+    while (true) {
+      const payload = await this.requestJson(
+        `/api/catalogs/${encodeURIComponent(catalogId)}/contents`,
+        {
+          siteID: siteId,
+          pageIndex: String(pageIndex),
+          pageSize: String(CONTENTS_PAGE_SIZE),
+          loadextend: 'true',
+        },
+      )
+      const page = normalizeContentList(payload, {
+        pageIndex,
+        pageSize: CONTENTS_PAGE_SIZE,
+      }, this.config.baseUrl)
+
+      for (const item of page.items) {
+        if (targetIds.has(item.id) && item.catalogId === catalogId) {
+          itemsById.set(item.id, item)
+        }
+      }
+
+      if (itemsById.size >= targetIds.size) {
+        break
+      }
+
+      if (
+        page.items.length === 0
+        || page.items.length < CONTENTS_PAGE_SIZE
+        || (page.pageIndex + 1) * page.pageSize >= page.total
+      ) {
+        break
+      }
+
+      pageIndex += 1
+    }
+
+    const items = ids.flatMap((contentId) => {
+      const item = itemsById.get(contentId)
+      return item ? [item] : []
+    })
+
+    return {
+      pageIndex: 0,
+      pageSize: items.length,
+      total: items.length,
+      totalPages: 1,
+      items,
     }
   }
 
@@ -382,9 +489,68 @@ function resolveSiteId(siteId: string | undefined): string {
   return next || '1'
 }
 
+function normalizeOrderedIds(value: string[] | undefined): string[] | undefined {
+  if (!Array.isArray(value) || value.length === 0) {
+    return undefined
+  }
+
+  const normalized = value
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+
+  return normalized.length > 0 ? normalized : undefined
+}
+
+function assertValidCatalogExactIdsQuery(query: CmsCatalogQuery, ids: string[]): void {
+  if (ids.length === 0) {
+    return
+  }
+
+  if (readString(query.contentType) || readString(query.searchKeyword)) {
+    throw new CmsGatewayError('invalid_request', 'catalog ids 不能与 contentType 或 searchKeyword 混用')
+  }
+}
+
+function assertValidContentExactIdsQuery(query: CmsContentQuery, ids: string[]): string {
+  if (ids.length === 0) {
+    throw new CmsGatewayError('invalid_request', 'content ids 不能为空')
+  }
+
+  const catalogId = readString(query.catalogId)
+  if (!catalogId) {
+    throw new CmsGatewayError('invalid_request', 'content ids 模式要求提供 catalogId')
+  }
+
+  if (
+    readString(query.keyword)
+    || query.pageIndex !== undefined
+    || query.pageSize !== undefined
+  ) {
+    throw new CmsGatewayError('invalid_request', 'content ids 不能与 keyword、pageIndex 或 pageSize 混用')
+  }
+
+  return catalogId
+}
+
+function normalizeRequiredId(value: string | undefined, label: string): string {
+  const normalized = readString(value)
+  if (!normalized) {
+    throw new CmsGatewayError('invalid_request', `${label} 不能为空`)
+  }
+
+  return normalized
+}
+
 function normalizeParentId(value: unknown): string | null {
   const parentValue = readString(value)
   return !parentValue || parentValue === '0' ? null : parentValue
+}
+
+function stripCatalogChildren(item: NormalizedCmsCatalog): NormalizedCmsCatalog {
+  return {
+    ...item,
+    children: [],
+  }
 }
 
 function normalizeCatalogs(items: unknown[], baseUrl: string): NormalizedCmsCatalog[] {
@@ -539,9 +705,70 @@ function extractContentArray(container: Record<string, unknown>): unknown[] {
     if (Array.isArray(candidate)) {
       return candidate
     }
+
+    const record = asRecord(candidate)
+    if (record && readString(record.ID ?? record.id)) {
+      return [record]
+    }
   }
 
   return []
+}
+
+function findCatalogRecord(payload: unknown, catalogId: string): Record<string, unknown> | null {
+  const root = asRecord(payload)
+  if (!root) {
+    throw new CmsGatewayError('invalid_response', 'CMS 栏目响应格式不正确')
+  }
+
+  return findMatchingRecord([
+    root,
+    root.data,
+    asRecord(root.data)?.data,
+    root.items,
+  ], catalogId)
+}
+
+function findContentRecord(payload: unknown, contentId: string): Record<string, unknown> | null {
+  const root = asRecord(payload)
+  if (!root) {
+    throw new CmsGatewayError('invalid_response', 'CMS 内容响应格式不正确')
+  }
+
+  const dataRecord = asRecord(root.data)
+
+  return findMatchingRecord([
+    root,
+    root.data,
+    dataRecord?.data,
+    dataRecord?.items,
+    dataRecord?.list,
+    dataRecord?.rows,
+    root.items,
+    root.list,
+    root.rows,
+  ], contentId)
+}
+
+function findMatchingRecord(candidates: unknown[], id: string): Record<string, unknown> | null {
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) {
+      for (const item of candidate) {
+        const record = asRecord(item)
+        if (record && readString(record.ID ?? record.id) === id) {
+          return record
+        }
+      }
+      continue
+    }
+
+    const record = asRecord(candidate)
+    if (record && readString(record.ID ?? record.id) === id) {
+      return record
+    }
+  }
+
+  return null
 }
 
 function normalizeContentItem(

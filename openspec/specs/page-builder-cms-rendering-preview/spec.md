@@ -45,7 +45,7 @@
 - **AND** 系统 SHALL NOT 为内层嵌套 `cms-*` 再单独创建第二个独立 app
 
 ### Requirement: CMS rendering preview 必须通过宿主管理的本地资产和 CMS 代理接口运行
-系统 SHALL 通过宿主 page-builder 路由交付 CMS rendering preview 所需的脚本资产，并使浏览器端 island 取数通过现有 `/api/page-builder/cms/*` 代理接口完成，而不是直接依赖第三方 CDN 或绕过宿主管理的 CMS 访问路径。
+系统 SHALL 通过宿主 page-builder 路由交付 CMS rendering preview 所需的脚本资产，并使浏览器端 island 取数通过现有 `/api/page-builder/cms/*` 代理接口或其等价宿主管理读取路径完成，而不是直接依赖第三方 CDN 或绕过宿主管理的 CMS 访问路径；当 island 使用 fixed-ids 来源时，preview MUST 走精确取数路径，而不得退化为全量加载后本地过滤。
 
 #### Scenario: preview 页面通过本地 page-builder 资产路由获取脚本
 - **WHEN** 某个包含 CMS islands 的预览页面加载其注入的 CMS rendering preview 资产
@@ -62,3 +62,10 @@
 - **THEN** 系统 SHALL 优先使用该 island 作者态源码中的显式 `site-id`
 - **AND** 当该标签缺少 `site-id` 时，系统 SHALL 按 `siteId = 1` 兼容执行
 - **AND** 浏览器端缓存键 SHALL 包含 `siteId` 维度
+
+#### Scenario: fixed-ids 来源通过受控读取路径预览而不是全量加载
+- **WHEN** 浏览器端某个 `cms-catalog` 或 `cms-content` island 使用作者态 `ids` 来源
+- **THEN** 系统 SHALL 对固定栏目 `ids` 只请求这些有序 `ids` 对应的栏目
+- **AND** 对固定内容 `ids`，系统 SHALL 在作者态 `catalog-id` 对应的单一栏目范围内解析这些内容
+- **AND** 系统 SHALL NOT 通过全量栏目树或整站内容列表加载来模拟 fixed-ids 行为
+- **AND** 预览运行时 SHALL 保持输入顺序并默认丢弃失效项

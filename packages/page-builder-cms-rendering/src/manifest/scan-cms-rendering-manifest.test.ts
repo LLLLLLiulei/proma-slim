@@ -8,14 +8,14 @@ describe('scanCmsRenderingManifest', () => {
       <html>
         <body>
           <section data-proma-block-id="pb_blk_nav">
-            <cms-catalog site-id="14" level="root" take="4">
+            <cms-catalog site-id="14" ids="nav-b, nav-a">
               <template v-slot:default="{ items }">
                 <nav>{{ items.length }}</nav>
               </template>
             </cms-catalog>
           </section>
           <section id="news-list">
-            <cms-content site-id="14" catalog-id="news" page-size="3">
+            <cms-content site-id="14" catalog-id="news" ids="content-2,content-1">
               <template v-slot:default="{ items }">
                 <article>{{ items.length }}</article>
               </template>
@@ -38,8 +38,7 @@ describe('scanCmsRenderingManifest', () => {
           component: 'cms-catalog',
           props: {
             siteId: '14',
-            level: 'root',
-            take: '4',
+            ids: ['nav-b', 'nav-a'],
           },
           htmlPath: 'index.html',
           islandIndex: 0,
@@ -51,7 +50,7 @@ describe('scanCmsRenderingManifest', () => {
           props: {
             siteId: '14',
             catalogId: 'news',
-            pageSize: '3',
+            ids: ['content-2', 'content-1'],
           },
           htmlPath: 'index.html',
           islandIndex: 1,
@@ -91,6 +90,41 @@ describe('scanCmsRenderingManifest', () => {
       component: 'cms-content',
       selectorSnapshot: '#outer',
       islandIndex: 0,
+    })
+  })
+
+  test('keeps only supported normalized source props in manifest entries', () => {
+    const manifest = scanCmsRenderingManifest(`
+      <!doctype html>
+      <html>
+        <body>
+          <section id="news-list">
+            <cms-content
+              id="legacy-news"
+              class="content-shell"
+              site-id="14"
+              catalog-id="news"
+              ids="content-2,content-1"
+              content-select-type="Recent"
+              title="Legacy Filter"
+            >
+              <template v-slot:default="{ items }">
+                <article>{{ items.length }}</article>
+              </template>
+            </cms-content>
+          </section>
+        </body>
+      </html>
+    `, {
+      htmlPath: 'index.html',
+      generatedAt: '2026-04-13T00:00:00.000Z',
+    })
+
+    expect(manifest.entries).toHaveLength(1)
+    expect(manifest.entries[0]?.props).toEqual({
+      siteId: '14',
+      catalogId: 'news',
+      ids: ['content-2', 'content-1'],
     })
   })
 })

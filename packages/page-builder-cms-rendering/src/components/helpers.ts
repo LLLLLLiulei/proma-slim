@@ -15,10 +15,13 @@ export interface CatalogDisplayOptions {
 const DEFAULT_CMS_SITE_ID = '1'
 
 export function createCatalogQuery(props: Record<string, unknown>): PageBuilderCmsCatalogQuery {
+  const ids = normalizeOrderedIds(props.ids)
+
   return {
     siteId: normalizeCmsSiteId(props.siteId),
-    contentType: normalizeOptionalString(props.contentType),
-    searchKeyword: normalizeOptionalString(props.searchKeyword),
+    ids,
+    contentType: ids ? undefined : normalizeOptionalString(props.contentType),
+    searchKeyword: ids ? undefined : normalizeOptionalString(props.searchKeyword),
   }
 }
 
@@ -31,12 +34,54 @@ export function createCatalogDisplayOptions(props: Record<string, unknown>): Cat
 }
 
 export function createContentQuery(props: Record<string, unknown>): PageBuilderCmsContentQuery {
+  const ids = normalizeOrderedIds(props.ids)
+  const catalogId = normalizeOptionalString(props.catalogId)
+
   return {
     siteId: normalizeCmsSiteId(props.siteId),
-    catalogId: String(props.catalogId ?? '').trim(),
-    keyword: normalizeOptionalString(props.keyword),
-    pageIndex: normalizeNonNegativeInteger(props.pageIndex),
-    pageSize: normalizePositiveInteger(props.pageSize),
+    catalogId,
+    ids,
+    keyword: ids ? undefined : normalizeOptionalString(props.keyword),
+    pageIndex: ids ? undefined : normalizeNonNegativeInteger(props.pageIndex),
+    pageSize: ids ? undefined : normalizePositiveInteger(props.pageSize),
+  }
+}
+
+export function assertValidCatalogSource(props: Record<string, unknown>): void {
+  const ids = normalizeOrderedIds(props.ids)
+
+  if (!ids) {
+    return
+  }
+
+  if (
+    normalizeOptionalString(props.level)
+    || normalizeOptionalString(props.parentId)
+    || normalizeOptionalString(props.contentType)
+    || normalizeOptionalString(props.searchKeyword)
+    || normalizePositiveInteger(props.take) !== undefined
+  ) {
+    throw new Error('cms-catalog ids cannot be combined with query props')
+  }
+}
+
+export function assertValidContentSource(props: Record<string, unknown>): void {
+  const ids = normalizeOrderedIds(props.ids)
+  const catalogId = normalizeOptionalString(props.catalogId)
+
+  if (!catalogId) {
+    throw new Error(ids ? 'cms-content ids require catalog-id' : 'cms-content requires catalog-id')
+  }
+
+  if (
+    ids
+    && (
+      normalizeOptionalString(props.keyword)
+      || normalizeNonNegativeInteger(props.pageIndex) !== undefined
+      || normalizePositiveInteger(props.pageSize) !== undefined
+    )
+  ) {
+    throw new Error('cms-content ids cannot be combined with query props')
   }
 }
 
@@ -135,6 +180,24 @@ function normalizeCmsSiteId(value: unknown): string {
   }
 
   return normalizeOptionalString(value) ?? DEFAULT_CMS_SITE_ID
+}
+
+function normalizeOrderedIds(value: unknown): string[] | undefined {
+  const values = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+      ? value.split(',')
+      : []
+
+  if (values.length === 0) {
+    return undefined
+  }
+
+  const normalized = values
+    .map((entry) => typeof entry === 'string' ? entry.trim() : String(entry).trim())
+    .filter(Boolean)
+
+  return normalized.length > 0 ? normalized : undefined
 }
 
 function normalizePositiveInteger(value: unknown): number | undefined {

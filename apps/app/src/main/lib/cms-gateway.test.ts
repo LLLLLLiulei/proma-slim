@@ -231,6 +231,139 @@ describe('CmsGateway', () => {
     })
   })
 
+  test('lists fixed catalog ids through exact-id reads, preserves order, and drops invalid ids', async () => {
+    const { CmsGateway } = await import('./cms-gateway')
+    const { resolvePageBuilderCmsConfig } = await import('./page-builder-cms-config')
+    const tokenProvider = {
+      getAuthorizationHeader: mock(async () => 'Bearer slim-token'),
+    }
+    const requestedUrls: string[] = []
+    const fetchMock = mock(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      requestedUrls.push(url)
+
+      if (url === 'https://demo.zving.com/manager/api/catalogs?siteID=14&id=102&level=CurrentAndChild') {
+        return new Response(JSON.stringify({
+          status: 1,
+          data: {
+            id: 102,
+            parentID: 0,
+            path: 'brand/',
+            name: '品牌素材',
+            contentType: 'Image',
+            contentTypeName: '图片',
+            hasChild: false,
+            total: 2,
+          },
+        }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+
+      if (url === 'https://demo.zving.com/manager/api/catalogs?siteID=14&id=999&level=CurrentAndChild') {
+        return new Response(JSON.stringify({
+          status: 1,
+          data: [],
+        }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+
+      if (url === 'https://demo.zving.com/manager/api/catalogs?siteID=14&id=101&level=CurrentAndChild') {
+        return new Response(JSON.stringify({
+          status: 1,
+          data: [
+            {
+              id: 101,
+              parentID: 0,
+              path: 'news/',
+              name: '新闻中心',
+              contentType: 'Article',
+              contentTypeName: '文章',
+              hasChild: false,
+              total: 8,
+            },
+          ],
+        }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+
+      throw new Error(`unexpected request: ${url}`)
+    })
+
+    const gateway = new CmsGateway({
+      config: resolvePageBuilderCmsConfig(TEST_ENV)!,
+      fetchFn: fetchMock as unknown as typeof fetch,
+      tokenProvider,
+    })
+
+    const result = await gateway.listCatalogs({
+      siteId: '14',
+      ids: ['102', '999', '101'],
+    })
+
+    expect(result).toEqual({
+      items: [
+        {
+          id: '102',
+          name: '品牌素材',
+          parentId: null,
+          path: 'brand/',
+          contentType: 'Image',
+          contentTypeName: '图片',
+          hasChild: false,
+          total: 2,
+          children: [],
+        },
+        {
+          id: '101',
+          name: '新闻中心',
+          parentId: null,
+          path: 'news/',
+          contentType: 'Article',
+          contentTypeName: '文章',
+          hasChild: false,
+          total: 8,
+          children: [],
+        },
+      ],
+      tree: [
+        {
+          id: '102',
+          name: '品牌素材',
+          parentId: null,
+          path: 'brand/',
+          contentType: 'Image',
+          contentTypeName: '图片',
+          hasChild: false,
+          total: 2,
+          children: [],
+        },
+        {
+          id: '101',
+          name: '新闻中心',
+          parentId: null,
+          path: 'news/',
+          contentType: 'Article',
+          contentTypeName: '文章',
+          hasChild: false,
+          total: 8,
+          children: [],
+        },
+      ],
+    })
+    expect(requestedUrls).toEqual([
+      'https://demo.zving.com/manager/api/catalogs?siteID=14&id=102&level=CurrentAndChild',
+      'https://demo.zving.com/manager/api/catalogs?siteID=14&id=999&level=CurrentAndChild',
+      'https://demo.zving.com/manager/api/catalogs?siteID=14&id=101&level=CurrentAndChild',
+    ])
+    expect(requestedUrls.some((url) => url.includes('/api/catalogsTree'))).toBe(false)
+  })
+
   test('assembles catalog detail from the slim catalogs endpoint', async () => {
     const { CmsGateway } = await import('./cms-gateway')
     const { resolvePageBuilderCmsConfig } = await import('./page-builder-cms-config')
@@ -448,6 +581,101 @@ describe('CmsGateway', () => {
         },
       ],
     })
+  })
+
+  test('lists fixed content ids through a single catalog list load, preserves order, and drops invalid ids', async () => {
+    const { CmsGateway } = await import('./cms-gateway')
+    const { resolvePageBuilderCmsConfig } = await import('./page-builder-cms-config')
+    const tokenProvider = {
+      getAuthorizationHeader: mock(async () => 'Bearer slim-token'),
+    }
+    const requestedUrls: string[] = []
+    const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      requestedUrls.push(url)
+
+      expect(init?.method).toBe('GET')
+      expect(init?.headers).toMatchObject({
+        Accept: 'application/json',
+        Authorization: 'Bearer slim-token',
+      })
+
+      if (url === 'https://demo.zving.com/manager/api/catalogs/101/contents?siteID=14&pageIndex=0&pageSize=100&loadextend=true') {
+        return new Response(JSON.stringify({
+          status: 1,
+          data: {
+            data: [
+              {
+                id: 501,
+                catalogID: 101,
+                title: '首页轮播图',
+                summary: '三张首页图片',
+                logoFile: 'preview/news/upload/resources/image/banner-list-logo.jpg',
+                publishUrl: 'https://demo.zving.com/home/banner/501.html',
+                addTime: '2025-04-11 17:48:06',
+              },
+              {
+                id: 502,
+                catalogID: 101,
+                title: '品牌素材包',
+                summary: '包含视频、音频和附件',
+                url: 'https://demo.zving.com/home/banner/502.html',
+                publishDate: '2025-04-12 10:08:00',
+              },
+            ],
+            pageIndex: 0,
+            pageSize: 100,
+            total: 2,
+          },
+        }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+
+      throw new Error(`unexpected request: ${url}`)
+    })
+
+    const gateway = new CmsGateway({
+      config: resolvePageBuilderCmsConfig(TEST_ENV)!,
+      fetchFn: fetchMock as unknown as typeof fetch,
+      tokenProvider,
+    })
+
+    const result = await gateway.listContents({
+      siteId: '14',
+      catalogId: '101',
+      ids: ['502', '999', '501'],
+    })
+
+    expect(result).toEqual({
+      pageIndex: 0,
+      pageSize: 2,
+      total: 2,
+      totalPages: 1,
+      items: [
+        {
+          id: '502',
+          catalogId: '101',
+          title: '品牌素材包',
+          summary: '包含视频、音频和附件',
+          addedAt: '2025-04-12 10:08',
+          publishUrl: 'https://demo.zving.com/home/banner/502.html',
+        },
+        {
+          id: '501',
+          catalogId: '101',
+          title: '首页轮播图',
+          summary: '三张首页图片',
+          listLogoUrl: 'https://demo.zving.com/manager/preview/news/upload/resources/image/banner-list-logo.jpg',
+          addedAt: '2025-04-11 17:48',
+          publishUrl: 'https://demo.zving.com/home/banner/501.html',
+        },
+      ],
+    })
+    expect(requestedUrls).toEqual([
+      'https://demo.zving.com/manager/api/catalogs/101/contents?siteID=14&pageIndex=0&pageSize=100&loadextend=true',
+    ])
   })
 
   test('keeps normalized summaries unchanged when loadextend-style fields appear upstream', async () => {

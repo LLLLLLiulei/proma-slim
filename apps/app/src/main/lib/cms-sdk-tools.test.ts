@@ -32,6 +32,8 @@ describe('cms sdk runtime tools', () => {
     expect(source).toContain('complete dynamic region')
     expect(source).toContain('slot 内部内容')
     expect(source).toContain('不要包含外层 <template v-slot:...> 包装')
+    expect(source).toContain('不要根据 CMS 浏览弹框当前的分页大小推断页面绑定的 pageSize')
+    expect(source).toContain('如需限制栏目数量应使用 take')
     expect(source).toContain('templateBody')
     expect(source).toContain('emptyTemplate')
     expect(source).toContain('errorTemplate')
@@ -63,21 +65,23 @@ describe('cms sdk runtime tools', () => {
         }>
       }
     }).instance._registeredTools
+    const listCatalogsTool = tools.list_catalogs!
+    const listContentsTool = tools.list_contents!
 
-    const parsedCatalogArgs = tools.list_catalogs.inputSchema.parse({
+    const parsedCatalogArgs = listCatalogsTool.inputSchema.parse({
       siteId: '14',
       contentType: 'Image',
       searchKeyword: '首页',
     })
-    await tools.list_catalogs.handler(parsedCatalogArgs, undefined)
+    await listCatalogsTool.handler(parsedCatalogArgs, undefined)
 
-    const parsedContentArgs = tools.list_contents.inputSchema.parse({
+    const parsedContentArgs = listContentsTool.inputSchema.parse({
       siteId: '14',
       catalogId: '101',
       pageIndex: 1,
       pageSize: 10,
     })
-    await tools.list_contents.handler(parsedContentArgs, undefined)
+    await listContentsTool.handler(parsedContentArgs, undefined)
 
     expect(catalogCalls).toEqual([{
       siteId: '14',
@@ -90,5 +94,86 @@ describe('cms sdk runtime tools', () => {
       pageIndex: 1,
       pageSize: 10,
     }])
+  })
+
+  test('forwards ordered fixed ids through the sdk list tools', async () => {
+    const workspace = createAgentWorkspace('CMS Tool Fixed Ids', { template: 'page-builder' })
+    const catalogCalls: unknown[] = []
+    const contentCalls: unknown[] = []
+    const gateway = {
+      listCatalogs: async (query: unknown) => {
+        catalogCalls.push(query)
+        return { items: [], tree: [] }
+      },
+      listContents: async (query: unknown) => {
+        contentCalls.push(query)
+        return { pageIndex: 0, pageSize: 20, total: 0, totalPages: 0, items: [] }
+      },
+    }
+
+    const bundle = buildCmsRuntimeToolBundle(gateway as never, {
+      workspace,
+    })
+    const tools = (bundle.mcpServer as {
+      instance: {
+        _registeredTools: Record<string, {
+          inputSchema: { parse: (input: unknown) => unknown }
+          handler: (args: unknown, extra: unknown) => Promise<unknown>
+        }>
+      }
+    }).instance._registeredTools
+    const listCatalogsTool = tools.list_catalogs!
+    const listContentsTool = tools.list_contents!
+
+    const parsedCatalogArgs = listCatalogsTool.inputSchema.parse({
+      siteId: '14',
+      ids: ['102', '101'],
+    })
+    await listCatalogsTool.handler(parsedCatalogArgs, undefined)
+
+    const parsedContentArgs = listContentsTool.inputSchema.parse({
+      siteId: '14',
+      catalogId: '101',
+      ids: ['502', '501'],
+    })
+    await listContentsTool.handler(parsedContentArgs, undefined)
+
+    expect(catalogCalls).toEqual([{
+      siteId: '14',
+      ids: ['102', '101'],
+    }])
+    expect(contentCalls).toEqual([{
+      siteId: '14',
+      catalogId: '101',
+      ids: ['502', '501'],
+    }])
+  })
+
+  test('rejects fixed content ids without catalogId at the sdk schema boundary', () => {
+    const workspace = createAgentWorkspace('CMS Tool Fixed Ids Validation', { template: 'page-builder' })
+    const gateway = {
+      listCatalogs: async () => ({ items: [], tree: [] }),
+      listContents: async () => ({ pageIndex: 0, pageSize: 20, total: 0, totalPages: 0, items: [] }),
+    }
+
+    const bundle = buildCmsRuntimeToolBundle(gateway as never, {
+      workspace,
+    })
+    const tools = (bundle.mcpServer as {
+      instance: {
+        _registeredTools: Record<string, {
+          inputSchema: { parse: (input: unknown) => unknown }
+          handler: (args: unknown, extra: unknown) => Promise<unknown>
+        }>
+      }
+    }).instance._registeredTools
+    const listContentsTool = tools.list_contents!
+
+    const parsedArgs = listContentsTool.inputSchema.parse({
+      siteId: '14',
+      ids: ['502', '501'],
+    })
+
+    expect(() => listContentsTool.handler(parsedArgs, undefined)).toThrow('固定内容 ids 查询必须同时提供 catalogId')
   })
 })

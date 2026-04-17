@@ -174,6 +174,88 @@ describe('validateCmsRendering', () => {
     expect(result.valid).toBe(true)
   })
 
+  test('accepts ids as supported props and preserves legacy missing-site compatibility', () => {
+    const result = validateCmsRendering(`
+      <!doctype html>
+      <html>
+        <body>
+          <cms-catalog ids="cat-b,cat-a">
+            <template v-slot:default="{ items }">
+              <ul><li v-for="item in items">{{ item.name }}</li></ul>
+            </template>
+          </cms-catalog>
+          <cms-content site-id="14" catalog-id="news" ids="content-2,content-1">
+            <template v-slot:default="{ items }">
+              <section><article v-for="item in items">{{ item.title }}</article></section>
+            </template>
+          </cms-content>
+        </body>
+      </html>
+    `, {
+      htmlPath: 'index.html',
+    })
+
+    expect(result.errors).toEqual([])
+    expect(result.warnings.filter((diagnostic) => diagnostic.code === 'UNKNOWN_PROP')).toEqual([])
+  })
+
+  test('reports error diagnostics when ids are mixed with conflicting query props', () => {
+    const result = validateCmsRendering(`
+      <!doctype html>
+      <html>
+        <body>
+          <cms-catalog ids="cat-1" parent-id="root">
+            <template v-slot:default="{ items }">
+              <ul><li v-for="item in items">{{ item.name }}</li></ul>
+            </template>
+          </cms-catalog>
+          <cms-content ids="content-1" catalog-id="news" page-size="3">
+            <template v-slot:default="{ items }">
+              <section><article v-for="item in items">{{ item.title }}</article></section>
+            </template>
+          </cms-content>
+        </body>
+      </html>
+    `, {
+      htmlPath: 'index.html',
+    })
+
+    expect(result.errors.map((diagnostic) => diagnostic.code)).toEqual(expect.arrayContaining([
+      'CONFLICTING_SOURCE_PROPS',
+    ]))
+  })
+
+  test('treats legacy cms-content source props as non-conflicting and warns on unsupported source-only attrs', () => {
+    const result = validateCmsRendering(`
+      <!doctype html>
+      <html>
+        <body>
+          <cms-content
+            site-id="14"
+            catalog-id="news"
+            ids="content-1,content-2"
+            content-select-type="Recent"
+            title="Legacy Filter"
+          >
+            <template v-slot:default="{ items }">
+              <section><article v-for="item in items">{{ item.title }}</article></section>
+            </template>
+          </cms-content>
+        </body>
+      </html>
+    `, {
+      htmlPath: 'index.html',
+    })
+
+    expect(result.errors.map((diagnostic) => diagnostic.code)).not.toContain('CONFLICTING_SOURCE_PROPS')
+    expect(result.warnings).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: 'UNKNOWN_PROP',
+        message: 'Unknown prop "content-select-type" on cms-content.',
+      }),
+    ]))
+  })
+
   test('reports warnings when the major dynamic container is kept outside the cms slot', () => {
     const result = validateCmsRendering(`
       <!doctype html>

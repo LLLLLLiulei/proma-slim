@@ -374,6 +374,25 @@ describe('renderer api wrappers', () => {
     })
   })
 
+  test('listPageBuilderCmsCatalogs serializes ordered fixed ids', async () => {
+    const fetchMock = mock(async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe('/api/page-builder/cms/catalogs?siteId=14&ids=102%2C999%2C101')
+      return jsonResponse({
+        items: [],
+        tree: [],
+      })
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const { api } = await import('./api')
+    await api.listPageBuilderCmsCatalogs({
+      siteId: '14',
+      ids: ['102', '999', '101'],
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
   test('listPageBuilderCmsSites requests the page-builder cms sites endpoint', async () => {
     const fetchMock = mock(async (input: RequestInfo | URL) => {
       expect(String(input)).toBe('/api/page-builder/cms/sites')
@@ -432,6 +451,29 @@ describe('renderer api wrappers', () => {
       totalPages: 1,
       items: [],
     })
+  })
+
+  test('listPageBuilderCmsContents serializes ordered fixed ids', async () => {
+    const fetchMock = mock(async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe('/api/page-builder/cms/contents?siteId=14&catalogId=101&ids=502%2C999%2C501')
+      return jsonResponse({
+        pageIndex: 0,
+        pageSize: 2,
+        total: 0,
+        totalPages: 1,
+        items: [],
+      })
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const { api } = await import('./api')
+    await api.listPageBuilderCmsContents({
+      siteId: '14',
+      catalogId: '101',
+      ids: ['502', '999', '501'],
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
   test('getPageBuilderCmsCatalogDetail requests the page-builder cms catalog detail endpoint', async () => {

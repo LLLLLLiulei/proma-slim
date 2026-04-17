@@ -233,6 +233,9 @@ export const api = {
     if (query.siteId) {
       params.set('siteId', query.siteId)
     }
+    if (query.ids?.length) {
+      params.set('ids', query.ids.join(','))
+    }
     if (query.contentType) {
       params.set('contentType', query.contentType)
     }
@@ -269,7 +272,12 @@ export const api = {
     if (query.siteId) {
       params.set('siteId', query.siteId)
     }
-    params.set('catalogId', query.catalogId)
+    if (query.catalogId) {
+      params.set('catalogId', query.catalogId)
+    }
+    if (query.ids?.length) {
+      params.set('ids', query.ids.join(','))
+    }
     if (query.pageIndex !== undefined) {
       params.set('pageIndex', String(query.pageIndex))
     }

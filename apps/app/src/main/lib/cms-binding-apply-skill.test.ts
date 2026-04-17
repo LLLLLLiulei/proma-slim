@@ -26,7 +26,8 @@ describe('cms-binding-apply skill contract docs', () => {
 
     expect(skill).toContain('If `blockTypeHint` is missing')
     expect(skill).toContain('`targetSelection`')
-    expect(skill).toContain('catalogs` favor `nav`')
+    expect(skill).toContain('`catalog-list`')
+    expect(skill).toContain('one short structured question')
     expect(skill).toContain('contents` favor `content-list`')
   })
 
@@ -38,15 +39,19 @@ describe('cms-binding-apply skill contract docs', () => {
     expect(skill).not.toContain('update the preview source files directly')
   })
 
-  test('includes contract examples for missing blockTypeHint, malformed payload, and fixed-content incompatibility', () => {
+  test('includes contract examples for catalog-list, missing blockTypeHint, malformed payload, and short clarification', () => {
     const examples = readRelativeText('../../../default-skills/cms-binding-apply/references/contract-examples.md')
 
+    expect(examples).toContain('## Catalogs to catalog-list')
+    expect(examples).toContain('## Fixed contents to content-list')
     expect(examples).toContain('## Missing blockTypeHint fallback')
+    expect(examples).toContain('## Clarification example')
     expect(examples).toContain('## Malformed payload example')
-    expect(examples).toContain('fixed content')
+    expect(examples).toContain('"sourceType": "contents-by-ids"')
     expect(examples).toContain('"reasonCode": "malformed-payload"')
     expect(examples).toContain('"scope": "target-selection-only"')
     expect(examples).toContain('"targetSelection"')
+    expect(examples).not.toContain('Fixed content selection is incompatible')
   })
 
   test('documents slot-first cms structure guidance and anti-pattern examples', () => {
@@ -77,5 +82,29 @@ describe('cms-binding-apply skill contract docs', () => {
     expect(examples).toContain('site-id="14"')
     expect(examples).toContain('## Controlled creation boundary')
     expect(downstream).toContain('only `ready` with an explicit `selection.siteId` may proceed')
+    expect(downstream).toContain('`catalog-list`')
+  })
+
+  test('documents that browser pagination must not become a default pageSize binding', () => {
+    const skill = readRelativeText('../../../default-skills/cms-binding-apply/SKILL.md')
+
+    expect(skill).toContain('Do not infer `source.pageSize` from the CMS browser pagination state')
+    expect(skill).toContain('omit `source.pageSize` unless the user explicitly requested a count')
+    expect(skill).toContain('For `contents-by-ids`, never pass `source.pageSize`')
+    expect(skill).toContain('For `catalog-nav`, never pass `source.pageSize`; use `source.take` instead')
+  })
+
+  test('documents in-place replacement and preserving the selected target shell during cms apply', () => {
+    const skill = readRelativeText('../../../default-skills/cms-binding-apply/SKILL.md')
+    const examples = readRelativeText('../../../default-skills/cms-binding-apply/references/contract-examples.md')
+
+    expect(skill).toContain('inspect the current target block in the workspace source')
+    expect(skill).toContain('preserve the existing outer shell, classes, and major layout structure')
+    expect(skill).toContain('in-place replacement of the selected target')
+    expect(skill).toContain('Do not append a sibling `cms-catalog` / `cms-content`')
+    expect(skill).toContain('If preserving the current structure is not safely compatible')
+    expect(examples).toContain('## Recommended: preserve the current target shell when compatible')
+    expect(examples).toContain('## Anti-pattern: append a new CMS block beside the selected target')
+    expect(examples).toContain('<a class="hero-card"')
   })
 })
