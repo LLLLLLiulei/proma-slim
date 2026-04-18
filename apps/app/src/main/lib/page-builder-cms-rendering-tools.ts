@@ -25,7 +25,9 @@ export const PAGE_BUILDER_CMS_EMPTY_TEMPLATE_DESCRIPTION =
 export const PAGE_BUILDER_CMS_ERROR_TEMPLATE_DESCRIPTION =
   `${PAGE_BUILDER_CMS_TEMPLATE_FIELD_GUIDANCE} Use errorTemplate for the error-state fallback.`
 const CMS_ISLAND_SELECTOR = 'cms-catalog, cms-content'
+const CMS_SOURCE_ID_ATTRIBUTE = 'data-proma-cms-source-id'
 const BLOCKED_PARENT_BLOCK_TAGS = new Set(['HTML', 'BODY', 'HEAD'])
+const DANGEROUS_CMS_TEMPLATE_TAGS = ['script', 'style'] as const
 
 const pageBuilderBlockTargetSelectionSchema = z.object({
   kind: z.literal('block'),
@@ -36,6 +38,7 @@ const pageBuilderBlockTargetSelectionSchema = z.object({
 
 const pageBuilderCmsIslandTargetSelectionSchema = z.object({
   kind: z.literal('cms-island'),
+  sourceId: z.string().min(1).optional(),
   selector: z.string().min(1),
   parentBlockSelector: z.string().min(1),
   component: z.enum(['cms-catalog', 'cms-content']),
@@ -186,6 +189,7 @@ type PageBuilderWorkspaceHtmlServiceLike = Pick<typeof pageBuilderWorkspaceHtmlS
 export interface CreatePageBuilderCmsRenderingToolsOptions {
   now?: () => string
   createBlockId?: () => string
+  createSourceId?: () => string
   htmlService?: PageBuilderWorkspaceHtmlServiceLike
 }
 
@@ -194,6 +198,7 @@ export function createPageBuilderCmsRenderingTools(
 ) {
   const htmlService = options.htmlService ?? pageBuilderWorkspaceHtmlService
   const createBlockId = options.createBlockId ?? defaultCreateBlockId
+  const createSourceId = options.createSourceId ?? defaultCreateSourceId
 
   return {
     applyCmsBinding(
@@ -201,11 +206,11 @@ export function createPageBuilderCmsRenderingTools(
       input: ApplyPageBuilderCmsBindingInput,
     ): ApplyPageBuilderCmsBindingResult {
       const normalizedInput = normalizeApplyCmsBindingInput(input)
-      const generatedHtml = generateCmsBindingHtml(normalizedInput)
 
       let appliedBlockId = ''
       let effectiveTargetSelection = normalizedInput.targetSelection
       let appliedIslandIndex: number | null = null
+      let appliedSourceId: string | undefined
       let mutationResult: PageBuilderWorkspaceHtmlMutationResult
 
       try {
@@ -220,6 +225,10 @@ export function createPageBuilderCmsRenderingTools(
             const parentBlock = targetContext.parentBlock
             appliedBlockId = ensureBlockId(parentBlock, createBlockId)
             appliedIslandIndex = targetContext.islandIndex
+            appliedSourceId = targetContext.sourceTarget
+              ? readCmsSourceId(targetContext.sourceTarget) ?? createSourceId()
+              : createSourceId()
+            const generatedHtml = generateCmsBindingHtml(normalizedInput, appliedSourceId)
 
             if (effectiveTargetSelection.kind === 'cms-island') {
               const sourceTarget = targetContext.sourceTarget ?? resolveUniqueBlock(
@@ -234,6 +243,10 @@ export function createPageBuilderCmsRenderingTools(
               }
 
               sourceTarget.outerHTML = generatedHtml
+              effectiveTargetSelection = {
+                ...effectiveTargetSelection,
+                sourceId: appliedSourceId,
+              }
             } else {
               const block = resolveUniqueBlock(
                 document,
@@ -264,6 +277,7 @@ export function createPageBuilderCmsRenderingTools(
       }
 
       const component = normalizedInput.kind === 'catalog-nav' ? 'cms-catalog' : 'cms-content'
+      const generatedHtml = generateCmsBindingHtml(normalizedInput, appliedSourceId)
       const manifestEntry = resolveAppliedManifestEntry(
         mutationResult.manifest.entries,
         appliedBlockId,
@@ -305,13 +319,16 @@ function normalizeApplyCmsBindingInput(
   }
   const emptyTemplate = normalizeOptionalTemplate(parsedBase.emptyTemplate)
   const errorTemplate = normalizeOptionalTemplate(parsedBase.errorTemplate)
+  assertTemplateFieldHasNoDangerousTags('templateBody', templateBody)
   assertTemplateFieldHasNoNestedCmsIslands('templateBody', templateBody)
   assertTemplateFieldHasNoSlotTemplateWrapper('templateBody', templateBody)
   if (emptyTemplate) {
+    assertTemplateFieldHasNoDangerousTags('emptyTemplate', emptyTemplate)
     assertTemplateFieldHasNoNestedCmsIslands('emptyTemplate', emptyTemplate)
     assertTemplateFieldHasNoSlotTemplateWrapper('emptyTemplate', emptyTemplate)
   }
   if (errorTemplate) {
+    assertTemplateFieldHasNoDangerousTags('errorTemplate', errorTemplate)
     assertTemplateFieldHasNoNestedCmsIslands('errorTemplate', errorTemplate)
     assertTemplateFieldHasNoSlotTemplateWrapper('errorTemplate', errorTemplate)
   }
@@ -554,6 +571,29 @@ function assertTemplateFieldHasNoSlotTemplateWrapper(fieldName: string, template
   )
 }
 
+function assertTemplateFieldHasNoDangerousTags(fieldName: string, template: string): void {
+  const normalizedTemplate = template.trim()
+  if (!normalizedTemplate) {
+    return
+  }
+
+  const { document } = parseHTML(`<!doctype html><html><body><div data-proma-template-root>${normalizedTemplate}</div></body></html>`)
+  const root = document.querySelector('[data-proma-template-root]')
+  if (!root) {
+    return
+  }
+
+  const hasDangerousTag = DANGEROUS_CMS_TEMPLATE_TAGS.some((tagName) => root.querySelector(tagName))
+  if (!hasDangerousTag) {
+    return
+  }
+
+  throw new PageBuilderCmsBindingApplyError(
+    'invalid-input',
+    `${fieldName} 不能包含 <script> 或 <style>`,
+  )
+}
+
 function isSlotTemplateAttributeName(name: string): boolean {
   return name === 'v-slot'
     || name.startsWith('v-slot:')
@@ -573,7 +613,8 @@ function resolveEffectiveTargetSelection(
     return targetSelection
   }
 
-  const component = resolveCmsComponentName(matches[0]!)
+  const sourceTarget = matches[0]!
+  const component = resolveCmsComponentName(sourceTarget)
   if (!component) {
     return targetSelection
   }
@@ -582,6 +623,7 @@ function resolveEffectiveTargetSelection(
     kind: 'cms-island',
     selector: targetSelection.selector,
     parentBlockSelector: targetSelection.parentBlockSelector,
+    ...(readCmsSourceId(sourceTarget) ? { sourceId: readCmsSourceId(sourceTarget) } : {}),
     component,
     editBoundary: 'source-atomic',
   }
@@ -592,44 +634,17 @@ function resolveApplyTargetContext(
   targetSelection: PageBuilderTargetSelection,
 ): ResolvedApplyTargetContext {
   const effectiveTargetSelection = resolveEffectiveTargetSelection(document, targetSelection)
-
-  if (targetSelection.kind !== 'cms-island' && effectiveTargetSelection.kind === 'cms-island') {
-    const sourceTarget = resolveUniqueBlock(
-      document,
-      effectiveTargetSelection.selector,
-      '未找到要替换的 CMS 组件',
-      '无法唯一定位要替换的 CMS 组件',
-    )
+  if (effectiveTargetSelection.kind === 'cms-island') {
+    const sourceTarget = resolveCmsSourceTarget(document, effectiveTargetSelection)
     const parentBlock = resolveImplicitParentBlockForCmsElement(sourceTarget)
     const parentBlockSelector = resolveCmsRenderingSelectorSnapshot(parentBlock) ?? effectiveTargetSelection.parentBlockSelector
 
     return {
       effectiveTargetSelection: {
         ...effectiveTargetSelection,
+        ...(readCmsSourceId(sourceTarget) ? { sourceId: readCmsSourceId(sourceTarget) } : {}),
         parentBlockSelector,
       },
-      parentBlock,
-      sourceTarget,
-      islandIndex: resolveTopLevelCmsIslandIndex(document, sourceTarget),
-    }
-  }
-
-  if (effectiveTargetSelection.kind === 'cms-island') {
-    const sourceTarget = resolveUniqueBlock(
-      document,
-      effectiveTargetSelection.selector,
-      '未找到要替换的 CMS 组件',
-      '无法唯一定位要替换的 CMS 组件',
-    )
-    const parentBlock = resolveUniqueBlock(
-      document,
-      effectiveTargetSelection.parentBlockSelector,
-      '未找到要绑定 CMS 的区块',
-      '无法唯一定位要绑定 CMS 的区块',
-    )
-
-    return {
-      effectiveTargetSelection,
       parentBlock,
       sourceTarget,
       islandIndex: resolveTopLevelCmsIslandIndex(document, sourceTarget),
@@ -695,6 +710,77 @@ function resolveCmsComponentName(element: Element): 'cms-catalog' | 'cms-content
   return null
 }
 
+function resolveCmsSourceTarget(
+  document: Document,
+  targetSelection: Extract<PageBuilderTargetSelection, { kind: 'cms-island' }>,
+): Element {
+  const sourceIdTarget = targetSelection.sourceId
+    ? resolveUniqueCmsSourceTargetBySourceId(document, targetSelection.sourceId)
+    : null
+
+  if (sourceIdTarget) {
+    const selectorTarget = resolveOptionalUniqueBlock(document, targetSelection.selector)
+    if (selectorTarget && selectorTarget !== sourceIdTarget) {
+      throw new PageBuilderCmsBindingApplyError(
+        'invalid-input',
+        '目标 CMS 组件 sourceId 与 selector 不匹配',
+      )
+    }
+
+    assertCmsComponentMatchesTarget(targetSelection.component, sourceIdTarget)
+    return sourceIdTarget
+  }
+
+  const selectorTarget = resolveUniqueBlock(
+    document,
+    targetSelection.selector,
+    '未找到要替换的 CMS 组件',
+    '无法唯一定位要替换的 CMS 组件',
+  )
+  assertCmsComponentMatchesTarget(targetSelection.component, selectorTarget)
+  return selectorTarget
+}
+
+function resolveUniqueCmsSourceTargetBySourceId(document: Document, sourceId: string): Element {
+  const matches = Array.from(document.querySelectorAll(CMS_ISLAND_SELECTOR))
+    .filter((candidate) => readCmsSourceId(candidate) === sourceId)
+
+  if (matches.length === 0) {
+    throw new PageBuilderCmsBindingApplyError('block-not-found', '未找到要替换的 CMS 组件')
+  }
+
+  if (matches.length > 1) {
+    throw new PageBuilderCmsBindingApplyError('selector-not-unique', '无法唯一定位要替换的 CMS 组件')
+  }
+
+  return matches[0]!
+}
+
+function resolveOptionalUniqueBlock(document: Document, selector: string): Element | null {
+  const matches = document.querySelectorAll(selector)
+  if (matches.length === 0) {
+    return null
+  }
+
+  if (matches.length > 1) {
+    throw new PageBuilderCmsBindingApplyError('selector-not-unique', '无法唯一定位要替换的 CMS 组件')
+  }
+
+  return matches[0]!
+}
+
+function assertCmsComponentMatchesTarget(
+  component: 'cms-catalog' | 'cms-content',
+  element: Element,
+): void {
+  const resolvedComponent = resolveCmsComponentName(element)
+  if (resolvedComponent === component) {
+    return
+  }
+
+  throw new PageBuilderCmsBindingApplyError('invalid-input', '目标 CMS 组件与 targetSelection.component 不匹配')
+}
+
 function resolveUniqueBlock(
   document: Document,
   selector: string,
@@ -740,15 +826,20 @@ function serializeDocument(sourceHtml: string, document: Document): string {
 
 function generateCmsBindingHtml(
   input: NormalizedApplyPageBuilderCmsBindingInput,
+  sourceId?: string,
 ): string {
   const componentName = input.kind === 'catalog-nav' ? 'cms-catalog' : 'cms-content'
-  const props = input.kind === 'catalog-nav'
-    ? buildCatalogNavProps(input.source)
-    : buildContentListProps(input.source)
+  const propEntries = input.kind === 'catalog-nav'
+    ? buildCatalogNavPropEntries(input.source)
+    : buildContentListPropEntries(input.source)
   const slotScopeExpression = '{ items, loading, error, empty }'
+  const rootProps = buildProps([
+    [CMS_SOURCE_ID_ATTRIBUTE, sourceId],
+    ...propEntries,
+  ])
 
   const lines = [
-    `<${componentName}${props ? ` ${props}` : ''}>`,
+    `<${componentName}${rootProps ? ` ${rootProps}` : ''}>`,
     `  <template v-slot:default="${slotScopeExpression}">`,
     ...indentTemplate(input.templateBody, 4),
     '  </template>',
@@ -770,40 +861,44 @@ function generateCmsBindingHtml(
   return lines.join('\n')
 }
 
-function buildCatalogNavProps(source: NormalizedCatalogNavSource): string {
+function buildCatalogNavPropEntries(
+  source: NormalizedCatalogNavSource,
+): Array<[name: string, value: string | number | undefined]> {
   if (source.ids) {
-    return buildProps([
+    return [
       ['site-id', source.siteId],
       ['ids', source.ids.join(',')],
-    ])
+    ]
   }
 
-  return buildProps([
+  return [
     ['site-id', source.siteId],
     ['level', source.level],
     ['parent-id', source.parentId],
     ['content-type', source.contentType],
     ['search-keyword', source.searchKeyword],
     ['take', source.take],
-  ])
+  ]
 }
 
-function buildContentListProps(source: NormalizedContentListSource): string {
+function buildContentListPropEntries(
+  source: NormalizedContentListSource,
+): Array<[name: string, value: string | number | undefined]> {
   if (source.ids) {
-    return buildProps([
+    return [
       ['site-id', source.siteId],
       ['catalog-id', source.catalogId],
       ['ids', source.ids.join(',')],
-    ])
+    ]
   }
 
-  return buildProps([
+  return [
     ['site-id', source.siteId],
     ['catalog-id', source.catalogId],
     ['keyword', source.keyword],
     ['page-index', source.pageIndex],
     ['page-size', source.pageSize],
-  ])
+  ]
 }
 
 function buildProps(entries: Array<[name: string, value: string | number | undefined]>): string {
@@ -831,4 +926,13 @@ function escapeAttributeValue(value: string): string {
 
 function defaultCreateBlockId(): string {
   return `pb_blk_${randomBytes(4).toString('hex')}`
+}
+
+function defaultCreateSourceId(): string {
+  return `cms-src-${randomBytes(6).toString('hex')}`
+}
+
+function readCmsSourceId(element: Element): string | undefined {
+  const normalized = element.getAttribute(CMS_SOURCE_ID_ATTRIBUTE)?.trim()
+  return normalized ? normalized : undefined
 }

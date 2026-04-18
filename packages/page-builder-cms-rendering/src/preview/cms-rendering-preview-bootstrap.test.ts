@@ -12,7 +12,7 @@ describe('cms rendering preview bootstrap', () => {
         <html>
           <body>
             <ul id="nav">
-              <cms-catalog level="root">
+              <cms-catalog data-proma-cms-source-id="cms-src-nav" level="root">
                 <template v-slot:default="{ items }">
                   <li v-for="item in items" :key="item.id" class="nav-item">{{ item.name }}</li>
                 </template>
@@ -120,6 +120,7 @@ describe('cms rendering preview bootstrap', () => {
         tagName: child.tagName.toLowerCase(),
         text: child.textContent?.trim() ?? null,
         islandId: child.getAttribute('data-proma-cms-island-id'),
+        sourceId: child.getAttribute('data-proma-cms-island-source-id'),
         component: child.getAttribute('data-proma-cms-island-component'),
         sourceSelector: child.getAttribute('data-proma-cms-island-source-selector'),
         parentBlockSelector: child.getAttribute('data-proma-cms-island-parent-block-selector'),
@@ -148,6 +149,7 @@ describe('cms rendering preview bootstrap', () => {
         tagName: string
         text: string | null
         islandId: string | null
+        sourceId: string | null
         component: string | null
         sourceSelector: string | null
         parentBlockSelector: string | null
@@ -165,6 +167,7 @@ describe('cms rendering preview bootstrap', () => {
         tagName: 'li',
         text: '栏目 1',
         islandId: expect.any(String),
+        sourceId: 'cms-src-nav',
         component: 'cms-catalog',
         sourceSelector: 'body > ul:nth-of-type(1) > cms-catalog:nth-of-type(1)',
         parentBlockSelector: 'body > ul:nth-of-type(1) > cms-catalog:nth-of-type(1)',
@@ -174,6 +177,7 @@ describe('cms rendering preview bootstrap', () => {
         tagName: 'li',
         text: '栏目 2',
         islandId: expect.any(String),
+        sourceId: 'cms-src-nav',
         component: 'cms-catalog',
         sourceSelector: 'body > ul:nth-of-type(1) > cms-catalog:nth-of-type(1)',
         parentBlockSelector: 'body > ul:nth-of-type(1) > cms-catalog:nth-of-type(1)',

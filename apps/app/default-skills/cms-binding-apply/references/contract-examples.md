@@ -254,6 +254,7 @@ When calling `mcp__cms__apply_cms_binding`, pass slot inner content in `template
 {
   "targetSelection": {
     "kind": "cms-island",
+    "sourceId": "cms-src-latest-news",
     "selector": "#latest-news > cms-content:nth-of-type(1)",
     "parentBlockSelector": "#latest-news",
     "component": "cms-content",
@@ -362,6 +363,14 @@ Use `needs-clarification` only when one short question can unlock a safe decisio
   }
 }
 ```
+
+`targetSelection.sourceId` is the stable source identity when the current CMS region already has one. `targetSelection.selector` still travels with the payload as compatibility context and for legacy pages, but the downstream write path must not use it to guess a different CMS region.
+
+If an older page still has no `sourceId`, the payload may omit it temporarily and fall back to the exact current selector. That legacy selector fallback is only for the already-selected target and must fail closed on ambiguity instead of widening the edit scope.
+
+New or rebound CMS writes should preserve an existing `data-proma-cms-source-id` when replacing a CMS source tag, or let the formal apply tool generate one when binding a previously static region.
+
+Never place `<script>` or `<style>` inside `templateBody`, `emptyTemplate`, or `errorTemplate`.
 
 ## Missing blockTypeHint fallback
 

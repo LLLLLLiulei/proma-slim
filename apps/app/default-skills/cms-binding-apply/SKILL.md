@@ -69,6 +69,7 @@ After classifying the request, continue in the same turn instead of stopping at 
    For fixed content ids, always include both `source.catalogId = selection.catalogId` and `source.ids = selection.contentIds`.
    Before building the apply payload, inspect the current target block in the workspace source and preserve the existing outer shell, classes, and major layout structure whenever they are still compatible with the selected CMS data.
    Treat the task as an in-place replacement of the selected target, not as permission to add a new generic list, card grid, or extra wrapper beside the current block.
+   If `targetSelection.kind === cms-island`, preserve its stable source identity when present. `targetSelection.sourceId` is the primary source target identity; `targetSelection.selector` is compatibility context only and must not be used to guess a different CMS region.
    Do not infer `source.pageSize` from the CMS browser pagination state. The browser page size is only for browsing, not a page binding default.
    For `contents-by-catalog`, omit `source.pageSize` unless the user explicitly requested a count or the current target already has a `page-size` that must be preserved.
    For `contents-by-ids`, never pass `source.pageSize`.
@@ -111,13 +112,17 @@ When the request is `ready`, prefer `cms-catalog` / `cms-content` as the source 
 
 - Keep Phase 1A scoped to the current `targetSelection.selector`.
 - If `targetSelection.kind === 'cms-island'`, treat it as `source-atomic` and replace the whole source CMS tag instead of editing inside rendered child nodes.
+- If `targetSelection.sourceId` is present, treat it as the primary source target identity. `selector` remains a legacy fallback and compatibility snapshot only.
+- If a legacy CMS target has no `sourceId`, rely on the provided selector only for that exact current target. Do not broaden the edit to sibling blocks or sibling CMS tags.
 - Still pass the explicit `targetSelection` object whenever the workflow already has it. If it is accidentally omitted and `targetBlock.selector` already points to a `cms-catalog` / `cms-content`, the formal tool will infer `source-atomic` replacement, but that is only a safety net.
 - Before calling `mcp__cms__apply_cms_binding`, inspect the current target block source and reuse the existing shell, classes, and visual skeleton whenever they remain compatible.
 - When building the apply payload, prefer `cms-catalog` / `cms-content` as the source root and keep major HTML containers inside the slot.
 - Do not append a new CMS sibling beside the selected target.
 - If the current target is image-like, hero-like, media-like, or otherwise strongly structured, prefer preserving that structure and binding CMS data into it rather than converting it into a generic list.
 - Newly written or rebound `cms-*` tags must explicitly include `site-id`, and that value must equal `selection.siteId`.
+- Do not remove or rewrite host-managed `data-proma-cms-source-id` attributes manually. Let the formal tool preserve existing source ids or generate new ones for rebound targets.
 - If `selection.siteId` is missing, stop with a malformed-payload style error instead of inventing a fallback.
+- `templateBody`, `emptyTemplate`, and `errorTemplate` must not contain `<script>` or `<style>`.
 - Do not infer `source.pageSize` from the CMS browser pagination state.
 - For `contents-by-catalog`, omit `source.pageSize` unless the user explicitly requested a count.
 - For `contents-by-ids`, never pass `source.pageSize`.

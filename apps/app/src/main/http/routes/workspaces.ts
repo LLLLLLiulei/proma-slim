@@ -3,6 +3,7 @@ import type {
   PageBuilderBlockDeletionPayload,
   PageBuilderImageReplacementPayload,
   PageBuilderInlineTextSavePayload,
+  PageBuilderTargetSelection,
 } from '@proma/shared'
 import {
   DEFAULT_WORKSPACE_SLUG,
@@ -255,7 +256,72 @@ function readPageBuilderBlockDeletionPayload(
 
   return {
     selector: value.selector,
+    targetSelection: value.targetSelection
+      ? readPageBuilderTargetSelection(value.targetSelection)
+      : undefined,
   }
+}
+
+function readPageBuilderTargetSelection(value: unknown): PageBuilderTargetSelection {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new HttpError(400, 'targetSelection 必须是对象')
+  }
+
+  const selection = value as Record<string, unknown>
+
+  if (selection.kind === 'block') {
+    if (typeof selection.selector !== 'string' || !selection.selector.trim()) {
+      throw new HttpError(400, 'targetSelection.selector 不能为空')
+    }
+
+    if (typeof selection.parentBlockSelector !== 'string' || !selection.parentBlockSelector.trim()) {
+      throw new HttpError(400, 'targetSelection.parentBlockSelector 不能为空')
+    }
+
+    if (selection.editBoundary !== 'block') {
+      throw new HttpError(400, 'targetSelection.editBoundary 不合法')
+    }
+
+    return {
+      kind: 'block',
+      selector: selection.selector,
+      parentBlockSelector: selection.parentBlockSelector,
+      editBoundary: 'block',
+    }
+  }
+
+  if (selection.kind === 'cms-island') {
+    if (typeof selection.selector !== 'string' || !selection.selector.trim()) {
+      throw new HttpError(400, 'targetSelection.selector 不能为空')
+    }
+
+    if (typeof selection.parentBlockSelector !== 'string' || !selection.parentBlockSelector.trim()) {
+      throw new HttpError(400, 'targetSelection.parentBlockSelector 不能为空')
+    }
+
+    if (selection.component !== 'cms-catalog' && selection.component !== 'cms-content') {
+      throw new HttpError(400, 'targetSelection.component 不合法')
+    }
+
+    if (selection.editBoundary !== 'source-atomic') {
+      throw new HttpError(400, 'targetSelection.editBoundary 不合法')
+    }
+
+    if (selection.sourceId !== undefined && (typeof selection.sourceId !== 'string' || !selection.sourceId.trim())) {
+      throw new HttpError(400, 'targetSelection.sourceId 不合法')
+    }
+
+    return {
+      kind: 'cms-island',
+      selector: selection.selector,
+      parentBlockSelector: selection.parentBlockSelector,
+      ...(typeof selection.sourceId === 'string' ? { sourceId: selection.sourceId.trim() } : {}),
+      component: selection.component,
+      editBoundary: 'source-atomic',
+    }
+  }
+
+  throw new HttpError(400, 'targetSelection.kind 不合法')
 }
 
 async function readPageBuilderImageReplacementRequest(request: Request): Promise<{

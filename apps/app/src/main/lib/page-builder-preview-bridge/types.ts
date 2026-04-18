@@ -33,6 +33,7 @@ export interface BlockTargetSelection {
 
 export interface CmsIslandTargetSelection {
   kind: 'cms-island'
+  sourceId?: string
   selector: string
   parentBlockSelector: string
   component: string
@@ -51,6 +52,7 @@ export interface ResolvedTarget {
 
 export interface CmsIslandMeta {
   islandId: string
+  sourceId?: string
   component: string
   sourceSelector: string
   parentBlockSelector: string

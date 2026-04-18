@@ -25,6 +25,7 @@ const CMS_AUTO_AGENT_HANDOFF_BASE_INSTRUCTIONS = [
   '- 新写入或重绑的 cms-* 标签必须显式写出 site-id，并且该值必须等于 selection.siteId。',
   '- 如果 selection.siteId 缺失，必须立即停止并报错；不能假设 site-id=1，也不能从宿主静态配置推断站点。',
   '- 不要把 CMS 浏览弹框里的分页大小当作页面绑定时的默认 page-size。',
+  '- 不要在 cms-* 组件的 default / empty / error slot 中写入 <script> 或 <style>。',
 ]
 
 function requireSelectionSiteId(selection: PageBuilderCmsSelectionResult): string {

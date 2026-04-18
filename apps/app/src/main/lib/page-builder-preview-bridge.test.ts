@@ -584,21 +584,23 @@ test('page-builder preview bridge promotes cms-island descendants into one sourc
       <body>
         <section id="news" data-proma-block-id="pb_blk_news">
           <ul>
-            <li
-              data-proma-cms-island-id="cms-island-1"
-              data-proma-cms-island-component="cms-catalog"
-              data-proma-cms-island-source-selector="body > section:nth-of-type(1) > ul:nth-of-type(1) > cms-catalog:nth-of-type(1)"
-              data-proma-cms-island-parent-block-selector="body > section:nth-of-type(1)"
-              data-proma-cms-island-edit-boundary="source-atomic"
+              <li
+                data-proma-cms-island-id="cms-island-1"
+                data-proma-cms-island-source-id="cms-src-nav"
+                data-proma-cms-island-component="cms-catalog"
+                data-proma-cms-island-source-selector="body > section:nth-of-type(1) > ul:nth-of-type(1) > cms-catalog:nth-of-type(1)"
+                data-proma-cms-island-parent-block-selector="body > section:nth-of-type(1)"
+                data-proma-cms-island-edit-boundary="source-atomic"
             >
               <a id="catalog-link-1">栏目一</a>
             </li>
-            <li
-              data-proma-cms-island-id="cms-island-1"
-              data-proma-cms-island-component="cms-catalog"
-              data-proma-cms-island-source-selector="body > section:nth-of-type(1) > ul:nth-of-type(1) > cms-catalog:nth-of-type(1)"
-              data-proma-cms-island-parent-block-selector="body > section:nth-of-type(1)"
-              data-proma-cms-island-edit-boundary="source-atomic"
+              <li
+                data-proma-cms-island-id="cms-island-1"
+                data-proma-cms-island-source-id="cms-src-nav"
+                data-proma-cms-island-component="cms-catalog"
+                data-proma-cms-island-source-selector="body > section:nth-of-type(1) > ul:nth-of-type(1) > cms-catalog:nth-of-type(1)"
+                data-proma-cms-island-parent-block-selector="body > section:nth-of-type(1)"
+                data-proma-cms-island-edit-boundary="source-atomic"
             >
               <a id="catalog-link-2">栏目二</a>
             </li>
@@ -728,6 +730,7 @@ test('page-builder preview bridge promotes cms-island descendants into one sourc
     selector: 'body > section:nth-of-type(1) > ul:nth-of-type(1) > cms-catalog:nth-of-type(1)',
     targetSelection: {
       kind: 'cms-island',
+      sourceId: 'cms-src-nav',
       selector: 'body > section:nth-of-type(1) > ul:nth-of-type(1) > cms-catalog:nth-of-type(1)',
       parentBlockSelector: 'body > section:nth-of-type(1)',
       component: 'cms-catalog',

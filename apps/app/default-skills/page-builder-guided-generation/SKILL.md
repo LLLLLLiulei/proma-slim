@@ -170,11 +170,14 @@ Ordinary page generation and ordinary iteration are not allowed to invent new `c
 
 If the page already contains CMS tags, ordinary iteration may adjust slot templates, internal structure, and styles inside the existing CMS region, but it must not silently change query props such as `site-id`, `catalog-id`, `page-size`, or similar binding fields.
 
+When the selected target is already a CMS-driven region, treat the existing `cms-catalog` / `cms-content` source tag as source-atomic. Edit the source CMS region as one unit, not the rendered child nodes one by one, and do not cross into sibling blocks or sibling CMS tags.
+
 When an existing region is already CMS-driven, `cms-catalog` / `cms-content` should wrap the whole dynamic region.
 
 - put major HTML containers such as `ul`, `section`, and `article` inside the slot.
 - Keep empty and error fallback wrappers inside `v-slot:empty` and `v-slot:error` when they belong to the same CMS data region.
 - Leave only page-level static shells outside the CMS component.
+- Do not manually delete, duplicate, or rewrite host-managed `data-proma-cms-source-id` attributes when touching existing CMS source tags.
 
 ## Iteration Rules
 

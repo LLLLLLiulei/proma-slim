@@ -1,5 +1,6 @@
 import { parseHTML } from 'linkedom'
 import {
+  CMS_SOURCE_ID_ATTRIBUTE,
   CMS_ISLAND_SELECTOR,
   isTopLevelCmsIsland,
   type CmsIslandComponentName,
@@ -106,6 +107,7 @@ function createManifestEntry(
 
   return {
     blockId,
+    sourceId: normalizeOptionalAttribute(element, CMS_SOURCE_ID_ATTRIBUTE),
     selectorSnapshot: resolveCmsRenderingSelectorSnapshot(selectorTarget),
     component,
     props: normalizeManifestProps(element),

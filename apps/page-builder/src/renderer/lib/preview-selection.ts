@@ -15,8 +15,12 @@ export function decoratePageBuilderSelectionMessage(
     ? {
         previewSurface: 'cms-rendered-output',
         updateRule: 'replace-whole-source-component',
+        sourceFirst: true,
         forbidRenderedChildWrites: true,
+        forbidCrossBlockMutation: true,
         forbidSiblingInsertion: true,
+        forbidCmsSiblingInsertion: true,
+        forbidDangerousSlotTags: ['script', 'style'],
       }
     : {
         previewSurface: 'static-block',

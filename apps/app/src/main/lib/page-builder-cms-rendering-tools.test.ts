@@ -65,7 +65,9 @@ describe('page-builder cms rendering apply tool', () => {
         requiresSameOrigin: true,
       },
     })
-    expect(result.generatedHtml).toContain('<cms-catalog site-id="14" level="root" take="3">')
+    expect(result.generatedHtml).toContain('<cms-catalog ')
+    expect(result.generatedHtml).toContain('data-proma-cms-source-id="')
+    expect(result.generatedHtml).toContain('site-id="14" level="root" take="3"')
     expect(result.generatedHtml).toContain('<template v-slot:default="{ items, loading, error, empty }">')
     expect(result.generatedHtml).toContain('<template v-slot:empty="{ items, loading, error, empty }">')
     expect(result.generatedHtml).toContain('<template v-slot:error="{ items, loading, error, empty }">')
@@ -105,10 +107,13 @@ describe('page-builder cms rendering apply tool', () => {
 
     const html = readFileSync(join(workspaceFilesDir, 'index.html'), 'utf-8')
     expect(result.blockId).toBe('pb_blk_generated')
-    expect(result.generatedHtml).toContain('<cms-content site-id="14" catalog-id="news" page-size="6">')
+    expect(result.generatedHtml).toContain('<cms-content ')
+    expect(result.generatedHtml).toContain('data-proma-cms-source-id="')
+    expect(result.generatedHtml).toContain('site-id="14" catalog-id="news" page-size="6"')
     expect(result.generatedHtml).toContain('<section class="news-list">')
     expect(html).toContain('data-proma-block-id="pb_blk_generated"')
-    expect(html).toContain('<cms-content site-id="14" catalog-id="news" page-size="6">')
+    expect(html).toContain('data-proma-cms-source-id="')
+    expect(html).toContain('site-id="14" catalog-id="news" page-size="6"')
   })
 
   test('applies catalog-nav parent-source bindings with children-level props only', () => {
@@ -138,7 +143,8 @@ describe('page-builder cms rendering apply tool', () => {
       templateBody: '<nav><a v-for="item in items" :key="item.id" :href="item.path">{{ item.name }}</a></nav>',
     })
 
-    expect(result.generatedHtml).toContain('<cms-catalog site-id="14" level="children" parent-id="7">')
+    expect(result.generatedHtml).toContain('<cms-catalog ')
+    expect(result.generatedHtml).toContain('site-id="14" level="children" parent-id="7"')
     expect(result.generatedHtml).not.toContain('ids=')
     expect(result.generatedHtml).not.toContain('content-type=')
     expect(result.generatedHtml).not.toContain('search-keyword=')
@@ -171,7 +177,9 @@ describe('page-builder cms rendering apply tool', () => {
       templateBody: '<section class="catalog-grid"><article v-for="item in items" :key="item.id">{{ item.name }}</article></section>',
     })
 
-    expect(result.generatedHtml).toContain('<cms-catalog site-id="14" ids="cat-b,cat-a">')
+    expect(result.generatedHtml).toContain('<cms-catalog ')
+    expect(result.generatedHtml).toContain('data-proma-cms-source-id="')
+    expect(result.generatedHtml).toContain('site-id="14" ids="cat-b,cat-a"')
     expect(result.generatedHtml).not.toContain('level=')
     expect(result.generatedHtml).not.toContain('parent-id=')
     expect(result.manifest.entry?.props).toEqual(expect.objectContaining({
@@ -201,7 +209,7 @@ describe('page-builder cms rendering apply tool', () => {
         '<!doctype html><html><body>',
         '<section id="latest-news" data-proma-block-id="pb_blk_news">',
         '<h2>最新动态</h2>',
-        '<cms-content catalog-id="news"></cms-content>',
+        '<cms-content data-proma-cms-source-id="cms-src-news" catalog-id="news"></cms-content>',
         '<p class="static-note">静态尾注</p>',
         '</section>',
         '</body></html>',
@@ -216,6 +224,7 @@ describe('page-builder cms rendering apply tool', () => {
     const result = tools.applyCmsBinding(workspace, {
       targetSelection: {
         kind: 'cms-island',
+        sourceId: 'cms-src-news',
         selector: 'body > section:nth-of-type(1) > cms-content:nth-of-type(1)',
         parentBlockSelector: 'body > section:nth-of-type(1)',
         component: 'cms-content',
@@ -235,10 +244,57 @@ describe('page-builder cms rendering apply tool', () => {
 
     const html = readFileSync(entryPath, 'utf-8')
     expect(result.blockId).toBe('pb_blk_news')
+    expect(result.targetSelection).toMatchObject({
+      kind: 'cms-island',
+      sourceId: 'cms-src-news',
+    })
+    expect(result.manifest.entry).toMatchObject({
+      sourceId: 'cms-src-news',
+    })
+    expect(result.generatedHtml).toContain('data-proma-cms-source-id="cms-src-news"')
     expect(html).toContain('<h2>最新动态</h2>')
     expect(html).toContain('<p class="static-note">静态尾注</p>')
-    expect(html).toContain('<cms-content site-id="14" catalog-id="events" page-size="4">')
+    expect(html).toContain('data-proma-cms-source-id="cms-src-news"')
+    expect(html).toContain('data-proma-cms-source-id="cms-src-news"')
+    expect(html).toContain('site-id="14" catalog-id="events" page-size="4"')
     expect(html).not.toContain('<cms-content catalog-id="news"></cms-content>')
+  })
+
+  test('assigns a new cms source id when binding cms content into a static block', () => {
+    const workspace = createAgentWorkspace('CMS Apply New Source Id', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+    const entryPath = join(workspaceFilesDir, 'index.html')
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(
+      entryPath,
+      '<!doctype html><html><body><section id="latest-news" data-proma-block-id="pb_blk_news"><div>placeholder</div></section></body></html>',
+      'utf-8',
+    )
+
+    const tools = createPageBuilderCmsRenderingTools({
+      now: () => '2026-04-13T00:00:00.000Z',
+      createSourceId: () => 'cms-src-generated',
+    })
+
+    const result = tools.applyCmsBinding(workspace, {
+      targetBlock: {
+        selector: '#latest-news',
+      },
+      kind: 'content-list',
+      source: {
+        siteId: '14',
+        catalogId: 'events',
+      },
+      templateBody: '<article v-for="item in items" :key="item.id">{{ item.title }}</article>',
+    })
+
+    const html = readFileSync(entryPath, 'utf-8')
+    expect(result.generatedHtml).toContain('data-proma-cms-source-id="cms-src-generated"')
+    expect(result.manifest.entry).toMatchObject({
+      sourceId: 'cms-src-generated',
+    })
+    expect(html).toContain('data-proma-cms-source-id="cms-src-generated"')
   })
 
   test('resolves cms-island nth-of-type selectors against direct siblings instead of earlier nested cms tags', () => {
@@ -289,7 +345,8 @@ describe('page-builder cms rendering apply tool', () => {
     const html = readFileSync(entryPath, 'utf-8')
     expect(html).toContain('<cms-content catalog-id="c"></cms-content>')
     expect(html).not.toContain('<cms-content catalog-id="d"></cms-content>')
-    expect(html).toContain('<cms-content site-id="14" catalog-id="events" page-size="4">')
+    expect(html).toContain('data-proma-cms-source-id="')
+    expect(html).toContain('site-id="14" catalog-id="events" page-size="4"')
   })
 
   test('accepts stringified cms-island targetSelection payloads from the SDK tool layer', () => {
@@ -330,7 +387,8 @@ describe('page-builder cms rendering apply tool', () => {
 
     const html = readFileSync(entryPath, 'utf-8')
     expect(result.blockId).toBe('pb_blk_news')
-    expect(html).toContain('<cms-content site-id="14" catalog-id="events" page-size="4">')
+    expect(html).toContain('data-proma-cms-source-id="')
+    expect(html).toContain('site-id="14" catalog-id="events" page-size="4"')
     expect(html).not.toContain('<cms-content catalog-id="news"></cms-content>')
   })
 
@@ -391,7 +449,8 @@ describe('page-builder cms rendering apply tool', () => {
       }),
     })
     expect(html).toContain('<p class="static-note">静态尾注</p>')
-    expect(html).toContain('<cms-content site-id="14" catalog-id="events" page-size="4">')
+    expect(html).toContain('data-proma-cms-source-id="')
+    expect(html).toContain('site-id="14" catalog-id="events" page-size="4"')
     expect(html).not.toContain('<cms-content catalog-id="news">')
     expect(html).not.toContain('<cms-content catalog-id="news"><cms-content')
   })
@@ -526,6 +585,45 @@ describe('page-builder cms rendering apply tool', () => {
     }
   })
 
+  test('fails closed when cms sourceId and selector point to different source targets', () => {
+    const workspace = createAgentWorkspace('CMS Apply Source Id Conflict', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(
+      join(workspaceFilesDir, 'index.html'),
+      [
+        '<!doctype html><html><body>',
+        '<section id="news-a" data-proma-block-id="pb_blk_a"><cms-content data-proma-cms-source-id="cms-src-a" catalog-id="a"></cms-content></section>',
+        '<section id="news-b" data-proma-block-id="pb_blk_b"><cms-content data-proma-cms-source-id="cms-src-b" catalog-id="b"></cms-content></section>',
+        '</body></html>',
+      ].join(''),
+      'utf-8',
+    )
+
+    const tools = createPageBuilderCmsRenderingTools()
+
+    expect(() => tools.applyCmsBinding(workspace, {
+      targetSelection: {
+        kind: 'cms-island',
+        sourceId: 'cms-src-a',
+        selector: '#news-b > cms-content:nth-of-type(1)',
+        parentBlockSelector: '#news-a',
+        component: 'cms-content',
+        editBoundary: 'source-atomic',
+      },
+      targetBlock: {
+        selector: '#news-a',
+      },
+      kind: 'content-list',
+      source: {
+        siteId: '14',
+        catalogId: 'news',
+      },
+      templateBody: '<article></article>',
+    })).toThrow('目标 CMS 组件 sourceId 与 selector 不匹配')
+  })
+
   test('applies fixed content ids through content-list bindings', () => {
     const workspace = createAgentWorkspace('CMS Apply Fixed Contents', { template: 'page-builder' })
     const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
@@ -553,8 +651,10 @@ describe('page-builder cms rendering apply tool', () => {
       templateBody: '<article></article>',
     })
 
-    expect(result.generatedHtml).toContain('<cms-content site-id="14" catalog-id="news" ids="n-2,n-1">')
-    expect(readFileSync(entryPath, 'utf-8')).toContain('<cms-content site-id="14" catalog-id="news" ids="n-2,n-1">')
+    expect(result.generatedHtml).toContain('<cms-content ')
+    expect(result.generatedHtml).toContain('data-proma-cms-source-id="')
+    expect(result.generatedHtml).toContain('site-id="14" catalog-id="news" ids="n-2,n-1"')
+    expect(readFileSync(entryPath, 'utf-8')).toContain('site-id="14" catalog-id="news" ids="n-2,n-1"')
   })
 
   test('rejects fixed ids mixed with paging or keyword query props for cms bindings', () => {
@@ -706,6 +806,35 @@ describe('page-builder cms rendering apply tool', () => {
         '</template>',
       ].join('\n'),
     })).toThrow('templateBody 只能传入 slot 内部内容')
+
+    expect(readFileSync(entryPath, 'utf-8')).not.toContain('<cms-content')
+  })
+
+  test('rejects dangerous tags inside cms template fields before writing html', () => {
+    const workspace = createAgentWorkspace('CMS Apply Dangerous Template', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+    const entryPath = join(workspaceFilesDir, 'index.html')
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(
+      entryPath,
+      '<!doctype html><html><body><section id="latest-news" data-proma-block-id="pb_blk_news"></section></body></html>',
+      'utf-8',
+    )
+
+    const tools = createPageBuilderCmsRenderingTools()
+
+    expect(() => tools.applyCmsBinding(workspace, {
+      targetBlock: {
+        selector: '#latest-news',
+      },
+      kind: 'content-list',
+      source: {
+        siteId: '14',
+        catalogId: 'news',
+      },
+      templateBody: '<section><style>.bad { color: red; }</style><article></article></section>',
+    })).toThrow('templateBody 不能包含 <script> 或 <style>')
 
     expect(readFileSync(entryPath, 'utf-8')).not.toContain('<cms-content')
   })

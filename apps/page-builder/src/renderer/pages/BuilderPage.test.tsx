@@ -41,6 +41,7 @@ interface PageBuilderImageReplacementPayload {
 
 interface PageBuilderBlockDeletionPayload {
   selector: string
+  targetSelection?: PageBuilderTargetSelection
 }
 
 function createBlockTargetSelection(selector: string): PageBuilderTargetSelection {
@@ -56,9 +57,11 @@ function createCmsIslandTargetSelection(
   selector: string,
   parentBlockSelector: string,
   component: 'cms-catalog' | 'cms-content',
+  sourceId?: string,
 ): PageBuilderTargetSelection {
   return {
     kind: 'cms-island',
+    ...(sourceId ? { sourceId } : {}),
     selector,
     parentBlockSelector,
     component,
@@ -1636,11 +1639,14 @@ describe('BuilderPage', () => {
     expect(getPreviewSelectionActionState(getLastPreviewPaneProps())).toBe('selected')
     expect(extractPageBuilderSelectionPayload((getLastAgentViewProps() as {
       messageDecorator?: (message: string) => string
-    }).messageDecorator?.('帮我微调这个区块') ?? '')).toEqual({
+    }).messageDecorator?.('帮我微调这个区块') ?? '')).toMatchObject({
       targetSelection: createBlockTargetSelection('#hero-banner'),
       selectionSemantics: {
         previewSurface: 'static-block',
-        updateRule: 'update-selected-target',
+        updateRule: 'replace-selected-target-in-place',
+        preserveExistingStructure: true,
+        fallbackOnIncompatibleStructure: 'ask-user-question',
+        forbidSiblingInsertion: true,
       },
     })
 
@@ -1827,7 +1833,7 @@ describe('BuilderPage', () => {
 
     expect(extractPageBuilderSelectionPayload((getLastAgentViewProps() as {
       messageDecorator?: (message: string) => string
-    }).messageDecorator?.('继续调整这里') ?? '')).toEqual({
+    }).messageDecorator?.('继续调整这里') ?? '')).toMatchObject({
       targetSelection: {
         kind: 'cms-island',
         selector: 'section:nth-of-type(2) > cms-content:nth-of-type(1)',
@@ -1839,6 +1845,11 @@ describe('BuilderPage', () => {
         previewSurface: 'cms-rendered-output',
         updateRule: 'replace-whole-source-component',
         forbidRenderedChildWrites: true,
+        sourceFirst: true,
+        forbidCrossBlockMutation: true,
+        forbidCmsSiblingInsertion: true,
+        forbidSiblingInsertion: true,
+        forbidDangerousSlotTags: ['script', 'style'],
       },
     })
   })
@@ -2479,10 +2490,11 @@ describe('BuilderPage', () => {
 
     await act(async () => {
       (getLastPreviewPaneProps() as {
-        onSelectionEvent?: (event: { type: 'selected'; selector: string }) => void
+        onSelectionEvent?: (event: { type: 'selected'; selector: string; targetSelection: PageBuilderTargetSelection }) => void
       }).onSelectionEvent?.({
         type: 'selected',
         selector: '#hero',
+        targetSelection: createBlockTargetSelection('#hero'),
       })
     })
 
@@ -2579,7 +2591,10 @@ describe('BuilderPage', () => {
     })
 
     expect(deletePageBuilderBlock).toHaveBeenCalledTimes(1)
-    expect(deletePageBuilderBlock).toHaveBeenCalledWith(workspace.id, { selector: '#hero' })
+    expect(deletePageBuilderBlock).toHaveBeenCalledWith(workspace.id, {
+      selector: '#hero',
+      targetSelection: createBlockTargetSelection('#hero'),
+    })
     expect(getToastError()).toHaveBeenCalledTimes(0)
     expect(getToastSuccess()).toHaveBeenCalledTimes(1)
     expect(getToastSuccess()).toHaveBeenCalledWith('区块删除成功')
@@ -2659,7 +2674,10 @@ describe('BuilderPage', () => {
     })
 
     expect(deletePageBuilderBlock).toHaveBeenCalledTimes(1)
-    expect(deletePageBuilderBlock).toHaveBeenCalledWith(workspace.id, { selector: '#hero' })
+    expect(deletePageBuilderBlock).toHaveBeenCalledWith(workspace.id, {
+      selector: '#hero',
+      targetSelection: createBlockTargetSelection('#hero'),
+    })
     expect(toastError).toHaveBeenCalledTimes(1)
     expect(toastError).toHaveBeenCalledWith('区块删除失败')
     expect(getLastPreviewPaneProps()).toMatchObject({

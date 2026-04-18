@@ -317,4 +317,37 @@ describe('validateCmsRendering', () => {
 
     expect(result.warnings.filter((diagnostic) => diagnostic.code === 'OUTSIDE_SLOT_MAJOR_CONTAINER')).toEqual([])
   })
+
+  test('reports duplicate top-level cms source ids as blocking errors', () => {
+    const result = validateCmsRendering(`
+      <!doctype html>
+      <html>
+        <body>
+          <section>
+            <cms-catalog data-proma-cms-source-id="cms-src-dup" level="root">
+              <template v-slot:default="{ items }">
+                <ul><li v-for="item in items">{{ item.name }}</li></ul>
+              </template>
+            </cms-catalog>
+          </section>
+          <section>
+            <cms-content data-proma-cms-source-id="cms-src-dup" catalog-id="news">
+              <template v-slot:default="{ items }">
+                <section><article v-for="item in items">{{ item.title }}</article></section>
+              </template>
+            </cms-content>
+          </section>
+        </body>
+      </html>
+    `, {
+      htmlPath: 'index.html',
+    })
+
+    expect(result.errors).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: 'DUPLICATE_SOURCE_ID',
+        severity: 'error',
+      }),
+    ]))
+  })
 })

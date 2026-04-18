@@ -18,6 +18,7 @@ import {
 
 type PageBuilderWorkspaceHtmlServiceErrorCode =
   | 'entry-missing'
+  | 'validation-failed'
   | 'postprocess-failed'
 
 export class PageBuilderWorkspaceHtmlServiceError extends Error {
@@ -81,6 +82,18 @@ export function createPageBuilderWorkspaceHtmlService(
         htmlPath: mutation.htmlPath ?? 'index.html',
       })
       const changed = nextHtml !== currentHtml
+      const blockingValidationErrors = validation.errors.filter((diagnostic) =>
+        diagnostic.code === 'DANGEROUS_TAG'
+        || diagnostic.code === 'DUPLICATE_SOURCE_ID',
+      )
+
+      if (blockingValidationErrors.length > 0) {
+        const codes = Array.from(new Set(blockingValidationErrors.map((diagnostic) => diagnostic.code))).join(', ')
+        throw new PageBuilderWorkspaceHtmlServiceError(
+          'validation-failed',
+          `CMS 渲染校验失败: ${codes}`,
+        )
+      }
 
       try {
         if (changed) {

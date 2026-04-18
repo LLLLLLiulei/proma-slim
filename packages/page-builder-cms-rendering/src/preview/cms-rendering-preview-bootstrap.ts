@@ -7,10 +7,14 @@ import {
   CMS_RUNTIME_CLIENT_KEY,
 } from '../runtime/cms-runtime-client'
 import { compileIslandTemplate } from '../template/compile-island-template'
-import { scanCmsIslandsFromDom } from '../template/scan-cms-islands-dom'
+import {
+  CMS_SOURCE_ID_ATTRIBUTE,
+  scanCmsIslandsFromDom,
+} from '../template/scan-cms-islands-dom'
 
 export const CMS_RENDERING_READY_EVENT = 'proma:cms-rendering-ready'
 const CMS_ISLAND_ID_ATTR = 'data-proma-cms-island-id'
+const CMS_ISLAND_SOURCE_ID_ATTR = 'data-proma-cms-island-source-id'
 const CMS_ISLAND_COMPONENT_ATTR = 'data-proma-cms-island-component'
 const CMS_ISLAND_SOURCE_SELECTOR_ATTR = 'data-proma-cms-island-source-selector'
 const CMS_ISLAND_PARENT_BLOCK_SELECTOR_ATTR = 'data-proma-cms-island-parent-block-selector'
@@ -73,10 +77,11 @@ function bootstrapCmsRenderingPreview(
     try {
       const render = compileIslandTemplate(island.template)
       const mountHost = island.element
+      const sourceId = normalizeOptionalAttribute(mountHost.getAttribute(CMS_SOURCE_ID_ATTRIBUTE))
       const sourceSelector = resolveStableElementSelector(mountHost)
       const parentBlockSelector = resolveParentBlockSelector(mountHost) ?? sourceSelector
       const islandId = sourceSelector
-        ? createCmsIslandId(island.component, sourceSelector)
+        ? createCmsIslandId(island.component, sourceId ?? sourceSelector)
         : null
       mountHost.setAttribute('data-proma-cms-rendering-island', island.component)
       let hostFinalized = false
@@ -89,6 +94,7 @@ function bootstrapCmsRenderingPreview(
         hostFinalized = true
         annotateRenderedIslandRoots(mountHost, {
           islandId,
+          sourceId,
           component: island.component,
           sourceSelector,
           parentBlockSelector,
@@ -123,6 +129,7 @@ function annotateRenderedIslandRoots(
   host: Element,
   metadata: {
     islandId: string | null
+    sourceId: string | null
     component: string
     sourceSelector: string | null
     parentBlockSelector: string | null
@@ -134,6 +141,9 @@ function annotateRenderedIslandRoots(
 
   for (const child of Array.from(host.children)) {
     child.setAttribute(CMS_ISLAND_ID_ATTR, metadata.islandId)
+    if (metadata.sourceId) {
+      child.setAttribute(CMS_ISLAND_SOURCE_ID_ATTR, metadata.sourceId)
+    }
     child.setAttribute(CMS_ISLAND_COMPONENT_ATTR, metadata.component)
     child.setAttribute(CMS_ISLAND_SOURCE_SELECTOR_ATTR, metadata.sourceSelector)
     child.setAttribute(CMS_ISLAND_PARENT_BLOCK_SELECTOR_ATTR, metadata.parentBlockSelector)
@@ -143,6 +153,11 @@ function annotateRenderedIslandRoots(
 
 function createCmsIslandId(component: string, sourceSelector: string): string {
   return `cms-island-${component}-${hashString(sourceSelector)}`
+}
+
+function normalizeOptionalAttribute(value: string | null): string | null {
+  const normalized = value?.trim()
+  return normalized ? normalized : null
 }
 
 function resolveStableElementSelector(element: Element): string | null {

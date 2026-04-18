@@ -3,6 +3,7 @@ import {
   CMS_ISLAND_EDIT_BOUNDARY_ATTR,
   CMS_ISLAND_ID_ATTR,
   CMS_ISLAND_PARENT_BLOCK_SELECTOR_ATTR,
+  CMS_ISLAND_SOURCE_ID_ATTR,
   CMS_ISLAND_SOURCE_SELECTOR_ATTR,
   OVERLAY_ATTR,
 } from './constants'
@@ -38,6 +39,7 @@ export function createCmsIslandRuntime() {
     }
 
     const component = element.getAttribute(CMS_ISLAND_COMPONENT_ATTR)
+    const sourceId = element.getAttribute(CMS_ISLAND_SOURCE_ID_ATTR)?.trim() || null
     const sourceSelector = element.getAttribute(CMS_ISLAND_SOURCE_SELECTOR_ATTR)
     const parentBlockSelector = element.getAttribute(CMS_ISLAND_PARENT_BLOCK_SELECTOR_ATTR)
     if (!component || !sourceSelector || !parentBlockSelector) {
@@ -51,6 +53,7 @@ export function createCmsIslandRuntime() {
 
     return {
       islandId,
+      ...(sourceId ? { sourceId } : {}),
       component,
       sourceSelector,
       parentBlockSelector,
@@ -64,6 +67,7 @@ export function createCmsIslandRuntime() {
       left
       && right
       && left.islandId === right.islandId
+      && (left.sourceId ?? null) === (right.sourceId ?? null)
       && left.component === right.component
       && left.sourceSelector === right.sourceSelector
       && left.parentBlockSelector === right.parentBlockSelector,
@@ -115,6 +119,7 @@ export function createCmsIslandRuntime() {
   ): ResolvedTarget => {
     const targetSelection: CmsIslandTargetSelection = {
       kind: 'cms-island',
+      ...(meta.sourceId ? { sourceId: meta.sourceId } : {}),
       selector: meta.sourceSelector,
       parentBlockSelector: meta.parentBlockSelector,
       component: meta.component,

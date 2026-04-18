@@ -2,7 +2,10 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
-import { createPageBuilderWorkspaceHtmlService } from './page-builder-workspace-html-service'
+import {
+  PageBuilderWorkspaceHtmlServiceError,
+  createPageBuilderWorkspaceHtmlService,
+} from './page-builder-workspace-html-service'
 import { createAgentWorkspace } from './workspace-service'
 
 afterEach(() => {
@@ -69,6 +72,36 @@ describe('page-builder workspace html service', () => {
         )
       },
     })).toThrow('manifest write failed')
+
+    expect(readFileSync(join(workspaceFilesDir, 'index.html'), 'utf-8')).toBe(originalHtml)
+    expect(existsSync(join(workspaceFilesDir, '.proma', 'cms-rendering-manifest.json'))).toBe(false)
+  })
+
+  test('rejects blocking cms validation errors before writing html or manifest artifacts', () => {
+    const workspace = createAgentWorkspace('Workspace HTML Validation', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+    const originalHtml = '<!doctype html><html><body><section id="hero"><h1>Old</h1></section></body></html>'
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(join(workspaceFilesDir, 'index.html'), originalHtml, 'utf-8')
+
+    const service = createPageBuilderWorkspaceHtmlService({
+      now: () => '2026-04-13T00:00:00.000Z',
+    })
+
+    expect(() => service.mutate(workspace, {
+      transform() {
+        return [
+          '<!doctype html><html><body>',
+          '<section data-proma-block-id="pb_blk_news">',
+          '<cms-content catalog-id="news">',
+          '  <template v-slot:default="{ items }"><style>.bad { color: red; }</style><article>{{ items.length }}</article></template>',
+          '</cms-content>',
+          '</section>',
+          '</body></html>',
+        ].join('')
+      },
+    })).toThrow(PageBuilderWorkspaceHtmlServiceError)
 
     expect(readFileSync(join(workspaceFilesDir, 'index.html'), 'utf-8')).toBe(originalHtml)
     expect(existsSync(join(workspaceFilesDir, '.proma', 'cms-rendering-manifest.json'))).toBe(false)

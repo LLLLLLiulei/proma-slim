@@ -40,6 +40,7 @@ describe('page builder preview selection helpers', () => {
   test('decorates cms islands with source-atomic boundary metadata instead of rendered child semantics', () => {
     const decorated = decoratePageBuilderSelectionMessage('请把这里换成另一个栏目', {
       kind: 'cms-island',
+      sourceId: 'cms-src-nav',
       selector: 'section:nth-of-type(2) > cms-catalog:nth-of-type(1)',
       parentBlockSelector: '[data-proma-block-id="pb_blk_nav"]',
       component: 'cms-catalog',
@@ -49,6 +50,7 @@ describe('page builder preview selection helpers', () => {
     expect(extractSelectionPayload(decorated)).toEqual({
       targetSelection: {
         kind: 'cms-island',
+        sourceId: 'cms-src-nav',
         selector: 'section:nth-of-type(2) > cms-catalog:nth-of-type(1)',
         parentBlockSelector: '[data-proma-block-id="pb_blk_nav"]',
         component: 'cms-catalog',
@@ -57,8 +59,12 @@ describe('page builder preview selection helpers', () => {
       selectionSemantics: {
         previewSurface: 'cms-rendered-output',
         updateRule: 'replace-whole-source-component',
+        sourceFirst: true,
         forbidRenderedChildWrites: true,
+        forbidCrossBlockMutation: true,
         forbidSiblingInsertion: true,
+        forbidCmsSiblingInsertion: true,
+        forbidDangerousSlotTags: ['script', 'style'],
       },
     })
   })

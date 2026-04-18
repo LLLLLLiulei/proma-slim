@@ -16,6 +16,7 @@ export interface PageBuilderBlockTargetSelection extends PageBuilderTargetSelect
 
 export interface PageBuilderCmsIslandTargetSelection extends PageBuilderTargetSelectionBase {
   kind: 'cms-island'
+  sourceId?: string
   component: PageBuilderCmsIslandComponent
   editBoundary: 'source-atomic'
 }
@@ -37,9 +38,11 @@ export function createPageBuilderCmsIslandTargetSelection(
   selector: string,
   parentBlockSelector: string,
   component: PageBuilderCmsIslandComponent,
+  sourceId?: string,
 ): PageBuilderCmsIslandTargetSelection {
   return {
     kind: 'cms-island',
+    ...(sourceId ? { sourceId } : {}),
     selector,
     parentBlockSelector,
     component,

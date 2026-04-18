@@ -71,6 +71,7 @@ describe('page-builder CMS auto handoff payloads', () => {
       siteId: '14',
       targetSelection: {
         kind: 'cms-island',
+        sourceId: 'cms-src-news',
         selector: 'section:nth-of-type(1) > cms-content:nth-of-type(1)',
         parentBlockSelector: '[data-proma-block-id="pb_blk_news"]',
         component: 'cms-content',
@@ -116,6 +117,7 @@ describe('page-builder CMS auto handoff payloads', () => {
     expect(request.composedUserMessage).toContain('必须先检查当前目标区块的现有源码结构、类名和主要布局骨架；在兼容时优先复用它们，只替换为 CMS 数据绑定。')
     expect(request.composedUserMessage).toContain('不要在当前选中区块旁边追加一个新的 cms-catalog / cms-content 并把原区块保留下来；必须原位替换当前目标。')
     expect(request.composedUserMessage).toContain('如果当前目标结构与所选 CMS 数据无法安全兼容，先通过 AskUserQuestion 发起一个简短澄清，而不是擅自改造成新的通用列表或图文卡片。')
+    expect(request.composedUserMessage).toContain('不要在 cms-* 组件的 default / empty / error slot 中写入 <script> 或 <style>。')
     expect(extractSkillInputFromComposedMessage(request.composedUserMessage)).toEqual({
       version: 3,
       entryPoint: 'cms-browser-confirm',
@@ -128,6 +130,7 @@ describe('page-builder CMS auto handoff payloads', () => {
       },
       targetSelection: {
         kind: 'cms-island',
+        sourceId: 'cms-src-news',
         selector: 'section:nth-of-type(1) > cms-content:nth-of-type(1)',
         parentBlockSelector: '[data-proma-block-id="pb_blk_news"]',
         component: 'cms-content',

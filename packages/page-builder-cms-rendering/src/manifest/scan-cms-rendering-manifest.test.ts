@@ -8,14 +8,14 @@ describe('scanCmsRenderingManifest', () => {
       <html>
         <body>
           <section data-proma-block-id="pb_blk_nav">
-            <cms-catalog site-id="14" ids="nav-b, nav-a">
+            <cms-catalog data-proma-cms-source-id="cms-src-nav" site-id="14" ids="nav-b, nav-a">
               <template v-slot:default="{ items }">
                 <nav>{{ items.length }}</nav>
               </template>
             </cms-catalog>
           </section>
           <section id="news-list">
-            <cms-content site-id="14" catalog-id="news" ids="content-2,content-1">
+            <cms-content data-proma-cms-source-id="cms-src-news" site-id="14" catalog-id="news" ids="content-2,content-1">
               <template v-slot:default="{ items }">
                 <article>{{ items.length }}</article>
               </template>
@@ -34,6 +34,7 @@ describe('scanCmsRenderingManifest', () => {
       entries: [
         {
           blockId: 'pb_blk_nav',
+          sourceId: 'cms-src-nav',
           selectorSnapshot: '[data-proma-block-id="pb_blk_nav"]',
           component: 'cms-catalog',
           props: {
@@ -45,6 +46,7 @@ describe('scanCmsRenderingManifest', () => {
         },
         {
           blockId: null,
+          sourceId: 'cms-src-news',
           selectorSnapshot: '#news-list',
           component: 'cms-content',
           props: {

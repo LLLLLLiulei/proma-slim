@@ -2,6 +2,7 @@ import { parseHTML } from 'linkedom'
 import {
   CMS_ISLAND_ATTRIBUTES,
   CMS_ISLAND_SELECTOR,
+  CMS_SOURCE_ID_ATTRIBUTE,
   isTopLevelCmsIsland,
   type CmsIslandComponentName,
 } from '../template/scan-cms-islands-dom'
@@ -49,6 +50,16 @@ export function validateCmsRendering(
   const diagnostics: CmsRenderingDiagnostic[] = []
   const topLevelIslands = Array.from(root.querySelectorAll(CMS_ISLAND_SELECTOR)).filter(isTopLevelCmsIsland)
   const topLevelIslandIndexByElement = new Map(topLevelIslands.map((element, index) => [element, index]))
+  const topLevelSourceIdCounts = new Map<string, number>()
+
+  for (const island of topLevelIslands) {
+    const sourceId = readSourceIdAttribute(island)
+    if (!sourceId) {
+      continue
+    }
+
+    topLevelSourceIdCounts.set(sourceId, (topLevelSourceIdCounts.get(sourceId) ?? 0) + 1)
+  }
 
   for (const element of Array.from(root.querySelectorAll('*'))) {
     if (element.closest(CMS_ISLAND_SELECTOR)) {
@@ -75,6 +86,7 @@ export function validateCmsRendering(
     const slotInfo = collectSlotInfo(island)
     const catalogId = island.getAttribute('catalog-id')?.trim()
     const orderedIds = readOrderedIdsAttribute(island.getAttribute('ids'))
+    const sourceId = isTopLevelCmsIsland(island) ? readSourceIdAttribute(island) : null
 
     if (component === 'cms-content' && !catalogId) {
       diagnostics.push(createDiagnostic({
@@ -105,6 +117,18 @@ export function validateCmsRendering(
         severity: 'error',
         code: 'CONFLICTING_SOURCE_PROPS',
         message: 'cms-catalog ids cannot be combined with catalog query props.',
+        element: island,
+        component,
+        htmlPath,
+        islandIndex,
+      }))
+    }
+
+    if (sourceId && (topLevelSourceIdCounts.get(sourceId) ?? 0) > 1) {
+      diagnostics.push(createDiagnostic({
+        severity: 'error',
+        code: 'DUPLICATE_SOURCE_ID',
+        message: `Duplicate cms source id "${sourceId}" is not allowed across top-level CMS islands.`,
         element: island,
         component,
         htmlPath,
@@ -418,6 +442,11 @@ function readOrderedIdsAttribute(value: string | null): string[] | null {
     .filter(Boolean)
 
   return ids.length > 0 ? ids : null
+}
+
+function readSourceIdAttribute(element: Element): string | null {
+  const normalized = element.getAttribute(CMS_SOURCE_ID_ATTRIBUTE)?.trim()
+  return normalized ? normalized : null
 }
 
 function hasConflictingCatalogIdsProps(island: Element): boolean {

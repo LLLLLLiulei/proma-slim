@@ -14,6 +14,7 @@ import type {
   PageBuilderStaticExportJob,
   PageBuilderTargetSelection,
 } from '@proma/shared'
+import { createPageBuilderBlockTargetSelection } from '@proma/shared'
 import { AgentView } from '@/components/agent'
 import {
   agentStreamingStatesAtom,
@@ -478,6 +479,9 @@ export function BuilderPage({
     try {
       const nextState = await api.deletePageBuilderBlock(workspaceId, {
         selector,
+        ...(selectedTargetSelection?.selector === selector
+          ? { targetSelection: selectedTargetSelection }
+          : {}),
       } satisfies PageBuilderBlockDeletionPayload)
 
       setPendingDeleteSelector(null)
@@ -492,7 +496,7 @@ export function BuilderPage({
     } finally {
       setIsDeletingBlock(false)
     }
-  }, [clearSelection, pendingDeleteSelector, workspaceId, writeNextPreviewState])
+  }, [clearSelection, pendingDeleteSelector, selectedTargetSelection, workspaceId, writeNextPreviewState])
 
   const handleImageFileChange = React.useCallback(async (
     event: React.ChangeEvent<HTMLInputElement>,
@@ -610,7 +614,10 @@ export function BuilderPage({
     }
 
     if (event.type === 'selected') {
-      setSelectedTargetSelection(event.targetSelection)
+      setSelectedTargetSelection(
+        event.targetSelection
+        ?? (event.selector ? createPageBuilderBlockTargetSelection(event.selector) : null),
+      )
       setSelectionActionState('selected')
       return
     }
