@@ -6,6 +6,7 @@ import { act, create } from 'react-test-renderer'
 import type {
   AgentSessionMeta,
   AgentWorkspace,
+  PageBuilderCmsApplyTargetSnapshot,
   PageBuilderCmsAutoAgentHandoffSettledResult,
   PageBuilderCmsSelectionResult,
   PageBuilderTargetSelection,
@@ -196,6 +197,10 @@ async function loadBuilderPage(options: {
   previewStates?: WorkspacePreviewState[]
   getWorkspacePreviewStateImpl?: () => Promise<WorkspacePreviewState>
   savePageBuilderInlineTextImpl?: (workspaceId: string, payload: unknown) => Promise<WorkspacePreviewState>
+  getPageBuilderCmsTargetSnapshotImpl?: (
+    workspaceId: string,
+    targetSelection: PageBuilderTargetSelection,
+  ) => Promise<PageBuilderCmsApplyTargetSnapshot>
   deletePageBuilderBlockImpl?: (
     workspaceId: string,
     payload: PageBuilderBlockDeletionPayload,
@@ -287,6 +292,21 @@ async function loadBuilderPage(options: {
         previewStateIndex += 1
         return state
       }),
+      getPageBuilderCmsTargetSnapshot: options.getPageBuilderCmsTargetSnapshotImpl ?? (async (_workspaceId: string, targetSelection: PageBuilderTargetSelection) => ({
+        kind: targetSelection.kind,
+        selector: targetSelection.selector,
+        parentBlockSelector: targetSelection.parentBlockSelector,
+        targetOuterHtml: targetSelection.kind === 'cms-island'
+          ? `<${targetSelection.component}></${targetSelection.component}>`
+          : '<section></section>',
+        ...(targetSelection.kind === 'cms-island'
+          ? {
+              parentBlockOuterHtml: '<section></section>',
+              component: targetSelection.component,
+              ...(targetSelection.sourceId ? { sourceId: targetSelection.sourceId } : {}),
+            }
+          : {}),
+      })),
       deletePageBuilderBlock: options.deletePageBuilderBlockImpl ?? (async () => {
         throw new Error('deletePageBuilderBlock 未在测试中模拟')
       }),
@@ -1871,6 +1891,12 @@ describe('BuilderPage', () => {
       createdAt: 1,
       updatedAt: 1,
     }
+    const getPageBuilderCmsTargetSnapshot = mock(async () => ({
+      kind: 'block' as const,
+      selector: '#hero-banner',
+      parentBlockSelector: '#hero-banner',
+      targetOuterHtml: '<section id="hero-banner" data-proma-block-id="pb_blk_hero"><h1>Hero</h1></section>',
+    }))
 
     const {
       BuilderPage,
@@ -1880,6 +1906,7 @@ describe('BuilderPage', () => {
     } = await loadBuilderPage({
       sessions: [session],
       workspaces: [workspace],
+      getPageBuilderCmsTargetSnapshotImpl: getPageBuilderCmsTargetSnapshot,
       mockCmsBrowserDialog: true,
       mockPreviewPane: true,
     })
@@ -1942,9 +1969,13 @@ describe('BuilderPage', () => {
         mentionedMcpServers: ['cms'],
       }),
     })
+    expect(getPageBuilderCmsTargetSnapshot).toHaveBeenCalledTimes(1)
+    expect(getPageBuilderCmsTargetSnapshot).toHaveBeenCalledWith(workspace.id, selection.targetSelection)
     expect(request?.composedUserMessage).toContain(
       '优先让 cms-* 标签作为动态区域源码根节点，并把 ul、nav、section、article 等主要动态容器写进 slot。',
     )
+    expect(request?.composedUserMessage).toContain('targetSnapshot')
+    expect(request?.composedUserMessage).toContain('pb_blk_hero')
     expect(getLastCmsBrowserDialogProps()).toMatchObject({
       open: true,
       confirming: true,
@@ -1964,6 +1995,93 @@ describe('BuilderPage', () => {
       confirming: false,
     })
     expect(getPreviewSelectionActionState(getLastPreviewPaneProps())).toBe('selected')
+  })
+
+  test('keeps the dialog open and reports an error when the authoring target snapshot cannot be loaded', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const getPageBuilderCmsTargetSnapshot = mock(async () => {
+      throw new Error('无法读取当前目标的作者态源码快照')
+    })
+
+    const {
+      BuilderPage,
+      getLastAgentViewProps,
+      getLastCmsBrowserDialogProps,
+      getLastPreviewPaneProps,
+      getToastError,
+    } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      getPageBuilderCmsTargetSnapshotImpl: getPageBuilderCmsTargetSnapshot,
+      mockCmsBrowserDialog: true,
+      mockPreviewPane: true,
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      (getLastPreviewPaneProps() as {
+        onSelectionEvent?: (event: { type: string; targetSelection?: PageBuilderTargetSelection }) => void
+      }).onSelectionEvent?.({ type: 'selected', targetSelection: createBlockTargetSelection('#hero-banner') })
+    })
+
+    await act(async () => {
+      (getLastPreviewPaneProps() as {
+        onRequestOpenCmsBrowser?: () => void
+      }).onRequestOpenCmsBrowser?.()
+    })
+
+    await act(async () => {
+      await (getLastCmsBrowserDialogProps() as {
+        onConfirmSelection?: (value: PageBuilderCmsSelectionResult) => void
+      }).onConfirmSelection?.({
+        version: 5,
+        siteId: '14',
+        targetSelection: createBlockTargetSelection('#hero-banner'),
+        targetBlock: {
+          selector: '#hero-banner',
+        },
+        selectionKind: 'contents',
+        sourceType: 'contents-by-ids',
+        selectionMode: 'fixed-items',
+        catalogId: '101',
+        contentIds: ['501'],
+        snapshot: {
+          contents: [],
+        },
+      })
+    })
+
+    expect(getPageBuilderCmsTargetSnapshot).toHaveBeenCalledTimes(1)
+    expect(getLastAgentViewProps()?.programmaticSendRequest ?? null).toBeNull()
+    expect(getLastCmsBrowserDialogProps()).toMatchObject({
+      open: true,
+      confirming: false,
+    })
+    expect(getToastError()).toHaveBeenCalledWith('无法读取当前目标的作者态源码快照')
   })
 
   test('blocks opening the cms browser from preview block actions while the session is already streaming', async () => {

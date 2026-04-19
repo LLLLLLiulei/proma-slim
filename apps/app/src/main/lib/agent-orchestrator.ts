@@ -83,6 +83,11 @@ import {
   CMS_RUNTIME_SERVER_NAME,
   type CmsRuntimeToolBundle,
 } from './cms-sdk-tools'
+import {
+  capturePageBuilderAgentHtmlSnapshot,
+  finalizePageBuilderAgentHtmlGuardrails,
+  type PageBuilderAgentHtmlSnapshot,
+} from './page-builder-agent-html-guardrails-service'
 
 type AgentMcpServerMap = Record<string, AgentMcpServerConfig>
 
@@ -158,6 +163,28 @@ function buildWorkspaceMcpServers(workspace: import('@proma/shared').AgentWorksp
   }
 
   return mcpServers
+}
+
+function buildPageBuilderGuardrailStatusMessage(
+  result: ReturnType<typeof finalizePageBuilderAgentHtmlGuardrails>,
+): AgentMessage {
+  const validationCodes = Array.from(new Set(result.validation.errors.map((diagnostic) => diagnostic.code)))
+  const summary = validationCodes.length > 0
+    ? validationCodes.join(', ')
+    : 'PREVIEW_ENTRY_MISSING'
+  const detailLines = result.validation.errors
+    .slice(0, 3)
+    .map((diagnostic) => diagnostic.message)
+
+  return {
+    id: randomUUID(),
+    role: 'status',
+    content: `本次页面改写未自动回滚：CMS authoring 校验失败（${summary}）。当前改动已保留，请按错误信息继续修正。`,
+    createdAt: Date.now(),
+    errorCode: 'invalid_request',
+    errorTitle: 'CMS authoring 校验失败',
+    ...(detailLines.length > 0 ? { errorDetails: detailLines } : {}),
+  }
 }
 
 function pickMcpServersByName(
@@ -870,6 +897,9 @@ export class AgentOrchestrator {
       createdAt: Date.now(),
       ...(attachments && attachments.length > 0 ? { attachments } : {}),
     }
+    const pageBuilderAgentHtmlSnapshot: PageBuilderAgentHtmlSnapshot | null = isPageBuilderWorkspace
+      ? capturePageBuilderAgentHtmlSnapshot(workspaceRuntime.workspace)
+      : null
     try {
       appendAgentMessage(sessionId, userMsg)
     } catch (error) {
@@ -1656,6 +1686,17 @@ export class AgentOrchestrator {
           if (deferredCompleteEvent) {
             console.log(`[Agent 编排] 发射延迟的 complete 事件`)
             this.eventBus.emit(sessionId, deferredCompleteEvent)
+          }
+
+          if (pageBuilderAgentHtmlSnapshot) {
+            const pageBuilderGuardrailResult = finalizePageBuilderAgentHtmlGuardrails(
+              workspaceRuntime.workspace,
+              pageBuilderAgentHtmlSnapshot,
+            )
+
+            if (pageBuilderGuardrailResult.status === 'invalid') {
+              appendAgentMessage(sessionId, buildPageBuilderGuardrailStatusMessage(pageBuilderGuardrailResult))
+            }
           }
 
           await this.autoGenerateTitle(sessionId, userMessage, callbacks)

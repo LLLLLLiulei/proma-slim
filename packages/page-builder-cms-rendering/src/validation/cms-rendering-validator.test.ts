@@ -125,6 +125,128 @@ describe('validateCmsRendering', () => {
     ]))
   })
 
+  test('reports blocking errors for unsupported item field access inside cms slots', () => {
+    const result = validateCmsRendering(`
+      <!doctype html>
+      <html>
+        <body>
+          <section data-proma-block-id="pb_blk_news">
+            <cms-content site-id="14" catalog-id="news">
+              <template v-slot:default="{ items }">
+                <article v-for="item in items" :key="item.id">
+                  <a :href="item.url">{{ item.title }}</a>
+                </article>
+              </template>
+            </cms-content>
+          </section>
+        </body>
+      </html>
+    `, {
+      htmlPath: 'index.html',
+    })
+
+    expect(result.valid).toBe(false)
+    expect(result.errors).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        severity: 'error',
+        code: 'UNKNOWN_ITEM_FIELD',
+        component: 'cms-content',
+        blockId: 'pb_blk_news',
+        message: expect.stringContaining('item.url'),
+      }),
+    ]))
+  })
+
+  test('reports blocking errors for undeclared CMS slot variables inside slot content', () => {
+    const result = validateCmsRendering(`
+      <!doctype html>
+      <html>
+        <body>
+          <section data-proma-block-id="pb_blk_news">
+            <cms-content site-id="14" catalog-id="news">
+              <template v-slot:default="{ items }">
+                <p v-if="loading">加载中...</p>
+                <article v-for="item in items" :key="item.id">{{ item.title }}</article>
+              </template>
+            </cms-content>
+          </section>
+        </body>
+      </html>
+    `, {
+      htmlPath: 'index.html',
+    })
+
+    expect(result.valid).toBe(false)
+    expect(result.errors).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        severity: 'error',
+        code: 'UNKNOWN_SLOT_VARIABLE',
+        component: 'cms-content',
+        blockId: 'pb_blk_news',
+        message: expect.stringContaining('"loading"'),
+      }),
+    ]))
+  })
+
+  test('reports blocking errors for slot alias objects referenced inside cms slot content', () => {
+    const result = validateCmsRendering(`
+      <!doctype html>
+      <html>
+        <body>
+          <section data-proma-block-id="pb_blk_news">
+            <cms-content site-id="14" catalog-id="news">
+              <template v-slot:default="{ items, loading, error, empty }">
+                <article v-for="item in slotProps.items" :key="item.id">{{ item.title }}</article>
+              </template>
+            </cms-content>
+          </section>
+        </body>
+      </html>
+    `, {
+      htmlPath: 'index.html',
+    })
+
+    expect(result.valid).toBe(false)
+    expect(result.errors).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        severity: 'error',
+        code: 'UNKNOWN_SLOT_VARIABLE',
+        component: 'cms-content',
+        blockId: 'pb_blk_news',
+        message: expect.stringContaining('"slotProps"'),
+      }),
+    ]))
+  })
+
+  test('reports blocking errors for unsupported CMS slot scope declarations', () => {
+    const result = validateCmsRendering(`
+      <!doctype html>
+      <html>
+        <body>
+          <section data-proma-block-id="pb_blk_news">
+            <cms-content site-id="14" catalog-id="news">
+              <template v-slot:default="slotProps">
+                <article v-for="item in slotProps.items" :key="item.id">{{ item.title }}</article>
+              </template>
+            </cms-content>
+          </section>
+        </body>
+      </html>
+    `, {
+      htmlPath: 'index.html',
+    })
+
+    expect(result.valid).toBe(false)
+    expect(result.errors).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        severity: 'error',
+        code: 'INVALID_SLOT_SCOPE',
+        component: 'cms-content',
+        blockId: 'pb_blk_news',
+      }),
+    ]))
+  })
+
   test('does not flag standard DOM locator attributes as unknown props', () => {
     const result = validateCmsRendering(`
       <!doctype html>
@@ -288,6 +410,54 @@ describe('validateCmsRendering', () => {
     expect(result.warnings.map((diagnostic) => diagnostic.code)).toEqual(expect.arrayContaining([
       'OUTSIDE_SLOT_MAJOR_CONTAINER',
     ]))
+  })
+
+  test('reports warnings when v-for inside cms slots omits a stable key', () => {
+    const result = validateCmsRendering(`
+      <!doctype html>
+      <html>
+        <body>
+          <cms-content site-id="14" catalog-id="news">
+            <template v-slot:default="{ items }">
+              <section class="news-list">
+                <article v-for="item in items">{{ item.title }}</article>
+              </section>
+            </template>
+          </cms-content>
+        </body>
+      </html>
+    `, {
+      htmlPath: 'index.html',
+    })
+
+    expect(result.warnings).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: 'MISSING_V_FOR_KEY',
+        severity: 'warning',
+        component: 'cms-content',
+      }),
+    ]))
+  })
+
+  test('does not warn for optional image bindings when they are guarded', () => {
+    const result = validateCmsRendering(`
+      <!doctype html>
+      <html>
+        <body>
+          <cms-content site-id="14" catalog-id="news">
+            <template v-slot:default="{ items }">
+              <section class="news-list">
+                <img v-if="items[0]?.listLogoUrl" :src="items[0].listLogoUrl" alt="">
+              </section>
+            </template>
+          </cms-content>
+        </body>
+      </html>
+    `, {
+      htmlPath: 'index.html',
+    })
+
+    expect(result.warnings.filter((diagnostic) => diagnostic.code === 'UNGUARDED_OPTIONAL_URL')).toEqual([])
   })
 
   test('does not warn when the major dynamic container lives inside the cms slot', () => {

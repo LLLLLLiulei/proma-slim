@@ -1,6 +1,14 @@
 # CMS Apply Contract Examples
 
 Use these examples when interpreting or producing the `cms-binding-apply` contract.
+Treat the canonical CMS authoring contract as the source of truth for supported props, slot scope, item fields, and forbidden structures.
+Real auto-handoff payloads also carry `authoringContext` and `targetSnapshot`; `targetSnapshot.targetOuterHtml` is the authoritative authoring-source snippet for the current target.
+
+`authoringContext.itemFieldMeta` is the semantic reference for each field:
+
+- use it to understand field meaning
+- use it to see whether a field is optional
+- use it to choose the correct link/image/date field instead of guessing aliases
 
 ## Catalogs to nav
 
@@ -8,7 +16,7 @@ Use these examples when interpreting or producing the `cms-binding-apply` contra
 
 ```json
 {
-  "version": 3,
+  "version": 6,
   "entryPoint": "cms-browser-confirm",
   "applyIntent": "replace-current",
   "workspacePolicy": {
@@ -73,7 +81,7 @@ Use these examples when interpreting or producing the `cms-binding-apply` contra
 
 ```json
 {
-  "version": 3,
+  "version": 6,
   "entryPoint": "cms-browser-confirm",
   "applyIntent": "replace-current",
   "workspacePolicy": {
@@ -139,7 +147,7 @@ Use these examples when interpreting or producing the `cms-binding-apply` contra
 
 ```json
 {
-  "version": 3,
+  "version": 6,
   "entryPoint": "cms-browser-confirm",
   "applyIntent": "replace-current",
   "workspacePolicy": {
@@ -208,7 +216,7 @@ Use `cms-catalog` / `cms-content` as the source root of the dynamic region, and 
   <template v-slot:default="{ items, loading, error, empty }">
     <ul class="nav-list">
       <li v-for="item in items" :key="item.id">
-        <a :href="item.link || item.url || item.path">{{ item.name }}</a>
+        <a :href="item.path">{{ item.name }}</a>
       </li>
     </ul>
   </template>
@@ -231,6 +239,17 @@ Use `cms-catalog` / `cms-content` as the source root of the dynamic region, and 
 </cms-content>
 ```
 
+## Item field semantics to respect
+
+- `cms-catalog`
+  - `item.path`: catalog link field
+  - `item.logoUrl`: optional image field, guard before rendering
+  - `item.children`: nested catalog list, only use when the current structure explicitly needs hierarchy
+- `cms-content`
+  - `item.publishUrl`: content detail link field
+  - `item.listLogoUrl`: optional list image field, guard before rendering
+  - `item.addedAt`: optional date/time string, guard before rendering
+
 ## Recommended: preserve the current target shell when compatible
 
 If the selected block already has a strong visual structure, keep that shell and only replace its data source.
@@ -238,8 +257,8 @@ If the selected block already has a strong visual structure, keep that shell and
 ```html
 <cms-content site-id="14" catalog-id="news" ids="n-101">
   <template v-slot:default="{ items, loading, error, empty }">
-    <a class="hero-card" :href="items[0]?.link || items[0]?.url || '#'">
-      <img class="hero-card__image" :src="items[0]?.listLogoUrl" :alt="items[0]?.title || ''">
+    <a class="hero-card" :href="items[0]?.publishUrl || '#'">
+      <img v-if="items[0]?.listLogoUrl" class="hero-card__image" :src="items[0].listLogoUrl" :alt="items[0]?.title || ''">
       <span class="hero-card__title">{{ items[0]?.title }}</span>
     </a>
   </template>
@@ -284,7 +303,7 @@ Avoid leaving the main container outside and using the slot only for scattered i
   <cms-catalog site-id="14" ids="news,products,about">
     <template v-slot:default="{ items }">
       <li v-for="item in items" :key="item.id">
-        <a :href="item.link || item.url || item.path">{{ item.name }}</a>
+        <a :href="item.path">{{ item.name }}</a>
       </li>
     </template>
   </cms-catalog>
@@ -368,7 +387,7 @@ Use `needs-clarification` only when one short question can unlock a safe decisio
 
 If an older page still has no `sourceId`, the payload may omit it temporarily and fall back to the exact current selector. That legacy selector fallback is only for the already-selected target and must fail closed on ambiguity instead of widening the edit scope.
 
-New or rebound CMS writes should preserve an existing `data-proma-cms-source-id` when replacing a CMS source tag, or let the formal apply tool generate one when binding a previously static region.
+New or rebound CMS writes should preserve an existing `data-proma-cms-source-id` when replacing a CMS source tag, or let the formal apply tool generate one when binding a previously static region. Use `targetSnapshot.targetOuterHtml` as the authoring-source fact for what is currently selected, instead of inferring structure from preview DOM descendants.
 
 Never place `<script>` or `<style>` inside `templateBody`, `emptyTemplate`, or `errorTemplate`.
 
@@ -378,7 +397,7 @@ When `targetBlock.blockTypeHint` is absent, keep the decision conservative inste
 
 ```json
 {
-  "version": 3,
+  "version": 5,
   "entryPoint": "cms-browser-confirm",
   "applyIntent": "replace-current",
   "workspacePolicy": {

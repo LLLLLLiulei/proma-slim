@@ -38,3 +38,38 @@ test('cms rendering preview bundle excludes server-only linkedom dependency', ()
   expect(output.hasLinkedom).toBe(false)
   expect(output.hasParseHtml).toBe(false)
 })
+
+test('cms rendering preview bundle excludes shared root barrel side modules', () => {
+  const result = spawnSync(
+    'bun',
+    [
+      '-e',
+      `
+        import { readPageBuilderCmsRenderingPreviewScript } from './apps/app/src/main/lib/page-builder-cms-rendering-preview.ts'
+
+        const script = await readPageBuilderCmsRenderingPreviewScript()
+        console.log(JSON.stringify({
+          hasSharedAgentToolMatching: script.includes('packages/shared/src/agent/tool-matching.ts'),
+          hasSharedAgentAttachments: script.includes('packages/shared/src/constants/agent-attachments.ts'),
+          hasSharedCmsAuthoringContract: script.includes('packages/shared/src/types/page-builder-cms-authoring-contract.ts'),
+        }))
+      `,
+    ],
+    {
+      cwd: process.cwd(),
+      encoding: 'utf-8',
+    },
+  )
+
+  expect(result.status).toBe(0)
+
+  const output = JSON.parse(result.stdout.trim()) as {
+    hasSharedAgentToolMatching: boolean
+    hasSharedAgentAttachments: boolean
+    hasSharedCmsAuthoringContract: boolean
+  }
+
+  expect(output.hasSharedAgentToolMatching).toBe(false)
+  expect(output.hasSharedAgentAttachments).toBe(false)
+  expect(output.hasSharedCmsAuthoringContract).toBe(false)
+})

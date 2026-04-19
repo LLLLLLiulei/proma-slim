@@ -3,7 +3,7 @@ import type {
   PageBuilderCmsCatalogQuery,
   PageBuilderCmsContentList,
   PageBuilderCmsContentQuery,
-} from '@proma/shared'
+} from '@proma/shared/types/page-builder-cms'
 import type { InjectionKey } from 'vue'
 import type { CmsCatalogItemViewModel } from '../viewmodel/catalog'
 import type { CmsContentItemViewModel } from '../viewmodel/content'

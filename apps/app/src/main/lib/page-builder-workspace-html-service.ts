@@ -82,10 +82,7 @@ export function createPageBuilderWorkspaceHtmlService(
         htmlPath: mutation.htmlPath ?? 'index.html',
       })
       const changed = nextHtml !== currentHtml
-      const blockingValidationErrors = validation.errors.filter((diagnostic) =>
-        diagnostic.code === 'DANGEROUS_TAG'
-        || diagnostic.code === 'DUPLICATE_SOURCE_ID',
-      )
+      const blockingValidationErrors = validation.errors
 
       if (blockingValidationErrors.length > 0) {
         const codes = Array.from(new Set(blockingValidationErrors.map((diagnostic) => diagnostic.code))).join(', ')

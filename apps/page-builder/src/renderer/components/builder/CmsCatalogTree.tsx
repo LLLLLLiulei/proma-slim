@@ -10,6 +10,7 @@ interface CmsCatalogTreeSharedProps {
 
 interface CmsCatalogTreeCheckProps extends CmsCatalogTreeSharedProps {
   checkedCatalogIds: string[]
+  checkStrictly?: boolean
   onCheckedCatalogIdsChange: (catalogIds: string[]) => void
   onSelectCatalog?: (catalogId: string) => void
   selectedCatalogId?: string | null
@@ -79,6 +80,7 @@ export function CmsCatalogTree(props: CmsCatalogTreeProps): React.ReactElement {
         className="page-builder-cms-tree"
         checkedKeys={props.selectionMode === 'check' ? props.checkedCatalogIds : undefined}
         checkable={props.selectionMode === 'check'}
+        checkStrictly={props.selectionMode === 'check' ? props.checkStrictly : undefined}
         expandedKeys={expandedKeys}
         onCheck={props.selectionMode === 'check' ? handleCheck : undefined}
         onExpand={handleExpand}

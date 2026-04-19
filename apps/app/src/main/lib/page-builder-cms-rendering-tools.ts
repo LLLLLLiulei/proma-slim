@@ -6,6 +6,7 @@ import type {
   CmsRenderingManifestEntry,
 } from '@proma/page-builder-cms-rendering'
 import { resolveCmsRenderingSelectorSnapshot } from '@proma/page-builder-cms-rendering'
+import { validateCmsRendering } from '@proma/page-builder-cms-rendering'
 import {
   PageBuilderWorkspaceHtmlServiceError,
   pageBuilderWorkspaceHtmlService,
@@ -341,7 +342,7 @@ function normalizeApplyCmsBindingInput(
 
   if (parsedBase.kind === 'catalog-nav') {
     assertCatalogNavSourceDoesNotUsePageSize(parsedBase.source)
-    return {
+    const normalizedInput = {
       targetSelection,
       targetBlock: parsedBase.targetBlock,
       kind: 'catalog-nav',
@@ -350,9 +351,11 @@ function normalizeApplyCmsBindingInput(
       errorTemplate,
       source: normalizeCatalogNavSource(parseSchema(catalogNavSourceSchema, parsedBase.source)),
     }
+    assertCmsBindingAuthoringPreflight(normalizedInput)
+    return normalizedInput
   }
 
-  return {
+  const normalizedInput = {
     targetSelection,
     targetBlock: parsedBase.targetBlock,
     kind: 'content-list',
@@ -361,6 +364,8 @@ function normalizeApplyCmsBindingInput(
     errorTemplate,
     source: normalizeContentListSource(parseSchema(contentListSourceSchema, parsedBase.source)),
   }
+  assertCmsBindingAuthoringPreflight(normalizedInput)
+  return normalizedInput
 }
 
 function normalizeTargetSelectionInput(value: unknown): PageBuilderTargetSelection | undefined {
@@ -515,6 +520,57 @@ function parseSchema<T extends z.ZodTypeAny>(schema: T, value: unknown): z.infer
   throw new PageBuilderCmsBindingApplyError(
     'invalid-input',
     issue?.message ?? 'CMS 绑定参数不合法',
+  )
+}
+
+function assertCmsBindingAuthoringPreflight(
+  input: NormalizedApplyPageBuilderCmsBindingInput,
+): void {
+  const html = [
+    '<!doctype html><html><body>',
+    '<section data-proma-block-id="pb_blk_preflight">',
+    generateCmsBindingHtml(input, 'cms-src-preflight'),
+    '</section>',
+    '</body></html>',
+  ].join('')
+  const validation = validateCmsRendering(html, { htmlPath: 'index.html' })
+
+  if (validation.errors.length === 0) {
+    return
+  }
+
+  const firstError = validation.errors[0]
+  if (!firstError) {
+    return
+  }
+
+  if (firstError.code === 'UNKNOWN_ITEM_FIELD') {
+    const fieldAccess = firstError.message.match(/"([^"]+)"/)?.[1] ?? 'unknown'
+    throw new PageBuilderCmsBindingApplyError(
+      'invalid-input',
+      `templateBody 引用了当前 CMS contract 不支持的字段: ${fieldAccess}`,
+    )
+  }
+
+  if (firstError.code === 'UNKNOWN_SLOT_VARIABLE') {
+    const variableName = firstError.message.match(/"([^"]+)"/)?.[1] ?? 'unknown'
+    throw new PageBuilderCmsBindingApplyError(
+      'invalid-input',
+      `templateBody 引用了当前 CMS contract 未声明的 slot 变量: ${variableName}`,
+    )
+  }
+
+  if (firstError.code === 'INVALID_SLOT_SCOPE') {
+    throw new PageBuilderCmsBindingApplyError(
+      'invalid-input',
+      'CMS slot scope 必须显式声明 { items, loading, error, empty } 的子集，不能使用别名对象或未声明变量',
+    )
+  }
+
+  const codes = Array.from(new Set(validation.errors.map((diagnostic) => diagnostic.code))).join(', ')
+  throw new PageBuilderCmsBindingApplyError(
+    'invalid-input',
+    `CMS 模板预检失败: ${codes}`,
   )
 }
 

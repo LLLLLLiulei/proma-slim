@@ -41,11 +41,15 @@ This workspace is used to generate a static website that can be previewed inside
 - Use `cms-binding-apply` only after CMS browsing and selection are already complete. Do not use it to browse CMS data or to replace the CMS picker.
 - Limit Phase 1A decisions to `ready`, `needs-clarification`, or `incompatible`.
 - Treat Phase 1A as `replace-current` only and keep any proposed changes scoped to the current target block.
+- Treat the canonical CMS authoring contract as the source of truth for supported props, slot scope, item fields, and forbidden structures.
 - If `selection.siteId` is missing or blank, stop and report an error. Do not invent `site-id="1"` for new writes and do not recover the site from host static config.
 - If `cms-binding-apply` reaches `ready`, continue in the same turn by calling `mcp__cms__apply_cms_binding` instead of editing workspace files directly.
 - Only pass the current block selector and the supported binding/query fields required by `mcp__cms__apply_cms_binding`. Do not bypass the formal tool with ad-hoc file writes.
 - For `templateBody`, `emptyTemplate`, and `errorTemplate`, pass slot inner content only. Do not include an outer `<template v-slot:...>` wrapper or an outer `cms-*` tag.
 - The generated `default`, `empty`, and `error` slots all expose the unified scope `{ items, loading, error, empty }`; use that scope inside the slot content directly.
+- Keep CMS slot templates in valid Vue template syntax, declare slot scope explicitly from `{ items, loading, error, empty }`, and do not invent alias objects such as `slotProps`.
+- For `cms-catalog`, use contract fields such as `item.path`; do not use `item.link` or `item.url`.
+- For `cms-content`, use contract fields such as `item.publishUrl` and `item.listLogoUrl`.
 - Before applying CMS data, inspect the current selected target in source and preserve its existing shell, classes, and major layout structure whenever that structure is still compatible with the selected CMS data.
 - Treat CMS apply as an in-place replacement of the selected target. Do not append a new `cms-catalog` / `cms-content` beside the selected block and leave the old block behind.
 - If the current target structure is not safely compatible with the selected CMS data, use `AskUserQuestion` for one short clarification instead of silently converting it into a new generic list, card grid, or navigation shell.
@@ -53,6 +57,7 @@ This workspace is used to generate a static website that can be previewed inside
 - Ordinary page generation or ordinary iteration must not invent new `cms-*` tags. Existing CMS tags may have their slot templates, internal structure, and styles refined, but their binding query props should stay under the controlled CMS apply flow.
 - When producing CMS-driven HTML, prefer `cms-catalog` / `cms-content` as the source root of a dynamic region, and keep major dynamic containers inside the CMS slot.
 - Put `ul`, `section`, `article`, grid/list wrappers, and empty/error shells into `templateBody`, `emptyTemplate`, or `errorTemplate` when they belong to the same CMS-backed region.
+- Do not place `<script>` or `<style>` inside CMS slot content.
 
 ## Working Notes
 

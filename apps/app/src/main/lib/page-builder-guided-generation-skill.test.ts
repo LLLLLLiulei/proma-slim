@@ -78,4 +78,11 @@ describe('page-builder-guided-generation skill docs', () => {
     expect(enTemplate).toContain('Do not append a new `cms-catalog` / `cms-content` beside the selected block')
     expect(enTemplate).toContain('use `AskUserQuestion` for one short clarification')
   })
+
+  test('documents optional CMS field guards and stable item keys during ordinary iteration', () => {
+    const skill = readRelativeText('../../../default-skills/page-builder-guided-generation/SKILL.md')
+
+    expect(skill).toContain('guard optional fields such as `item.logoUrl`, `item.listLogoUrl`, and `item.addedAt`')
+    expect(skill).toContain('provide a stable `:key`, normally `:key="item.id"`')
+  })
 })

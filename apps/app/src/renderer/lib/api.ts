@@ -6,6 +6,7 @@ import type {
   AskUserResponse,
   FileSearchResult,
   PageBuilderBlockDeletionPayload,
+  PageBuilderCmsApplyTargetSnapshot,
   PageBuilderCmsCatalogList,
   PageBuilderCmsCatalogDetail,
   PageBuilderCmsCatalogQuery,
@@ -16,6 +17,7 @@ import type {
   PageBuilderInlineTextSavePayload,
   PageBuilderProjectSummary,
   PageBuilderStaticExportJob,
+  PageBuilderTargetSelection,
   PermissionResponse,
   RuntimeStatus,
   WorkspaceCapabilities,
@@ -301,6 +303,16 @@ export const api = {
 
   getWorkspacePreviewState(workspaceId: string): Promise<WorkspacePreviewState> {
     return request<WorkspacePreviewState>(`/api/workspaces/${encodeURIComponent(workspaceId)}/preview-state`)
+  },
+
+  getPageBuilderCmsTargetSnapshot(
+    workspaceId: string,
+    targetSelection: PageBuilderTargetSelection,
+  ): Promise<PageBuilderCmsApplyTargetSnapshot> {
+    return request<PageBuilderCmsApplyTargetSnapshot>(`/api/workspaces/${encodeURIComponent(workspaceId)}/page-builder/cms-target-snapshot`, {
+      method: 'POST',
+      body: { targetSelection },
+    })
   },
 
   savePageBuilderInlineText(

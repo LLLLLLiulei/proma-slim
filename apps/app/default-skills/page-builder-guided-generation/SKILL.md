@@ -167,6 +167,7 @@ For factual content:
 ### CMS Authoring Structure
 
 Ordinary page generation and ordinary iteration are not allowed to invent new `cms-catalog` / `cms-content` tags. New CMS source tags, or rebinding an existing CMS source tag to different query props, must go through the controlled CMS browser selection flow plus `cms-binding-apply` and `mcp__cms__apply_cms_binding`.
+When touching existing CMS regions, use the canonical CMS authoring contract as the source of truth for supported props, slot scope, item fields, and forbidden structures.
 
 If the page already contains CMS tags, ordinary iteration may adjust slot templates, internal structure, and styles inside the existing CMS region, but it must not silently change query props such as `site-id`, `catalog-id`, `page-size`, or similar binding fields.
 
@@ -178,6 +179,12 @@ When an existing region is already CMS-driven, `cms-catalog` / `cms-content` sho
 - Keep empty and error fallback wrappers inside `v-slot:empty` and `v-slot:error` when they belong to the same CMS data region.
 - Leave only page-level static shells outside the CMS component.
 - Do not manually delete, duplicate, or rewrite host-managed `data-proma-cms-source-id` attributes when touching existing CMS source tags.
+- Use Vue template syntax inside CMS slots, and declare slot scope explicitly as a subset of `{ items, loading, error, empty }`.
+- For `cms-catalog`, use contract fields such as `item.path` instead of guessed aliases like `item.link` or `item.url`.
+- For `cms-content`, use contract fields such as `item.publishUrl` and `item.listLogoUrl`.
+- Read field semantics from the canonical contract and guard optional fields such as `item.logoUrl`, `item.listLogoUrl`, and `item.addedAt` before rendering them.
+- When iterating CMS items, provide a stable `:key`, normally `:key="item.id"`.
+- Do not place `<script>` or `<style>` inside `cms-*` slot content.
 
 ## Iteration Rules
 

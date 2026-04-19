@@ -39,10 +39,14 @@
 - 当 page-builder 流程已经拿到明确的 CMS 选择结果和目标区块 selector 时，优先使用工作区内的 `cms-binding-apply` skill 来判断当前 Phase 1A 是否可以应用。
 - `cms-binding-apply` 只用于 CMS 选择完成之后的兼容性判断和正式应用，不用于浏览 CMS 数据，也不替代 CMS 选择器本身。
 - 该阶段仅允许 `ready`、`needs-clarification`、`incompatible` 三种结论，并且默认只处理 `replace-current`。
+- 处理 CMS 标签时，以 canonical CMS authoring contract 作为支持 props、slot scope、可用字段与禁止结构的唯一依据。
 - 如果 `selection.siteId` 缺失或为空，必须立即停止并报错；不要为新写入标签假设 `site-id="1"`，也不要再从宿主静态配置里反推站点。
 - 如果 `cms-binding-apply` 得到 `ready`，要在同一轮继续调用 `mcp__cms__apply_cms_binding`，不要绕过正式工具直接改写 workspace 文件。
 - 调用 `mcp__cms__apply_cms_binding` 时，`templateBody` / `emptyTemplate` / `errorTemplate` 只能传 slot 内部内容，不要再包一层 `<template v-slot:...>` 或外层 `cms-*` 标签。
 - 正式工具生成的 `default` / `empty` / `error` slot 统一暴露 `{ items, loading, error, empty }`；需要这些状态时直接在 slot 内容里使用即可。
+- CMS slot 内必须遵循 Vue template 语法，slot scope 需要显式声明为 `{ items, loading, error, empty }` 的子集，不要发明 `slotProps` 之类别名对象。
+- `cms-catalog` 里使用当前 contract 支持的字段，如 `item.path`；不要写 `item.link`、`item.url`。
+- `cms-content` 里使用当前 contract 支持的字段，如 `item.publishUrl`、`item.listLogoUrl`。
 - 在 CMS 应用前，先检查当前选中目标在源码中的现有结构、类名和主要布局骨架；如果兼容，应优先保留这些现有样式结构，只替换为 CMS 数据绑定。
 - 当前 CMS 应用默认是“原位替换当前选中目标”，不要在它旁边追加一个新的 `cms-catalog` / `cms-content` 并把原区块保留下来。
 - 如果当前目标结构与所选 CMS 数据不能安全兼容，优先使用 `AskUserQuestion` 做一次简短澄清，不要擅自把它改造成新的通用图文列表、卡片列表或导航模板。
@@ -50,6 +54,7 @@
 - 普通整页生成或普通页面迭代，不能凭空新增新的 `cms-*` 标签；如果页面里已经有 CMS 标签，只允许调整它们的 slot 模板、内部结构和样式，不应静默改动 `site-id`、`catalog-id`、`page-size` 等查询属性。
 - 产出 CMS 驱动源码时，`cms-catalog` / `cms-content` 尽量作为动态区域源码根节点。
 - `ul`、`section`、`article` 等主要动态容器尽量写在 slot 中；`empty` / `error` 的主要 fallback 结构也尽量写在对应 slot 中。
+- 不要在 CMS slot 内容里内嵌 `<script>` 或 `<style>`。
 
 ## 工作说明
 

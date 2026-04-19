@@ -5,10 +5,14 @@ import type {
   PageBuilderCmsSelectionTargetBlock,
 } from './page-builder-cms'
 import type { PageBuilderTargetSelection } from './page-builder-target-selection'
+import type {
+  PageBuilderCmsAuthoringComponent,
+  PageBuilderCmsAuthoringContractDigest,
+} from './page-builder-cms-authoring-contract'
 
 export type { PageBuilderCmsCatalog, PageBuilderCmsContentSummary } from './page-builder-cms'
 
-export const PAGE_BUILDER_CMS_APPLY_SKILL_CONTRACT_VERSION = 3
+export const PAGE_BUILDER_CMS_APPLY_SKILL_CONTRACT_VERSION = 6
 
 export type PageBuilderCmsApplySkillEntryPoint = 'cms-browser-confirm'
 
@@ -35,6 +39,20 @@ export interface PageBuilderCmsApplyTargetBlock extends PageBuilderCmsSelectionT
   snapshotAvailable?: boolean
 }
 
+export interface PageBuilderCmsApplyAuthoringContext extends PageBuilderCmsAuthoringContractDigest {
+  component: PageBuilderCmsAuthoringComponent
+}
+
+export interface PageBuilderCmsApplyTargetSnapshot {
+  kind: PageBuilderTargetSelection['kind']
+  selector: string
+  parentBlockSelector: string
+  targetOuterHtml: string
+  parentBlockOuterHtml?: string
+  component?: PageBuilderCmsAuthoringComponent
+  sourceId?: string
+}
+
 export interface PageBuilderCmsApplySkillInput {
   version: typeof PAGE_BUILDER_CMS_APPLY_SKILL_CONTRACT_VERSION
   entryPoint: PageBuilderCmsApplySkillEntryPoint
@@ -43,6 +61,8 @@ export interface PageBuilderCmsApplySkillInput {
   targetSelection: PageBuilderTargetSelection
   targetBlock: PageBuilderCmsApplyTargetBlock
   selection: PageBuilderCmsSelectionResult
+  authoringContext: PageBuilderCmsApplyAuthoringContext
+  targetSnapshot: PageBuilderCmsApplyTargetSnapshot
   uiContext?: {
     userIntent?: string
     notes?: string[]

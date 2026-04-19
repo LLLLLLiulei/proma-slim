@@ -29,6 +29,10 @@ import {
 } from '../../lib/page-builder-inline-text-service'
 import { PageBuilderImageReplacementError, savePageBuilderImageReplacement } from '../../lib/page-builder-image-replacement-service'
 import {
+  PageBuilderCmsAuthoringTargetSnapshotError,
+  readPageBuilderCmsApplyTargetSnapshot,
+} from '../../lib/page-builder-cms-authoring-target-snapshot-service'
+import {
   PageBuilderStaticExportServiceError,
   pageBuilderStaticExportService,
 } from '../../lib/page-builder-static-export-service'
@@ -108,6 +112,29 @@ workspaceRoutes.get('/:workspaceId/directory-context', (c) => {
 
 workspaceRoutes.get('/:workspaceId/preview-state', (c) => {
   return json(getWorkspacePreviewState(c.var.workspace))
+})
+
+workspaceRoutes.post('/:workspaceId/page-builder/cms-target-snapshot', async (c) => {
+  const body = await readJsonBody<{ targetSelection?: unknown }>(c.req.raw)
+  const targetSelection = readPageBuilderTargetSelection(body.targetSelection)
+
+  try {
+    return json(readPageBuilderCmsApplyTargetSnapshot(c.var.workspace, targetSelection))
+  } catch (error) {
+    if (!(error instanceof PageBuilderCmsAuthoringTargetSnapshotError)) {
+      throw error
+    }
+
+    if (error.code === 'entry-missing') {
+      throw new HttpError(404, error.message)
+    }
+
+    if (error.code === 'target-not-found' || error.code === 'selector-not-unique' || error.code === 'target-mismatch') {
+      throw new HttpError(409, error.message)
+    }
+
+    throw error
+  }
 })
 
 workspaceRoutes.post('/:workspaceId/page-builder/inline-text', async (c) => {

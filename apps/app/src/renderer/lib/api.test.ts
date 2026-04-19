@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
-import type { PageBuilderProjectSummary } from '@proma/shared'
+import type { PageBuilderProjectSummary, PageBuilderTargetSelection } from '@proma/shared'
 
 const originalFetch = globalThis.fetch
 
@@ -252,6 +252,39 @@ describe('renderer api wrappers', () => {
     const { api } = await import('./api')
     await api.deleteWorkspace('workspace-1')
 
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  test('getPageBuilderCmsTargetSnapshot posts the target selection to the workspace snapshot endpoint', async () => {
+    const targetSelection: PageBuilderTargetSelection = {
+      kind: 'cms-island',
+      selector: '#latest-news > cms-content:nth-of-type(1)',
+      parentBlockSelector: '#latest-news',
+      sourceId: 'cms-src-news',
+      component: 'cms-content',
+      editBoundary: 'source-atomic',
+    }
+    const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe('/api/workspaces/workspace-1/page-builder/cms-target-snapshot')
+      expect(init?.method).toBe('POST')
+      expect(new Headers(init?.headers).get('content-type')).toBe('application/json')
+      expect(JSON.parse(String(init?.body))).toEqual({ targetSelection })
+      return jsonResponse({
+        kind: 'cms-island',
+        selector: targetSelection.selector,
+        parentBlockSelector: targetSelection.parentBlockSelector,
+        targetOuterHtml: '<cms-content data-proma-cms-source-id="cms-src-news"></cms-content>',
+        parentBlockOuterHtml: '<section id="latest-news"></section>',
+        component: 'cms-content',
+        sourceId: 'cms-src-news',
+      })
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const { api } = await import('./api')
+    const snapshot = await api.getPageBuilderCmsTargetSnapshot('workspace-1', targetSelection)
+
+    expect(snapshot.targetOuterHtml).toContain('cms-src-news')
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 

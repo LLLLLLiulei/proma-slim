@@ -4,7 +4,7 @@ import type {
   PageBuilderCmsContentList,
   PageBuilderCmsContentQuery,
   PageBuilderCmsContentSummary,
-} from '@proma/shared'
+} from '@proma/shared/types/page-builder-cms'
 import type { CmsRuntimeClient } from './cms-runtime-client'
 
 export interface BrowserCmsClientOptions {

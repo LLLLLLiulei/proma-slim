@@ -407,7 +407,7 @@ describe('page-builder static export service', () => {
       <html>
         <body>
           <section id="ordered">
-            <cms-content site-id="14" ids="content-2,content-1">
+            <cms-content site-id="14" catalog-id="news" ids="content-2,content-1">
               <template v-slot:default="{ items }">
                 <ul>
                   <li v-for="item in items" :key="item.id">{{ item.title }}</li>
@@ -419,7 +419,7 @@ describe('page-builder static export service', () => {
             </cms-content>
           </section>
           <section id="empty">
-            <cms-content site-id="14" ids="missing-1,missing-2">
+            <cms-content site-id="14" catalog-id="news" ids="missing-1,missing-2">
               <template v-slot:default="{ items }">
                 <ul>
                   <li v-for="item in items" :key="item.id">{{ item.title }}</li>

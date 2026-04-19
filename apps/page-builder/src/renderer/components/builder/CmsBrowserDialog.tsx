@@ -101,6 +101,7 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
   const [checkedCatalogIds, setCheckedCatalogIds] = React.useState<string[]>([])
   const [checkedContentIds, setCheckedContentIds] = React.useState<string[]>([])
   const [checkedContentItemsById, setCheckedContentItemsById] = React.useState<Record<string, PageBuilderCmsContentSummary>>({})
+  const [contentTreeCatalogId, setContentTreeCatalogId] = React.useState<string | null | undefined>(undefined)
 
   const tree = catalogsState.data?.tree ?? []
   const catalogItems = catalogsState.data?.items ?? []
@@ -135,9 +136,13 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
       .filter((content): content is PageBuilderCmsContentSummary => content !== undefined),
     [checkedContentIds, checkedContentItemsById],
   )
-  const selectedContentCatalogId = React.useMemo(
+  const selectedContentsCatalogId = React.useMemo(
     () => selectedContents[0]?.catalogId ?? undefined,
     [selectedContents],
+  )
+  const currentContentCatalogId = React.useMemo(
+    () => contentTreeCatalogId === undefined ? selectedCatalogId : contentTreeCatalogId,
+    [contentTreeCatalogId, selectedCatalogId],
   )
   const selectedCatalog = React.useMemo(
     () => selectedCatalogId
@@ -145,13 +150,19 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
       : null,
     [catalogById, catalogTreeById, selectedCatalogId],
   )
+  const selectedContentCatalog = React.useMemo(
+    () => currentContentCatalogId
+      ? catalogTreeById.get(currentContentCatalogId) ?? catalogById.get(currentContentCatalogId) ?? null
+      : null,
+    [catalogById, catalogTreeById, currentContentCatalogId],
+  )
   const selectedCatalogHasDirectChildren = Boolean(selectedCatalog && selectedCatalog.children.length > 0)
   const canConfirmSelection = !confirming
     && Boolean(requestContext?.targetBlock.selector)
     && Boolean(selectedSiteId)
     && (activeTab === 'catalogs'
       ? selectedCatalogs.length > 0 || selectedCatalogHasDirectChildren
-      : selectedContents.length > 0 || Boolean(selectedCatalog))
+      : selectedContents.length > 0 || Boolean(selectedContentCatalog))
   const currentSelectionSummary = React.useMemo(() => {
     if (activeTab === 'catalogs') {
       if (selectedCatalogs.length > 0) {
@@ -173,7 +184,7 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
       return `已选 ${selectedContents.length} 条内容`
     }
 
-    if (!selectedCatalog) {
+    if (!selectedContentCatalog) {
       return '请选择栏目'
     }
 
@@ -181,6 +192,7 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
   }, [
     activeTab,
     selectedCatalog,
+    selectedContentCatalog,
     selectedCatalogHasDirectChildren,
     selectedCatalogs.length,
     selectedContents.length,
@@ -192,6 +204,7 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
     setCheckedCatalogIds([])
     setCheckedContentIds([])
     setCheckedContentItemsById({})
+    setContentTreeCatalogId(undefined)
   }, [open])
 
   const clearCheckedContents = React.useCallback(() => {
@@ -205,16 +218,42 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
   }, [clearCheckedContents])
 
   const handleSelectContentCatalog = React.useCallback((catalogId: string) => {
-    if (catalogId !== selectedCatalogId) {
+    if (catalogId !== currentContentCatalogId) {
       clearCheckedContents()
     }
+    setContentTreeCatalogId(catalogId)
     setSelectedCatalogId(catalogId)
-  }, [clearCheckedContents, selectedCatalogId, setSelectedCatalogId])
+  }, [clearCheckedContents, currentContentCatalogId, setSelectedCatalogId])
+
+  const handleCheckedContentCatalogIdsChange = React.useCallback((catalogIds: string[]) => {
+    const nextCatalogId = catalogIds.at(-1) ?? null
+
+    if (!nextCatalogId) {
+      clearCheckedContents()
+      setContentTreeCatalogId(null)
+      return
+    }
+
+    handleSelectContentCatalog(nextCatalogId)
+  }, [clearCheckedContents, handleSelectContentCatalog])
 
   const handleSelectedSiteChange = React.useCallback((siteId: string) => {
     clearCheckedSelections()
+    setContentTreeCatalogId(undefined)
     setSelectedSiteId(siteId)
   }, [clearCheckedSelections, setSelectedSiteId])
+
+  React.useEffect(() => {
+    if (!open || activeTab !== 'contents') return
+    if (contentTreeCatalogId !== undefined) return
+
+    if (!selectedCatalogId && tree.length === 0) {
+      return
+    }
+
+    const initialCatalogId = selectedCatalogId ?? tree[0]?.id ?? null
+    setContentTreeCatalogId(initialCatalogId)
+  }, [activeTab, contentTreeCatalogId, open, selectedCatalogId, tree])
 
   const handleCheckedContentChange = React.useCallback((item: PageBuilderCmsContentSummary, checked: boolean) => {
     setCheckedContentIds((previous) => checked
@@ -275,7 +314,7 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
       })
     } else {
       if (selectedContents.length > 0) {
-        if (!selectedContentCatalogId) {
+        if (!selectedContentsCatalogId) {
           return
         }
 
@@ -287,7 +326,7 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
           selectionKind: 'contents',
           sourceType: 'contents-by-ids',
           selectionMode: 'fixed-items',
-          catalogId: selectedContentCatalogId,
+          catalogId: selectedContentsCatalogId,
           contentIds: selectedContents.map((content) => content.id),
           snapshot: {
             contents: selectedContents,
@@ -296,7 +335,7 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
         return
       }
 
-      if (!selectedCatalog) {
+      if (!selectedContentCatalog) {
         return
       }
 
@@ -308,9 +347,9 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
         selectionKind: 'contents',
         sourceType: 'contents-by-catalog',
         selectionMode: 'by-catalog',
-        catalogId: selectedCatalog.id,
+        catalogId: selectedContentCatalog.id,
         snapshot: {
-          catalog: selectedCatalog,
+          catalog: selectedContentCatalog,
         },
       })
     }
@@ -320,10 +359,11 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
     onConfirmSelection,
     requestContext,
     selectedCatalog,
+    selectedContentCatalog,
     selectedCatalogHasDirectChildren,
     selectedSiteId,
     selectedCatalogs,
-    selectedContentCatalogId,
+    selectedContentsCatalogId,
     selectedContents,
   ])
 
@@ -354,7 +394,7 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
     return null
   }, [retrySites, selectedSiteId, siteOptions.length, sitesState.data, sitesState.errorMessage, sitesState.status])
 
-  const renderCatalogTree = React.useCallback((selectionMode: 'check' | 'select') => {
+  const renderCatalogTree = React.useCallback((selectionMode: 'catalogs' | 'contents') => {
     if (siteGuardPanel) {
       return siteGuardPanel
     }
@@ -382,7 +422,7 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
       return <CatalogPanelState message="暂无栏目数据" />
     }
 
-    if (selectionMode === 'check') {
+    if (selectionMode === 'catalogs') {
       return (
         <CmsCatalogTree
           catalogs={tree}
@@ -400,11 +440,14 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
     return (
       <CmsCatalogTree
         catalogs={tree}
+        checkedCatalogIds={currentContentCatalogId ? [currentContentCatalogId] : []}
+        checkStrictly
         expandedKeys={expandedKeys}
+        onCheckedCatalogIdsChange={handleCheckedContentCatalogIdsChange}
         onExpandedKeysChange={setExpandedKeys}
         onSelectCatalog={handleSelectContentCatalog}
-        selectedCatalogId={selectedCatalogId}
-        selectionMode="select"
+        selectedCatalogId={currentContentCatalogId ?? null}
+        selectionMode="check"
       />
     )
   }, [
@@ -412,7 +455,9 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
     catalogsState.data,
     catalogsState.errorMessage,
     catalogsState.status,
+    currentContentCatalogId,
     expandedKeys,
+    handleCheckedContentCatalogIdsChange,
     handleSelectContentCatalog,
     retryCatalogs,
     selectedCatalogId,
@@ -486,7 +531,7 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
             ) : (
             <div className="grid h-full min-h-0 gap-2.5 lg:grid-cols-[280px_minmax(0,1fr)]">
               <div className="min-h-0 rounded-[20px] border border-border/70 bg-muted/15 p-2">
-                {renderCatalogTree('check')}
+                {renderCatalogTree('catalogs')}
               </div>
 
               <div className="min-h-0 rounded-[20px] border border-border/70 bg-muted/15 p-3">
@@ -507,7 +552,7 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
             ) : (
             <div className="grid h-full min-h-0 gap-2.5 lg:grid-cols-[272px_minmax(0,1fr)]">
               <div className="min-h-0 rounded-[20px] border border-border/70 bg-muted/15 p-2">
-                {renderCatalogTree('select')}
+                {renderCatalogTree('contents')}
               </div>
 
               <div className="min-h-0 rounded-[20px] border border-border/70 bg-muted/15 p-2.5">
@@ -516,7 +561,7 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
                   onCheckedContentChange={handleCheckedContentChange}
                   onPageChange={setContentsPage}
                   onRetry={retryContents}
-                  state={selectedCatalogId
+                  state={currentContentCatalogId
                     ? contentsState
                     : emptyContentsState}
                 />

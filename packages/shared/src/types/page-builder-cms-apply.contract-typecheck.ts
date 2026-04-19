@@ -17,9 +17,32 @@ type IsExact<T, Expected> = (<G>() => G extends T ? 1 : 2) extends (<G>() => G e
 
 const catalogSnapshot = {} as PageBuilderCmsCatalog
 const contentSnapshot = {} as PageBuilderCmsContentSummary
+const catalogItemFields = ['id', 'name', 'path', 'parentId', 'logoUrl', 'hasChild', 'total', 'contentType', 'contentTypeName', 'children'] as const
+const contentItemFields = ['id', 'catalogId', 'title', 'summary', 'publishUrl', 'listLogoUrl', 'addedAt'] as const
+const catalogItemFieldMeta = [
+  { name: 'id', type: 'string', optional: false, description: 'Catalog identifier.', recommendedUsage: 'Use as the stable :key when iterating catalogs.' },
+  { name: 'name', type: 'string', optional: false, description: 'Catalog display name.', recommendedUsage: 'Render as the visible catalog label.' },
+  { name: 'path', type: 'string', optional: false, description: 'Catalog detail URL/path.', recommendedUsage: 'Use :href=\"item.path\" for catalog links.' },
+  { name: 'parentId', type: 'string|null', optional: false, description: 'Parent catalog identifier, or null for root catalogs.' },
+  { name: 'logoUrl', type: 'string', optional: true, description: 'Optional catalog logo or thumbnail URL.', recommendedUsage: 'Guard with v-if before binding to <img :src>.' },
+  { name: 'hasChild', type: 'boolean', optional: false, description: 'Whether the catalog has child catalogs.', recommendedUsage: 'Use for child-indicator UI or nested navigation affordances.' },
+  { name: 'total', type: 'number', optional: false, description: 'Item count or total entries under the catalog.', recommendedUsage: 'Use for count badges when the current block design needs them.' },
+  { name: 'contentType', type: 'string', optional: false, description: 'Internal content type code for the catalog.' },
+  { name: 'contentTypeName', type: 'string', optional: false, description: 'Display name for the catalog content type.' },
+  { name: 'children', type: 'catalog-item[]', optional: false, description: 'Child catalog list in the same catalog item shape.', recommendedUsage: 'Only use when the current structure explicitly needs nested catalogs.' },
+] as const
+const contentItemFieldMeta = [
+  { name: 'id', type: 'string', optional: false, description: 'Content identifier.', recommendedUsage: 'Use as the stable :key when iterating content items.' },
+  { name: 'catalogId', type: 'string', optional: false, description: 'Owning catalog identifier for the content item.' },
+  { name: 'title', type: 'string', optional: false, description: 'Content title.', recommendedUsage: 'Use as the primary visible headline.' },
+  { name: 'summary', type: 'string', optional: false, description: 'Content summary or excerpt.', recommendedUsage: 'Use for body preview text when the selected target already supports summary copy.' },
+  { name: 'publishUrl', type: 'string', optional: false, description: 'Content detail URL.', recommendedUsage: 'Use :href=\"item.publishUrl\" for content links.' },
+  { name: 'listLogoUrl', type: 'string', optional: true, description: 'Optional list thumbnail or cover image URL.', recommendedUsage: 'Guard with v-if before binding to <img :src>.' },
+  { name: 'addedAt', type: 'string', optional: true, description: 'Optional publish/add time string.', recommendedUsage: 'Render only when the current design needs date metadata and guard for absence.' },
+] as const
 
 const catalogApplyInput = {
-  version: 3,
+  version: 6,
   entryPoint: 'cms-browser-confirm',
   applyIntent: 'replace-current',
   workspacePolicy: {
@@ -48,10 +71,27 @@ const catalogApplyInput = {
       parentCatalog: catalogSnapshot,
     },
   },
+  authoringContext: {
+    component: 'cms-catalog',
+    sourceType: 'catalogs-by-parent',
+    allowedProps: ['site-id', 'ids', 'level', 'parent-id', 'content-type', 'search-keyword', 'take'],
+    requiredProps: ['site-id', 'level', 'parent-id'],
+    slotScope: ['items', 'loading', 'error', 'empty'],
+    itemFields: [...catalogItemFields],
+    itemFieldMeta: [...catalogItemFieldMeta],
+    recommendedLinkField: 'path',
+    forbiddenStructures: ['nested-cms-islands', 'dangerous-tags', 'outer-slot-wrapper'],
+  },
+  targetSnapshot: {
+    kind: 'block',
+    selector: '#main-nav',
+    parentBlockSelector: '#main-nav',
+    targetOuterHtml: '<nav id="main-nav"></nav>',
+  },
 } satisfies PageBuilderCmsApplySkillInput
 
 const catalogListApplyInput = {
-  version: 3,
+  version: 6,
   entryPoint: 'cms-browser-confirm',
   applyIntent: 'replace-current',
   workspacePolicy: {
@@ -80,10 +120,27 @@ const catalogListApplyInput = {
       catalogs: [catalogSnapshot],
     },
   },
+  authoringContext: {
+    component: 'cms-catalog',
+    sourceType: 'catalogs-by-ids',
+    allowedProps: ['site-id', 'ids', 'level', 'parent-id', 'content-type', 'search-keyword', 'take'],
+    requiredProps: ['site-id', 'ids'],
+    slotScope: ['items', 'loading', 'error', 'empty'],
+    itemFields: [...catalogItemFields],
+    itemFieldMeta: [...catalogItemFieldMeta],
+    recommendedLinkField: 'path',
+    forbiddenStructures: ['nested-cms-islands', 'dangerous-tags', 'outer-slot-wrapper'],
+  },
+  targetSnapshot: {
+    kind: 'block',
+    selector: '#featured-catalogs',
+    parentBlockSelector: '#featured-catalogs',
+    targetOuterHtml: '<section id="featured-catalogs"></section>',
+  },
 } satisfies PageBuilderCmsApplySkillInput
 
 const contentApplyInput = {
-  version: 3,
+  version: 6,
   entryPoint: 'cms-browser-confirm',
   applyIntent: 'replace-current',
   workspacePolicy: {
@@ -112,10 +169,28 @@ const contentApplyInput = {
       catalog: catalogSnapshot,
     },
   },
+  authoringContext: {
+    component: 'cms-content',
+    sourceType: 'contents-by-catalog',
+    allowedProps: ['site-id', 'ids', 'catalog-id', 'keyword', 'page-index', 'page-size'],
+    requiredProps: ['site-id', 'catalog-id'],
+    slotScope: ['items', 'loading', 'error', 'empty'],
+    itemFields: [...contentItemFields],
+    itemFieldMeta: [...contentItemFieldMeta],
+    recommendedLinkField: 'publishUrl',
+    recommendedImageField: 'listLogoUrl',
+    forbiddenStructures: ['nested-cms-islands', 'dangerous-tags', 'outer-slot-wrapper'],
+  },
+  targetSnapshot: {
+    kind: 'block',
+    selector: '#latest-news',
+    parentBlockSelector: '#latest-news',
+    targetOuterHtml: '<section id="latest-news"></section>',
+  },
 } satisfies PageBuilderCmsApplySkillInput
 
 const fixedContentsApplyInput = {
-  version: 3,
+  version: 6,
   entryPoint: 'cms-browser-confirm',
   applyIntent: 'replace-current',
   workspacePolicy: {
@@ -144,6 +219,24 @@ const fixedContentsApplyInput = {
     snapshot: {
       contents: [contentSnapshot],
     },
+  },
+  authoringContext: {
+    component: 'cms-content',
+    sourceType: 'contents-by-ids',
+    allowedProps: ['site-id', 'ids', 'catalog-id', 'keyword', 'page-index', 'page-size'],
+    requiredProps: ['site-id', 'catalog-id', 'ids'],
+    slotScope: ['items', 'loading', 'error', 'empty'],
+    itemFields: [...contentItemFields],
+    itemFieldMeta: [...contentItemFieldMeta],
+    recommendedLinkField: 'publishUrl',
+    recommendedImageField: 'listLogoUrl',
+    forbiddenStructures: ['nested-cms-islands', 'dangerous-tags', 'outer-slot-wrapper'],
+  },
+  targetSnapshot: {
+    kind: 'block',
+    selector: '#latest-news',
+    parentBlockSelector: '#latest-news',
+    targetOuterHtml: '<section id="latest-news"></section>',
   },
 } satisfies PageBuilderCmsApplySkillInput
 

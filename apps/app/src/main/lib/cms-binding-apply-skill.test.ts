@@ -68,6 +68,39 @@ describe('cms-binding-apply skill contract docs', () => {
     expect(examples).toContain('## Anti-pattern: outer slot wrapper inside templateBody')
     expect(examples).toContain('<cms-catalog')
     expect(examples).toContain('<ul class="nav-list">')
+    expect(examples).not.toContain('item.link || item.url || item.path')
+    expect(examples).not.toContain('items[0]?.link || items[0]?.url')
+    expect(examples).toContain(':href="item.path"')
+    expect(examples).toContain(':href="items[0]?.publishUrl')
+    expect(examples).toContain('itemFieldMeta')
+  })
+
+  test('documents the canonical authoring contract fields instead of guessed aliases', () => {
+    const skill = readRelativeText('../../../default-skills/cms-binding-apply/SKILL.md')
+    const examples = readRelativeText('../../../default-skills/cms-binding-apply/references/contract-examples.md')
+    const downstream = readRelativeText('../../../default-skills/cms-binding-apply/references/downstream-integration.md')
+
+    expect(skill).toContain('authoring contract')
+    expect(skill).toContain('`authoringContext.itemFieldMeta`')
+    expect(skill).toContain('`item.path`')
+    expect(skill).toContain('`item.publishUrl`')
+    expect(skill).toContain('`item.listLogoUrl`')
+    expect(skill).not.toContain('`item.link`')
+    expect(skill).not.toContain('`item.url`')
+    expect(examples).toContain('`site-id`')
+    expect(examples).toContain('`catalog-id`')
+    expect(examples).toContain('optional image field, guard before rendering')
+    expect(downstream).toContain('canonical authoring contract')
+  })
+
+  test('documents optional field guards and stable v-for keys for cms templates', () => {
+    const skill = readRelativeText('../../../default-skills/cms-binding-apply/SKILL.md')
+    const examples = readRelativeText('../../../default-skills/cms-binding-apply/references/contract-examples.md')
+
+    expect(skill).toContain('When using `v-for`, always provide a stable `:key`')
+    expect(skill).toContain('If `itemFieldMeta` marks a field as optional, guard it before rendering')
+    expect(examples).toContain('<img v-if="items[0]?.listLogoUrl"')
+    expect(examples).toContain(':key="item.id"')
   })
 
   test('documents explicit siteId requirements and controlled CMS creation boundaries', () => {

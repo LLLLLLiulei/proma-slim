@@ -1,16 +1,11 @@
+import { CMS_AUTHORING_RUNTIME_ALLOWED_PROPS } from '../cms-authoring-runtime-contract'
+
 export const CMS_ISLAND_SELECTOR = 'cms-catalog, cms-content'
 export const CMS_SOURCE_ID_ATTRIBUTE = 'data-proma-cms-source-id'
 
 export const CMS_ISLAND_ATTRIBUTES = {
-  'cms-catalog': ['site-id', 'ids', 'level', 'parent-id', 'content-type', 'search-keyword', 'take'],
-  'cms-content': [
-    'site-id',
-    'ids',
-    'catalog-id',
-    'keyword',
-    'page-index',
-    'page-size',
-  ],
+  'cms-catalog': CMS_AUTHORING_RUNTIME_ALLOWED_PROPS['cms-catalog'],
+  'cms-content': CMS_AUTHORING_RUNTIME_ALLOWED_PROPS['cms-content'],
 } as const
 
 export type CmsIslandComponentName = keyof typeof CMS_ISLAND_ATTRIBUTES

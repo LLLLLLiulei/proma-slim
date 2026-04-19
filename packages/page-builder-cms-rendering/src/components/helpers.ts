@@ -2,8 +2,9 @@ import type {
   PageBuilderCmsCatalog,
   PageBuilderCmsCatalogQuery,
   PageBuilderCmsContentQuery,
-} from '@proma/shared'
+} from '@proma/shared/types/page-builder-cms'
 import { inject, type Slots } from 'vue'
+import { CMS_AUTHORING_RUNTIME_DEFAULT_SITE_ID } from '../cms-authoring-runtime-contract'
 import { CMS_RUNTIME_CLIENT_KEY, type CmsRuntimeClient, type CmsSlotError, type CmsSlotScope } from '../runtime/cms-runtime-client'
 
 export interface CatalogDisplayOptions {
@@ -12,7 +13,7 @@ export interface CatalogDisplayOptions {
   take?: number
 }
 
-const DEFAULT_CMS_SITE_ID = '1'
+const DEFAULT_CMS_SITE_ID = CMS_AUTHORING_RUNTIME_DEFAULT_SITE_ID
 
 export function createCatalogQuery(props: Record<string, unknown>): PageBuilderCmsCatalogQuery {
   const ids = normalizeOrderedIds(props.ids)

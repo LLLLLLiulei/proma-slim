@@ -1,4 +1,5 @@
 import { parseHTML } from 'linkedom'
+import { PAGE_BUILDER_CMS_AUTHORING_CONTRACT } from '@proma/shared'
 import {
   CMS_ISLAND_ATTRIBUTES,
   CMS_ISLAND_SELECTOR,
@@ -15,6 +16,11 @@ const CATALOG_OUTSIDE_SLOT_CONTAINER_TAGS = new Set(['ul', 'ol', 'nav'])
 const CONTENT_OUTSIDE_SLOT_CONTAINER_TAGS = new Set(['section', 'ul', 'ol'])
 const CATALOG_ITEM_TAGS = new Set(['li', 'a'])
 const CONTENT_ITEM_TAGS = new Set(['article', 'li'])
+const ITEM_FIELD_ACCESS_PATTERN = /\bitem\??\.([A-Za-z_][A-Za-z0-9_]*)\b/g
+const INDEXED_ITEM_FIELD_ACCESS_PATTERN = /\bitems\s*\[[^\]]+\]\??\.([A-Za-z_][A-Za-z0-9_]*)\b/g
+const SLOT_SCOPE_REFERENCE_PATTERN = /(^|[^\w$.])(items|loading|error|empty)\b(?!\s*:)/g
+const SLOT_SCOPE_ALIAS_REFERENCE_PATTERN = /(^|[^\w$.])([A-Za-z_$][A-Za-z0-9_$]*)\s*\.\s*(items|loading|error|empty)\b/g
+const ITEM_INDEX_ACCESS_PATTERN = /\bitems\s*\[[^\]]+\]\??\.([A-Za-z_][A-Za-z0-9_]*)\b/g
 
 export type CmsRenderingDiagnosticSeverity = 'error' | 'warning' | 'info'
 
@@ -233,7 +239,37 @@ export function validateCmsRendering(
       }))
     }
 
-    const slotRoots = slotInfo.allSlots.map((slot) => parseTemplateSlot(slot.content))
+    const slotRoots = slotInfo.allSlots.map((slot) => ({
+      slot,
+      root: parseTemplateSlot(slot.content),
+    }))
+
+    for (const slot of slotInfo.allSlots) {
+      const resolvedSlotScope = resolveDeclaredSlotScopeVariables(slot.scopeExpression)
+      if (!resolvedSlotScope.valid) {
+        diagnostics.push(createDiagnostic({
+          severity: 'error',
+          code: 'INVALID_SLOT_SCOPE',
+          message: `CMS slot "${slot.name}" must declare an explicit subset of { items, loading, error, empty }.`,
+          element: island,
+          component,
+          htmlPath,
+          islandIndex,
+        }))
+      }
+
+      for (const variable of collectUndeclaredSlotVariables(slot.content, resolvedSlotScope.declared)) {
+        diagnostics.push(createDiagnostic({
+          severity: 'error',
+          code: 'UNKNOWN_SLOT_VARIABLE',
+          message: `Unknown CMS slot variable "${variable}" in ${component} ${slot.name} slot.`,
+          element: island,
+          component,
+          htmlPath,
+          islandIndex,
+        }))
+      }
+    }
 
     for (const dangerousTag of DANGEROUS_TAGS) {
       for (const dangerousNode of Array.from(island.querySelectorAll(dangerousTag))) {
@@ -253,7 +289,9 @@ export function validateCmsRendering(
       }
     }
 
-    for (const slotRoot of slotRoots) {
+      for (const { slot, root: slotRoot } of slotRoots) {
+      const optionalItemFields = getOptionalItemFields(component)
+
       for (const nestedIsland of Array.from(slotRoot.querySelectorAll(CMS_ISLAND_SELECTOR))) {
         diagnostics.push(createDiagnostic({
           severity: 'error',
@@ -281,9 +319,33 @@ export function validateCmsRendering(
       }
 
       for (const descendant of Array.from(slotRoot.querySelectorAll('*'))) {
-        const boundSrc = descendant.getAttribute(':src') ?? descendant.getAttribute('v-bind:src')
-        const hasOptionalUrlBinding = typeof boundSrc === 'string'
-          && /item\.[A-Za-z0-9_]*Url\b/.test(boundSrc)
+        if (
+          descendant.hasAttribute('v-for')
+          && !descendant.hasAttribute(':key')
+          && !descendant.hasAttribute('v-bind:key')
+        ) {
+          diagnostics.push(createDiagnostic({
+            severity: 'warning',
+            code: 'MISSING_V_FOR_KEY',
+            message: 'Elements using v-for inside CMS slots should provide a stable :key.',
+            element: island,
+            component,
+            htmlPath,
+            islandIndex,
+          }))
+        }
+
+        const boundUrlValues = [
+          descendant.getAttribute(':src'),
+          descendant.getAttribute('v-bind:src'),
+          descendant.getAttribute(':href'),
+          descendant.getAttribute('v-bind:href'),
+          descendant.getAttribute(':srcset'),
+          descendant.getAttribute('v-bind:srcset'),
+        ].filter((value): value is string => typeof value === 'string')
+        const hasOptionalUrlBinding = boundUrlValues.some((value) =>
+          referencesOptionalItemField(value, optionalItemFields),
+        )
 
         if (hasOptionalUrlBinding && !descendant.hasAttribute('v-if') && !descendant.hasAttribute('v-else-if')) {
           diagnostics.push(createDiagnostic({
@@ -297,6 +359,19 @@ export function validateCmsRendering(
           }))
           break
         }
+      }
+
+      const unsupportedFieldAccesses = collectUnsupportedItemFieldAccesses(slot.content, component)
+      for (const fieldAccess of unsupportedFieldAccesses) {
+        diagnostics.push(createDiagnostic({
+          severity: 'error',
+          code: 'UNKNOWN_ITEM_FIELD',
+          message: `Unknown CMS item field access "${fieldAccess}" for ${component}.`,
+          element: island,
+          component,
+          htmlPath,
+          islandIndex,
+        }))
       }
     }
   }
@@ -362,6 +437,7 @@ interface SlotInfo {
   name: 'default' | 'empty' | 'error'
   shorthand: boolean
   content: string
+  scopeExpression: string | null
 }
 
 function resolveSlotInfo(templateElement: Element): SlotInfo | null {
@@ -371,6 +447,7 @@ function resolveSlotInfo(templateElement: Element): SlotInfo | null {
         name: 'default',
         shorthand: attribute.name.startsWith('#'),
         content: templateElement.innerHTML,
+        scopeExpression: normalizeSlotScopeExpression(attribute.value),
       }
     }
 
@@ -379,6 +456,7 @@ function resolveSlotInfo(templateElement: Element): SlotInfo | null {
         name: 'empty',
         shorthand: attribute.name.startsWith('#'),
         content: templateElement.innerHTML,
+        scopeExpression: normalizeSlotScopeExpression(attribute.value),
       }
     }
 
@@ -387,6 +465,7 @@ function resolveSlotInfo(templateElement: Element): SlotInfo | null {
         name: 'error',
         shorthand: attribute.name.startsWith('#'),
         content: templateElement.innerHTML,
+        scopeExpression: normalizeSlotScopeExpression(attribute.value),
       }
     }
   }
@@ -447,6 +526,140 @@ function readOrderedIdsAttribute(value: string | null): string[] | null {
 function readSourceIdAttribute(element: Element): string | null {
   const normalized = element.getAttribute(CMS_SOURCE_ID_ATTRIBUTE)?.trim()
   return normalized ? normalized : null
+}
+
+function collectUnsupportedItemFieldAccesses(
+  source: string,
+  component: CmsIslandComponentName,
+): string[] {
+  const allowedFields = new Set(PAGE_BUILDER_CMS_AUTHORING_CONTRACT.components[component].itemFields)
+  const unsupported = new Set<string>()
+
+  for (const match of source.matchAll(ITEM_FIELD_ACCESS_PATTERN)) {
+    const field = match[1]
+    if (field && !allowedFields.has(field)) {
+      unsupported.add(`item.${field}`)
+    }
+  }
+
+  for (const match of source.matchAll(INDEXED_ITEM_FIELD_ACCESS_PATTERN)) {
+    const field = match[1]
+    if (field && !allowedFields.has(field)) {
+      unsupported.add(`items[*].${field}`)
+    }
+  }
+
+  return [...unsupported]
+}
+
+function getOptionalItemFields(component: CmsIslandComponentName): Set<string> {
+  return new Set(
+    PAGE_BUILDER_CMS_AUTHORING_CONTRACT.components[component].itemFieldMeta
+      .filter((field) => field.optional)
+      .map((field) => field.name),
+  )
+}
+
+function referencesOptionalItemField(source: string, optionalFields: ReadonlySet<string>): boolean {
+  for (const match of source.matchAll(ITEM_FIELD_ACCESS_PATTERN)) {
+    const field = match[1]
+    if (field && optionalFields.has(field)) {
+      return true
+    }
+  }
+
+  for (const match of source.matchAll(ITEM_INDEX_ACCESS_PATTERN)) {
+    const field = match[1]
+    if (field && optionalFields.has(field)) {
+      return true
+    }
+  }
+
+  return false
+}
+
+function normalizeSlotScopeExpression(value: string | null): string | null {
+  const normalized = value?.trim()
+  return normalized ? normalized : null
+}
+
+function resolveDeclaredSlotScopeVariables(scopeExpression: string | null): {
+  valid: boolean
+  declared: Set<string>
+} {
+  const declared = new Set<string>()
+  const normalized = scopeExpression?.trim()
+  if (!normalized || !normalized.startsWith('{') || !normalized.endsWith('}')) {
+    return {
+      valid: false,
+      declared,
+    }
+  }
+
+  const rawEntries = normalized.slice(1, -1)
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+
+  if (rawEntries.length === 0) {
+    return {
+      valid: false,
+      declared,
+    }
+  }
+
+  const allowedVariables = new Set(PAGE_BUILDER_CMS_AUTHORING_CONTRACT.slotScope)
+
+  for (const rawEntry of rawEntries) {
+    if (
+      rawEntry.includes(':')
+      || rawEntry.startsWith('...')
+      || rawEntry.includes('[')
+      || rawEntry.includes(']')
+    ) {
+      return {
+        valid: false,
+        declared: new Set<string>(),
+      }
+    }
+
+    const identifier = rawEntry.replace(/\s*=.*$/, '').trim()
+    if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(identifier) || !allowedVariables.has(identifier)) {
+      return {
+        valid: false,
+        declared: new Set<string>(),
+      }
+    }
+
+    declared.add(identifier)
+  }
+
+  return {
+    valid: true,
+    declared,
+  }
+}
+
+function collectUndeclaredSlotVariables(
+  source: string,
+  declaredVariables: ReadonlySet<string>,
+): string[] {
+  const undeclared = new Set<string>()
+  for (const match of source.matchAll(SLOT_SCOPE_REFERENCE_PATTERN)) {
+    const identifier = match[2]
+    if (identifier && !declaredVariables.has(identifier)) {
+      undeclared.add(identifier)
+    }
+  }
+
+  for (const match of source.matchAll(SLOT_SCOPE_ALIAS_REFERENCE_PATTERN)) {
+    const identifier = match[2]
+    if (identifier && !declaredVariables.has(identifier)) {
+      undeclared.add(identifier)
+    }
+  }
+
+  return [...undeclared]
 }
 
 function hasConflictingCatalogIdsProps(island: Element): boolean {

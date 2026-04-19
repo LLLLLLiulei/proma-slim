@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
-import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import type { AgentEvent, AgentQueryInput, AgentProviderAdapter, AskUserRequest } from '@proma/shared'
 import { AgentEventBus } from './agent-event-bus'
@@ -25,6 +25,7 @@ import {
   getAgentSessionWorkspacePath,
   getAgentWorkspacePath,
   getWorkspaceMemoryFilePath,
+  getWorkspaceCmsRenderingManifestPath,
   getWorkspaceFilesDir,
 } from './config-paths'
 
@@ -1452,5 +1453,84 @@ describe('AgentOrchestrator workspace runtime', () => {
     expect(adapter.inputs[1]?.prompt).toContain('以下是他们发送的完整工作结果')
     expect(adapter.inputs[1]?.prompt).toContain('逐日天气结果')
     expect(adapter.inputs[1]?.prompt).not.toContain('summary fallback should not win when inbox exists')
+  })
+
+  test('keeps invalid direct page-builder html edits after the agent turn completes', async () => {
+    const workspace = createAgentWorkspace('Page Builder CMS Guardrails', { template: 'page-builder' })
+    const entryPath = join(getWorkspaceFilesDir(workspace.slug), 'index.html')
+    const manifestPath = getWorkspaceCmsRenderingManifestPath(workspace.slug)
+    const originalHtml = '<!doctype html><html><body><section data-proma-block-id="pb_blk_news"><h1>Safe</h1></section></body></html>'
+
+    mkdirSync(dirname(entryPath), { recursive: true })
+    writeFileSync(entryPath, originalHtml, 'utf-8')
+
+    class InvalidCmsEditAdapter implements AgentProviderAdapter {
+      async *query(): AsyncIterable<AgentEvent> {
+        writeFileSync(
+          entryPath,
+          [
+            '<!doctype html><html><body>',
+            '<section data-proma-block-id="pb_blk_news">',
+            '  <cms-content data-proma-cms-source-id="cms-src-news" site-id="1" catalog-id="6">',
+            '    <template v-slot:default="{ items }">',
+            '      <style>.bad { color: red; }</style>',
+            '      <ul><li v-for="item in items" :key="item.id"><a :href="item.url">{{ item.title }}</a></li></ul>',
+            '    </template>',
+            '  </cms-content>',
+            '</section>',
+            '</body></html>',
+          ].join('\n'),
+          'utf-8',
+        )
+
+        yield { type: 'text_delta', text: '完成！我已经更新了当前 CMS 区块。' }
+        yield { type: 'complete' }
+      }
+
+      abort(): void {}
+
+      dispose(): void {}
+    }
+
+    const adapter = new InvalidCmsEditAdapter()
+    const orchestrator = new AgentOrchestrator(adapter, new AgentEventBus())
+    const session = createAgentSession('Page Builder CMS Guardrails Session', undefined, workspace.id)
+
+    await orchestrator.sendMessage(
+      {
+        sessionId: session.id,
+        userMessage: '修改当前选中的 CMS 区块',
+        channelId: '',
+      },
+      {
+        onError: () => {},
+        onComplete: () => {},
+        onTitleUpdated: () => {},
+      },
+    )
+
+    const invalidHtml = [
+      '<!doctype html><html><body>',
+      '<section data-proma-block-id="pb_blk_news">',
+      '  <cms-content data-proma-cms-source-id="cms-src-news" site-id="1" catalog-id="6">',
+      '    <template v-slot:default="{ items }">',
+      '      <style>.bad { color: red; }</style>',
+      '      <ul><li v-for="item in items" :key="item.id"><a :href="item.url">{{ item.title }}</a></li></ul>',
+      '    </template>',
+      '  </cms-content>',
+      '</section>',
+      '</body></html>',
+    ].join('\n')
+
+    expect(readFileSync(entryPath, 'utf-8')).toBe(invalidHtml)
+    expect(existsSync(manifestPath)).toBe(false)
+
+    const messages = getAgentSessionMessages(session.id)
+    const lastMessage = messages.at(-1)
+
+    expect(lastMessage?.role).toBe('status')
+    expect(lastMessage?.content).toContain('未自动回滚')
+    expect(lastMessage?.content).toContain('DANGEROUS_TAG')
+    expect(lastMessage?.content).toContain('UNKNOWN_ITEM_FIELD')
   })
 })

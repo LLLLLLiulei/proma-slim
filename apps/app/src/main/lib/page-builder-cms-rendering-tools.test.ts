@@ -209,7 +209,7 @@ describe('page-builder cms rendering apply tool', () => {
         '<!doctype html><html><body>',
         '<section id="latest-news" data-proma-block-id="pb_blk_news">',
         '<h2>最新动态</h2>',
-        '<cms-content data-proma-cms-source-id="cms-src-news" catalog-id="news"></cms-content>',
+        '<cms-content data-proma-cms-source-id="cms-src-news" site-id="14" catalog-id="news"><template v-slot:default="{ items }"><article v-for="item in items" :key="item.id">{{ item.title }}</article></template></cms-content>',
         '<p class="static-note">静态尾注</p>',
         '</section>',
         '</body></html>',
@@ -257,7 +257,7 @@ describe('page-builder cms rendering apply tool', () => {
     expect(html).toContain('data-proma-cms-source-id="cms-src-news"')
     expect(html).toContain('data-proma-cms-source-id="cms-src-news"')
     expect(html).toContain('site-id="14" catalog-id="events" page-size="4"')
-    expect(html).not.toContain('<cms-content catalog-id="news"></cms-content>')
+    expect(html).not.toContain('catalog-id="news"><template v-slot:default="{ items }"><article v-for="item in items" :key="item.id">{{ item.title }}</article></template></cms-content>')
   })
 
   test('assigns a new cms source id when binding cms content into a static block', () => {
@@ -307,12 +307,12 @@ describe('page-builder cms rendering apply tool', () => {
       entryPath,
       [
         '<!doctype html><html><body><main>',
-        '<section><cms-content catalog-id="nested"></cms-content></section>',
-        '<cms-content catalog-id="a"></cms-content>',
-        '<cms-content catalog-id="b"></cms-content>',
-        '<cms-content catalog-id="c"></cms-content>',
-        '<cms-content catalog-id="d"></cms-content>',
-        '<cms-content catalog-id="e"></cms-content>',
+        '<section><cms-content site-id="14" catalog-id="nested"><template v-slot:default="{ items }"><article v-for="item in items" :key="item.id">{{ item.title }}</article></template></cms-content></section>',
+        '<cms-content site-id="14" catalog-id="a"><template v-slot:default="{ items }"><article v-for="item in items" :key="item.id">{{ item.title }}</article></template></cms-content>',
+        '<cms-content site-id="14" catalog-id="b"><template v-slot:default="{ items }"><article v-for="item in items" :key="item.id">{{ item.title }}</article></template></cms-content>',
+        '<cms-content site-id="14" catalog-id="c"><template v-slot:default="{ items }"><article v-for="item in items" :key="item.id">{{ item.title }}</article></template></cms-content>',
+        '<cms-content site-id="14" catalog-id="d"><template v-slot:default="{ items }"><article v-for="item in items" :key="item.id">{{ item.title }}</article></template></cms-content>',
+        '<cms-content site-id="14" catalog-id="e"><template v-slot:default="{ items }"><article v-for="item in items" :key="item.id">{{ item.title }}</article></template></cms-content>',
         '</main></body></html>',
       ].join(''),
       'utf-8',
@@ -343,8 +343,8 @@ describe('page-builder cms rendering apply tool', () => {
     })
 
     const html = readFileSync(entryPath, 'utf-8')
-    expect(html).toContain('<cms-content catalog-id="c"></cms-content>')
-    expect(html).not.toContain('<cms-content catalog-id="d"></cms-content>')
+    expect(html).toContain('catalog-id="c"><template v-slot:default="{ items }"><article v-for="item in items" :key="item.id">{{ item.title }}</article></template></cms-content>')
+    expect(html).not.toContain('catalog-id="d"><template v-slot:default="{ items }"><article v-for="item in items" :key="item.id">{{ item.title }}</article></template></cms-content>')
     expect(html).toContain('data-proma-cms-source-id="')
     expect(html).toContain('site-id="14" catalog-id="events" page-size="4"')
   })
@@ -835,6 +835,64 @@ describe('page-builder cms rendering apply tool', () => {
       },
       templateBody: '<section><style>.bad { color: red; }</style><article></article></section>',
     })).toThrow('templateBody 不能包含 <script> 或 <style>')
+
+    expect(readFileSync(entryPath, 'utf-8')).not.toContain('<cms-content')
+  })
+
+  test('rejects template fields that reference unsupported cms item fields before writing html', () => {
+    const workspace = createAgentWorkspace('CMS Apply Unknown Item Field', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+    const entryPath = join(workspaceFilesDir, 'index.html')
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(
+      entryPath,
+      '<!doctype html><html><body><section id="latest-news" data-proma-block-id="pb_blk_news"></section></body></html>',
+      'utf-8',
+    )
+
+    const tools = createPageBuilderCmsRenderingTools()
+
+    expect(() => tools.applyCmsBinding(workspace, {
+      targetBlock: {
+        selector: '#latest-news',
+      },
+      kind: 'content-list',
+      source: {
+        siteId: '14',
+        catalogId: 'news',
+      },
+      templateBody: '<section><article v-for="item in items" :key="item.id"><a :href="item.url">{{ item.title }}</a></article></section>',
+    })).toThrow('templateBody 引用了当前 CMS contract 不支持的字段')
+
+    expect(readFileSync(entryPath, 'utf-8')).not.toContain('<cms-content')
+  })
+
+  test('rejects template fields that reference undeclared cms slot variables before writing html', () => {
+    const workspace = createAgentWorkspace('CMS Apply Unknown Slot Variable', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+    const entryPath = join(workspaceFilesDir, 'index.html')
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(
+      entryPath,
+      '<!doctype html><html><body><section id="latest-news" data-proma-block-id="pb_blk_news"></section></body></html>',
+      'utf-8',
+    )
+
+    const tools = createPageBuilderCmsRenderingTools()
+
+    expect(() => tools.applyCmsBinding(workspace, {
+      targetBlock: {
+        selector: '#latest-news',
+      },
+      kind: 'content-list',
+      source: {
+        siteId: '14',
+        catalogId: 'news',
+      },
+      templateBody: '<section><article v-for="item in slotProps.items" :key="item.id">{{ item.title }}</article></section>',
+    })).toThrow('templateBody 引用了当前 CMS contract 未声明的 slot 变量')
 
     expect(readFileSync(entryPath, 'utf-8')).not.toContain('<cms-content')
   })

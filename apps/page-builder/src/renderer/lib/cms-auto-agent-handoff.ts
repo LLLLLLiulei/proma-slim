@@ -1,13 +1,16 @@
 import type {
   PageBuilderCmsApplySkillInput,
+  PageBuilderCmsApplyTargetSnapshot,
   PageBuilderCmsSelectionEntryPoint,
   PageBuilderCmsSelectionResult,
   PageBuilderCmsAutoAgentHandoffRequest,
 } from '@proma/shared'
 import {
+  buildPageBuilderCmsAuthoringDigest,
   PAGE_BUILDER_CMS_APPLY_SKILL_CONTRACT_VERSION,
   PAGE_BUILDER_CMS_AUTO_AGENT_HANDOFF_MCP_SERVER,
   PAGE_BUILDER_CMS_AUTO_AGENT_HANDOFF_SKILL,
+  resolvePageBuilderCmsAuthoringComponent,
 } from '@proma/shared'
 
 export { PAGE_BUILDER_CMS_AUTO_AGENT_HANDOFF_MCP_SERVER } from '@proma/shared'
@@ -26,6 +29,7 @@ const CMS_AUTO_AGENT_HANDOFF_BASE_INSTRUCTIONS = [
   '- 如果 selection.siteId 缺失，必须立即停止并报错；不能假设 site-id=1，也不能从宿主静态配置推断站点。',
   '- 不要把 CMS 浏览弹框里的分页大小当作页面绑定时的默认 page-size。',
   '- 不要在 cms-* 组件的 default / empty / error slot 中写入 <script> 或 <style>。',
+  '- `targetSnapshot.targetOuterHtml` 是这次编辑的作者态源码事实输入；不要把预览里命中的渲染子节点 DOM 当作可直接改写的源码。',
 ]
 
 function requireSelectionSiteId(selection: PageBuilderCmsSelectionResult): string {
@@ -39,11 +43,13 @@ function requireSelectionSiteId(selection: PageBuilderCmsSelectionResult): strin
 
 export function buildPageBuilderCmsApplySkillInput(
   selection: PageBuilderCmsSelectionResult,
-  options?: {
+  options: {
+    targetSnapshot: PageBuilderCmsApplyTargetSnapshot
     uiEntryPoint?: PageBuilderCmsSelectionEntryPoint
   },
 ): PageBuilderCmsApplySkillInput {
   requireSelectionSiteId(selection)
+  const component = resolvePageBuilderCmsAuthoringComponent(selection)
   const notes = options?.uiEntryPoint
     ? [`opened-from:${options.uiEntryPoint}`]
     : undefined
@@ -67,6 +73,8 @@ export function buildPageBuilderCmsApplySkillInput(
       selector: selection.targetBlock.selector,
     },
     selection,
+    authoringContext: buildPageBuilderCmsAuthoringDigest(component, selection.sourceType),
+    targetSnapshot: options.targetSnapshot,
     uiContext,
   }
 }
@@ -106,13 +114,15 @@ function buildCmsAutoAgentHandoffInstructions(selection: PageBuilderCmsSelection
 
 export function createPageBuilderCmsAutoAgentHandoffRequest(
   selection: PageBuilderCmsSelectionResult,
-  options?: {
+  options: {
+    targetSnapshot: PageBuilderCmsApplyTargetSnapshot
     requestId?: string
     uiEntryPoint?: PageBuilderCmsSelectionEntryPoint
   },
 ): PageBuilderCmsAutoAgentHandoffRequest {
   const requestId = resolveCmsAutoAgentHandoffRequestId(options?.requestId)
   const skillInput = buildPageBuilderCmsApplySkillInput(selection, {
+    targetSnapshot: options.targetSnapshot,
     uiEntryPoint: options?.uiEntryPoint,
   })
 

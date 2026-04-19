@@ -702,11 +702,17 @@ export function BuilderPage({
       },
     }
   }, [selectedTargetSelection])
-  const handleCmsSelectionConfirm = React.useCallback((selection: PageBuilderCmsSelectionResult) => {
-    setCmsAutoHandoffRequest(createPageBuilderCmsAutoAgentHandoffRequest(selection, {
-      uiEntryPoint: cmsSelectionRequestContext?.entryPoint,
-    }))
-  }, [cmsSelectionRequestContext?.entryPoint])
+  const handleCmsSelectionConfirm = React.useCallback(async (selection: PageBuilderCmsSelectionResult) => {
+    try {
+      const targetSnapshot = await api.getPageBuilderCmsTargetSnapshot(workspaceId, selection.targetSelection)
+      setCmsAutoHandoffRequest(createPageBuilderCmsAutoAgentHandoffRequest(selection, {
+        targetSnapshot,
+        uiEntryPoint: cmsSelectionRequestContext?.entryPoint,
+      }))
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '无法读取当前目标的作者态源码快照')
+    }
+  }, [cmsSelectionRequestContext?.entryPoint, workspaceId])
   const handleCmsAutoHandoffSettled = React.useCallback((result: PageBuilderCmsAutoAgentHandoffSettledResult) => {
     if (!cmsAutoHandoffRequest || result.requestId !== cmsAutoHandoffRequest.requestId) {
       return

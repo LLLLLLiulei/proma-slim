@@ -464,7 +464,7 @@ describe('CmsBrowserDialog', () => {
     expect(JSON.stringify(renderer.toJSON())).toContain('首页轮播图')
   })
 
-  test('keeps catalog checkbox selection independent from the content tab current catalog', async () => {
+  test('keeps catalog checkbox selection independent from the content tab single checked catalog', async () => {
     const { CmsBrowserDialog, listContents, getLastTreeProps } = await loadCmsBrowserDialog({
       listContents: mock(async () => createContentsPayload('Banner 二级栏目内容')),
     })
@@ -493,6 +493,12 @@ describe('CmsBrowserDialog', () => {
       await Promise.resolve()
     })
 
+    expect(getLastTreeProps()).toEqual(expect.objectContaining({
+      checkable: true,
+      checkStrictly: true,
+      checkedKeys: ['100'],
+      selectedKeys: ['100'],
+    }))
     expect(listContents).toHaveBeenCalledWith(expect.objectContaining({
       siteId: '1',
       catalogId: '100',
@@ -1237,6 +1243,72 @@ describe('CmsBrowserDialog', () => {
     expect(selection).not.toHaveProperty('querySpec')
     expect(selection).not.toHaveProperty('limit')
     expect(selection).not.toHaveProperty('catalogIds')
+  })
+
+  test('clears the current content catalog when the only checked tree node is unchecked', async () => {
+    const listContents = mock(async (query: PageBuilderCmsContentQuery) => ({
+      pageIndex: query.pageIndex ?? 0,
+      pageSize: query.pageSize ?? 6,
+      total: 1,
+      totalPages: 1,
+      items: [
+        createContentItem(
+          `${query.catalogId ?? 'catalog'}-1`,
+          query.catalogId ?? 'catalog',
+          `内容 ${query.catalogId ?? 'catalog'}`,
+        ),
+      ],
+    }))
+    const { CmsBrowserDialog, getLastTreeProps } = await loadCmsBrowserDialog({
+      listContents,
+    })
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <CmsBrowserDialog open onOpenChange={() => {}} requestContext={REQUEST_CONTEXT} />,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    const contentsTab = renderer.root.findAllByType('button')
+      .find((button) => flattenText(button.props.children).trim() === '内容')
+
+    await act(async () => {
+      contentsTab?.props.onClick()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      (getLastTreeProps() as {
+        onCheck?: (checkedKeys: { checked?: string[] }) => void
+      } | null)?.onCheck?.({ checked: ['101'] })
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(JSON.stringify(renderer.toJSON())).toContain('内容 101')
+    expect(listContents).toHaveBeenCalledWith(expect.objectContaining({
+      siteId: '1',
+      catalogId: '101',
+    }))
+
+    await act(async () => {
+      (getLastTreeProps() as {
+        onCheck?: (checkedKeys: { checked?: string[] }) => void
+      } | null)?.onCheck?.({ checked: [] })
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(getLastTreeProps()).toEqual(expect.objectContaining({
+      checkedKeys: [],
+      selectedKeys: [],
+    }))
+    expect(JSON.stringify(renderer.toJSON())).toContain('请选择栏目')
+    expect(listContents).toHaveBeenCalledTimes(2)
   })
 
   test('toggles content selection when the user clicks a card', async () => {

@@ -6,6 +6,29 @@ import {
   createPageBuilderCmsAutoAgentHandoffRequest,
 } from './cms-auto-agent-handoff'
 
+const catalogItemFieldMeta = [
+  { name: 'id', type: 'string', optional: false, description: 'Catalog identifier.', recommendedUsage: 'Use as the stable :key when iterating catalogs.' },
+  { name: 'name', type: 'string', optional: false, description: 'Catalog display name.', recommendedUsage: 'Render as the visible catalog label.' },
+  { name: 'path', type: 'string', optional: false, description: 'Catalog detail URL/path.', recommendedUsage: 'Use :href="item.path" for catalog links.' },
+  { name: 'parentId', type: 'string|null', optional: false, description: 'Parent catalog identifier, or null for root catalogs.' },
+  { name: 'logoUrl', type: 'string', optional: true, description: 'Optional catalog logo or thumbnail URL.', recommendedUsage: 'Guard with v-if before binding to <img :src>.' },
+  { name: 'hasChild', type: 'boolean', optional: false, description: 'Whether the catalog has child catalogs.', recommendedUsage: 'Use for child-indicator UI or nested navigation affordances.' },
+  { name: 'total', type: 'number', optional: false, description: 'Item count or total entries under the catalog.', recommendedUsage: 'Use for count badges when the current block design needs them.' },
+  { name: 'contentType', type: 'string', optional: false, description: 'Internal content type code for the catalog.' },
+  { name: 'contentTypeName', type: 'string', optional: false, description: 'Display name for the catalog content type.' },
+  { name: 'children', type: 'catalog-item[]', optional: false, description: 'Child catalog list in the same catalog item shape.', recommendedUsage: 'Only use when the current structure explicitly needs nested catalogs.' },
+] as const
+
+const contentItemFieldMeta = [
+  { name: 'id', type: 'string', optional: false, description: 'Content identifier.', recommendedUsage: 'Use as the stable :key when iterating content items.' },
+  { name: 'catalogId', type: 'string', optional: false, description: 'Owning catalog identifier for the content item.' },
+  { name: 'title', type: 'string', optional: false, description: 'Content title.', recommendedUsage: 'Use as the primary visible headline.' },
+  { name: 'summary', type: 'string', optional: false, description: 'Content summary or excerpt.', recommendedUsage: 'Use for body preview text when the selected target already supports summary copy.' },
+  { name: 'publishUrl', type: 'string', optional: false, description: 'Content detail URL.', recommendedUsage: 'Use :href="item.publishUrl" for content links.' },
+  { name: 'listLogoUrl', type: 'string', optional: true, description: 'Optional list thumbnail or cover image URL.', recommendedUsage: 'Guard with v-if before binding to <img :src>.' },
+  { name: 'addedAt', type: 'string', optional: true, description: 'Optional publish/add time string.', recommendedUsage: 'Render only when the current design needs date metadata and guard for absence.' },
+] as const
+
 function extractSkillInputFromComposedMessage(composedUserMessage: string): unknown {
   const match = composedUserMessage.match(/<cms_binding_apply_input>\s*([\s\S]*?)\s*<\/cms_binding_apply_input>/)
   if (!match) {
@@ -17,6 +40,12 @@ function extractSkillInputFromComposedMessage(composedUserMessage: string): unkn
 
 describe('page-builder CMS auto handoff payloads', () => {
   test('builds the apply skill input with phase 1A defaults and without invented optional block fields', () => {
+    const targetSnapshot = {
+      kind: 'block' as const,
+      selector: '#hero-banner',
+      parentBlockSelector: '#hero-banner',
+      targetOuterHtml: '<section id="hero-banner"><h1>Hero</h1></section>',
+    }
     const selection: PageBuilderCmsSelectionResult = {
       version: 5,
       siteId: '14',
@@ -39,8 +68,8 @@ describe('page-builder CMS auto handoff payloads', () => {
       },
     }
 
-    expect(buildPageBuilderCmsApplySkillInput(selection)).toEqual({
-      version: 3,
+    expect(buildPageBuilderCmsApplySkillInput(selection, { targetSnapshot })).toEqual({
+      version: 6,
       entryPoint: 'cms-browser-confirm',
       applyIntent: 'replace-current',
       workspacePolicy: {
@@ -59,6 +88,19 @@ describe('page-builder CMS auto handoff payloads', () => {
         selector: '#hero-banner',
       },
       selection,
+      authoringContext: {
+        component: 'cms-content',
+        sourceType: 'contents-by-ids',
+        allowedProps: ['site-id', 'ids', 'catalog-id', 'keyword', 'page-index', 'page-size'],
+        requiredProps: ['site-id', 'catalog-id', 'ids'],
+        slotScope: ['items', 'loading', 'error', 'empty'],
+        itemFields: ['id', 'catalogId', 'title', 'summary', 'publishUrl', 'listLogoUrl', 'addedAt'],
+        itemFieldMeta: [...contentItemFieldMeta],
+        recommendedLinkField: 'publishUrl',
+        recommendedImageField: 'listLogoUrl',
+        forbiddenStructures: ['nested-cms-islands', 'dangerous-tags', 'outer-slot-wrapper'],
+      },
+      targetSnapshot,
       uiContext: {
         userIntent: 'Preserve the current selected target structure and styles when compatible. Replace the selected target in place, and do not append a sibling CMS block.',
       },
@@ -66,6 +108,15 @@ describe('page-builder CMS auto handoff payloads', () => {
   })
 
   test('creates a programmatic handoff request that carries hidden structured payload and forced skill mention', () => {
+    const targetSnapshot = {
+      kind: 'cms-island' as const,
+      selector: 'section:nth-of-type(1) > cms-content:nth-of-type(1)',
+      parentBlockSelector: '[data-proma-block-id="pb_blk_news"]',
+      targetOuterHtml: '<cms-content data-proma-cms-source-id="cms-src-news" site-id="14" catalog-id="news"></cms-content>',
+      parentBlockOuterHtml: '<section data-proma-block-id="pb_blk_news"><cms-content data-proma-cms-source-id="cms-src-news" site-id="14" catalog-id="news"></cms-content></section>',
+      component: 'cms-content' as const,
+      sourceId: 'cms-src-news',
+    }
     const selection: PageBuilderCmsSelectionResult = {
       version: 5,
       siteId: '14',
@@ -101,6 +152,7 @@ describe('page-builder CMS auto handoff payloads', () => {
 
     const request = createPageBuilderCmsAutoAgentHandoffRequest(selection, {
       requestId: 'handoff-1',
+      targetSnapshot,
       uiEntryPoint: 'block-toolbar',
     })
 
@@ -110,6 +162,14 @@ describe('page-builder CMS auto handoff payloads', () => {
       mentionedSkills: ['cms-binding-apply'],
       mentionedMcpServers: [PAGE_BUILDER_CMS_AUTO_AGENT_HANDOFF_MCP_SERVER],
     })
+    expect(request.composedUserMessage).toContain('allowedProps')
+    expect(request.composedUserMessage).toContain('itemFields')
+    expect(request.composedUserMessage).toContain('itemFieldMeta')
+    expect(request.composedUserMessage).toContain('targetSnapshot')
+    expect(request.composedUserMessage).toContain('targetOuterHtml')
+    expect(request.composedUserMessage).toContain('path')
+    expect(request.composedUserMessage).toContain('dangerous-tags')
+    expect(request.composedUserMessage).toContain('作者态源码事实输入')
     expect(request.composedUserMessage).toContain('当前目标已经是一个 cms-island，必须整体替换现有 cms 源标签，不能在它里面再包一层新的 cms-catalog 或 cms-content。')
     expect(request.composedUserMessage).toContain('优先让 cms-* 标签作为动态区域源码根节点，并把 ul、nav、section、article 等主要动态容器写进 slot。')
     expect(request.composedUserMessage).toContain('新写入或重绑的 cms-* 标签必须显式写出 site-id，并且该值必须等于 selection.siteId。')
@@ -119,7 +179,7 @@ describe('page-builder CMS auto handoff payloads', () => {
     expect(request.composedUserMessage).toContain('如果当前目标结构与所选 CMS 数据无法安全兼容，先通过 AskUserQuestion 发起一个简短澄清，而不是擅自改造成新的通用列表或图文卡片。')
     expect(request.composedUserMessage).toContain('不要在 cms-* 组件的 default / empty / error slot 中写入 <script> 或 <style>。')
     expect(extractSkillInputFromComposedMessage(request.composedUserMessage)).toEqual({
-      version: 3,
+      version: 6,
       entryPoint: 'cms-browser-confirm',
       applyIntent: 'replace-current',
       workspacePolicy: {
@@ -140,6 +200,18 @@ describe('page-builder CMS auto handoff payloads', () => {
         selector: '[data-proma-block-id="pb_blk_news"]',
       },
       selection,
+      authoringContext: {
+        component: 'cms-catalog',
+        sourceType: 'catalogs-by-parent',
+        allowedProps: ['site-id', 'ids', 'level', 'parent-id', 'content-type', 'search-keyword', 'take'],
+        requiredProps: ['site-id', 'level', 'parent-id'],
+        slotScope: ['items', 'loading', 'error', 'empty'],
+        itemFields: ['id', 'name', 'path', 'parentId', 'logoUrl', 'hasChild', 'total', 'contentType', 'contentTypeName', 'children'],
+        itemFieldMeta: [...catalogItemFieldMeta],
+        recommendedLinkField: 'path',
+        forbiddenStructures: ['nested-cms-islands', 'dangerous-tags', 'outer-slot-wrapper'],
+      },
+      targetSnapshot,
       uiContext: {
         userIntent: 'Preserve the current selected target structure and styles when compatible. Replace the selected target in place, and do not append a sibling CMS block.',
         notes: ['opened-from:block-toolbar'],
@@ -168,7 +240,14 @@ describe('page-builder CMS auto handoff payloads', () => {
       },
     } as unknown as PageBuilderCmsSelectionResult
 
-    expect(() => buildPageBuilderCmsApplySkillInput(selection)).toThrow('CMS 选择结果缺少 siteId')
-    expect(() => createPageBuilderCmsAutoAgentHandoffRequest(selection)).toThrow('CMS 选择结果缺少 siteId')
+    const targetSnapshot = {
+      kind: 'block' as const,
+      selector: '#hero-banner',
+      parentBlockSelector: '#hero-banner',
+      targetOuterHtml: '<section id="hero-banner"><h1>Hero</h1></section>',
+    }
+
+    expect(() => buildPageBuilderCmsApplySkillInput(selection, { targetSnapshot })).toThrow('CMS 选择结果缺少 siteId')
+    expect(() => createPageBuilderCmsAutoAgentHandoffRequest(selection, { targetSnapshot })).toThrow('CMS 选择结果缺少 siteId')
   })
 })
