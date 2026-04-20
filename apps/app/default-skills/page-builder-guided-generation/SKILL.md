@@ -1,6 +1,6 @@
 ---
 name: page-builder-guided-generation
-description: Use when a page-builder conversation with an ordinary user needs guided creation or guided iteration of a single-page special webpage from a vague or partially defined request.
+description: Use when a page-builder conversation needs ordinary-user briefing, confirmation, generation, or lightweight iteration of a single-page special webpage.
 ---
 
 # Page Builder Guided Generation
@@ -14,27 +14,27 @@ Use this skill as the default controller for ordinary `page-builder` conversatio
 Use this skill when all of the following are true:
 
 - The conversation is happening inside `page-builder`.
-- The user wants to create a webpage, special webpage, event page, campaign page, landing page, or a similar single-page experience.
+- The user wants to create or revise a webpage, campaign page, landing page, special webpage, or a similar single-page experience.
 - The default v1 target is a 单页专题页 unless the user clearly asks for another page type.
-- The request is an ordinary user flow, not a specialized programmatic handoff such as CMS apply.
+- The request is an ordinary user flow, not a specialized programmatic handoff such as confirmed CMS apply.
 
 Do not use this skill when:
 
 - A programmatic send already has explicit skill ownership, for example `cms-binding-apply`.
 - The task is unrelated to webpage generation or iteration.
-- The user explicitly wants a different, specialized workflow.
+- The workflow already has a confirmed CMS selection result and is entering the controlled CMS apply path.
 
 ## Mode Detection
 
 Decide the current mode from the current preview files, the ongoing conversation, and the user's latest request.
 
-- **Create mode**: use when the user is starting from a vague idea or wants a new single-page webpage.
-- **Iterate mode**: use when `workspace-files/index.html` already represents a generated page and the user is asking for local refinements.
-- **Redo mode**: use when a non-empty page already exists and the user clearly asks to restart, remake the whole page, or change direction completely.
+- **Create mode**: start from a vague idea or a blank page.
+- **Iterate mode**: refine an existing generated page.
+- **Redo mode**: replace a non-empty page after the user clearly asks to restart or change direction completely.
 
 If `workspace-files/index.html` already has non-trivial content, do not assume a blank-start flow.
 
-## Interaction Rules
+## Interaction Contract
 
 ### This skill keeps control of briefing
 
@@ -52,35 +52,19 @@ For any user choice, confirmation, preference, or missing critical information, 
 
 - 一次只问一个问题。
 - Ask one question at a time.
-- Each question should focus on the single most important missing decision.
+- Each question should focus on the single highest-priority missing decision.
 - Default to 2 to 4 options plus a custom answer path.
 - Use multi-select only for naturally multi-value topics such as key sections or nav items.
 
 ### Clear language, but keep necessary terms
 
-The user is a normal user. Keep the conversation easy to understand, but do not over-translate everything into casual wording. 保留必要的专业词汇 when they carry precise meaning in webpage work, especially terms such as Hero, CTA, 响应式, section, card, banner, and navigation.
+The user is a normal user. Keep the conversation easy to understand, but 保留必要的专业词汇 when they carry precise meaning in webpage work, especially Hero, CTA, 响应式, section, card, banner, and navigation.
 
 If a term may be unfamiliar, keep it and explain it briefly in the same sentence instead of replacing it with an imprecise paraphrase.
 
-Good examples:
-
-- "这个页面主要是手机上看，还是电脑上看？"
-- "页面最上面你更想先放大图，还是先放一句重点介绍？"
-- "你更希望别人打开页面后先注意到什么？"
-- "这个页面要不要做响应式，也就是手机和电脑都能比较自然地显示？"
-- "Hero 区就是页面最上面的第一屏主视觉，你更想先突出标题还是先突出大图？"
-- "CTA 就是希望用户点击的主要按钮，你更希望它写成“立即报名”还是“了解详情”？"
-
-Bad examples:
-
-- "请定义 Hero、CTA、信息架构、视觉层级、交互密度之间的优先级。"
-- "请给出完整的响应式布局策略、栅格规范和组件层级约束。"
-
-## Briefing Threshold
+## Briefing Contract
 
 Work toward a stable brief, not a fixed questionnaire. See [references/briefing-thresholds.md](references/briefing-thresholds.md).
-
-This is not a rigid script, but it is also not a free-form interview. Keep the flow dynamic while still following the questioning contract below.
 
 ### 必问项
 
@@ -90,7 +74,7 @@ Before generation, make sure these items are explicit or already unambiguous fro
 - target audience
 - major content blocks
 
-If one of these is still unclear and would affect the page structure or first-screen direction, ask about it with `AskUserQuestion`.
+If one of these is still unclear and would materially affect the result, ask about that single gap with `AskUserQuestion`.
 
 ### 条件必问项
 
@@ -100,8 +84,6 @@ Ask these only when they are still unresolved and would materially affect the re
 - device priority
 - must-have or must-avoid constraints
 - whether an existing non-empty page should be iterated or fully redone
-
-These are not mandatory on every turn if the user has already stated them clearly, or if a safe default is enough to proceed.
 
 ### 强制确认项
 
@@ -114,13 +96,7 @@ If the user says "你帮我决定", you may fill in non-critical details with re
 
 If only non-critical details remain, stop asking more questions and move to confirmation.
 
-## Clarification Rules
-
-- Use short clarification only when one unresolved ambiguity would materially affect structure, major visual direction, or content priority.
-- Do not ask multiple unrelated questions at once.
-- Do not restart broad discovery once the brief is already mostly clear.
-
-## Confirmation Rules
+## Confirmation And Overwrite Rules
 
 Before writing the page, provide a short summary of your current understanding, then ask for confirmation with `AskUserQuestion`.
 
@@ -133,11 +109,7 @@ The summary should usually cover:
 - device priority
 - must-have or must-avoid constraints
 
-Do not start generating the page before that confirmation is complete.
-
-## Overwrite Rules
-
-If `workspace-files/index.html` already contains non-trivial content and the user clearly wants a full redo, treat it as a 整页覆盖确认 flow:
+If `workspace-files/index.html` already contains non-trivial content and the user clearly wants a full redo:
 
 1. ask for overwrite confirmation through `AskUserQuestion`
 2. wait for a positive confirmation
@@ -164,29 +136,20 @@ For factual content:
 - do not invent hard facts such as exact prices, dates, phone numbers, certifications, or metrics
 - if hard facts are still missing, use clearly marked draft placeholders or pending labels instead of presenting invented final facts
 
-### CMS Authoring Structure
+## CMS Boundaries In Ordinary Flow
 
 Ordinary page generation and ordinary iteration are not allowed to invent new `cms-catalog` / `cms-content` tags. New CMS source tags, or rebinding an existing CMS source tag to different query props, must go through the controlled CMS browser selection flow plus `cms-binding-apply` and `mcp__cms__apply_cms_binding`.
-When touching existing CMS regions, use the canonical CMS authoring contract as the source of truth for supported props, slot scope, item fields, and forbidden structures.
 
-If the page already contains CMS tags, ordinary iteration may adjust slot templates, internal structure, and styles inside the existing CMS region, but it must not silently change query props such as `site-id`, `catalog-id`, `page-size`, or similar binding fields.
+If the page already contains CMS tags, ordinary iteration may adjust slot templates, internal structure, and styles inside the existing CMS region, but it must not silently change query props such as `site-id`, `catalog-id`, `ids`, or `page-size`.
 
 When the selected target is already a CMS-driven region, treat the existing `cms-catalog` / `cms-content` source tag as source-atomic. Edit the source CMS region as one unit, not the rendered child nodes one by one, and do not cross into sibling blocks or sibling CMS tags.
 
-When an existing region is already CMS-driven, `cms-catalog` / `cms-content` should wrap the whole dynamic region.
+When touching an existing CMS region:
 
-- put major HTML containers such as `ul`, `section`, and `article` inside the slot.
-- Keep empty and error fallback wrappers inside `v-slot:empty` and `v-slot:error` when they belong to the same CMS data region.
-- Leave only page-level static shells outside the CMS component.
-- Do not handwrite or preserve runtime-only locator attrs such as `data-proma-cms-source-id` or `data-proma-cms-island-*` when touching existing CMS source tags.
-- Use Vue template syntax inside CMS slots, and declare slot scope explicitly as a subset of `{ items, loading, error, empty }`.
-- For `cms-catalog`, use contract fields such as `item.path` instead of guessed aliases like `item.link` or `item.url`.
-- For `cms-content`, use contract fields such as `item.publishUrl` and `item.listLogoUrl`.
-- Prefer semantic anchors for CMS navigation. If a CMS card should be clickable, wrap it with `<a :href="...">` instead of writing `@click` navigation or `window.location.href = ...`.
-- Do not write raw HTML inline event attributes such as `onclick`, `onerror`, or `onload` inside CMS slots. Use declarative Vue structure like guarded `:src`, `v-if` / `v-else`, and placeholder nodes instead of imperative DOM mutation.
-- Read field semantics from the canonical contract and guard optional fields such as `item.logoUrl`, `item.listLogoUrl`, and `item.addedAt` before rendering them.
-- When iterating CMS items, provide a stable `:key`, normally `:key="item.id"`.
-- Do not place `<script>` or `<style>` inside `cms-*` slot content.
+- use the canonical CMS authoring contract as the source of truth for supported props, slot scope, item fields, and forbidden structures
+- do not guess link aliases such as `item.link` or `item.url`
+- do not handwrite or preserve runtime-only locator attrs such as `data-proma-cms-source-id` or `data-proma-cms-island-*`
+- if stable authoring information is missing, use one short clarification or stop the CMS rewrite path instead of guessing
 
 ## Iteration Rules
 

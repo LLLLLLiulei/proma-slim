@@ -75,6 +75,21 @@ describe('cms-binding-apply skill contract docs', () => {
     expect(examples).toContain('itemFieldMeta')
   })
 
+  test('keeps the main skill focused on the decision path and leaves long examples in references', () => {
+    const skill = readRelativeText('../../../default-skills/cms-binding-apply/SKILL.md')
+    const examples = readRelativeText('../../../default-skills/cms-binding-apply/references/contract-examples.md')
+    const downstream = readRelativeText('../../../default-skills/cms-binding-apply/references/downstream-integration.md')
+
+    expect(skill).toContain('## Input Preconditions')
+    expect(skill).toContain('## Decision Algorithm')
+    expect(skill).toContain('## Ready Checklist')
+    expect(skill).toContain('## Clarification Boundary')
+    expect(skill).not.toContain('## Recommended authoring shape')
+    expect(skill).not.toContain('## Anti-pattern: append a new CMS block beside the selected target')
+    expect(examples).toContain('Keep the main skill focused on the current-turn decision path')
+    expect(downstream).toContain('host-side handoff and write-pipeline notes')
+  })
+
   test('documents the canonical authoring contract fields instead of guessed aliases', () => {
     const skill = readRelativeText('../../../default-skills/cms-binding-apply/SKILL.md')
     const examples = readRelativeText('../../../default-skills/cms-binding-apply/references/contract-examples.md')
@@ -97,8 +112,8 @@ describe('cms-binding-apply skill contract docs', () => {
     const skill = readRelativeText('../../../default-skills/cms-binding-apply/SKILL.md')
     const examples = readRelativeText('../../../default-skills/cms-binding-apply/references/contract-examples.md')
 
-    expect(skill).toContain('When using `v-for`, always provide a stable `:key`')
-    expect(skill).toContain('If `itemFieldMeta` marks a field as optional, guard it before rendering')
+    expect(skill).toContain('use a stable `:key`, normally `:key="item.id"`')
+    expect(skill).toContain('When a field is marked optional in `itemFieldMeta`, guard it before rendering image, URL, or metadata UI')
     expect(examples).toContain('<img v-if="items[0]?.listLogoUrl"')
     expect(examples).toContain(':key="item.id"')
   })
@@ -131,8 +146,8 @@ describe('cms-binding-apply skill contract docs', () => {
     const skill = readRelativeText('../../../default-skills/cms-binding-apply/SKILL.md')
     const examples = readRelativeText('../../../default-skills/cms-binding-apply/references/contract-examples.md')
 
-    expect(skill).toContain('inspect the current target block in the workspace source')
-    expect(skill).toContain('preserve the existing outer shell, classes, and major layout structure')
+    expect(skill).toContain('Inspect the current target block in the workspace source')
+    expect(skill).toContain('Preserve the existing outer shell, classes, and major layout structure')
     expect(skill).toContain('in-place replacement of the selected target')
     expect(skill).toContain('Do not append a sibling `cms-catalog` / `cms-content`')
     expect(skill).toContain('If preserving the current structure is not safely compatible')

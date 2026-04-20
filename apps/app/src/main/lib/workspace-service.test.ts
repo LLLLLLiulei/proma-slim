@@ -117,7 +117,7 @@ describe('workspace service', () => {
 
   test('refreshes placeholder bundled default skills with the checked-in implementation', () => {
     const placeholderSkillDir = join(configDir, 'default-skills', 'page-builder-guided-generation')
-    mkdirSync(join(placeholderSkillDir, 'agents'), { recursive: true })
+    mkdirSync(placeholderSkillDir, { recursive: true })
     writeFileSync(join(placeholderSkillDir, 'SKILL.md'), [
       '---',
       'name: page-builder-guided-generation',
@@ -129,23 +129,14 @@ describe('workspace service', () => {
       '[TODO: fill me in]',
       '',
     ].join('\n'), 'utf-8')
-    writeFileSync(join(placeholderSkillDir, 'agents', 'openai.yaml'), [
-      'interface:',
-      '  display_name: "Guided Page Builder"',
-      '  short_description: "Guide normal users to build pages"',
-      '  default_prompt: "Use -builder-guided-generation to guide a normal user."',
-      '',
-    ].join('\n'), 'utf-8')
 
     seedDefaultSkills()
 
     const refreshedSkill = readFileSync(join(placeholderSkillDir, 'SKILL.md'), 'utf-8')
-    const refreshedAgent = readFileSync(join(placeholderSkillDir, 'agents', 'openai.yaml'), 'utf-8')
 
     expect(refreshedSkill).toContain('AskUserQuestion')
     expect(refreshedSkill).toContain('普通用户')
     expect(refreshedSkill).not.toContain('[TODO:')
-    expect(refreshedAgent).toContain('$page-builder-guided-generation')
   })
 
   test('creates a workspace with a stable slug and directory', () => {
@@ -365,7 +356,7 @@ describe('workspace service', () => {
 
     const legacySkillsDir = getWorkspaceSkillsDir('legacy-builder-docs')
     const placeholderSkillDir = join(legacySkillsDir, 'page-builder-guided-generation')
-    mkdirSync(join(placeholderSkillDir, 'agents'), { recursive: true })
+    mkdirSync(placeholderSkillDir, { recursive: true })
     writeFileSync(join(placeholderSkillDir, 'SKILL.md'), [
       '---',
       'name: page-builder-guided-generation',
@@ -375,13 +366,6 @@ describe('workspace service', () => {
       '## Overview',
       '',
       '[TODO: fill me in]',
-      '',
-    ].join('\n'), 'utf-8')
-    writeFileSync(join(placeholderSkillDir, 'agents', 'openai.yaml'), [
-      'interface:',
-      '  display_name: "Guided Page Builder"',
-      '  short_description: "Guide normal users to build pages"',
-      '  default_prompt: "Use -builder-guided-generation to guide a normal user."',
       '',
     ].join('\n'), 'utf-8')
 

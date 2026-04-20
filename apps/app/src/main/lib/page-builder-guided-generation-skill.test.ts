@@ -30,59 +30,42 @@ describe('page-builder-guided-generation skill docs', () => {
 
     expect(skill).toContain('design-taste-frontend')
     expect(skill).toContain('redesign-existing-projects')
-    expect(skill).toContain('整页覆盖确认')
+    expect(skill).toContain('overwrite confirmation')
   })
 
   test('keeps threshold and confirmation rules in references', () => {
     const references = readRelativeText('../../../default-skills/page-builder-guided-generation/references/briefing-thresholds.md')
 
-    expect(references).toContain('可稳定成稿阈值')
+    expect(references).toContain('必问项')
+    expect(references).toContain('条件必问项')
+    expect(references).toContain('进入最终确认的条件')
     expect(references).toContain('最终确认')
     expect(references).toContain('你帮我决定')
   })
 
-  test('aligns workspace templates with the guided generation contract', () => {
-    const zhTemplate = readRelativeText('../../../resources/templates/page-builder-workspace-claude.zh-CN.md')
+  test('keeps the root template at the routing layer instead of repeating skill internals', () => {
     const enTemplate = readRelativeText('../../../resources/templates/page-builder-workspace-claude.md')
 
-    expect(zhTemplate).toContain('必问项 / 条件必问项 / 强制确认项')
-    expect(zhTemplate).toContain('不要把这些步骤转交给其他元流程 skill')
-    expect(zhTemplate).toContain('design-taste-frontend')
-    expect(zhTemplate).toContain('redesign-existing-projects')
-    expect(zhTemplate).toContain('当前工作台')
-    expect(zhTemplate).not.toContain('Proma')
-
-    expect(enTemplate).toContain('must ask / conditional ask / mandatory confirmation')
-    expect(enTemplate).toContain('Do not hand that flow off to another meta-planning skill')
-    expect(enTemplate).toContain('design-taste-frontend')
-    expect(enTemplate).toContain('redesign-existing-projects')
+    expect(enTemplate).toContain('page-builder-guided-generation')
+    expect(enTemplate).toContain('cms-binding-apply')
+    expect(enTemplate).toContain('AskUserQuestion')
     expect(enTemplate).toContain('current workspace')
+    expect(enTemplate).not.toContain('must ask / conditional ask / mandatory confirmation')
+    expect(enTemplate).not.toContain('redesign-existing-projects')
+    expect(enTemplate).not.toContain('slot inner content only')
+    expect(enTemplate).not.toContain('source.pageSize')
     expect(enTemplate).not.toContain('Proma')
   })
 
-  test('documents cms slot-structured authoring guidance in the skill and workspace templates', () => {
-    const skill = readRelativeText('../../../default-skills/page-builder-guided-generation/SKILL.md')
-    const zhTemplate = readRelativeText('../../../resources/templates/page-builder-workspace-claude.zh-CN.md')
-    const enTemplate = readRelativeText('../../../resources/templates/page-builder-workspace-claude.md')
-
-    expect(skill).toContain('`cms-catalog` / `cms-content` should wrap the whole dynamic region')
-    expect(skill).toContain('put major HTML containers such as `ul`, `section`, and `article` inside the slot')
-    expect(zhTemplate).toContain('`cms-catalog` / `cms-content` 尽量作为动态区域源码根节点')
-    expect(zhTemplate).toContain('`ul`、`section`、`article` 等主要动态容器尽量写在 slot 中')
-    expect(enTemplate).toContain('prefer `cms-catalog` / `cms-content` as the source root of a dynamic region')
-    expect(enTemplate).toContain('keep major dynamic containers inside the CMS slot')
-    expect(zhTemplate).toContain('优先保留这些现有样式结构，只替换为 CMS 数据绑定')
-    expect(zhTemplate).toContain('不要在它旁边追加一个新的 `cms-catalog` / `cms-content`')
-    expect(zhTemplate).toContain('优先使用 `AskUserQuestion` 做一次简短澄清')
-    expect(enTemplate).toContain('preserve its existing shell, classes, and major layout structure')
-    expect(enTemplate).toContain('Do not append a new `cms-catalog` / `cms-content` beside the selected block')
-    expect(enTemplate).toContain('use `AskUserQuestion` for one short clarification')
-  })
-
-  test('documents optional CMS field guards and stable item keys during ordinary iteration', () => {
+  test('documents ordinary-flow CMS boundaries for existing regions', () => {
     const skill = readRelativeText('../../../default-skills/page-builder-guided-generation/SKILL.md')
 
-    expect(skill).toContain('guard optional fields such as `item.logoUrl`, `item.listLogoUrl`, and `item.addedAt`')
-    expect(skill).toContain('provide a stable `:key`, normally `:key="item.id"`')
+    expect(skill).toContain('must go through the controlled CMS browser selection flow')
+    expect(skill).toContain('it must not silently change query props such as `site-id`, `catalog-id`, `ids`, or `page-size`')
+    expect(skill).toContain('treat the existing `cms-catalog` / `cms-content` source tag as source-atomic')
+    expect(skill).toContain('not the rendered child nodes one by one')
+    expect(skill).toContain('do not cross into sibling blocks or sibling CMS tags')
+    expect(skill).toContain('do not guess link aliases such as `item.link` or `item.url`')
+    expect(skill).toContain('do not handwrite or preserve runtime-only locator attrs')
   })
 })

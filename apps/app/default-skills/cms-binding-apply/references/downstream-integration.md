@@ -1,6 +1,7 @@
 # Downstream Integration Notes
 
 This skill does not implement the write path by itself. It normalizes the decision boundary first against the canonical authoring contract, and when the outcome is `ready`, the same agent should call the formal `mcp__cms__apply_cms_binding` tool.
+Use this file for host-side handoff and write-pipeline notes, not for the main skill prompt.
 
 ## Auto handoff prerequisite
 

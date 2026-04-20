@@ -1,6 +1,7 @@
 # CMS Apply Contract Examples
 
 Use these examples when interpreting or producing the `cms-binding-apply` contract.
+Keep the main skill focused on the current-turn decision path; use this file for payload shapes, authoring examples, and anti-patterns.
 Treat the canonical CMS authoring contract as the source of truth for supported props, slot scope, item fields, and forbidden structures.
 Real auto-handoff payloads also carry `authoringContext` and `targetSnapshot`; `targetSnapshot.targetOuterHtml` is the authoritative authoring-source snippet for the current target.
 

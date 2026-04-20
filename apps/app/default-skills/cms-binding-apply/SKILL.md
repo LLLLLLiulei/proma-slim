@@ -1,6 +1,6 @@
 ---
 name: cms-binding-apply
-description: Use when a page-builder workflow already has a confirmed CMS selection and target selection, and the agent must decide whether the data can replace the current target, whether short clarification is required, or whether the request is incompatible with Phase 1A.
+description: Use when a page-builder workflow already has a confirmed CMS selection and target selection, and the next step is deciding whether Phase 1A can safely apply it to the current block.
 ---
 
 # CMS Binding Apply
@@ -14,7 +14,7 @@ Use this skill after CMS browsing is already complete. Consume the structured pa
 Use this skill when all of the following are true:
 
 - The user already confirmed CMS catalogs or fixed content items.
-- The workflow already knows the target block selector.
+- The workflow already knows the target selection and target block context.
 - The next step is deciding whether the current block can be updated with `replace-current` and, if so, invoking the formal CMS apply tool.
 
 Do not use this skill when:
@@ -23,7 +23,7 @@ Do not use this skill when:
 - The task is generic page generation unrelated to CMS binding.
 - The flow needs append, merge, whole-page rewrite, or multi-block orchestration.
 
-## Required Input
+## Input Preconditions
 
 The incoming payload must already be structured. Expect:
 
@@ -36,7 +36,7 @@ The incoming payload must already be structured. Expect:
 - `applyIntent`
 - `workspacePolicy`
 
-Read [references/contract-examples.md](references/contract-examples.md) for the exact shapes and examples.
+Read [references/contract-examples.md](references/contract-examples.md) for payload shapes, authoring examples, and anti-patterns. Read [references/downstream-integration.md](references/downstream-integration.md) for host-side handoff and write-pipeline notes.
 
 Treat `authoringContext.itemFieldMeta` as the semantic field reference for slot authoring.
 
@@ -52,102 +52,60 @@ If `blockTypeHint` is missing, do not fail immediately. Use a conservative fallb
 - `catalogs` may resolve to `nav` or `catalog-list`
 - if the block intent is still ambiguous after that fallback, return `needs-clarification` with one short structured question
 
-## Decision Rules
+## Decision Algorithm
 
-1. Validate the canonical authoring contract first.
+1. Validate the Phase 1A input first.
    Reject payloads that do not match the Phase 1A contract or that request anything other than `replace-current`. Missing core fields such as `selection`, `selection.siteId`, or `targetBlock` must return `incompatible` with `reasonCode: malformed-payload`.
 2. Infer the block intent conservatively.
    Only three target block kinds are supported in Phase 1A: `nav`, `catalog-list`, and `content-list`.
-3. Match selection to supported mappings.
+3. Match the selection to the supported mappings.
    `catalogs-by-parent` / `catalogs-by-ids` may resolve to `nav` or `catalog-list`. `contents-by-catalog` / `contents-by-ids` resolve to `content-list`. If a catalog source lacks a stable `nav` vs `catalog-list` intent, return `needs-clarification` instead of guessing.
-   When `sourceType = contents-by-ids`, treat it as a single-catalog fixed content set and preserve both `selection.catalogId` and ordered `selection.contentIds`.
 4. Return one of three outcomes only.
    - `ready`: enough information, supported block kind, safe to continue
    - `needs-clarification`: one critical ambiguity remains and can be resolved with one short structured question
-   - `incompatible`: unsupported block kind, mismatched selection, page reflow, unsupported runtime, or unsupported strategy
+   - `incompatible`: unsupported block kind, mismatched selection, page reflow, unsupported runtime, malformed payload, or unsupported strategy
 
-## Execution Flow In The Current Workspace
+When `sourceType = contents-by-ids`, treat it as a single-catalog fixed content set and preserve both `selection.catalogId` and ordered `selection.contentIds`.
 
-After classifying the request, continue in the same turn instead of stopping at an abstract contract summary:
+## Ready Checklist
 
-1. If the result is `incompatible`, explain the blocking reason plainly and stop.
-2. If the result is `needs-clarification`, ask exactly one short structured question through `AskUserQuestion`, then wait for the answer.
-3. If the result is `ready`, call `mcp__cms__apply_cms_binding` in the same turn. Do not reply that the skill is only a template or that a later module is still missing.
-4. When continuing from `ready`, pass the current `targetSelection` as an object instead of a JSON string, the compatibility `targetBlock.selector`, and the supported binding/query props required by the formal tool. For new or rebound CMS tags, always include `source.siteId = selection.siteId`. `templateBody`, `emptyTemplate`, and `errorTemplate` must contain slot inner content only, not an outer `<template v-slot:...>` wrapper or an outer `cms-*` tag. Do not edit workspace files directly.
-   For fixed content ids, always include both `source.catalogId = selection.catalogId` and `source.ids = selection.contentIds`.
-   Treat `targetSnapshot.targetOuterHtml` as the authoritative authoring source snippet for the selected target. Before building the apply payload, inspect the current target block in the workspace source and preserve the existing outer shell, classes, and major layout structure whenever they are still compatible with the selected CMS data.
-   Treat the task as an in-place replacement of the selected target, not as permission to add a new generic list, card grid, or extra wrapper beside the current block.
-   If `targetSelection.kind === cms-island`, preserve its runtime locator exactly as provided. `targetSelection.htmlPath + sourceSelector + parentBlockSelector + component` is the formal source target identity; do not invent, drop, or rewrite those fields, and do not guess a different CMS region from preview descendants.
-   Do not infer `source.pageSize` from the CMS browser pagination state. The browser page size is only for browsing, not a page binding default.
-   For `contents-by-catalog`, omit `source.pageSize` unless the user explicitly requested a count or the current target already has a `page-size` that must be preserved.
-   For `contents-by-ids`, never pass `source.pageSize`.
-   For `catalog-nav`, never pass `source.pageSize`; use `source.take` instead when an explicit catalog count is needed.
+When the result is `ready`, continue in the same turn instead of stopping at an abstract contract summary:
 
-This skill is also the creation boundary for new CMS source tags:
-
-- Only the confirmed CMS browser selection flow may create a new `cms-catalog` / `cms-content` or rebind an existing one.
-- Ordinary page generation or ordinary page iteration must not invent new `cms-*` tags on their own.
-- If the current page already contains CMS tags, ordinary iteration may adjust slot templates, internal structure, and styles, but must not silently change query props such as `site-id`, `catalog-id`, `page-size`, or similar binding fields.
-- During the controlled CMS apply flow, still prefer preserving the current selected block's outer shell, classes, and layout skeleton when the selected CMS data can fit inside that structure.
-- Do not append a sibling `cms-catalog` / `cms-content` next to the selected target and leave the old block behind. The selected target must be replaced in place.
-- If preserving the current structure is not safely compatible with the selected CMS data, return `needs-clarification` and ask one short `AskUserQuestion` instead of inventing a new generic list or card layout.
-
-After the edits are complete:
-
-- summarize what was changed in plain language
-- keep the explanation scoped to the current target block
-- do not claim success before `mcp__cms__apply_cms_binding` actually succeeds
-
-## CMS Authoring Shape
-
-When the request is `ready`, prefer `cms-catalog` / `cms-content` as the source root of the dynamic region instead of leaving the main dynamic shell outside the CMS tag. This skill must stay inside the canonical CMS authoring contract.
-
+- Call `mcp__cms__apply_cms_binding` in the same turn. Do not reply that the skill is only a template, and do not edit workspace files directly.
+- Pass the current `targetSelection` as an object and keep `targetBlock.selector` as the compatibility context.
+- Inspect the current target block in the workspace source. Preserve the existing outer shell, classes, and major layout structure whenever they are still compatible with the selected CMS data.
+- Treat the task as an in-place replacement of the selected target. Do not append a sibling `cms-catalog` / `cms-content` beside the current block.
+- If preserving the current structure is not safely compatible with the selected CMS data, return `needs-clarification` and ask one short `AskUserQuestion` instead of inventing a generic list, card grid, or navigation shell.
+- If `targetSelection.kind === cms-island`, preserve its runtime locator exactly as provided. `targetSelection.htmlPath + sourceSelector + parentBlockSelector + component` is the formal source target identity; keep that tuple unchanged and treat the target as `source-atomic`.
+- For new or rebound CMS tags, always include `source.siteId = selection.siteId`.
+- For fixed content ids, always include both `source.catalogId = selection.catalogId` and `source.ids = selection.contentIds`.
+- Do not infer `source.pageSize` from the CMS browser pagination state. The browser page size is only for browsing, not a page binding default.
+- For `contents-by-catalog`, omit `source.pageSize` unless the user explicitly requested a count or the current target already has a `page-size` that must be preserved.
+- For `contents-by-ids`, never pass `source.pageSize`.
+- For `catalog-nav`, never pass `source.pageSize`; use `source.take` instead when an explicit catalog count is needed.
+- `templateBody`, `emptyTemplate`, and `errorTemplate` must contain slot inner content only, not an outer `<template v-slot:...>` wrapper or an outer `cms-*` tag.
+- Prefer `cms-catalog` / `cms-content` as the source root of the dynamic region, and keep major HTML containers inside the slot.
 - Treat `templateBody`, `emptyTemplate`, and `errorTemplate` as the place for the complete dynamic region structure of each state.
-- Pass slot inner content only in those fields. Do not wrap them again with `<template v-slot:default>`, `<template v-slot:empty>`, `<template v-slot:error>`, or shorthand `#default/#empty/#error`.
-- Keep major HTML containers inside the slot whenever they belong directly to the CMS data.
-- Put structures such as `ul`, `nav`, `section`, `article`, grid wrappers, empty states, and error states inside the relevant slot template instead of only passing item-level fragments.
-- The generated CMS component exposes the unified slot scope `{ items, loading, error, empty }`; template fragments may rely on that scope directly.
-- The slot scope must be declared explicitly as a subset of `{ items, loading, error, empty }`. Do not use alias objects such as `slotProps`.
-- For `cms-catalog`, use only the current contract fields such as `item.path` for links. Do not use legacy or guessed link aliases from older guidance.
-- For `cms-content`, use only the current contract fields such as `item.publishUrl` for links and `item.listLogoUrl` for images.
-- When the rendered CMS region should navigate, prefer semantic links such as `<a :href="item.path">` or `<a :href="item.publishUrl">`. If the whole card should be clickable, wrap the card with the anchor instead of using `@click` plus `window.location`.
-- Do not write raw HTML inline event attributes such as `onclick`, `onerror`, or `onload` inside CMS slot content. CMS slot content must stay in Vue template syntax, and image fallback should use `v-if` / `v-else`, guarded `:src`, or a dedicated placeholder node instead of imperative DOM mutation.
-- Avoid assignment-style event expressions inside `@click`, `@error`, or other Vue event bindings. If the interaction is navigation or fallback rendering, use declarative structure instead of `window.location.href = ...`, `document.querySelector(...)`, or similar DOM scripting.
-- Read `authoringContext.itemFieldMeta` before choosing which fields to render. Prefer fields whose meaning matches the current selected target instead of guessing or falling back across unrelated fields.
-- If `itemFieldMeta` marks a field as optional, guard it before rendering. Typical examples: `item.logoUrl`, `item.listLogoUrl`, and `item.addedAt`.
-- When using `v-for`, always provide a stable `:key`, normally `:key="item.id"`.
-- All slot content must obey Vue template syntax. Do not guess unsupported props, unsupported fields, or ad-hoc template shapes outside the contract.
-- Leave only true page-level static shells outside the CMS component.
+- The generated CMS component exposes the unified slot scope `{ items, loading, error, empty }`; declare the slot scope explicitly as a subset of that shape.
+- Stay inside the canonical authoring contract: use supported fields such as `item.path`, `item.publishUrl`, and `item.listLogoUrl`; guard optional fields from `itemFieldMeta`; and use a stable `:key`, normally `:key="item.id"`.
+- Do not write raw HTML inline event attributes, imperative DOM mutation, or `<script>` / `<style>` inside CMS slot content.
 
-## Clarification Guardrails
+## Clarification Boundary
 
-- Use one short, structured clarification only.
+- Use one short structured clarification only.
 - Ask only when one critical ambiguity blocks a safe decision.
 - Do not re-run CMS browsing through `AskUserQuestion`.
 - Do not ask broad creative questions once the CMS selection is already fixed.
 
-## Apply Guardrails
+## Phase 1A Boundaries
 
-- Keep Phase 1A scoped to the current target selection. For `block`, that means `targetSelection.selector`; for `cms-island`, that means the provided runtime locator.
-- If `targetSelection.kind === 'cms-island'`, treat it as `source-atomic` and replace the whole source CMS tag instead of editing inside rendered child nodes.
-- If `targetSelection.kind === 'cms-island'`, keep `htmlPath`, `sourceSelector`, `parentBlockSelector`, and `component` unchanged and pass them through directly to the formal tool.
-- Still pass the explicit `targetSelection` object whenever the workflow already has it. If it is accidentally omitted and `targetBlock.selector` already points to a `cms-catalog` / `cms-content`, the formal tool will infer `source-atomic` replacement, but that is only a safety net.
-- Before calling `mcp__cms__apply_cms_binding`, inspect the current target block source and reuse the existing shell, classes, and visual skeleton whenever they remain compatible.
-- When building the apply payload, prefer `cms-catalog` / `cms-content` as the source root and keep major HTML containers inside the slot.
-- Do not append a new CMS sibling beside the selected target.
-- If the current target is image-like, hero-like, media-like, or otherwise strongly structured, prefer preserving that structure and binding CMS data into it rather than converting it into a generic list.
-- Newly written or rebound `cms-*` tags must explicitly include `site-id`, and that value must equal `selection.siteId`.
-- Do not handwrite or preserve runtime-only locator attrs such as `data-proma-cms-source-id` or `data-proma-cms-island-*` in authoring HTML. Those attrs belong to preview/runtime only and must not be generated in source templates.
-- If `selection.siteId` is missing, stop with a malformed-payload style error instead of inventing a fallback.
-- `templateBody`, `emptyTemplate`, and `errorTemplate` must not contain `<script>` or `<style>`.
-- Do not infer `source.pageSize` from the CMS browser pagination state.
-- For `contents-by-catalog`, omit `source.pageSize` unless the user explicitly requested a count.
-- For `contents-by-ids`, never pass `source.pageSize`.
-- For `catalog-nav`, never pass `source.pageSize`; use `source.take` instead.
+- Keep Phase 1A scoped to the current target selection.
 - Treat `replace-current` as the only supported strategy.
-- Treat unsupported source-mode / target-kind combinations, alias queries, and other unsupported runtime fields as `incompatible`.
 - Do not propose whole-page rewrites.
 - Do not propose cross-block edits.
+- Only the confirmed CMS browser selection flow may create a new `cms-catalog` / `cms-content` or rebind an existing one.
+- Ordinary page generation or ordinary page iteration must not invent new `cms-*` tags on their own.
+- If the current page already contains CMS tags, ordinary iteration may adjust slot templates, internal structure, and styles, but must not silently change query props such as `site-id`, `catalog-id`, `page-size`, or similar binding fields.
 
 ## References
 

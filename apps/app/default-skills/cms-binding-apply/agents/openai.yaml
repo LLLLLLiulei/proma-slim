@@ -1,4 +1,0 @@
-interface:
-  display_name: "CMS Binding Apply"
-  short_description: "Resolve CMS block apply intent"
-  default_prompt: "Use $cms-binding-apply to decide how a confirmed CMS selection can be applied to the current page-builder block."
