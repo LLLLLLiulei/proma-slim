@@ -21,6 +21,8 @@ If `selection.sourceType = contents-by-ids`, the downstream apply step must also
 
 If `targetSelection.kind = cms-island`, downstream writes must resolve the target by the runtime locator in `targetSelection.htmlPath + sourceSelector + parentBlockSelector + component`. That locator is the formal source identity for the selected CMS source tag.
 When rebuilding slot content, downstream writes must stay inside the canonical authoring contract: explicit slot scope, Vue template syntax, supported props only, supported item fields only, and no `<script>` / `<style>` inside CMS slot templates.
+The write path must keep page-builder authoring HTML-first: only the selected `cms-*` source tag and its slot templates use Vue authoring. The host preview/export pipeline owns Vue runtime and bootstrap injection.
+Downstream writes must reject author-managed Vue runtime/importmap/bootstrap and reject page-wide `createApp` / `mount` solutions instead of treating them as valid CMS apply output.
 Downstream writes must also reject non-Vue inline event authoring such as `onclick`, `onerror`, or assignment-style `@click` expressions that rely on `window.location`, `document.querySelector`, or direct DOM mutation.
 
 The downstream write must fail closed on stale, conflicting, or non-unique locators instead of guessing another block. It must not fall back to legacy `sourceId` or invent selector-based recovery from rendered descendants.

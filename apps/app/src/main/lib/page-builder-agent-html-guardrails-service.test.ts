@@ -85,10 +85,10 @@ describe('page-builder agent html guardrails service', () => {
     })
 
     expect(result.status).toBe('invalid')
-    expect(result.validation.errors).toEqual([
+    expect(result.validation.errors).toEqual(expect.arrayContaining([
       expect.objectContaining({ code: 'DANGEROUS_TAG' }),
       expect.objectContaining({ code: 'UNKNOWN_ITEM_FIELD' }),
-    ])
+    ]))
     expect(readFileSync(entryPath, 'utf-8')).toBe(invalidHtml)
     expect(existsSync(getWorkspaceCmsRenderingManifestPath(workspace.slug))).toBe(false)
   })
@@ -142,5 +142,49 @@ describe('page-builder agent html guardrails service', () => {
     expect(readFileSync(entryPath, 'utf-8')).not.toContain('data-proma-cms-source-id=')
     expect(readFileSync(entryPath, 'utf-8')).not.toContain('data-proma-cms-island-id=')
     expect(existsSync(getWorkspaceCmsRenderingManifestPath(workspace.slug))).toBe(true)
+  })
+
+  test('marks direct agent edits invalid when author-managed Vue runtime assets or bootstrap are introduced', () => {
+    const workspace = createAgentWorkspace('Agent Guardrails Vue Runtime Invalid', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+    const entryPath = join(workspaceFilesDir, 'index.html')
+    const originalHtml = '<!doctype html><html><body><section data-proma-block-id="pb_blk_news"><h1>Safe</h1></section></body></html>'
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(entryPath, originalHtml, 'utf-8')
+
+    const snapshot = capturePageBuilderAgentHtmlSnapshot(workspace)
+
+    const invalidHtml = [
+      '<!doctype html><html><head>',
+      '  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>',
+      '  <script>',
+      '    const app = Vue.createApp({})',
+      '    app.mount("#app")',
+      '  </script>',
+      '</head><body>',
+      '<section data-proma-block-id="pb_blk_news">',
+      '  <cms-content site-id="1" catalog-id="6">',
+      '    <template v-slot:default="{ items }">',
+      '      <ul><li v-for="item in items" :key="item.id"><a :href="item.publishUrl">{{ item.title }}</a></li></ul>',
+      '    </template>',
+      '  </cms-content>',
+      '</section>',
+      '</body></html>',
+    ].join('\n')
+
+    writeFileSync(entryPath, invalidHtml, 'utf-8')
+
+    const result = finalizePageBuilderAgentHtmlGuardrails(workspace, snapshot, {
+      now: () => '2026-04-18T12:00:00.000Z',
+    })
+
+    expect(result.status).toBe('invalid')
+    expect(result.validation.errors.map((diagnostic) => diagnostic.code)).toEqual(expect.arrayContaining([
+      'AUTHOR_MANAGED_VUE_RUNTIME',
+      'AUTHOR_MANAGED_VUE_BOOTSTRAP',
+    ]))
+    expect(readFileSync(entryPath, 'utf-8')).toBe(invalidHtml)
+    expect(existsSync(getWorkspaceCmsRenderingManifestPath(workspace.slug))).toBe(false)
   })
 })

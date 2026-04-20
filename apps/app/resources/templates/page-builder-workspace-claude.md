@@ -25,10 +25,13 @@ This workspace is used to build a previewable webpage inside the current workspa
 
 ## CMS Global Boundaries
 
+- Keep page-builder authoring HTML-first. Treat `cms-catalog` / `cms-content` as host-managed CMS source tags, not as permission to turn the whole page into a Vue app.
+- Vue template syntax belongs only inside the slot authoring of an existing or newly applied `cms-catalog` / `cms-content` source tag. Keep non-CMS page regions in plain HTML/CSS/JS.
 - Treat “this area should use CMS data” without a confirmed selection result as a CMS pre-selection scene, not as permission to handwrite new `cms-*` tags.
 - Only the confirmed CMS selection flow may create a new `cms-catalog` / `cms-content` tag or rebind an existing one.
 - Ordinary page generation and ordinary iteration may refine an existing CMS region only when its current binding query props remain unchanged.
 - When touching an existing CMS region, follow the canonical CMS authoring contract and treat the existing source CMS tag as the authoring boundary instead of editing rendered child nodes one by one.
+- Do not self-manage Vue runtime for CMS rendering. Do not add Vue CDN/importmap/bootstrap assets, and do not use page-wide `createApp` / `mount` to make the whole page a single Vue root.
 
 ## Working Notes
 

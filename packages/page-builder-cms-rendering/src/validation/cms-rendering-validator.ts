@@ -25,6 +25,15 @@ const SLOT_SCOPE_REFERENCE_PATTERN = /(^|[^\w$.])(items|loading|error|empty)\b(?
 const SLOT_SCOPE_ALIAS_REFERENCE_PATTERN = /(^|[^\w$.])([A-Za-z_$][A-Za-z0-9_$]*)\s*\.\s*(items|loading|error|empty)\b/g
 const ITEM_INDEX_ACCESS_PATTERN = /\bitems\s*\[[^\]]+\]\??\.([A-Za-z_][A-Za-z0-9_]*)\b/g
 const INLINE_EVENT_HANDLER_ATTRIBUTE_PATTERN = /^on[a-z]+$/
+const VUE_PACKAGE_SPECIFIER_PATTERN = /^(?:vue|@vue\/.+)$/i
+const VUE_RUNTIME_URL_PATTERN = /(?:^|[/:@._-])vue(?:@[\w.-]+)?(?:[/:._-]|$)|@vue\//i
+const VUE_MODULE_IMPORT_PATTERN = /\bimport(?:["'\s*{},A-Za-z_$\n\r]+from\s*)?["']([^"']+)["']/g
+const VUE_DYNAMIC_IMPORT_PATTERN = /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g
+const VUE_REQUIRE_PATTERN = /\brequire\s*\(\s*["']([^"']+)["']\s*\)/g
+const VUE_CREATE_APP_CALL_PATTERN = /\b(?:Vue|window\.Vue)\.(?:createApp|createSSRApp)\s*\(/i
+const VUE_LOCAL_CREATE_APP_CALL_PATTERN = /\b(?:createApp|createSSRApp)\s*\(/
+const VUE_GLOBAL_DESTRUCTURE_PATTERN = /\b(?:const|let|var)\s*{\s*[^}]*\b(?:createApp|createSSRApp)\b[^}]*}\s*=\s*(?:window\.)?Vue\b/i
+const VUE_GLOBAL_ASSIGNMENT_PATTERN = /\b(?:const|let|var)\s+\w+\s*=\s*(?:window\.)?Vue\.(?:createApp|createSSRApp)\b/i
 
 export type CmsRenderingDiagnosticSeverity = 'error' | 'warning' | 'info'
 
@@ -60,6 +69,8 @@ export function validateCmsRendering(
   const diagnostics: CmsRenderingDiagnostic[] = []
   const topLevelIslands = Array.from(root.querySelectorAll(CMS_ISLAND_SELECTOR)).filter(isTopLevelCmsIsland)
   const topLevelIslandIndexByElement = new Map(topLevelIslands.map((element, index) => [element, index]))
+
+  validateAuthorManagedVueRuntime(root, htmlPath, diagnostics)
 
   for (const element of Array.from(root.querySelectorAll('*'))) {
     if (element.closest(CMS_ISLAND_SELECTOR)) {
@@ -453,6 +464,62 @@ function validateOutsideCmsVueSyntax(
   }))
 }
 
+function validateAuthorManagedVueRuntime(
+  root: ParentNode,
+  htmlPath: string,
+  diagnostics: CmsRenderingDiagnostic[],
+): void {
+  for (const script of Array.from(root.querySelectorAll('script'))) {
+    if (script.closest(CMS_ISLAND_SELECTOR) || script.closest('template')) {
+      continue
+    }
+
+    const type = script.getAttribute('type')?.trim().toLowerCase() ?? ''
+    const src = script.getAttribute('src')?.trim() ?? ''
+    const content = script.textContent ?? ''
+
+    if (src && looksLikeVueRuntimeSource(src)) {
+      diagnostics.push(createDiagnostic({
+        severity: 'error',
+        code: 'AUTHOR_MANAGED_VUE_RUNTIME',
+        message: 'Vue runtime assets/imports are host-managed. Remove author-managed Vue script/importmap/module imports from page-builder author HTML.',
+        element: script,
+        htmlPath,
+      }))
+    }
+
+    if (isImportmapScriptType(type) && importmapMentionsVueRuntime(content)) {
+      diagnostics.push(createDiagnostic({
+        severity: 'error',
+        code: 'AUTHOR_MANAGED_VUE_RUNTIME',
+        message: 'Vue runtime assets/imports are host-managed. Remove author-managed Vue script/importmap/module imports from page-builder author HTML.',
+        element: script,
+        htmlPath,
+      }))
+    }
+
+    if (isModuleScriptType(type) && scriptImportsVueRuntime(content)) {
+      diagnostics.push(createDiagnostic({
+        severity: 'error',
+        code: 'AUTHOR_MANAGED_VUE_RUNTIME',
+        message: 'Vue runtime assets/imports are host-managed. Remove author-managed Vue script/importmap/module imports from page-builder author HTML.',
+        element: script,
+        htmlPath,
+      }))
+    }
+
+    if (scriptBootstrapsVueRuntime(content)) {
+      diagnostics.push(createDiagnostic({
+        severity: 'error',
+        code: 'AUTHOR_MANAGED_VUE_BOOTSTRAP',
+        message: 'Vue bootstrap is host-managed. Remove author-managed createApp/createSSRApp/mount code from page-builder author HTML.',
+        element: script,
+        htmlPath,
+      }))
+    }
+  }
+}
+
 function collectSlotInfo(element: Element): {
   defaultSlot: SlotInfo | null
   emptySlot: SlotInfo | null
@@ -652,6 +719,93 @@ function referencesOptionalItemField(source: string, optionalFields: ReadonlySet
 function normalizeSlotScopeExpression(value: string | null): string | null {
   const normalized = value?.trim()
   return normalized ? normalized : null
+}
+
+function isImportmapScriptType(type: string): boolean {
+  return type === 'importmap' || type.endsWith('+importmap')
+}
+
+function isModuleScriptType(type: string): boolean {
+  return type === 'module'
+}
+
+function looksLikeVueRuntimeSource(source: string): boolean {
+  return VUE_RUNTIME_URL_PATTERN.test(source.trim())
+}
+
+function importmapMentionsVueRuntime(content: string): boolean {
+  const normalized = content.trim()
+  if (!normalized) {
+    return false
+  }
+
+  try {
+    return containsVueRuntimeSpecifier(JSON.parse(normalized))
+  } catch {
+    return VUE_RUNTIME_URL_PATTERN.test(normalized) || /["'](?:vue|@vue\/[^"']+)["']\s*:/.test(normalized)
+  }
+}
+
+function containsVueRuntimeSpecifier(value: unknown): boolean {
+  if (typeof value === 'string') {
+    return isVueModuleSpecifier(value) || looksLikeVueRuntimeSource(value)
+  }
+
+  if (Array.isArray(value)) {
+    return value.some((entry) => containsVueRuntimeSpecifier(entry))
+  }
+
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  return Object.entries(value).some(([key, nestedValue]) =>
+    isVueModuleSpecifier(key)
+    || looksLikeVueRuntimeSource(key)
+    || containsVueRuntimeSpecifier(nestedValue),
+  )
+}
+
+function scriptImportsVueRuntime(content: string): boolean {
+  return containsVueImportSpecifier(content, VUE_MODULE_IMPORT_PATTERN)
+    || containsVueImportSpecifier(content, VUE_DYNAMIC_IMPORT_PATTERN)
+    || containsVueImportSpecifier(content, VUE_REQUIRE_PATTERN)
+}
+
+function containsVueImportSpecifier(content: string, pattern: RegExp): boolean {
+  pattern.lastIndex = 0
+
+  for (const match of content.matchAll(pattern)) {
+    const specifier = match[1]?.trim()
+    if (specifier && isVueModuleSpecifier(specifier)) {
+      return true
+    }
+  }
+
+  return false
+}
+
+function isVueModuleSpecifier(specifier: string): boolean {
+  return VUE_PACKAGE_SPECIFIER_PATTERN.test(specifier.trim())
+}
+
+function scriptBootstrapsVueRuntime(content: string): boolean {
+  const normalized = content.trim()
+  if (!normalized) {
+    return false
+  }
+
+  if (VUE_CREATE_APP_CALL_PATTERN.test(normalized)) {
+    return true
+  }
+
+  if (!VUE_LOCAL_CREATE_APP_CALL_PATTERN.test(normalized)) {
+    return false
+  }
+
+  return scriptImportsVueRuntime(normalized)
+    || VUE_GLOBAL_DESTRUCTURE_PATTERN.test(normalized)
+    || VUE_GLOBAL_ASSIGNMENT_PATTERN.test(normalized)
 }
 
 function resolveDeclaredSlotScopeVariables(scopeExpression: string | null): {

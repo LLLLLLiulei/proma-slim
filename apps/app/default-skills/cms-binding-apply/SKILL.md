@@ -73,6 +73,7 @@ When the result is `ready`, continue in the same turn instead of stopping at an 
 
 - Call `mcp__cms__apply_cms_binding` in the same turn. Do not reply that the skill is only a template, and do not edit workspace files directly.
 - Pass the current `targetSelection` as an object and keep `targetBlock.selector` as the compatibility context.
+- Keep page-builder authoring HTML-first. `cms-catalog` / `cms-content` are host-managed source tags; this flow should author the selected source tag plus its slot templates, not a page-wide Vue app.
 - Inspect the current target block in the workspace source. Preserve the existing outer shell, classes, and major layout structure whenever they are still compatible with the selected CMS data.
 - Treat the task as an in-place replacement of the selected target. Do not append a sibling `cms-catalog` / `cms-content` beside the current block.
 - If preserving the current structure is not safely compatible with the selected CMS data, return `needs-clarification` and ask one short `AskUserQuestion` instead of inventing a generic list, card grid, or navigation shell.
@@ -87,6 +88,8 @@ When the result is `ready`, continue in the same turn instead of stopping at an 
 - Prefer `cms-catalog` / `cms-content` as the source root of the dynamic region, and keep major HTML containers inside the slot.
 - Treat `templateBody`, `emptyTemplate`, and `errorTemplate` as the place for the complete dynamic region structure of each state.
 - The generated CMS component exposes the unified slot scope `{ items, loading, error, empty }`; declare the slot scope explicitly as a subset of that shape.
+- Keep Vue authoring inside the current `cms-*` source tag only. Do not add `v-*`, `@*`, `:` bindings, or `{{ ... }}` to surrounding non-CMS shell HTML.
+- Do not author Vue runtime/importmap/bootstrap assets, and do not use `createApp`, `Vue.createApp`, or page-wide `mount` to make the whole page a single Vue root.
 - Stay inside the canonical authoring contract: use supported fields such as `item.path`, `item.publishUrl`, and `item.listLogoUrl`; guard optional fields from `itemFieldMeta`; and use a stable `:key`, normally `:key="item.id"`.
 - Do not write raw HTML inline event attributes, imperative DOM mutation, or `<script>` / `<style>` inside CMS slot content.
 
@@ -102,6 +105,7 @@ When the result is `ready`, continue in the same turn instead of stopping at an 
 - Keep Phase 1A scoped to the current target selection.
 - Treat `replace-current` as the only supported strategy.
 - Do not propose whole-page rewrites.
+- Do not propose self-managed Vue runtime or page-wide Vue mount as the way to render CMS data.
 - Do not propose cross-block edits.
 - Only the confirmed CMS browser selection flow may create a new `cms-catalog` / `cms-content` or rebind an existing one.
 - Ordinary page generation or ordinary page iteration must not invent new `cms-*` tags on their own.

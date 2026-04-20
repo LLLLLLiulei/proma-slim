@@ -319,6 +319,62 @@ describe('validateCmsRendering', () => {
     ]))
   })
 
+  test('reports blocking errors for author-managed Vue runtime and bootstrap patterns', () => {
+    const result = validateCmsRendering(`
+      <!doctype html>
+      <html>
+        <head>
+          <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+          <script type="importmap">
+            {
+              "imports": {
+                "vue": "https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js"
+              }
+            }
+          </script>
+          <script type="module">
+            import { createApp } from 'vue'
+
+            createApp({
+              data() {
+                return { ready: true }
+              },
+            }).mount('#app')
+          </script>
+        </head>
+        <body>
+          <section data-proma-block-id="pb_blk_news">
+            <cms-content site-id="14" catalog-id="news">
+              <template v-slot:default="{ items }">
+                <article v-for="item in items" :key="item.id">{{ item.title }}</article>
+              </template>
+            </cms-content>
+          </section>
+        </body>
+      </html>
+    `, {
+      htmlPath: 'index.html',
+    })
+
+    expect(result.valid).toBe(false)
+    expect(result.errors.map((diagnostic) => diagnostic.code)).toEqual(expect.arrayContaining([
+      'AUTHOR_MANAGED_VUE_RUNTIME',
+      'AUTHOR_MANAGED_VUE_BOOTSTRAP',
+    ]))
+    expect(result.errors).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        severity: 'error',
+        code: 'AUTHOR_MANAGED_VUE_RUNTIME',
+        htmlPath: 'index.html',
+      }),
+      expect.objectContaining({
+        severity: 'error',
+        code: 'AUTHOR_MANAGED_VUE_BOOTSTRAP',
+        htmlPath: 'index.html',
+      }),
+    ]))
+  })
+
   test('does not flag standard DOM locator attributes as unknown props', () => {
     const result = validateCmsRendering(`
       <!doctype html>

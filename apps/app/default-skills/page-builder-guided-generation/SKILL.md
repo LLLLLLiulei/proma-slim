@@ -140,6 +140,8 @@ For factual content:
 
 Ordinary page generation and ordinary iteration are not allowed to invent new `cms-catalog` / `cms-content` tags. New CMS source tags, or rebinding an existing CMS source tag to different query props, must go through the controlled CMS browser selection flow plus `cms-binding-apply` and `mcp__cms__apply_cms_binding`.
 
+Keep page-builder authoring HTML-first. Existing or newly applied `cms-catalog` / `cms-content` tags are host-managed CMS islands, not a signal to convert the whole page into a Vue app.
+
 If the page already contains CMS tags, ordinary iteration may adjust slot templates, internal structure, and styles inside the existing CMS region, but it must not silently change query props such as `site-id`, `catalog-id`, `ids`, or `page-size`.
 
 When the selected target is already a CMS-driven region, treat the existing `cms-catalog` / `cms-content` source tag as source-atomic. Edit the source CMS region as one unit, not the rendered child nodes one by one, and do not cross into sibling blocks or sibling CMS tags.
@@ -147,9 +149,14 @@ When the selected target is already a CMS-driven region, treat the existing `cms
 When touching an existing CMS region:
 
 - use the canonical CMS authoring contract as the source of truth for supported props, slot scope, item fields, and forbidden structures
+- keep Vue template syntax inside the current CMS source tag's slot templates only
+- keep non-CMS regions in plain HTML/CSS/JS instead of adding `v-*`, `@*`, `:` bindings, or `{{ ... }}`
+- do not self-manage Vue runtime or bootstrap for CMS rendering, and do not use `createApp`, `Vue.createApp`, or page-wide `mount`
 - do not guess link aliases such as `item.link` or `item.url`
 - do not handwrite or preserve runtime-only locator attrs such as `data-proma-cms-source-id` or `data-proma-cms-island-*`
 - if stable authoring information is missing, use one short clarification or stop the CMS rewrite path instead of guessing
+
+If the user wants a non-CMS section to feel more dynamic, solve that with plain HTML/CSS/JS or route the request into the controlled CMS flow. Do not simulate a page-wide Vue solution in ordinary flow.
 
 ## Iteration Rules
 

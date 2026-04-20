@@ -139,6 +139,44 @@ describe('page-builder workspace html service', () => {
     expect(existsSync(join(workspaceFilesDir, '.proma', 'cms-rendering-manifest.json'))).toBe(false)
   })
 
+  test('rejects author-managed Vue importmap and bootstrap before writing html or manifest artifacts', () => {
+    const workspace = createAgentWorkspace('Workspace HTML Vue Runtime', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+    const originalHtml = '<!doctype html><html><body><section id="hero"><h1>Old</h1></section></body></html>'
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(join(workspaceFilesDir, 'index.html'), originalHtml, 'utf-8')
+
+    const service = createPageBuilderWorkspaceHtmlService({
+      now: () => '2026-04-13T00:00:00.000Z',
+    })
+
+    expect(() => service.mutate(workspace, {
+      transform() {
+        return [
+          '<!doctype html><html><head>',
+          '<script type="importmap">{"imports":{"vue":"https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js"}}</script>',
+          '<script type="module">',
+          '  import { createApp } from "vue"',
+          '  createApp({}).mount("#app")',
+          '</script>',
+          '</head><body>',
+          '<section data-proma-block-id="pb_blk_news">',
+          '<cms-content site-id="14" catalog-id="news">',
+          '  <template v-slot:default="{ items }">',
+          '    <article v-for="item in items" :key="item.id">{{ item.title }}</article>',
+          '  </template>',
+          '</cms-content>',
+          '</section>',
+          '</body></html>',
+        ].join('')
+      },
+    })).toThrow(PageBuilderWorkspaceHtmlServiceError)
+
+    expect(readFileSync(join(workspaceFilesDir, 'index.html'), 'utf-8')).toBe(originalHtml)
+    expect(existsSync(join(workspaceFilesDir, '.proma', 'cms-rendering-manifest.json'))).toBe(false)
+  })
+
   test('strips runtime-only cms locator attrs before writing and reports info diagnostics', () => {
     const workspace = createAgentWorkspace('Workspace HTML Sanitization', { template: 'page-builder' })
     const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')

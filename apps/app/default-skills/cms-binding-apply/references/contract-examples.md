@@ -393,6 +393,18 @@ Avoid leaving the original selected block in place and inserting a second CMS-dr
 
 Instead, replace the selected target in place and reuse its shell when compatible.
 
+## Anti-pattern: self-managed Vue runtime or page-wide mount
+
+Do not turn page-builder authoring into a self-managed Vue app just to render CMS data. Vue runtime and bootstrap are host-managed, and Vue authoring belongs only inside the current `cms-*` source tag's slot templates.
+
+```html
+<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+<script>
+  const app = Vue.createApp({})
+  app.mount(document.body)
+</script>
+```
+
 ## Missing selection.siteId is malformed
 
 New or rebound CMS tags may only be produced from the controlled CMS browser selection flow, and that flow must provide `selection.siteId`.
