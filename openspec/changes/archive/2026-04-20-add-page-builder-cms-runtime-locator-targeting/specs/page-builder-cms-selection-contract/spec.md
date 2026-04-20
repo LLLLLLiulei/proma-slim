@@ -1,7 +1,4 @@
-## Purpose
-定义 `page-builder` 中 CMS 选择器如何在目标选择上下文下生成统一的结构化选择结果，供后续绑定模型直接消费。
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: CMS 选择会话必须绑定到明确的目标选择
 系统 SHALL 在打开 CMS 选择器时为当前会话附带明确的目标选择上下文，并 SHALL 将该上下文用于生成确认后的选择结果；该上下文 MUST 统一使用 `targetSelection` 作为主入口，并携带稳定的 `editBoundary` 字段；当当前目标是 `cms-island` 时，该上下文 MUST 保留源 CMS 标签的 runtime locator，包括 `htmlPath`、`sourceSelector`、所属 `parentBlockSelector`、组件类型和 `editBoundary: source-atomic`，而不得将目标退化为单一的 block selector。
@@ -56,47 +53,6 @@
 - **AND** `contents-by-ids` 结果 SHALL 返回按选择顺序排列的 `contentIds`
 - **AND** `contents-by-ids` 结果 SHALL 同时返回单一的 `catalogId`
 - **AND** 系统 SHALL 将栏目或内容对象快照放在 `snapshot` 字段中，而不是要求下游重新查询才能恢复用户刚确认的来源上下文
-
-
-### Requirement: 栏目选择结果必须区分“父栏目下子栏目集合”与“固定栏目集合”
-系统 SHALL 将栏目页签中的确认结果编码为两类不同的栏目来源模式，而不是继续仅根据已选栏目数量输出 single / multiple 固定栏目语义；当用户只是定位到当前栏目而未勾选固定栏目时，系统 MUST 将其解释为“当前栏目下的直接子栏目集合”；当用户勾选一个或多个固定栏目时，系统 MUST 将其解释为固定栏目集合。
-
-#### Scenario: 未勾选固定栏目而确认当前栏目时返回父栏目来源
-- **WHEN** 用户位于栏目页签，当前已选中某个栏目，且没有勾选任何固定栏目
-- **THEN** 系统 SHALL 返回 `selectionKind: catalogs`
-- **AND** 系统 SHALL 返回 `sourceType: catalogs-by-parent`
-- **AND** 系统 SHALL 返回 `selectionMode: children-of-parent`
-- **AND** 系统 SHALL 返回该栏目的 `parentCatalogId`
-- **AND** 系统 SHALL 返回对应的 `snapshot.parentCatalog`
-
-#### Scenario: 勾选一个或多个栏目时返回固定栏目集合来源
-- **WHEN** 用户位于栏目页签，并勾选了一个或多个栏目
-- **THEN** 系统 SHALL 返回 `selectionKind: catalogs`
-- **AND** 系统 SHALL 返回 `sourceType: catalogs-by-ids`
-- **AND** 系统 SHALL 返回 `selectionMode: fixed-items`
-- **AND** 系统 SHALL 返回按用户勾选顺序排列的 `catalogIds`
-- **AND** 系统 SHALL 返回对应的 `snapshot.catalogs`
-
-### Requirement: 内容选择结果必须区分“按当前栏目取内容”与“固定内容集合”
-系统 SHALL 将内容页签中的确认结果同时支持“按当前栏目动态取内容”和“固定内容条目集合”两类来源语义，而不得继续将内容结果限制为固定内容条目集合这一种模式。
-
-#### Scenario: 未勾选固定内容而确认当前栏目时返回按栏目取内容来源
-- **WHEN** 用户位于内容页签，当前已选中某个栏目，且没有勾选任何固定内容条目
-- **THEN** 系统 SHALL 返回 `selectionKind: contents`
-- **AND** 系统 SHALL 返回 `sourceType: contents-by-catalog`
-- **AND** 系统 SHALL 返回 `selectionMode: by-catalog`
-- **AND** 系统 SHALL 返回该栏目的 `catalogId`
-- **AND** 系统 SHALL 返回对应的 `snapshot.catalog`
-
-#### Scenario: 勾选一个或多个固定内容条目时返回 fixed-ids 来源
-- **WHEN** 用户位于内容页签，并勾选了一个或多个固定内容条目
-- **THEN** 系统 SHALL 返回 `selectionKind: contents`
-- **AND** 系统 SHALL 返回 `sourceType: contents-by-ids`
-- **AND** 系统 SHALL 返回 `selectionMode: fixed-items`
-- **AND** 系统 SHALL 要求这些固定内容条目全部来自当前同一个栏目
-- **AND** 系统 SHALL 返回该固定集合所属的单一 `catalogId`
-- **AND** 系统 SHALL 返回按用户勾选顺序排列的 `contentIds`
-- **AND** 系统 SHALL 返回对应的 `snapshot.contents`
 
 ### Requirement: CMS 选择确认结果必须保留稳定的 CMS 目标 identity
 系统 SHALL 在 CMS 选择器确认结果中的 `targetSelection` 里保留与 preview 选区一致的 CMS runtime locator，使后续自动 handoff 与正式写入路径可以围绕同一个 source target 工作。

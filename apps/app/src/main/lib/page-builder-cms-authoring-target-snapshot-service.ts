@@ -6,10 +6,9 @@ import type {
   PageBuilderCmsApplyTargetSnapshot,
   PageBuilderTargetSelection,
 } from '@proma/shared'
+import { PAGE_BUILDER_DEFAULT_HTML_PATH } from '@proma/shared'
 import { getWorkspaceFilesDir } from './config-paths'
-
-const CMS_ISLAND_SELECTOR = 'cms-catalog, cms-content'
-const CMS_SOURCE_ID_ATTRIBUTE = 'data-proma-cms-source-id'
+import { sanitizeRuntimeOnlyCmsAuthoringElementOuterHtml } from './page-builder-cms-authoring-sanitizer'
 
 type PageBuilderCmsAuthoringTargetSnapshotErrorCode =
   | 'entry-missing'
@@ -31,7 +30,10 @@ export function readPageBuilderCmsApplyTargetSnapshot(
   workspace: AgentWorkspace,
   targetSelection: PageBuilderTargetSelection,
 ): PageBuilderCmsApplyTargetSnapshot {
-  const entryPath = join(getWorkspaceFilesDir(workspace.slug), 'index.html')
+  const htmlPath = targetSelection.kind === 'cms-island'
+    ? targetSelection.htmlPath
+    : PAGE_BUILDER_DEFAULT_HTML_PATH
+  const entryPath = join(getWorkspaceFilesDir(workspace.slug), htmlPath)
   if (!existsSync(entryPath)) {
     throw new PageBuilderCmsAuthoringTargetSnapshotError('entry-missing', '预览入口不存在')
   }
@@ -54,12 +56,12 @@ export function readPageBuilderCmsApplyTargetSnapshot(
 
     return {
       kind: 'cms-island',
-      selector: targetSelection.selector,
+      htmlPath: targetSelection.htmlPath,
+      sourceSelector: targetSelection.sourceSelector,
       parentBlockSelector: targetSelection.parentBlockSelector,
-      targetOuterHtml: sourceTarget.outerHTML.trim(),
-      parentBlockOuterHtml: parentBlock.outerHTML.trim(),
+      targetOuterHtml: sanitizeRuntimeOnlyCmsAuthoringElementOuterHtml(sourceTarget),
+      parentBlockOuterHtml: sanitizeRuntimeOnlyCmsAuthoringElementOuterHtml(parentBlock),
       component: targetSelection.component,
-      ...(readCmsSourceId(sourceTarget) ? { sourceId: readCmsSourceId(sourceTarget) } : {}),
     }
   }
 
@@ -84,8 +86,8 @@ export function readPageBuilderCmsApplyTargetSnapshot(
     kind: 'block',
     selector: targetSelection.selector,
     parentBlockSelector: targetSelection.parentBlockSelector,
-    targetOuterHtml: targetElement.outerHTML.trim(),
-    ...(parentBlock === targetElement ? {} : { parentBlockOuterHtml: parentBlock.outerHTML.trim() }),
+    targetOuterHtml: sanitizeRuntimeOnlyCmsAuthoringElementOuterHtml(targetElement),
+    ...(parentBlock === targetElement ? {} : { parentBlockOuterHtml: sanitizeRuntimeOnlyCmsAuthoringElementOuterHtml(parentBlock) }),
   }
 }
 
@@ -93,31 +95,13 @@ function resolveCmsSourceTarget(
   document: Document,
   targetSelection: Extract<PageBuilderTargetSelection, { kind: 'cms-island' }>,
 ): Element {
-  const sourceId = typeof targetSelection.sourceId === 'string' ? targetSelection.sourceId.trim() : ''
-  if (sourceId) {
-    const matches = Array.from(document.querySelectorAll(CMS_ISLAND_SELECTOR))
-      .filter((candidate) => readCmsSourceId(candidate) === sourceId)
-
-    if (matches.length === 0) {
-      throw new PageBuilderCmsAuthoringTargetSnapshotError('target-not-found', '未找到当前 CMS 源标签')
-    }
-
-    if (matches.length > 1) {
-      throw new PageBuilderCmsAuthoringTargetSnapshotError('selector-not-unique', '无法唯一定位当前 CMS 源标签')
-    }
-
-    const matched = matches[0]!
-    const component = resolveCmsComponentName(matched)
-    if (component !== targetSelection.component) {
-      throw new PageBuilderCmsAuthoringTargetSnapshotError('target-mismatch', '当前 CMS 源标签与目标组件类型不一致')
-    }
-
-    return matched
+  if (targetSelection.htmlPath !== PAGE_BUILDER_DEFAULT_HTML_PATH) {
+    throw new PageBuilderCmsAuthoringTargetSnapshotError('target-mismatch', '当前 CMS 目标 htmlPath 不受支持')
   }
 
   const matched = resolveUniqueElement(
     document,
-    targetSelection.selector,
+    targetSelection.sourceSelector,
     '未找到当前 CMS 源标签',
     '无法唯一定位当前 CMS 源标签',
   )
@@ -145,11 +129,6 @@ function resolveUniqueElement(
   }
 
   return matches[0]!
-}
-
-function readCmsSourceId(element: Element): string | undefined {
-  const normalized = element.getAttribute(CMS_SOURCE_ID_ATTRIBUTE)?.trim()
-  return normalized ? normalized : undefined
 }
 
 function resolveCmsComponentName(element: Element): 'cms-catalog' | 'cms-content' | null {

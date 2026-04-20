@@ -58,12 +58,11 @@ function createCmsIslandTargetSelection(
   selector: string,
   parentBlockSelector: string,
   component: 'cms-catalog' | 'cms-content',
-  sourceId?: string,
 ): PageBuilderTargetSelection {
   return {
     kind: 'cms-island',
-    ...(sourceId ? { sourceId } : {}),
-    selector,
+    htmlPath: 'index.html',
+    sourceSelector: selector,
     parentBlockSelector,
     component,
     editBoundary: 'source-atomic',
@@ -294,18 +293,20 @@ async function loadBuilderPage(options: {
       }),
       getPageBuilderCmsTargetSnapshot: options.getPageBuilderCmsTargetSnapshotImpl ?? (async (_workspaceId: string, targetSelection: PageBuilderTargetSelection) => ({
         kind: targetSelection.kind,
-        selector: targetSelection.selector,
         parentBlockSelector: targetSelection.parentBlockSelector,
         targetOuterHtml: targetSelection.kind === 'cms-island'
           ? `<${targetSelection.component}></${targetSelection.component}>`
           : '<section></section>',
         ...(targetSelection.kind === 'cms-island'
           ? {
+              htmlPath: targetSelection.htmlPath,
+              sourceSelector: targetSelection.sourceSelector,
               parentBlockOuterHtml: '<section></section>',
               component: targetSelection.component,
-              ...(targetSelection.sourceId ? { sourceId: targetSelection.sourceId } : {}),
             }
-          : {}),
+          : {
+              selector: targetSelection.selector,
+            }),
       })),
       deletePageBuilderBlock: options.deletePageBuilderBlockImpl ?? (async () => {
         throw new Error('deletePageBuilderBlock 未在测试中模拟')
@@ -1840,7 +1841,8 @@ describe('BuilderPage', () => {
         entryPoint: 'block-toolbar',
         targetSelection: {
           kind: 'cms-island',
-          selector: 'section:nth-of-type(2) > cms-content:nth-of-type(1)',
+          htmlPath: 'index.html',
+          sourceSelector: 'section:nth-of-type(2) > cms-content:nth-of-type(1)',
           parentBlockSelector: '[data-proma-block-id="pb_blk_news"]',
           component: 'cms-content',
           editBoundary: 'source-atomic',
@@ -1856,7 +1858,8 @@ describe('BuilderPage', () => {
     }).messageDecorator?.('继续调整这里') ?? '')).toMatchObject({
       targetSelection: {
         kind: 'cms-island',
-        selector: 'section:nth-of-type(2) > cms-content:nth-of-type(1)',
+        htmlPath: 'index.html',
+        sourceSelector: 'section:nth-of-type(2) > cms-content:nth-of-type(1)',
         parentBlockSelector: '[data-proma-block-id="pb_blk_news"]',
         component: 'cms-content',
         editBoundary: 'source-atomic',

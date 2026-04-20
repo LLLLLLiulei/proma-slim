@@ -247,6 +247,78 @@ describe('validateCmsRendering', () => {
     ]))
   })
 
+  test('reports blocking errors for invalid Vue event expressions inside cms slots', () => {
+    const result = validateCmsRendering(`
+      <!doctype html>
+      <html>
+        <body>
+          <section data-proma-block-id="pb_blk_news">
+            <cms-content site-id="14" catalog-id="news">
+              <template v-slot:default="{ items }">
+                <ul>
+                  <li
+                    v-for="item in items"
+                    :key="item.id"
+                    @click="item.publishUrl && window.location.href=item.publishUrl"
+                  >
+                    {{ item.title }}
+                  </li>
+                </ul>
+              </template>
+            </cms-content>
+          </section>
+        </body>
+      </html>
+    `, {
+      htmlPath: 'index.html',
+    })
+
+    expect(result.valid).toBe(false)
+    expect(result.errors).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        severity: 'error',
+        code: 'INVALID_VUE_TEMPLATE_SYNTAX',
+        component: 'cms-content',
+        blockId: 'pb_blk_news',
+        message: expect.stringContaining('Left hand side of operator'),
+      }),
+    ]))
+  })
+
+  test('reports blocking errors for raw inline html event attributes inside cms slots', () => {
+    const result = validateCmsRendering(`
+      <!doctype html>
+      <html>
+        <body>
+          <section data-proma-block-id="pb_blk_news">
+            <cms-content site-id="14" catalog-id="news">
+              <template v-slot:default="{ items }">
+                <ul>
+                  <li v-for="item in items" :key="item.id">
+                    <img v-if="item.listLogoUrl" :src="item.listLogoUrl" onerror="this.style.display='none'">
+                  </li>
+                </ul>
+              </template>
+            </cms-content>
+          </section>
+        </body>
+      </html>
+    `, {
+      htmlPath: 'index.html',
+    })
+
+    expect(result.valid).toBe(false)
+    expect(result.errors).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        severity: 'error',
+        code: 'INLINE_EVENT_HANDLER_ATTRIBUTE',
+        component: 'cms-content',
+        blockId: 'pb_blk_news',
+        message: expect.stringContaining('onerror'),
+      }),
+    ]))
+  })
+
   test('does not flag standard DOM locator attributes as unknown props', () => {
     const result = validateCmsRendering(`
       <!doctype html>
@@ -488,7 +560,7 @@ describe('validateCmsRendering', () => {
     expect(result.warnings.filter((diagnostic) => diagnostic.code === 'OUTSIDE_SLOT_MAJOR_CONTAINER')).toEqual([])
   })
 
-  test('reports duplicate top-level cms source ids as blocking errors', () => {
+  test('reports runtime-only locator attrs left in authoring html as blocking errors', () => {
     const result = validateCmsRendering(`
       <!doctype html>
       <html>
@@ -501,7 +573,11 @@ describe('validateCmsRendering', () => {
             </cms-catalog>
           </section>
           <section>
-            <cms-content data-proma-cms-source-id="cms-src-dup" catalog-id="news">
+            <cms-content
+              data-proma-cms-island-id="cms-island-news"
+              data-proma-cms-island-source-selector="#news-list > cms-content:nth-of-type(1)"
+              catalog-id="news"
+            >
               <template v-slot:default="{ items }">
                 <section><article v-for="item in items">{{ item.title }}</article></section>
               </template>
@@ -515,7 +591,7 @@ describe('validateCmsRendering', () => {
 
     expect(result.errors).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        code: 'DUPLICATE_SOURCE_ID',
+        code: 'RUNTIME_ONLY_ATTRIBUTE',
         severity: 'error',
       }),
     ]))

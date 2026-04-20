@@ -239,6 +239,45 @@ Use `cms-catalog` / `cms-content` as the source root of the dynamic region, and 
 </cms-content>
 ```
 
+## Event binding guardrails
+
+Keep CMS slot interaction declarative.
+
+- For catalog navigation, use `:href="item.path"`.
+- For content navigation, use `:href="item.publishUrl"`.
+- If the whole visual card should be clickable, wrap the card with the anchor instead of adding `@click` navigation on an outer wrapper.
+- Do not write raw HTML inline event attributes such as `onclick`, `onerror`, or `onload`.
+- Do not use imperative DOM scripting such as `window.location.href = ...`, `document.querySelector(...)`, or `element.style.display = ...` inside CMS slot templates.
+
+Prefer:
+
+```html
+<cms-content site-id="14" catalog-id="news">
+  <template v-slot:default="{ items }">
+    <section class="news-list">
+      <a
+        v-for="item in items"
+        :key="item.id"
+        class="news-card"
+        :href="item.publishUrl"
+      >
+        <img v-if="item.listLogoUrl" :src="item.listLogoUrl" :alt="item.title">
+        <div v-else class="news-card__placeholder">{{ item.title?.charAt(0) || '?' }}</div>
+        <h3>{{ item.title }}</h3>
+      </a>
+    </section>
+  </template>
+</cms-content>
+```
+
+Avoid:
+
+```html
+<li v-for="item in items" :key="item.id" @click="item.publishUrl && window.location.href=item.publishUrl">
+  <img :src="item.listLogoUrl" onerror="this.style.display='none'">
+</li>
+```
+
 ## Item field semantics to respect
 
 - `cms-catalog`
@@ -273,8 +312,8 @@ When calling `mcp__cms__apply_cms_binding`, pass slot inner content in `template
 {
   "targetSelection": {
     "kind": "cms-island",
-    "sourceId": "cms-src-latest-news",
-    "selector": "#latest-news > cms-content:nth-of-type(1)",
+    "htmlPath": "index.html",
+    "sourceSelector": "#latest-news > cms-content:nth-of-type(1)",
     "parentBlockSelector": "#latest-news",
     "component": "cms-content",
     "editBoundary": "source-atomic"
@@ -383,11 +422,11 @@ Use `needs-clarification` only when one short question can unlock a safe decisio
 }
 ```
 
-`targetSelection.sourceId` is the stable source identity when the current CMS region already has one. `targetSelection.selector` still travels with the payload as compatibility context and for legacy pages, but the downstream write path must not use it to guess a different CMS region.
+For `cms-island`, the formal source identity is the runtime locator tuple `htmlPath + sourceSelector + parentBlockSelector + component`. Pass that locator through unchanged; do not invent `sourceId`, do not rewrite the selector from rendered descendants, and do not guess another CMS region.
 
-If an older page still has no `sourceId`, the payload may omit it temporarily and fall back to the exact current selector. That legacy selector fallback is only for the already-selected target and must fail closed on ambiguity instead of widening the edit scope.
+The formal tool may still infer a source-atomic replacement when `targetSelection` is accidentally omitted but `targetBlock.selector` already points to a `cms-*` tag. Treat that only as a safety net, not as the normal contract.
 
-New or rebound CMS writes should preserve an existing `data-proma-cms-source-id` when replacing a CMS source tag, or let the formal apply tool generate one when binding a previously static region. Use `targetSnapshot.targetOuterHtml` as the authoring-source fact for what is currently selected, instead of inferring structure from preview DOM descendants.
+New or rebound CMS writes must not persist `data-proma-cms-source-id` or `data-proma-cms-island-*` into authoring HTML. Use `targetSnapshot.targetOuterHtml` as the authoring-source fact for what is currently selected, instead of inferring structure from preview DOM descendants.
 
 Never place `<script>` or `<style>` inside `templateBody`, `emptyTemplate`, or `errorTemplate`.
 

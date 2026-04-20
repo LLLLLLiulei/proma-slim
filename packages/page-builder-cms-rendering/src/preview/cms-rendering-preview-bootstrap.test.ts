@@ -120,7 +120,7 @@ describe('cms rendering preview bootstrap', () => {
         tagName: child.tagName.toLowerCase(),
         text: child.textContent?.trim() ?? null,
         islandId: child.getAttribute('data-proma-cms-island-id'),
-        sourceId: child.getAttribute('data-proma-cms-island-source-id'),
+        htmlPath: child.getAttribute('data-proma-cms-island-html-path'),
         component: child.getAttribute('data-proma-cms-island-component'),
         sourceSelector: child.getAttribute('data-proma-cms-island-source-selector'),
         parentBlockSelector: child.getAttribute('data-proma-cms-island-parent-block-selector'),
@@ -149,7 +149,7 @@ describe('cms rendering preview bootstrap', () => {
         tagName: string
         text: string | null
         islandId: string | null
-        sourceId: string | null
+        htmlPath: string | null
         component: string | null
         sourceSelector: string | null
         parentBlockSelector: string | null
@@ -167,7 +167,7 @@ describe('cms rendering preview bootstrap', () => {
         tagName: 'li',
         text: '栏目 1',
         islandId: expect.any(String),
-        sourceId: 'cms-src-nav',
+        htmlPath: 'index.html',
         component: 'cms-catalog',
         sourceSelector: 'body > ul:nth-of-type(1) > cms-catalog:nth-of-type(1)',
         parentBlockSelector: 'body > ul:nth-of-type(1) > cms-catalog:nth-of-type(1)',
@@ -177,7 +177,7 @@ describe('cms rendering preview bootstrap', () => {
         tagName: 'li',
         text: '栏目 2',
         islandId: expect.any(String),
-        sourceId: 'cms-src-nav',
+        htmlPath: 'index.html',
         component: 'cms-catalog',
         sourceSelector: 'body > ul:nth-of-type(1) > cms-catalog:nth-of-type(1)',
         parentBlockSelector: 'body > ul:nth-of-type(1) > cms-catalog:nth-of-type(1)',
@@ -263,6 +263,7 @@ describe('cms rendering preview bootstrap', () => {
 
       const firstRoot = document.querySelector('.nav-list')
       console.log(JSON.stringify({
+        htmlPath: firstRoot?.getAttribute('data-proma-cms-island-html-path') ?? null,
         sourceSelector: firstRoot?.getAttribute('data-proma-cms-island-source-selector') ?? null,
         parentBlockSelector: firstRoot?.getAttribute('data-proma-cms-island-parent-block-selector') ?? null,
       }))
@@ -274,11 +275,13 @@ describe('cms rendering preview bootstrap', () => {
     }).trim()
 
     const result = JSON.parse(stdout) as {
+      htmlPath: string | null
       sourceSelector: string | null
       parentBlockSelector: string | null
     }
 
     expect(result).toEqual({
+      htmlPath: 'index.html',
       sourceSelector: 'body > section:nth-of-type(1) > cms-catalog:nth-of-type(1)',
       parentBlockSelector: 'body > section:nth-of-type(1)',
     })

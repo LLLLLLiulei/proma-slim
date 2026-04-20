@@ -87,7 +87,7 @@ export interface PageBuilderCmsSelectionRequestContext {
   targetBlock: PageBuilderCmsSelectionTargetBlock
 }
 
-export const PAGE_BUILDER_CMS_SELECTION_RESULT_VERSION = 5
+export const PAGE_BUILDER_CMS_SELECTION_RESULT_VERSION = 6
 
 interface PageBuilderCmsSelectionResultBase {
   version: typeof PAGE_BUILDER_CMS_SELECTION_RESULT_VERSION

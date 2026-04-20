@@ -138,4 +138,57 @@ describe('page-builder workspace html service', () => {
     expect(readFileSync(join(workspaceFilesDir, 'index.html'), 'utf-8')).toBe(originalHtml)
     expect(existsSync(join(workspaceFilesDir, '.proma', 'cms-rendering-manifest.json'))).toBe(false)
   })
+
+  test('strips runtime-only cms locator attrs before writing and reports info diagnostics', () => {
+    const workspace = createAgentWorkspace('Workspace HTML Sanitization', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+    const entryPath = join(workspaceFilesDir, 'index.html')
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(
+      entryPath,
+      '<!doctype html><html><body><section id="hero"><h1>Old</h1></section></body></html>',
+      'utf-8',
+    )
+
+    const service = createPageBuilderWorkspaceHtmlService({
+      now: () => '2026-04-13T00:00:00.000Z',
+    })
+
+    const result = service.mutate(workspace, {
+      transform() {
+        return [
+          '<!doctype html><html><body>',
+          '<section data-proma-block-id="pb_blk_news">',
+          '  <cms-content',
+          '    data-proma-cms-source-id="cms-src-news"',
+          '    data-proma-cms-island-id="cms-island-news"',
+          '    data-proma-cms-island-html-path="index.html"',
+          '    data-proma-cms-island-source-selector="#news > cms-content:nth-of-type(1)"',
+          '    site-id="14"',
+          '    catalog-id="news"',
+          '  >',
+          '    <template v-slot:default="{ items }"><article v-for="item in items" :key="item.id">{{ item.title }}</article></template>',
+          '  </cms-content>',
+          '</section>',
+          '</body></html>',
+        ].join('\n')
+      },
+    })
+
+    const writtenHtml = readFileSync(entryPath, 'utf-8')
+    expect(writtenHtml).toContain('<cms-content')
+    expect(writtenHtml).not.toContain('data-proma-cms-source-id=')
+    expect(writtenHtml).not.toContain('data-proma-cms-island-id=')
+    expect(writtenHtml).not.toContain('data-proma-cms-island-html-path=')
+    expect(result.validation.infos).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        severity: 'info',
+        code: 'RUNTIME_ONLY_ATTRIBUTE_STRIPPED',
+        htmlPath: 'index.html',
+        blockId: 'pb_blk_news',
+      }),
+    ]))
+    expect(result.validation.errors).toHaveLength(0)
+  })
 })

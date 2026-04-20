@@ -304,7 +304,9 @@ export function createOverlayRuntime({
     syncOverlays()
     postToParent({
       type: 'hover',
-      selector: nextTarget?.targetSelection.selector ?? null,
+      selector: nextTarget ? (nextTarget.targetSelection.kind === 'cms-island'
+        ? nextTarget.targetSelection.sourceSelector
+        : nextTarget.targetSelection.selector) : null,
       targetSelection: nextTarget?.targetSelection ?? null,
     })
   }

@@ -48,33 +48,28 @@ describe('page-builder block deletion service', () => {
     expect(updated).not.toContain('<cms-content')
   })
 
-  test('prefers cms sourceId for deletion when the source selector is stale', () => {
+  test('fails closed when a cms-island runtime locator becomes stale', () => {
     const html = [
       '<!doctype html><html><body>',
       '<section id="hero" data-proma-block-id="pb_blk_hero">',
       '<h2>栏目</h2>',
-      '<cms-content data-proma-cms-source-id="cms-src-news" catalog-id="news"></cms-content>',
+      '<cms-content catalog-id="news"></cms-content>',
       '<p>保留内容</p>',
       '</section>',
       '</body></html>',
     ].join('')
 
-    const updated = applyPageBuilderBlockDeletion(html, {
+    expect(() => applyPageBuilderBlockDeletion(html, {
       selector: '#stale-selector',
       targetSelection: {
         kind: 'cms-island',
-        sourceId: 'cms-src-news',
-        selector: '#stale-selector',
+        htmlPath: 'index.html',
+        sourceSelector: '#stale-selector',
         parentBlockSelector: '#hero',
         component: 'cms-content',
         editBoundary: 'source-atomic',
       },
-    })
-
-    expect(updated).toContain('<h2>栏目</h2>')
-    expect(updated).toContain('<p>保留内容</p>')
-    expect(updated).not.toContain('cms-src-news')
-    expect(updated).not.toContain('<cms-content')
+    })).toThrow('未找到要删除的区块')
   })
 
   test('savePageBuilderBlockDeletion returns preview metadata recomputed from the latest html', () => {

@@ -18,10 +18,11 @@ If `selection.siteId` is missing, the flow must stop and report a malformed payl
 
 If `selection.sourceType = contents-by-ids`, the downstream apply step must also preserve the single `selection.catalogId`; do not generate a fixed-content `cms-content` tag with bare `ids` only.
 
-If `targetSelection.kind = cms-island` and `targetSelection.sourceId` is present, downstream writes must resolve the target by `sourceId` first. `targetSelection.selector` remains compatibility context and a legacy fallback only when `sourceId` is absent.
+If `targetSelection.kind = cms-island`, downstream writes must resolve the target by the runtime locator in `targetSelection.htmlPath + sourceSelector + parentBlockSelector + component`. That locator is the formal source identity for the selected CMS source tag.
 When rebuilding slot content, downstream writes must stay inside the canonical authoring contract: explicit slot scope, Vue template syntax, supported props only, supported item fields only, and no `<script>` / `<style>` inside CMS slot templates.
+Downstream writes must also reject non-Vue inline event authoring such as `onclick`, `onerror`, or assignment-style `@click` expressions that rely on `window.location`, `document.querySelector`, or direct DOM mutation.
 
-If a legacy page still has no `sourceId`, selector fallback must stay fail-closed: the downstream write may target only the already-selected CMS source tag and must stop on stale, conflicting, or non-unique matches instead of guessing another block.
+The downstream write must fail closed on stale, conflicting, or non-unique locators instead of guessing another block. It must not fall back to legacy `sourceId` or invent selector-based recovery from rendered descendants.
 
 ## Phase 1A boundary
 

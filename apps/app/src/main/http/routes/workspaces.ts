@@ -318,8 +318,12 @@ function readPageBuilderTargetSelection(value: unknown): PageBuilderTargetSelect
   }
 
   if (selection.kind === 'cms-island') {
-    if (typeof selection.selector !== 'string' || !selection.selector.trim()) {
-      throw new HttpError(400, 'targetSelection.selector 不能为空')
+    if (typeof selection.htmlPath !== 'string' || !selection.htmlPath.trim()) {
+      throw new HttpError(400, 'targetSelection.htmlPath 不能为空')
+    }
+
+    if (typeof selection.sourceSelector !== 'string' || !selection.sourceSelector.trim()) {
+      throw new HttpError(400, 'targetSelection.sourceSelector 不能为空')
     }
 
     if (typeof selection.parentBlockSelector !== 'string' || !selection.parentBlockSelector.trim()) {
@@ -334,15 +338,11 @@ function readPageBuilderTargetSelection(value: unknown): PageBuilderTargetSelect
       throw new HttpError(400, 'targetSelection.editBoundary 不合法')
     }
 
-    if (selection.sourceId !== undefined && (typeof selection.sourceId !== 'string' || !selection.sourceId.trim())) {
-      throw new HttpError(400, 'targetSelection.sourceId 不合法')
-    }
-
     return {
       kind: 'cms-island',
-      selector: selection.selector,
+      htmlPath: selection.htmlPath.trim(),
+      sourceSelector: selection.sourceSelector.trim(),
       parentBlockSelector: selection.parentBlockSelector,
-      ...(typeof selection.sourceId === 'string' ? { sourceId: selection.sourceId.trim() } : {}),
       component: selection.component,
       editBoundary: 'source-atomic',
     }

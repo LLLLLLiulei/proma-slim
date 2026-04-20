@@ -586,7 +586,7 @@ test('page-builder preview bridge promotes cms-island descendants into one sourc
           <ul>
               <li
                 data-proma-cms-island-id="cms-island-1"
-                data-proma-cms-island-source-id="cms-src-nav"
+                data-proma-cms-island-html-path="index.html"
                 data-proma-cms-island-component="cms-catalog"
                 data-proma-cms-island-source-selector="body > section:nth-of-type(1) > ul:nth-of-type(1) > cms-catalog:nth-of-type(1)"
                 data-proma-cms-island-parent-block-selector="body > section:nth-of-type(1)"
@@ -596,7 +596,7 @@ test('page-builder preview bridge promotes cms-island descendants into one sourc
             </li>
               <li
                 data-proma-cms-island-id="cms-island-1"
-                data-proma-cms-island-source-id="cms-src-nav"
+                data-proma-cms-island-html-path="index.html"
                 data-proma-cms-island-component="cms-catalog"
                 data-proma-cms-island-source-selector="body > section:nth-of-type(1) > ul:nth-of-type(1) > cms-catalog:nth-of-type(1)"
                 data-proma-cms-island-parent-block-selector="body > section:nth-of-type(1)"
@@ -711,7 +711,8 @@ test('page-builder preview bridge promotes cms-island descendants into one sourc
     selector: string
     targetSelection: {
       kind: string
-      selector: string
+      htmlPath?: string
+      sourceSelector?: string
       parentBlockSelector: string
       component?: string
       editBoundary: string
@@ -730,8 +731,8 @@ test('page-builder preview bridge promotes cms-island descendants into one sourc
     selector: 'body > section:nth-of-type(1) > ul:nth-of-type(1) > cms-catalog:nth-of-type(1)',
     targetSelection: {
       kind: 'cms-island',
-      sourceId: 'cms-src-nav',
-      selector: 'body > section:nth-of-type(1) > ul:nth-of-type(1) > cms-catalog:nth-of-type(1)',
+      htmlPath: 'index.html',
+      sourceSelector: 'body > section:nth-of-type(1) > ul:nth-of-type(1) > cms-catalog:nth-of-type(1)',
       parentBlockSelector: 'body > section:nth-of-type(1)',
       component: 'cms-catalog',
       editBoundary: 'source-atomic',
@@ -777,6 +778,7 @@ test('page-builder preview bridge auto-highlights cms islands when selection mod
             <ul>
               <li
                 data-proma-cms-island-id="cms-island-catalog"
+                data-proma-cms-island-html-path="index.html"
                 data-proma-cms-island-component="cms-catalog"
                 data-proma-cms-island-source-selector="body > main:nth-of-type(1) > cms-catalog:nth-of-type(1)"
                 data-proma-cms-island-parent-block-selector="body > main:nth-of-type(1) > section:nth-of-type(1)"
@@ -786,6 +788,7 @@ test('page-builder preview bridge auto-highlights cms islands when selection mod
               </li>
               <li
                 data-proma-cms-island-id="cms-island-catalog"
+                data-proma-cms-island-html-path="index.html"
                 data-proma-cms-island-component="cms-catalog"
                 data-proma-cms-island-source-selector="body > main:nth-of-type(1) > cms-catalog:nth-of-type(1)"
                 data-proma-cms-island-parent-block-selector="body > main:nth-of-type(1) > section:nth-of-type(1)"
@@ -798,6 +801,7 @@ test('page-builder preview bridge auto-highlights cms islands when selection mod
           <section id="content-list">
             <article
               data-proma-cms-island-id="cms-island-content"
+              data-proma-cms-island-html-path="index.html"
               data-proma-cms-island-component="cms-content"
               data-proma-cms-island-source-selector="body > main:nth-of-type(1) > cms-content:nth-of-type(1)"
               data-proma-cms-island-parent-block-selector="body > main:nth-of-type(1) > section:nth-of-type(2)"
@@ -922,6 +926,7 @@ test('page-builder preview bridge keeps cms island passive outlines disabled by 
         <main>
           <article
             data-proma-cms-island-id="cms-island-content"
+            data-proma-cms-island-html-path="index.html"
             data-proma-cms-island-component="cms-content"
             data-proma-cms-island-source-selector="body > main:nth-of-type(1) > cms-content:nth-of-type(1)"
             data-proma-cms-island-parent-block-selector="body > main:nth-of-type(1)"
@@ -1014,6 +1019,7 @@ test('page-builder preview bridge selects cms islands by default while passive o
           <ul>
             <li
               data-proma-cms-island-id="cms-island-1"
+              data-proma-cms-island-html-path="index.html"
               data-proma-cms-island-component="cms-catalog"
               data-proma-cms-island-source-selector="body > section:nth-of-type(1) > ul:nth-of-type(1) > cms-catalog:nth-of-type(1)"
               data-proma-cms-island-parent-block-selector="body > section:nth-of-type(1)"
@@ -1114,7 +1120,8 @@ test('page-builder preview bridge selects cms islands by default while passive o
     selector: string
     targetSelection: {
       kind: string
-      selector: string
+      htmlPath?: string
+      sourceSelector?: string
       parentBlockSelector: string
       component?: string
       editBoundary: string
@@ -1128,7 +1135,8 @@ test('page-builder preview bridge selects cms islands by default while passive o
     selector: 'body > section:nth-of-type(1) > ul:nth-of-type(1) > cms-catalog:nth-of-type(1)',
     targetSelection: {
       kind: 'cms-island',
-      selector: 'body > section:nth-of-type(1) > ul:nth-of-type(1) > cms-catalog:nth-of-type(1)',
+      htmlPath: 'index.html',
+      sourceSelector: 'body > section:nth-of-type(1) > ul:nth-of-type(1) > cms-catalog:nth-of-type(1)',
       parentBlockSelector: 'body > section:nth-of-type(1)',
       component: 'cms-catalog',
       editBoundary: 'source-atomic',
@@ -1152,18 +1160,20 @@ test('page-builder preview bridge treats cms-rendered container clicks as cms-is
             <ul id="catalog-list">
               <li
                 data-proma-cms-island-id="cms-island-1"
+                data-proma-cms-island-html-path="index.html"
                 data-proma-cms-island-component="cms-catalog"
                 data-proma-cms-island-source-selector="body > section:nth-of-type(1) > div:nth-of-type(1) > ul:nth-of-type(1) > cms-catalog:nth-of-type(1)"
-                data-proma-cms-island-parent-block-selector="body > section:nth-of-type(1) > div:nth-of-type(1) > ul:nth-of-type(1) > cms-catalog:nth-of-type(1)"
+                data-proma-cms-island-parent-block-selector="body > section:nth-of-type(1) > div:nth-of-type(1)"
                 data-proma-cms-island-edit-boundary="source-atomic"
               >
                 <a>栏目一</a>
               </li>
               <li
                 data-proma-cms-island-id="cms-island-1"
+                data-proma-cms-island-html-path="index.html"
                 data-proma-cms-island-component="cms-catalog"
                 data-proma-cms-island-source-selector="body > section:nth-of-type(1) > div:nth-of-type(1) > ul:nth-of-type(1) > cms-catalog:nth-of-type(1)"
-                data-proma-cms-island-parent-block-selector="body > section:nth-of-type(1) > div:nth-of-type(1) > ul:nth-of-type(1) > cms-catalog:nth-of-type(1)"
+                data-proma-cms-island-parent-block-selector="body > section:nth-of-type(1) > div:nth-of-type(1)"
                 data-proma-cms-island-edit-boundary="source-atomic"
               >
                 <a>栏目二</a>
@@ -1280,7 +1290,8 @@ test('page-builder preview bridge treats cms-rendered container clicks as cms-is
     selector: string
     targetSelection: {
       kind: string
-      selector: string
+      htmlPath?: string
+      sourceSelector?: string
       parentBlockSelector: string
       component?: string
       editBoundary: string
@@ -1291,8 +1302,9 @@ test('page-builder preview bridge treats cms-rendered container clicks as cms-is
     selector: 'body > section:nth-of-type(1) > div:nth-of-type(1) > ul:nth-of-type(1) > cms-catalog:nth-of-type(1)',
     targetSelection: {
       kind: 'cms-island',
-      selector: 'body > section:nth-of-type(1) > div:nth-of-type(1) > ul:nth-of-type(1) > cms-catalog:nth-of-type(1)',
-      parentBlockSelector: 'body > section:nth-of-type(1) > div:nth-of-type(1) > ul:nth-of-type(1) > cms-catalog:nth-of-type(1)',
+      htmlPath: 'index.html',
+      sourceSelector: 'body > section:nth-of-type(1) > div:nth-of-type(1) > ul:nth-of-type(1) > cms-catalog:nth-of-type(1)',
+      parentBlockSelector: 'body > section:nth-of-type(1) > div:nth-of-type(1)',
       component: 'cms-catalog',
       editBoundary: 'source-atomic',
     },

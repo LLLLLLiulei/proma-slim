@@ -47,7 +47,7 @@ describe('page-builder CMS auto handoff payloads', () => {
       targetOuterHtml: '<section id="hero-banner"><h1>Hero</h1></section>',
     }
     const selection: PageBuilderCmsSelectionResult = {
-      version: 5,
+      version: 6,
       siteId: '14',
       targetSelection: {
         kind: 'block',
@@ -69,7 +69,7 @@ describe('page-builder CMS auto handoff payloads', () => {
     }
 
     expect(buildPageBuilderCmsApplySkillInput(selection, { targetSnapshot })).toEqual({
-      version: 6,
+      version: 7,
       entryPoint: 'cms-browser-confirm',
       applyIntent: 'replace-current',
       workspacePolicy: {
@@ -110,20 +110,20 @@ describe('page-builder CMS auto handoff payloads', () => {
   test('creates a programmatic handoff request that carries hidden structured payload and forced skill mention', () => {
     const targetSnapshot = {
       kind: 'cms-island' as const,
-      selector: 'section:nth-of-type(1) > cms-content:nth-of-type(1)',
+      htmlPath: 'index.html',
+      sourceSelector: 'section:nth-of-type(1) > cms-content:nth-of-type(1)',
       parentBlockSelector: '[data-proma-block-id="pb_blk_news"]',
-      targetOuterHtml: '<cms-content data-proma-cms-source-id="cms-src-news" site-id="14" catalog-id="news"></cms-content>',
-      parentBlockOuterHtml: '<section data-proma-block-id="pb_blk_news"><cms-content data-proma-cms-source-id="cms-src-news" site-id="14" catalog-id="news"></cms-content></section>',
+      targetOuterHtml: '<cms-content site-id="14" catalog-id="news"></cms-content>',
+      parentBlockOuterHtml: '<section data-proma-block-id="pb_blk_news"><cms-content site-id="14" catalog-id="news"></cms-content></section>',
       component: 'cms-content' as const,
-      sourceId: 'cms-src-news',
     }
     const selection: PageBuilderCmsSelectionResult = {
-      version: 5,
+      version: 6,
       siteId: '14',
       targetSelection: {
         kind: 'cms-island',
-        sourceId: 'cms-src-news',
-        selector: 'section:nth-of-type(1) > cms-content:nth-of-type(1)',
+        htmlPath: 'index.html',
+        sourceSelector: 'section:nth-of-type(1) > cms-content:nth-of-type(1)',
         parentBlockSelector: '[data-proma-block-id="pb_blk_news"]',
         component: 'cms-content',
         editBoundary: 'source-atomic',
@@ -179,7 +179,7 @@ describe('page-builder CMS auto handoff payloads', () => {
     expect(request.composedUserMessage).toContain('如果当前目标结构与所选 CMS 数据无法安全兼容，先通过 AskUserQuestion 发起一个简短澄清，而不是擅自改造成新的通用列表或图文卡片。')
     expect(request.composedUserMessage).toContain('不要在 cms-* 组件的 default / empty / error slot 中写入 <script> 或 <style>。')
     expect(extractSkillInputFromComposedMessage(request.composedUserMessage)).toEqual({
-      version: 6,
+      version: 7,
       entryPoint: 'cms-browser-confirm',
       applyIntent: 'replace-current',
       workspacePolicy: {
@@ -190,8 +190,8 @@ describe('page-builder CMS auto handoff payloads', () => {
       },
       targetSelection: {
         kind: 'cms-island',
-        sourceId: 'cms-src-news',
-        selector: 'section:nth-of-type(1) > cms-content:nth-of-type(1)',
+        htmlPath: 'index.html',
+        sourceSelector: 'section:nth-of-type(1) > cms-content:nth-of-type(1)',
         parentBlockSelector: '[data-proma-block-id="pb_blk_news"]',
         component: 'cms-content',
         editBoundary: 'source-atomic',
@@ -221,7 +221,7 @@ describe('page-builder CMS auto handoff payloads', () => {
 
   test('rejects malformed selections that omit siteId before building the handoff payload', () => {
     const selection = {
-      version: 5,
+      version: 6,
       targetSelection: {
         kind: 'block',
         selector: '#hero-banner',

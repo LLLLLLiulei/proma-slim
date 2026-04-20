@@ -98,6 +98,12 @@ function resolvePreviewTargetSelection(
   return createPageBuilderBlockTargetSelection(message.selector)
 }
 
+function resolveTargetSelectionSelector(targetSelection: PageBuilderTargetSelection): string {
+  return targetSelection.kind === 'cms-island'
+    ? targetSelection.sourceSelector
+    : targetSelection.selector
+}
+
 function resolveEmbeddedPreviewUrl(previewUrl: string): string {
   const baseOrigin = typeof window === 'undefined' || !window.location?.origin
     ? 'http://localhost'
@@ -209,12 +215,12 @@ export function PreviewPane({
         setSelectedAnchor({
           imageTargetDescriptor: replaceImageTargetDescriptor,
           rect: event.data.rect,
-          selector: targetSelection.selector,
+          selector: resolveTargetSelectionSelector(targetSelection),
           targetSelection,
         })
         onSelectionEvent?.({
           type: 'selected',
-          selector: targetSelection.selector,
+          selector: resolveTargetSelectionSelector(targetSelection),
           targetSelection,
         })
         return

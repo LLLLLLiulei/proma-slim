@@ -258,9 +258,9 @@ describe('renderer api wrappers', () => {
   test('getPageBuilderCmsTargetSnapshot posts the target selection to the workspace snapshot endpoint', async () => {
     const targetSelection: PageBuilderTargetSelection = {
       kind: 'cms-island',
-      selector: '#latest-news > cms-content:nth-of-type(1)',
+      htmlPath: 'index.html',
+      sourceSelector: '#latest-news > cms-content:nth-of-type(1)',
       parentBlockSelector: '#latest-news',
-      sourceId: 'cms-src-news',
       component: 'cms-content',
       editBoundary: 'source-atomic',
     }
@@ -271,12 +271,12 @@ describe('renderer api wrappers', () => {
       expect(JSON.parse(String(init?.body))).toEqual({ targetSelection })
       return jsonResponse({
         kind: 'cms-island',
-        selector: targetSelection.selector,
+        htmlPath: targetSelection.htmlPath,
+        sourceSelector: targetSelection.sourceSelector,
         parentBlockSelector: targetSelection.parentBlockSelector,
-        targetOuterHtml: '<cms-content data-proma-cms-source-id="cms-src-news"></cms-content>',
+        targetOuterHtml: '<cms-content site-id="14" catalog-id="news"></cms-content>',
         parentBlockOuterHtml: '<section id="latest-news"></section>',
         component: 'cms-content',
-        sourceId: 'cms-src-news',
       })
     })
     globalThis.fetch = fetchMock as unknown as typeof fetch
@@ -284,7 +284,7 @@ describe('renderer api wrappers', () => {
     const { api } = await import('./api')
     const snapshot = await api.getPageBuilderCmsTargetSnapshot('workspace-1', targetSelection)
 
-    expect(snapshot.targetOuterHtml).toContain('cms-src-news')
+    expect(snapshot.targetOuterHtml).toContain('catalog-id="news"')
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 

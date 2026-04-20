@@ -44,6 +44,24 @@
 - **THEN** 浏览器端 bootstrap SHALL 仅将最外层 `cms-*` 识别为独立 island
 - **AND** 系统 SHALL NOT 为内层嵌套 `cms-*` 再单独创建第二个独立 app
 
+### Requirement: 浏览器 preview bootstrap 必须为 CMS 渲染根节点注入 runtime locator 元数据
+系统 SHALL 在浏览器端为每个顶层 `cms-catalog` / `cms-content` island 从当前作者态源标签推导 runtime locator，并 SHALL 只在该 island 渲染结果的顶层根节点上注入该 locator 元数据，而不得把这些内部定位字段写回作者态源码。
+
+#### Scenario: 单个 CMS island 的多个渲染根节点共享同一 locator 元数据
+- **WHEN** 某个顶层 `cms-catalog` 或 `cms-content` 在 preview 中渲染出多个顶层根节点
+- **THEN** 系统 SHALL 为这些根节点注入同一组 `sourceSelector`、`parentBlockSelector`、`component` 与 `htmlPath`
+- **AND** 系统 SHALL 允许前端 runtime 为该组根节点派生共享的 `islandKey`
+
+#### Scenario: runtime locator 从源标签推导而不是镜像作者态 sourceId
+- **WHEN** 某个顶层 `cms-catalog` 或 `cms-content` 完成 preview 挂载
+- **THEN** 系统 SHALL 基于当前源 CMS 标签和其 parent block 推导 runtime locator
+- **AND** 系统 SHALL NOT 以作者态 `data-proma-cms-source-id` 作为 preview root 的正式 identity 来源
+
+#### Scenario: preview 注解不得改写作者态源码
+- **WHEN** 某个页面包含顶层 `cms-*` islands 并完成 preview 注解
+- **THEN** 系统 SHALL 仅在 preview 响应注入的运行时 DOM 中暴露 locator 元数据
+- **AND** 系统 SHALL NOT 将这些 runtime locator attrs 写回 `workspace-files/index.html`
+
 ### Requirement: CMS rendering preview 必须通过宿主管理的本地资产和 CMS 代理接口运行
 系统 SHALL 通过宿主 page-builder 路由交付 CMS rendering preview 所需的脚本资产，并使浏览器端 island 取数通过现有 `/api/page-builder/cms/*` 代理接口或其等价宿主管理读取路径完成，而不是直接依赖第三方 CDN 或绕过宿主管理的 CMS 访问路径；当 island 使用 fixed-ids 来源时，preview MUST 走精确取数路径，而不得退化为全量加载后本地过滤。
 

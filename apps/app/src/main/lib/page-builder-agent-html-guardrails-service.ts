@@ -9,6 +9,10 @@ import {
 } from '@proma/page-builder-cms-rendering'
 import { getWorkspaceCmsRenderingManifestPath, getWorkspaceFilesDir } from './config-paths'
 import { getWorkspacePreviewState, type WorkspacePreviewState } from './workspace-preview-service'
+import {
+  mergeCmsRenderingSanitizationDiagnostics,
+  sanitizeRuntimeOnlyCmsAuthoringHtml,
+} from './page-builder-cms-authoring-sanitizer'
 
 const PAGE_BUILDER_ENTRY_FILE = 'index.html'
 
@@ -52,6 +56,9 @@ export function finalizePageBuilderAgentHtmlGuardrails(
   const manifestPath = getWorkspaceCmsRenderingManifestPath(workspace.slug)
   const entryExists = existsSync(entryPath)
   const currentManifestRaw = existsSync(manifestPath) ? readFileSync(manifestPath, 'utf-8') : null
+  const sanitizedSnapshotHtml = snapshot.entryHtml === null
+    ? null
+    : sanitizeRuntimeOnlyCmsAuthoringHtml(snapshot.entryHtml, PAGE_BUILDER_ENTRY_FILE).html
 
   if (!entryExists) {
     if (!snapshot.entryExists && currentManifestRaw === snapshot.manifestRaw) {
@@ -71,8 +78,14 @@ export function finalizePageBuilderAgentHtmlGuardrails(
     }
   }
 
-  const currentHtml = readFileSync(entryPath, 'utf-8')
-  const htmlChanged = currentHtml !== snapshot.entryHtml
+  const currentHtmlRaw = readFileSync(entryPath, 'utf-8')
+  const sanitization = sanitizeRuntimeOnlyCmsAuthoringHtml(currentHtmlRaw, PAGE_BUILDER_ENTRY_FILE)
+  const currentHtml = sanitization.html
+  if (currentHtml !== currentHtmlRaw) {
+    writeFileSync(entryPath, currentHtml, 'utf-8')
+  }
+
+  const htmlChanged = currentHtml !== sanitizedSnapshotHtml
   const manifestChanged = currentManifestRaw !== snapshot.manifestRaw
 
   if (!htmlChanged && !manifestChanged) {
@@ -80,9 +93,12 @@ export function finalizePageBuilderAgentHtmlGuardrails(
       htmlPath: PAGE_BUILDER_ENTRY_FILE,
       generatedAt: now(),
     })
-    const validation = validateCmsRendering(currentHtml, {
-      htmlPath: PAGE_BUILDER_ENTRY_FILE,
-    })
+    const validation = mergeCmsRenderingSanitizationDiagnostics(
+      validateCmsRendering(currentHtml, {
+        htmlPath: PAGE_BUILDER_ENTRY_FILE,
+      }),
+      sanitization.diagnostics,
+    )
 
     return {
       status: 'unchanged',
@@ -92,9 +108,12 @@ export function finalizePageBuilderAgentHtmlGuardrails(
     }
   }
 
-  const validation = validateCmsRendering(currentHtml, {
-    htmlPath: PAGE_BUILDER_ENTRY_FILE,
-  })
+  const validation = mergeCmsRenderingSanitizationDiagnostics(
+    validateCmsRendering(currentHtml, {
+      htmlPath: PAGE_BUILDER_ENTRY_FILE,
+    }),
+    sanitization.diagnostics,
+  )
 
   if (validation.errors.length > 0) {
     return {

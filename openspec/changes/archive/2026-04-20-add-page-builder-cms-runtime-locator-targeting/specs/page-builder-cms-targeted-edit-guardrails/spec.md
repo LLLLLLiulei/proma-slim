@@ -1,8 +1,4 @@
-## Purpose
-
-定义 page-builder 中已选 CMS 区域的 source-first 编辑约束、正式写入时的 fail-closed 目标解析，以及 CMS slot 危险标签的阻断性校验，确保预览中命中的渲染结果始终围绕同一个源 CMS 标签整体修改。
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Selected CMS target edits MUST use source-first guardrails
 系统 SHALL 在用户以普通选区消息编辑一个已选中的 `cms-island` 时，将该目标视为源 CMS 标签整体，而不是预览中渲染出来的子节点集合；相关隐藏上下文和运行时约束 MUST 围绕单一 source target 的 runtime locator 工作。
@@ -28,34 +24,7 @@
 - **THEN** 系统 SHALL 优先使用该 runtime locator 定位唯一的源 CMS 标签
 - **AND** 系统 SHALL 仅允许围绕该 source target 执行本次写入
 
-#### Scenario: 目标 identity 冲突或命中不唯一时阻断写入
+#### Scenario: 目标 locator 冲突或命中不唯一时阻断写入
 - **WHEN** 某个正式 page-builder 写入路径解析 `cms-island` 目标时，发现 locator 指向的目标不存在、命中不唯一、组件不匹配或 parent block 校验失败
 - **THEN** 系统 SHALL 阻断本次写入
 - **AND** 系统 SHALL NOT 猜测回退到 parent block、相邻 CMS 标签、旧 `sourceId` 或其他结构相似的目标
-
-### Requirement: CMS slot template writes MUST reject dangerous tags
-系统 SHALL 将 `cms-catalog` / `cms-content` slot 内的 `<script>` 与 `<style>` 视为阻断性危险标签，在工具入口和正式写入链路中都必须拒绝这类内容。
-
-#### Scenario: 正式 CMS apply 工具拒绝危险标签模板
-- **WHEN** `apply_cms_binding` 收到的 `templateBody`、`emptyTemplate` 或 `errorTemplate` 包含 `<script>` 或 `<style>`
-- **THEN** 工具 SHALL 直接拒绝该输入
-- **AND** 工具 SHALL NOT 继续生成外层 `cms-*` 标签或落盘 HTML
-
-#### Scenario: 统一 mutation pipeline 阻断危险标签写入
-- **WHEN** 某次 page-builder HTML mutation 的 CMS validation 结果包含 `DANGEROUS_TAG` error
-- **THEN** 系统 SHALL 将该次 mutation 视为失败
-- **AND** 系统 SHALL NOT 将包含危险标签的 HTML 写回作者态文件
-- **AND** 系统 SHALL NOT 将该次失败 mutation 视为 manifest 或 preview state 已成功刷新
-
-### Requirement: 普通 CMS 编辑链路必须把 turn 级回滚和 preview 安全协同起来
-系统 SHALL 在普通 Agent 编辑链路修改已有 `cms-catalog` / `cms-content` 时，将 turn 级回滚 guardrail 与 preview 安全策略协同工作；当本轮写入导致 CMS 作者态失效时，系统 MUST 在回合结束后恢复到执行前的安全版本，并 SHALL 避免让无效中间状态长期停留为最终可见预览。
-
-#### Scenario: 普通编辑回合失败后恢复执行前安全版本
-- **WHEN** 一次普通 Agent 编辑回合在 `workspace-files/index.html` 中写入了阻断性的 CMS authoring 错误
-- **THEN** 系统 SHALL 在该回合结束后恢复到执行前的安全版本
-- **AND** 系统 SHALL 向会话追加结构化失败状态
-
-#### Scenario: 回滚前的临时无效状态不应长期停留为最终预览
-- **WHEN** 普通 Agent 编辑链路在一次回合中途短暂写入了无效 CMS 作者态
-- **THEN** preview 与 turn 级 guardrail SHALL 协同避免该中间状态长期停留为用户最终看到的预览结果
-- **AND** 系统 SHALL NOT 将该中间状态视为新的安全作者态基线

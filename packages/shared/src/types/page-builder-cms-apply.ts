@@ -12,7 +12,7 @@ import type {
 
 export type { PageBuilderCmsCatalog, PageBuilderCmsContentSummary } from './page-builder-cms'
 
-export const PAGE_BUILDER_CMS_APPLY_SKILL_CONTRACT_VERSION = 6
+export const PAGE_BUILDER_CMS_APPLY_SKILL_CONTRACT_VERSION = 7
 
 export type PageBuilderCmsApplySkillEntryPoint = 'cms-browser-confirm'
 
@@ -43,15 +43,28 @@ export interface PageBuilderCmsApplyAuthoringContext extends PageBuilderCmsAutho
   component: PageBuilderCmsAuthoringComponent
 }
 
-export interface PageBuilderCmsApplyTargetSnapshot {
+interface PageBuilderCmsApplyTargetSnapshotBase {
   kind: PageBuilderTargetSelection['kind']
-  selector: string
   parentBlockSelector: string
   targetOuterHtml: string
   parentBlockOuterHtml?: string
-  component?: PageBuilderCmsAuthoringComponent
-  sourceId?: string
 }
+
+export interface PageBuilderBlockApplyTargetSnapshot extends PageBuilderCmsApplyTargetSnapshotBase {
+  kind: 'block'
+  selector: string
+}
+
+export interface PageBuilderCmsIslandApplyTargetSnapshot extends PageBuilderCmsApplyTargetSnapshotBase {
+  kind: 'cms-island'
+  htmlPath: string
+  sourceSelector: string
+  component?: PageBuilderCmsAuthoringComponent
+}
+
+export type PageBuilderCmsApplyTargetSnapshot =
+  | PageBuilderBlockApplyTargetSnapshot
+  | PageBuilderCmsIslandApplyTargetSnapshot
 
 export interface PageBuilderCmsApplySkillInput {
   version: typeof PAGE_BUILDER_CMS_APPLY_SKILL_CONTRACT_VERSION

@@ -51,9 +51,15 @@ export function createBlockTargetSelection(selector: string): BlockTargetSelecti
   }
 }
 
+export function resolveTargetSelector(targetSelection: TargetSelection): string {
+  return targetSelection.kind === 'cms-island'
+    ? targetSelection.sourceSelector
+    : targetSelection.selector
+}
+
 export function resolveTargetRuntimeKey(targetSelection: TargetSelection, islandId?: string): string {
   return targetSelection.kind === 'cms-island'
-    ? `cms-island:${islandId ?? targetSelection.selector}`
+    ? `cms-island:${islandId ?? `${targetSelection.htmlPath}:${targetSelection.sourceSelector}`}`
     : `block:${targetSelection.selector}`
 }
 

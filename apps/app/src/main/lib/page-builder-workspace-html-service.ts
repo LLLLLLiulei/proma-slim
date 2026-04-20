@@ -5,7 +5,6 @@ import {
   scanCmsRenderingManifest,
   validateCmsRendering,
   type CmsRenderingManifest,
-  type CmsRenderingValidationResult,
 } from '@proma/page-builder-cms-rendering'
 import {
   getWorkspaceCmsRenderingManifestPath,
@@ -15,6 +14,10 @@ import {
   getWorkspacePreviewState,
   type WorkspacePreviewState,
 } from './workspace-preview-service'
+import {
+  mergeCmsRenderingSanitizationDiagnostics,
+  sanitizeRuntimeOnlyCmsAuthoringHtml,
+} from './page-builder-cms-authoring-sanitizer'
 
 type PageBuilderWorkspaceHtmlServiceErrorCode =
   | 'entry-missing'
@@ -74,15 +77,18 @@ export function createPageBuilderWorkspaceHtmlService(
         : null
 
       const nextHtml = mutation.transform(currentHtml)
-      const manifest = scanCmsRenderingManifest(nextHtml, {
-        htmlPath: mutation.htmlPath ?? 'index.html',
+      const htmlPath = mutation.htmlPath ?? 'index.html'
+      const sanitization = sanitizeRuntimeOnlyCmsAuthoringHtml(nextHtml, htmlPath)
+      const manifest = scanCmsRenderingManifest(sanitization.html, {
+        htmlPath,
         generatedAt: resolveNow(),
       })
-      const validation = validateCmsRendering(nextHtml, {
-        htmlPath: mutation.htmlPath ?? 'index.html',
+      const validation = validateCmsRendering(sanitization.html, {
+        htmlPath,
       })
-      const changed = nextHtml !== currentHtml
-      const blockingValidationErrors = validation.errors
+      const changed = sanitization.html !== currentHtml
+      const mergedValidation = mergeCmsRenderingSanitizationDiagnostics(validation, sanitization.diagnostics)
+      const blockingValidationErrors = mergedValidation.errors
 
       if (blockingValidationErrors.length > 0) {
         const codes = Array.from(new Set(blockingValidationErrors.map((diagnostic) => diagnostic.code))).join(', ')
@@ -94,16 +100,16 @@ export function createPageBuilderWorkspaceHtmlService(
 
       try {
         if (changed) {
-          writeFileSync(entryPath, nextHtml, 'utf-8')
+          writeFileSync(entryPath, sanitization.html, 'utf-8')
         }
 
         writeManifest(workspace, manifest)
 
         return {
-          html: nextHtml,
+          html: sanitization.html,
           changed,
           manifest,
-          validation,
+          validation: mergedValidation,
           previewState: resolvePreviewState(workspace),
         }
       } catch (error) {

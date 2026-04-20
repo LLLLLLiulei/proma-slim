@@ -3,14 +3,12 @@ import type {
   AgentWorkspace,
   PageBuilderBlockDeletionPayload,
 } from '@proma/shared'
+import { PAGE_BUILDER_DEFAULT_HTML_PATH } from '@proma/shared'
 import { type WorkspacePreviewState } from './workspace-preview-service'
 import {
   PageBuilderWorkspaceHtmlServiceError,
   pageBuilderWorkspaceHtmlService,
 } from './page-builder-workspace-html-service'
-
-const CMS_ISLAND_SELECTOR = 'cms-catalog, cms-content'
-const CMS_SOURCE_ID_ATTRIBUTE = 'data-proma-cms-source-id'
 
 type PageBuilderBlockDeletionErrorCode =
   | 'entry-missing'
@@ -73,6 +71,9 @@ export function savePageBuilderBlockDeletion(
 ): WorkspacePreviewState {
   try {
     return pageBuilderWorkspaceHtmlService.mutate(workspace, {
+      htmlPath: payload.targetSelection?.kind === 'cms-island'
+        ? payload.targetSelection.htmlPath
+        : PAGE_BUILDER_DEFAULT_HTML_PATH,
       transform(currentHtml) {
         return applyPageBuilderBlockDeletion(currentHtml, payload)
       },
@@ -91,29 +92,24 @@ function resolveDeletionTarget(
   payload: PageBuilderBlockDeletionPayload,
 ): Element {
   const targetSelection = payload.targetSelection
-  if (targetSelection?.kind === 'cms-island' && targetSelection.sourceId) {
-    return resolveUniqueCmsSourceTargetBySourceId(document, targetSelection.sourceId)
+  if (targetSelection?.kind === 'cms-island') {
+    if (targetSelection.htmlPath !== PAGE_BUILDER_DEFAULT_HTML_PATH) {
+      throw new PageBuilderBlockDeletionError('block-not-found', '未找到要删除的区块')
+    }
+
+    const sourceTarget = resolveUniqueBlock(document, targetSelection.sourceSelector)
+    const parentBlock = resolveUniqueBlock(document, targetSelection.parentBlockSelector)
+    if (!parentBlock.contains(sourceTarget)) {
+      throw new PageBuilderBlockDeletionError('block-not-found', '未找到要删除的区块')
+    }
+
+    const component = sourceTarget.localName.toLowerCase()
+    if (component !== targetSelection.component) {
+      throw new PageBuilderBlockDeletionError('block-not-found', '未找到要删除的区块')
+    }
+
+    return sourceTarget
   }
 
   return resolveUniqueBlock(document, payload.selector)
-}
-
-function resolveUniqueCmsSourceTargetBySourceId(document: Document, sourceId: string): Element {
-  const matches = Array.from(document.querySelectorAll(CMS_ISLAND_SELECTOR))
-    .filter((candidate) => readCmsSourceId(candidate) === sourceId)
-
-  if (matches.length === 0) {
-    throw new PageBuilderBlockDeletionError('block-not-found', '未找到要删除的区块')
-  }
-
-  if (matches.length > 1) {
-    throw new PageBuilderBlockDeletionError('selector-not-unique', '无法唯一定位要删除的区块')
-  }
-
-  return matches[0]!
-}
-
-function readCmsSourceId(element: Element): string | undefined {
-  const normalized = element.getAttribute(CMS_SOURCE_ID_ATTRIBUTE)?.trim()
-  return normalized ? normalized : undefined
 }

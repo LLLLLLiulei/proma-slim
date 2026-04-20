@@ -4,20 +4,27 @@ export type PageBuilderTargetEditBoundary = 'block' | 'source-atomic'
 
 export type PageBuilderCmsIslandComponent = 'cms-catalog' | 'cms-content'
 
-interface PageBuilderTargetSelectionBase {
+export const PAGE_BUILDER_DEFAULT_HTML_PATH = 'index.html'
+
+interface PageBuilderBlockTargetSelectionBase {
   selector: string
   parentBlockSelector: string
 }
 
-export interface PageBuilderBlockTargetSelection extends PageBuilderTargetSelectionBase {
+export interface PageBuilderBlockTargetSelection extends PageBuilderBlockTargetSelectionBase {
   kind: 'block'
   editBoundary: 'block'
 }
 
-export interface PageBuilderCmsIslandTargetSelection extends PageBuilderTargetSelectionBase {
-  kind: 'cms-island'
-  sourceId?: string
+export interface PageBuilderCmsIslandLocator {
+  htmlPath: string
+  sourceSelector: string
+  parentBlockSelector: string
   component: PageBuilderCmsIslandComponent
+}
+
+export interface PageBuilderCmsIslandTargetSelection extends PageBuilderCmsIslandLocator {
+  kind: 'cms-island'
   editBoundary: 'source-atomic'
 }
 
@@ -35,15 +42,15 @@ export function createPageBuilderBlockTargetSelection(selector: string): PageBui
 }
 
 export function createPageBuilderCmsIslandTargetSelection(
-  selector: string,
+  sourceSelector: string,
   parentBlockSelector: string,
   component: PageBuilderCmsIslandComponent,
-  sourceId?: string,
+  htmlPath = PAGE_BUILDER_DEFAULT_HTML_PATH,
 ): PageBuilderCmsIslandTargetSelection {
   return {
     kind: 'cms-island',
-    ...(sourceId ? { sourceId } : {}),
-    selector,
+    htmlPath,
+    sourceSelector,
     parentBlockSelector,
     component,
     editBoundary: 'source-atomic',

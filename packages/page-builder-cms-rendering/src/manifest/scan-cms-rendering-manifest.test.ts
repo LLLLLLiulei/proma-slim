@@ -2,20 +2,20 @@ import { describe, expect, test } from 'bun:test'
 import { scanCmsRenderingManifest } from './scan-cms-rendering-manifest'
 
 describe('scanCmsRenderingManifest', () => {
-  test('scans top-level cms islands into block-oriented manifest entries', () => {
+  test('scans top-level cms islands into locator-oriented manifest entries', () => {
     const manifest = scanCmsRenderingManifest(`
       <!doctype html>
       <html>
         <body>
           <section data-proma-block-id="pb_blk_nav">
-            <cms-catalog data-proma-cms-source-id="cms-src-nav" site-id="14" ids="nav-b, nav-a">
+            <cms-catalog site-id="14" ids="nav-b, nav-a">
               <template v-slot:default="{ items }">
                 <nav>{{ items.length }}</nav>
               </template>
             </cms-catalog>
           </section>
           <section id="news-list">
-            <cms-content data-proma-cms-source-id="cms-src-news" site-id="14" catalog-id="news" ids="content-2,content-1">
+            <cms-content site-id="14" catalog-id="news" ids="content-2,content-1">
               <template v-slot:default="{ items }">
                 <article>{{ items.length }}</article>
               </template>
@@ -34,8 +34,8 @@ describe('scanCmsRenderingManifest', () => {
       entries: [
         {
           blockId: 'pb_blk_nav',
-          sourceId: 'cms-src-nav',
-          selectorSnapshot: '[data-proma-block-id="pb_blk_nav"]',
+          sourceSelectorSnapshot: '[data-proma-block-id="pb_blk_nav"] > cms-catalog:nth-of-type(1)',
+          parentBlockSelectorSnapshot: '[data-proma-block-id="pb_blk_nav"]',
           component: 'cms-catalog',
           props: {
             siteId: '14',
@@ -46,8 +46,8 @@ describe('scanCmsRenderingManifest', () => {
         },
         {
           blockId: null,
-          sourceId: 'cms-src-news',
-          selectorSnapshot: '#news-list',
+          sourceSelectorSnapshot: '#news-list > cms-content:nth-of-type(1)',
+          parentBlockSelectorSnapshot: '#news-list',
           component: 'cms-content',
           props: {
             siteId: '14',
@@ -90,7 +90,8 @@ describe('scanCmsRenderingManifest', () => {
     expect(nestedManifest.entries).toHaveLength(1)
     expect(nestedManifest.entries[0]).toMatchObject({
       component: 'cms-content',
-      selectorSnapshot: '#outer',
+      sourceSelectorSnapshot: '#outer > cms-content:nth-of-type(1)',
+      parentBlockSelectorSnapshot: '#outer',
       islandIndex: 0,
     })
   })

@@ -178,10 +178,12 @@ When an existing region is already CMS-driven, `cms-catalog` / `cms-content` sho
 - put major HTML containers such as `ul`, `section`, and `article` inside the slot.
 - Keep empty and error fallback wrappers inside `v-slot:empty` and `v-slot:error` when they belong to the same CMS data region.
 - Leave only page-level static shells outside the CMS component.
-- Do not manually delete, duplicate, or rewrite host-managed `data-proma-cms-source-id` attributes when touching existing CMS source tags.
+- Do not handwrite or preserve runtime-only locator attrs such as `data-proma-cms-source-id` or `data-proma-cms-island-*` when touching existing CMS source tags.
 - Use Vue template syntax inside CMS slots, and declare slot scope explicitly as a subset of `{ items, loading, error, empty }`.
 - For `cms-catalog`, use contract fields such as `item.path` instead of guessed aliases like `item.link` or `item.url`.
 - For `cms-content`, use contract fields such as `item.publishUrl` and `item.listLogoUrl`.
+- Prefer semantic anchors for CMS navigation. If a CMS card should be clickable, wrap it with `<a :href="...">` instead of writing `@click` navigation or `window.location.href = ...`.
+- Do not write raw HTML inline event attributes such as `onclick`, `onerror`, or `onload` inside CMS slots. Use declarative Vue structure like guarded `:src`, `v-if` / `v-else`, and placeholder nodes instead of imperative DOM mutation.
 - Read field semantics from the canonical contract and guard optional fields such as `item.logoUrl`, `item.listLogoUrl`, and `item.addedAt` before rendering them.
 - When iterating CMS items, provide a stable `:key`, normally `:key="item.id"`.
 - Do not place `<script>` or `<style>` inside `cms-*` slot content.

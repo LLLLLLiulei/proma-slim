@@ -33,8 +33,8 @@ export interface BlockTargetSelection {
 
 export interface CmsIslandTargetSelection {
   kind: 'cms-island'
-  sourceId?: string
-  selector: string
+  htmlPath: string
+  sourceSelector: string
   parentBlockSelector: string
   component: string
   editBoundary: 'source-atomic'
@@ -52,7 +52,7 @@ export interface ResolvedTarget {
 
 export interface CmsIslandMeta {
   islandId: string
-  sourceId?: string
+  htmlPath: string
   component: string
   sourceSelector: string
   parentBlockSelector: string

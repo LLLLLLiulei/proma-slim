@@ -50,7 +50,7 @@ describe('page-builder CMS authoring target snapshot service', () => {
         '<!doctype html><html><body>',
         '<section id="latest-news" data-proma-block-id="pb_blk_news">',
         '  <h2>最新动态</h2>',
-        '  <cms-content data-proma-cms-source-id="cms-src-news" site-id="14" catalog-id="news">',
+        '  <cms-content site-id="14" catalog-id="news">',
         '    <template v-slot:default="{ items, loading, error, empty }"><article v-for="item in items" :key="item.id">{{ item.title }}</article></template>',
         '  </cms-content>',
         '</section>',
@@ -60,20 +60,59 @@ describe('page-builder CMS authoring target snapshot service', () => {
 
     const snapshot = readPageBuilderCmsApplyTargetSnapshot(workspace, {
       kind: 'cms-island',
-      selector: '#latest-news > cms-content:nth-of-type(1)',
+      htmlPath: 'index.html',
+      sourceSelector: '#latest-news > cms-content:nth-of-type(1)',
       parentBlockSelector: '#latest-news',
-      sourceId: 'cms-src-news',
       component: 'cms-content',
       editBoundary: 'source-atomic',
     })
 
     expect(snapshot.kind).toBe('cms-island')
-    expect(snapshot.sourceId).toBe('cms-src-news')
+    expect(snapshot.htmlPath).toBe('index.html')
+    expect(snapshot.sourceSelector).toBe('#latest-news > cms-content:nth-of-type(1)')
     expect(snapshot.component).toBe('cms-content')
-    expect(snapshot.targetOuterHtml).toContain('<cms-content data-proma-cms-source-id="cms-src-news"')
+    expect(snapshot.targetOuterHtml).toContain('<cms-content site-id="14" catalog-id="news">')
     expect(snapshot.targetOuterHtml).toContain('site-id="14"')
     expect(snapshot.parentBlockOuterHtml).toContain('<section id="latest-news"')
     expect(snapshot.parentBlockOuterHtml).toContain('<h2>最新动态</h2>')
+  })
+
+  test('strips runtime-only cms attrs from cms island snapshots before exposing authoring html', () => {
+    const workspace = createAgentWorkspace('CMS Handoff Island Snapshot Sanitized', { template: 'page-builder' })
+    writeWorkspaceEntry(
+      workspace,
+      [
+        '<!doctype html><html><body>',
+        '<section id="latest-news" data-proma-block-id="pb_blk_news">',
+        '  <cms-content',
+        '    data-proma-cms-source-id="cms-src-news"',
+        '    data-proma-cms-island-id="cms-island-news"',
+        '    data-proma-cms-island-html-path="index.html"',
+        '    data-proma-cms-island-source-selector="#latest-news > cms-content:nth-of-type(1)"',
+        '    site-id="14"',
+        '    catalog-id="news"',
+        '  >',
+        '    <template v-slot:default="{ items, loading, error, empty }"><article v-for="item in items" :key="item.id">{{ item.title }}</article></template>',
+        '  </cms-content>',
+        '</section>',
+        '</body></html>',
+      ].join(''),
+    )
+
+    const snapshot = readPageBuilderCmsApplyTargetSnapshot(workspace, {
+      kind: 'cms-island',
+      htmlPath: 'index.html',
+      sourceSelector: '#latest-news > cms-content:nth-of-type(1)',
+      parentBlockSelector: '#latest-news',
+      component: 'cms-content',
+      editBoundary: 'source-atomic',
+    })
+
+    expect(snapshot.targetOuterHtml).toContain('<cms-content site-id="14" catalog-id="news">')
+    expect(snapshot.targetOuterHtml).not.toContain('data-proma-cms-source-id')
+    expect(snapshot.targetOuterHtml).not.toContain('data-proma-cms-island-')
+    expect(snapshot.parentBlockOuterHtml).not.toContain('data-proma-cms-source-id')
+    expect(snapshot.parentBlockOuterHtml).not.toContain('data-proma-cms-island-')
   })
 
   test('fails closed when the selected target cannot be resolved uniquely in source html', () => {
@@ -85,7 +124,8 @@ describe('page-builder CMS authoring target snapshot service', () => {
 
     const selection: PageBuilderTargetSelection = {
       kind: 'cms-island',
-      selector: '#hero-banner > cms-content:nth-of-type(1)',
+      htmlPath: 'index.html',
+      sourceSelector: '#hero-banner > cms-content:nth-of-type(1)',
       parentBlockSelector: '#hero-banner',
       component: 'cms-content',
       editBoundary: 'source-atomic',

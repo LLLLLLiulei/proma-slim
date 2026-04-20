@@ -4,7 +4,7 @@ import {
   READY_ANNOUNCEMENT_INTERVAL_MS,
   READY_ANNOUNCEMENT_MAX_ATTEMPTS,
 } from './constants'
-import { logBridge, resolveRectKey } from './shared'
+import { logBridge, resolveRectKey, resolveTargetSelector } from './shared'
 import type { ReplaceImageCapability, ResolvedTarget, RuntimeState } from './types'
 
 interface ProtocolSelectionRuntime {
@@ -98,7 +98,7 @@ export function createProtocolRuntime({
     state.lastSelectedRectKey = nextKey
     postToParent({
       type: 'selected',
-      selector: refreshedTarget.targetSelection.selector,
+      selector: resolveTargetSelector(refreshedTarget.targetSelection),
       targetSelection: refreshedTarget.targetSelection,
       rect,
       ...(capabilities ? { capabilities } : {}),

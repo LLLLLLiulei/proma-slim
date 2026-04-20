@@ -1,13 +1,16 @@
+import { compile } from '@vue/compiler-dom'
 import { parseHTML } from 'linkedom'
 import { PAGE_BUILDER_CMS_AUTHORING_CONTRACT } from '@proma/shared'
 import {
   CMS_ISLAND_ATTRIBUTES,
   CMS_ISLAND_SELECTOR,
-  CMS_SOURCE_ID_ATTRIBUTE,
   isTopLevelCmsIsland,
   type CmsIslandComponentName,
 } from '../template/scan-cms-islands-dom'
-import { resolveCmsRenderingSelectorSnapshot } from '../manifest/scan-cms-rendering-manifest'
+import {
+  resolveCmsIslandSourceSelectorSnapshot,
+  resolveCmsRenderingSelectorSnapshot,
+} from '../manifest/scan-cms-rendering-manifest'
 
 const BLOCK_SELECTOR = '[data-proma-block-id]'
 const DANGEROUS_TAGS = new Set(['script', 'style'])
@@ -21,6 +24,7 @@ const INDEXED_ITEM_FIELD_ACCESS_PATTERN = /\bitems\s*\[[^\]]+\]\??\.([A-Za-z_][A
 const SLOT_SCOPE_REFERENCE_PATTERN = /(^|[^\w$.])(items|loading|error|empty)\b(?!\s*:)/g
 const SLOT_SCOPE_ALIAS_REFERENCE_PATTERN = /(^|[^\w$.])([A-Za-z_$][A-Za-z0-9_$]*)\s*\.\s*(items|loading|error|empty)\b/g
 const ITEM_INDEX_ACCESS_PATTERN = /\bitems\s*\[[^\]]+\]\??\.([A-Za-z_][A-Za-z0-9_]*)\b/g
+const INLINE_EVENT_HANDLER_ATTRIBUTE_PATTERN = /^on[a-z]+$/
 
 export type CmsRenderingDiagnosticSeverity = 'error' | 'warning' | 'info'
 
@@ -56,16 +60,6 @@ export function validateCmsRendering(
   const diagnostics: CmsRenderingDiagnostic[] = []
   const topLevelIslands = Array.from(root.querySelectorAll(CMS_ISLAND_SELECTOR)).filter(isTopLevelCmsIsland)
   const topLevelIslandIndexByElement = new Map(topLevelIslands.map((element, index) => [element, index]))
-  const topLevelSourceIdCounts = new Map<string, number>()
-
-  for (const island of topLevelIslands) {
-    const sourceId = readSourceIdAttribute(island)
-    if (!sourceId) {
-      continue
-    }
-
-    topLevelSourceIdCounts.set(sourceId, (topLevelSourceIdCounts.get(sourceId) ?? 0) + 1)
-  }
 
   for (const element of Array.from(root.querySelectorAll('*'))) {
     if (element.closest(CMS_ISLAND_SELECTOR)) {
@@ -92,7 +86,6 @@ export function validateCmsRendering(
     const slotInfo = collectSlotInfo(island)
     const catalogId = island.getAttribute('catalog-id')?.trim()
     const orderedIds = readOrderedIdsAttribute(island.getAttribute('ids'))
-    const sourceId = isTopLevelCmsIsland(island) ? readSourceIdAttribute(island) : null
 
     if (component === 'cms-content' && !catalogId) {
       diagnostics.push(createDiagnostic({
@@ -130,16 +123,34 @@ export function validateCmsRendering(
       }))
     }
 
-    if (sourceId && (topLevelSourceIdCounts.get(sourceId) ?? 0) > 1) {
+    const runtimeOnlyAttrs = collectRuntimeOnlyAttributes(island)
+    if (runtimeOnlyAttrs.length > 0) {
       diagnostics.push(createDiagnostic({
         severity: 'error',
-        code: 'DUPLICATE_SOURCE_ID',
-        message: `Duplicate cms source id "${sourceId}" is not allowed across top-level CMS islands.`,
+        code: 'RUNTIME_ONLY_ATTRIBUTE',
+        message: `Authoring HTML must not persist runtime-only CMS locator attrs: ${runtimeOnlyAttrs.join(', ')}.`,
         element: island,
         component,
         htmlPath,
         islandIndex,
       }))
+    }
+
+    if (isTopLevelCmsIsland(island)) {
+      const sourceSelectorSnapshot = resolveCmsIslandSourceSelectorSnapshot(island)
+      const parentBlockSelectorSnapshot = resolveCmsRenderingSelectorSnapshot(resolveLocatorParentBlockElement(island))
+        ?? sourceSelectorSnapshot
+      if (!sourceSelectorSnapshot || !parentBlockSelectorSnapshot) {
+        diagnostics.push(createDiagnostic({
+          severity: 'error',
+          code: 'INVALID_RUNTIME_LOCATOR',
+          message: 'Unable to derive a stable runtime locator snapshot for this CMS island.',
+          element: island,
+          component,
+          htmlPath,
+          islandIndex,
+        }))
+      }
     }
 
     if (!slotInfo.defaultSlot) {
@@ -319,6 +330,22 @@ export function validateCmsRendering(
       }
 
       for (const descendant of Array.from(slotRoot.querySelectorAll('*'))) {
+        for (const attribute of Array.from(descendant.attributes)) {
+          if (!INLINE_EVENT_HANDLER_ATTRIBUTE_PATTERN.test(attribute.name)) {
+            continue
+          }
+
+          diagnostics.push(createDiagnostic({
+            severity: 'error',
+            code: 'INLINE_EVENT_HANDLER_ATTRIBUTE',
+            message: `Raw HTML event attribute "${attribute.name}" is not allowed inside CMS slots.`,
+            element: island,
+            component,
+            htmlPath,
+            islandIndex,
+          }))
+        }
+
         if (
           descendant.hasAttribute('v-for')
           && !descendant.hasAttribute(':key')
@@ -367,6 +394,18 @@ export function validateCmsRendering(
           severity: 'error',
           code: 'UNKNOWN_ITEM_FIELD',
           message: `Unknown CMS item field access "${fieldAccess}" for ${component}.`,
+          element: island,
+          component,
+          htmlPath,
+          islandIndex,
+        }))
+      }
+
+      for (const syntaxError of collectInvalidVueTemplateSyntaxMessages(slot.content)) {
+        diagnostics.push(createDiagnostic({
+          severity: 'error',
+          code: 'INVALID_VUE_TEMPLATE_SYNTAX',
+          message: `Invalid Vue template syntax in ${component} ${slot.name} slot: ${syntaxError}`,
           element: island,
           component,
           htmlPath,
@@ -523,11 +562,6 @@ function readOrderedIdsAttribute(value: string | null): string[] | null {
   return ids.length > 0 ? ids : null
 }
 
-function readSourceIdAttribute(element: Element): string | null {
-  const normalized = element.getAttribute(CMS_SOURCE_ID_ATTRIBUTE)?.trim()
-  return normalized ? normalized : null
-}
-
 function collectUnsupportedItemFieldAccesses(
   source: string,
   component: CmsIslandComponentName,
@@ -550,6 +584,43 @@ function collectUnsupportedItemFieldAccesses(
   }
 
   return [...unsupported]
+}
+
+function collectInvalidVueTemplateSyntaxMessages(template: string): string[] {
+  const normalizedTemplate = template.trim()
+  if (!normalizedTemplate) {
+    return []
+  }
+
+  const errors = new Set<string>()
+
+  try {
+    const compiled = compile(normalizedTemplate, {
+      mode: 'function',
+      onError(error) {
+        const message = error.message?.trim()
+        if (message) {
+          errors.add(message)
+        }
+      },
+    })
+
+    try {
+      new Function('Vue', compiled.code)
+    } catch (error) {
+      const message = error instanceof Error ? error.message.trim() : String(error).trim()
+      if (message) {
+        errors.add(message)
+      }
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message.trim() : String(error).trim()
+    if (message) {
+      errors.add(message)
+    }
+  }
+
+  return [...errors]
 }
 
 function getOptionalItemFields(component: CmsIslandComponentName): Set<string> {
@@ -766,4 +837,24 @@ function isItemLevelNode(element: Element, itemTags: ReadonlySet<string>): boole
 
   const className = element.getAttribute('class') ?? ''
   return /\b(card|item)\b/i.test(className)
+}
+
+function collectRuntimeOnlyAttributes(element: Element): string[] {
+  return Array.from(element.attributes)
+    .map((attribute) => attribute.name)
+    .filter((name) => name === 'data-proma-cms-source-id' || name.startsWith('data-proma-cms-island-'))
+}
+
+function resolveLocatorParentBlockElement(element: Element): Element {
+  const blockElement = element.closest(BLOCK_SELECTOR)
+  if (blockElement) {
+    return blockElement
+  }
+
+  const parent = element.parentElement
+  if (parent) {
+    return parent
+  }
+
+  return element
 }

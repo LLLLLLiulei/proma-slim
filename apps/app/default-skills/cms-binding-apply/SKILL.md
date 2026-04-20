@@ -77,7 +77,7 @@ After classifying the request, continue in the same turn instead of stopping at 
    For fixed content ids, always include both `source.catalogId = selection.catalogId` and `source.ids = selection.contentIds`.
    Treat `targetSnapshot.targetOuterHtml` as the authoritative authoring source snippet for the selected target. Before building the apply payload, inspect the current target block in the workspace source and preserve the existing outer shell, classes, and major layout structure whenever they are still compatible with the selected CMS data.
    Treat the task as an in-place replacement of the selected target, not as permission to add a new generic list, card grid, or extra wrapper beside the current block.
-   If `targetSelection.kind === cms-island`, preserve its stable source identity when present. `targetSelection.sourceId` is the primary source target identity; `targetSelection.selector` is compatibility context only and must not be used to guess a different CMS region.
+   If `targetSelection.kind === cms-island`, preserve its runtime locator exactly as provided. `targetSelection.htmlPath + sourceSelector + parentBlockSelector + component` is the formal source target identity; do not invent, drop, or rewrite those fields, and do not guess a different CMS region from preview descendants.
    Do not infer `source.pageSize` from the CMS browser pagination state. The browser page size is only for browsing, not a page binding default.
    For `contents-by-catalog`, omit `source.pageSize` unless the user explicitly requested a count or the current target already has a `page-size` that must be preserved.
    For `contents-by-ids`, never pass `source.pageSize`.
@@ -110,6 +110,9 @@ When the request is `ready`, prefer `cms-catalog` / `cms-content` as the source 
 - The slot scope must be declared explicitly as a subset of `{ items, loading, error, empty }`. Do not use alias objects such as `slotProps`.
 - For `cms-catalog`, use only the current contract fields such as `item.path` for links. Do not use legacy or guessed link aliases from older guidance.
 - For `cms-content`, use only the current contract fields such as `item.publishUrl` for links and `item.listLogoUrl` for images.
+- When the rendered CMS region should navigate, prefer semantic links such as `<a :href="item.path">` or `<a :href="item.publishUrl">`. If the whole card should be clickable, wrap the card with the anchor instead of using `@click` plus `window.location`.
+- Do not write raw HTML inline event attributes such as `onclick`, `onerror`, or `onload` inside CMS slot content. CMS slot content must stay in Vue template syntax, and image fallback should use `v-if` / `v-else`, guarded `:src`, or a dedicated placeholder node instead of imperative DOM mutation.
+- Avoid assignment-style event expressions inside `@click`, `@error`, or other Vue event bindings. If the interaction is navigation or fallback rendering, use declarative structure instead of `window.location.href = ...`, `document.querySelector(...)`, or similar DOM scripting.
 - Read `authoringContext.itemFieldMeta` before choosing which fields to render. Prefer fields whose meaning matches the current selected target instead of guessing or falling back across unrelated fields.
 - If `itemFieldMeta` marks a field as optional, guard it before rendering. Typical examples: `item.logoUrl`, `item.listLogoUrl`, and `item.addedAt`.
 - When using `v-for`, always provide a stable `:key`, normally `:key="item.id"`.
@@ -125,17 +128,16 @@ When the request is `ready`, prefer `cms-catalog` / `cms-content` as the source 
 
 ## Apply Guardrails
 
-- Keep Phase 1A scoped to the current `targetSelection.selector`.
+- Keep Phase 1A scoped to the current target selection. For `block`, that means `targetSelection.selector`; for `cms-island`, that means the provided runtime locator.
 - If `targetSelection.kind === 'cms-island'`, treat it as `source-atomic` and replace the whole source CMS tag instead of editing inside rendered child nodes.
-- If `targetSelection.sourceId` is present, treat it as the primary source target identity. `selector` remains a legacy fallback and compatibility snapshot only.
-- If a legacy CMS target has no `sourceId`, rely on the provided selector only for that exact current target. Do not broaden the edit to sibling blocks or sibling CMS tags.
+- If `targetSelection.kind === 'cms-island'`, keep `htmlPath`, `sourceSelector`, `parentBlockSelector`, and `component` unchanged and pass them through directly to the formal tool.
 - Still pass the explicit `targetSelection` object whenever the workflow already has it. If it is accidentally omitted and `targetBlock.selector` already points to a `cms-catalog` / `cms-content`, the formal tool will infer `source-atomic` replacement, but that is only a safety net.
 - Before calling `mcp__cms__apply_cms_binding`, inspect the current target block source and reuse the existing shell, classes, and visual skeleton whenever they remain compatible.
 - When building the apply payload, prefer `cms-catalog` / `cms-content` as the source root and keep major HTML containers inside the slot.
 - Do not append a new CMS sibling beside the selected target.
 - If the current target is image-like, hero-like, media-like, or otherwise strongly structured, prefer preserving that structure and binding CMS data into it rather than converting it into a generic list.
 - Newly written or rebound `cms-*` tags must explicitly include `site-id`, and that value must equal `selection.siteId`.
-- Do not remove or rewrite host-managed `data-proma-cms-source-id` attributes manually. Let the formal tool preserve existing source ids or generate new ones for rebound targets.
+- Do not handwrite or preserve runtime-only locator attrs such as `data-proma-cms-source-id` or `data-proma-cms-island-*` in authoring HTML. Those attrs belong to preview/runtime only and must not be generated in source templates.
 - If `selection.siteId` is missing, stop with a malformed-payload style error instead of inventing a fallback.
 - `templateBody`, `emptyTemplate`, and `errorTemplate` must not contain `<script>` or `<style>`.
 - Do not infer `source.pageSize` from the CMS browser pagination state.

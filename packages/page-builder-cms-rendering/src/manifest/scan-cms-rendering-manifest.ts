@@ -1,6 +1,5 @@
 import { parseHTML } from 'linkedom'
 import {
-  CMS_SOURCE_ID_ATTRIBUTE,
   CMS_ISLAND_SELECTOR,
   isTopLevelCmsIsland,
   type CmsIslandComponentName,
@@ -102,13 +101,15 @@ function createManifestEntry(
 ): CmsRenderingManifestEntry {
   const component = element.tagName.toLowerCase() as CmsIslandComponentName
   const blockElement = element.closest(BLOCK_SELECTOR)
-  const selectorTarget = blockElement ?? resolveFallbackSelectorTarget(element)
+  const parentBlockElement = resolveParentBlockElement(element)
   const blockId = normalizeOptionalAttribute(blockElement, 'data-proma-block-id')
+  const sourceSelectorSnapshot = resolveCmsIslandSourceSelectorSnapshot(element)
+  const parentBlockSelectorSnapshot = resolveCmsRenderingSelectorSnapshot(parentBlockElement) ?? sourceSelectorSnapshot
 
   return {
     blockId,
-    sourceId: normalizeOptionalAttribute(element, CMS_SOURCE_ID_ATTRIBUTE),
-    selectorSnapshot: resolveCmsRenderingSelectorSnapshot(selectorTarget),
+    sourceSelectorSnapshot,
+    parentBlockSelectorSnapshot,
     component,
     props: normalizeManifestProps(element),
     htmlPath,
@@ -116,7 +117,12 @@ function createManifestEntry(
   }
 }
 
-function resolveFallbackSelectorTarget(element: Element): Element {
+function resolveParentBlockElement(element: Element): Element {
+  const blockElement = element.closest(BLOCK_SELECTOR)
+  if (blockElement) {
+    return blockElement
+  }
+
   const parent = element.parentElement
 
   if (parent && !BLOCKED_SELECTOR_TAGS.has(parent.tagName)) {
@@ -124,6 +130,27 @@ function resolveFallbackSelectorTarget(element: Element): Element {
   }
 
   return element
+}
+
+export function resolveCmsIslandSourceSelectorSnapshot(element: Element): string | null {
+  const sourceSegment = `${element.tagName.toLowerCase()}:nth-of-type(${getNthOfType(element)})`
+  let current: Element | null = element.parentElement
+  let childSelector = sourceSegment
+
+  while (current && !BLOCKED_SELECTOR_TAGS.has(current.tagName)) {
+    const currentSnapshot = resolveCmsRenderingSelectorSnapshot(current)
+    if (currentSnapshot) {
+      const candidate = `${currentSnapshot} > ${childSelector}`
+      if (isUniqueSelector(element, candidate)) {
+        return candidate
+      }
+    }
+
+    childSelector = `${current.tagName.toLowerCase()}:nth-of-type(${getNthOfType(current)}) > ${childSelector}`
+    current = current.parentElement
+  }
+
+  return isUniqueSelector(element, childSelector) ? childSelector : sourceSegment
 }
 
 function normalizeManifestProps(element: Element): Record<string, CmsIslandPropValue> {
@@ -161,6 +188,11 @@ function isUniqueSelector(element: Element, selector: string): boolean {
   } catch {
     return false
   }
+}
+
+function buildUniqueSelector(element: Element, segments: string[]): string | null {
+  const selector = segments.join(' > ')
+  return isUniqueSelector(element, selector) ? selector : null
 }
 
 function cssEscape(value: string): string {

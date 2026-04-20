@@ -44,7 +44,8 @@ export function buildCmsRuntimeToolBundle(
     }),
     z.object({
       kind: z.literal('cms-island'),
-      selector: z.string().min(1),
+      htmlPath: z.string().min(1),
+      sourceSelector: z.string().min(1),
       parentBlockSelector: z.string().min(1),
       component: z.enum(['cms-catalog', 'cms-content']),
       editBoundary: z.literal('source-atomic'),

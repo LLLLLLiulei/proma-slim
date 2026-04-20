@@ -1,11 +1,18 @@
 import { randomBytes } from 'node:crypto'
 import { parseHTML } from 'linkedom'
-import type { AgentWorkspace, PageBuilderTargetSelection } from '@proma/shared'
+import {
+  PAGE_BUILDER_DEFAULT_HTML_PATH,
+  type AgentWorkspace,
+  type PageBuilderTargetSelection,
+} from '@proma/shared'
 import type {
   CmsRenderingDiagnostic,
   CmsRenderingManifestEntry,
 } from '@proma/page-builder-cms-rendering'
-import { resolveCmsRenderingSelectorSnapshot } from '@proma/page-builder-cms-rendering'
+import {
+  resolveCmsIslandSourceSelectorSnapshot,
+  resolveCmsRenderingSelectorSnapshot,
+} from '@proma/page-builder-cms-rendering'
 import { validateCmsRendering } from '@proma/page-builder-cms-rendering'
 import {
   PageBuilderWorkspaceHtmlServiceError,
@@ -26,7 +33,6 @@ export const PAGE_BUILDER_CMS_EMPTY_TEMPLATE_DESCRIPTION =
 export const PAGE_BUILDER_CMS_ERROR_TEMPLATE_DESCRIPTION =
   `${PAGE_BUILDER_CMS_TEMPLATE_FIELD_GUIDANCE} Use errorTemplate for the error-state fallback.`
 const CMS_ISLAND_SELECTOR = 'cms-catalog, cms-content'
-const CMS_SOURCE_ID_ATTRIBUTE = 'data-proma-cms-source-id'
 const BLOCKED_PARENT_BLOCK_TAGS = new Set(['HTML', 'BODY', 'HEAD'])
 const DANGEROUS_CMS_TEMPLATE_TAGS = ['script', 'style'] as const
 
@@ -39,8 +45,8 @@ const pageBuilderBlockTargetSelectionSchema = z.object({
 
 const pageBuilderCmsIslandTargetSelectionSchema = z.object({
   kind: z.literal('cms-island'),
-  sourceId: z.string().min(1).optional(),
-  selector: z.string().min(1),
+  htmlPath: z.string().min(1),
+  sourceSelector: z.string().min(1),
   parentBlockSelector: z.string().min(1),
   component: z.enum(['cms-catalog', 'cms-content']),
   editBoundary: z.literal('source-atomic'),
@@ -190,7 +196,6 @@ type PageBuilderWorkspaceHtmlServiceLike = Pick<typeof pageBuilderWorkspaceHtmlS
 export interface CreatePageBuilderCmsRenderingToolsOptions {
   now?: () => string
   createBlockId?: () => string
-  createSourceId?: () => string
   htmlService?: PageBuilderWorkspaceHtmlServiceLike
 }
 
@@ -199,7 +204,6 @@ export function createPageBuilderCmsRenderingTools(
 ) {
   const htmlService = options.htmlService ?? pageBuilderWorkspaceHtmlService
   const createBlockId = options.createBlockId ?? defaultCreateBlockId
-  const createSourceId = options.createSourceId ?? defaultCreateSourceId
 
   return {
     applyCmsBinding(
@@ -211,11 +215,11 @@ export function createPageBuilderCmsRenderingTools(
       let appliedBlockId = ''
       let effectiveTargetSelection = normalizedInput.targetSelection
       let appliedIslandIndex: number | null = null
-      let appliedSourceId: string | undefined
       let mutationResult: PageBuilderWorkspaceHtmlMutationResult
 
       try {
         mutationResult = htmlService.mutate(workspace, {
+          htmlPath: resolveTargetSelectionHtmlPath(normalizedInput.targetSelection),
           transform(currentHtml) {
             const { document } = parseHTML(currentHtml)
             const targetContext = resolveApplyTargetContext(
@@ -226,15 +230,12 @@ export function createPageBuilderCmsRenderingTools(
             const parentBlock = targetContext.parentBlock
             appliedBlockId = ensureBlockId(parentBlock, createBlockId)
             appliedIslandIndex = targetContext.islandIndex
-            appliedSourceId = targetContext.sourceTarget
-              ? readCmsSourceId(targetContext.sourceTarget) ?? createSourceId()
-              : createSourceId()
-            const generatedHtml = generateCmsBindingHtml(normalizedInput, appliedSourceId)
+            const generatedHtml = generateCmsBindingHtml(normalizedInput)
 
             if (effectiveTargetSelection.kind === 'cms-island') {
               const sourceTarget = targetContext.sourceTarget ?? resolveUniqueBlock(
                 document,
-                effectiveTargetSelection.selector,
+                effectiveTargetSelection.sourceSelector,
                 '未找到要替换的 CMS 组件',
                 '无法唯一定位要替换的 CMS 组件',
               )
@@ -244,10 +245,6 @@ export function createPageBuilderCmsRenderingTools(
               }
 
               sourceTarget.outerHTML = generatedHtml
-              effectiveTargetSelection = {
-                ...effectiveTargetSelection,
-                sourceId: appliedSourceId,
-              }
             } else {
               const block = resolveUniqueBlock(
                 document,
@@ -278,7 +275,7 @@ export function createPageBuilderCmsRenderingTools(
       }
 
       const component = normalizedInput.kind === 'catalog-nav' ? 'cms-catalog' : 'cms-content'
-      const generatedHtml = generateCmsBindingHtml(normalizedInput, appliedSourceId)
+      const generatedHtml = generateCmsBindingHtml(normalizedInput)
       const manifestEntry = resolveAppliedManifestEntry(
         mutationResult.manifest.entries,
         appliedBlockId,
@@ -529,7 +526,7 @@ function assertCmsBindingAuthoringPreflight(
   const html = [
     '<!doctype html><html><body>',
     '<section data-proma-block-id="pb_blk_preflight">',
-    generateCmsBindingHtml(input, 'cms-src-preflight'),
+    generateCmsBindingHtml(input),
     '</section>',
     '</body></html>',
   ].join('')
@@ -564,6 +561,21 @@ function assertCmsBindingAuthoringPreflight(
     throw new PageBuilderCmsBindingApplyError(
       'invalid-input',
       'CMS slot scope 必须显式声明 { items, loading, error, empty } 的子集，不能使用别名对象或未声明变量',
+    )
+  }
+
+  if (firstError.code === 'INLINE_EVENT_HANDLER_ATTRIBUTE') {
+    throw new PageBuilderCmsBindingApplyError(
+      'invalid-input',
+      'templateBody 不能包含原生 HTML 事件属性（如 onclick / onerror / onload）；请改用合法的 Vue 指令或声明式结构',
+    )
+  }
+
+  if (firstError.code === 'INVALID_VUE_TEMPLATE_SYNTAX') {
+    const detail = firstError.message.replace(/^Invalid Vue template syntax in .*? slot:\s*/, '')
+    throw new PageBuilderCmsBindingApplyError(
+      'invalid-input',
+      `templateBody 包含不合法的 Vue 模板语法: ${detail}`,
     )
   }
 
@@ -677,9 +689,10 @@ function resolveEffectiveTargetSelection(
 
   return {
     kind: 'cms-island',
-    selector: targetSelection.selector,
-    parentBlockSelector: targetSelection.parentBlockSelector,
-    ...(readCmsSourceId(sourceTarget) ? { sourceId: readCmsSourceId(sourceTarget) } : {}),
+    htmlPath: PAGE_BUILDER_DEFAULT_HTML_PATH,
+    sourceSelector: resolveCmsIslandSourceSelectorSnapshot(sourceTarget) ?? targetSelection.selector,
+    parentBlockSelector: resolveCmsRenderingSelectorSnapshot(resolveImplicitParentBlockForCmsElement(sourceTarget))
+      ?? targetSelection.parentBlockSelector,
     component,
     editBoundary: 'source-atomic',
   }
@@ -693,14 +706,9 @@ function resolveApplyTargetContext(
   if (effectiveTargetSelection.kind === 'cms-island') {
     const sourceTarget = resolveCmsSourceTarget(document, effectiveTargetSelection)
     const parentBlock = resolveImplicitParentBlockForCmsElement(sourceTarget)
-    const parentBlockSelector = resolveCmsRenderingSelectorSnapshot(parentBlock) ?? effectiveTargetSelection.parentBlockSelector
 
     return {
-      effectiveTargetSelection: {
-        ...effectiveTargetSelection,
-        ...(readCmsSourceId(sourceTarget) ? { sourceId: readCmsSourceId(sourceTarget) } : {}),
-        parentBlockSelector,
-      },
+      effectiveTargetSelection,
       parentBlock,
       sourceTarget,
       islandIndex: resolveTopLevelCmsIslandIndex(document, sourceTarget),
@@ -770,59 +778,27 @@ function resolveCmsSourceTarget(
   document: Document,
   targetSelection: Extract<PageBuilderTargetSelection, { kind: 'cms-island' }>,
 ): Element {
-  const sourceIdTarget = targetSelection.sourceId
-    ? resolveUniqueCmsSourceTargetBySourceId(document, targetSelection.sourceId)
-    : null
-
-  if (sourceIdTarget) {
-    const selectorTarget = resolveOptionalUniqueBlock(document, targetSelection.selector)
-    if (selectorTarget && selectorTarget !== sourceIdTarget) {
-      throw new PageBuilderCmsBindingApplyError(
-        'invalid-input',
-        '目标 CMS 组件 sourceId 与 selector 不匹配',
-      )
-    }
-
-    assertCmsComponentMatchesTarget(targetSelection.component, sourceIdTarget)
-    return sourceIdTarget
+  if (targetSelection.htmlPath !== PAGE_BUILDER_DEFAULT_HTML_PATH) {
+    throw new PageBuilderCmsBindingApplyError('invalid-input', '当前 CMS 目标 htmlPath 不受支持')
   }
 
-  const selectorTarget = resolveUniqueBlock(
+  const sourceTarget = resolveUniqueBlock(
     document,
-    targetSelection.selector,
+    targetSelection.sourceSelector,
     '未找到要替换的 CMS 组件',
     '无法唯一定位要替换的 CMS 组件',
   )
-  assertCmsComponentMatchesTarget(targetSelection.component, selectorTarget)
-  return selectorTarget
-}
-
-function resolveUniqueCmsSourceTargetBySourceId(document: Document, sourceId: string): Element {
-  const matches = Array.from(document.querySelectorAll(CMS_ISLAND_SELECTOR))
-    .filter((candidate) => readCmsSourceId(candidate) === sourceId)
-
-  if (matches.length === 0) {
-    throw new PageBuilderCmsBindingApplyError('block-not-found', '未找到要替换的 CMS 组件')
+  assertCmsComponentMatchesTarget(targetSelection.component, sourceTarget)
+  const parentBlock = resolveUniqueBlock(
+    document,
+    targetSelection.parentBlockSelector,
+    '未找到当前 CMS 目标所属区块',
+    '无法唯一定位当前 CMS 目标所属区块',
+  )
+  if (!parentBlock.contains(sourceTarget)) {
+    throw new PageBuilderCmsBindingApplyError('invalid-input', '目标 CMS 组件不属于当前区块')
   }
-
-  if (matches.length > 1) {
-    throw new PageBuilderCmsBindingApplyError('selector-not-unique', '无法唯一定位要替换的 CMS 组件')
-  }
-
-  return matches[0]!
-}
-
-function resolveOptionalUniqueBlock(document: Document, selector: string): Element | null {
-  const matches = document.querySelectorAll(selector)
-  if (matches.length === 0) {
-    return null
-  }
-
-  if (matches.length > 1) {
-    throw new PageBuilderCmsBindingApplyError('selector-not-unique', '无法唯一定位要替换的 CMS 组件')
-  }
-
-  return matches[0]!
+  return sourceTarget
 }
 
 function assertCmsComponentMatchesTarget(
@@ -882,17 +858,13 @@ function serializeDocument(sourceHtml: string, document: Document): string {
 
 function generateCmsBindingHtml(
   input: NormalizedApplyPageBuilderCmsBindingInput,
-  sourceId?: string,
 ): string {
   const componentName = input.kind === 'catalog-nav' ? 'cms-catalog' : 'cms-content'
   const propEntries = input.kind === 'catalog-nav'
     ? buildCatalogNavPropEntries(input.source)
     : buildContentListPropEntries(input.source)
   const slotScopeExpression = '{ items, loading, error, empty }'
-  const rootProps = buildProps([
-    [CMS_SOURCE_ID_ATTRIBUTE, sourceId],
-    ...propEntries,
-  ])
+  const rootProps = buildProps(propEntries)
 
   const lines = [
     `<${componentName}${rootProps ? ` ${rootProps}` : ''}>`,
@@ -984,11 +956,8 @@ function defaultCreateBlockId(): string {
   return `pb_blk_${randomBytes(4).toString('hex')}`
 }
 
-function defaultCreateSourceId(): string {
-  return `cms-src-${randomBytes(6).toString('hex')}`
-}
-
-function readCmsSourceId(element: Element): string | undefined {
-  const normalized = element.getAttribute(CMS_SOURCE_ID_ATTRIBUTE)?.trim()
-  return normalized ? normalized : undefined
+function resolveTargetSelectionHtmlPath(targetSelection: PageBuilderTargetSelection): string {
+  return targetSelection.kind === 'cms-island'
+    ? targetSelection.htmlPath
+    : PAGE_BUILDER_DEFAULT_HTML_PATH
 }

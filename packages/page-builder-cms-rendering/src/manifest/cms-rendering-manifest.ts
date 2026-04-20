@@ -5,8 +5,8 @@ export const CMS_RENDERING_MANIFEST_VERSION = 1
 
 export interface CmsRenderingManifestEntry {
   blockId: string | null
-  sourceId: string | null
-  selectorSnapshot: string | null
+  sourceSelectorSnapshot: string | null
+  parentBlockSelectorSnapshot: string | null
   component: CmsIslandComponentName
   props: Record<string, CmsIslandPropValue>
   htmlPath: string
