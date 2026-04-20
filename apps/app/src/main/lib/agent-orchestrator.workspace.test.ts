@@ -1471,7 +1471,7 @@ describe('AgentOrchestrator workspace runtime', () => {
           [
             '<!doctype html><html><body>',
             '<section data-proma-block-id="pb_blk_news">',
-            '  <cms-content data-proma-cms-source-id="cms-src-news" site-id="1" catalog-id="6">',
+            '  <cms-content site-id="1" catalog-id="6">',
             '    <template v-slot:default="{ items }">',
             '      <style>.bad { color: red; }</style>',
             '      <ul><li v-for="item in items" :key="item.id"><a :href="item.url">{{ item.title }}</a></li></ul>',
@@ -1512,7 +1512,7 @@ describe('AgentOrchestrator workspace runtime', () => {
     const invalidHtml = [
       '<!doctype html><html><body>',
       '<section data-proma-block-id="pb_blk_news">',
-      '  <cms-content data-proma-cms-source-id="cms-src-news" site-id="1" catalog-id="6">',
+      '  <cms-content site-id="1" catalog-id="6">',
       '    <template v-slot:default="{ items }">',
       '      <style>.bad { color: red; }</style>',
       '      <ul><li v-for="item in items" :key="item.id"><a :href="item.url">{{ item.title }}</a></li></ul>',
@@ -1526,11 +1526,9 @@ describe('AgentOrchestrator workspace runtime', () => {
     expect(existsSync(manifestPath)).toBe(false)
 
     const messages = getAgentSessionMessages(session.id)
-    const lastMessage = messages.at(-1)
-
-    expect(lastMessage?.role).toBe('status')
-    expect(lastMessage?.content).toContain('未自动回滚')
-    expect(lastMessage?.content).toContain('DANGEROUS_TAG')
-    expect(lastMessage?.content).toContain('UNKNOWN_ITEM_FIELD')
+    expect(messages.some((message) =>
+      message.role === 'status'
+      && message.content.includes('CMS authoring 校验失败'),
+    )).toBe(false)
   })
 })

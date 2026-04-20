@@ -165,28 +165,6 @@ function buildWorkspaceMcpServers(workspace: import('@proma/shared').AgentWorksp
   return mcpServers
 }
 
-function buildPageBuilderGuardrailStatusMessage(
-  result: ReturnType<typeof finalizePageBuilderAgentHtmlGuardrails>,
-): AgentMessage {
-  const validationCodes = Array.from(new Set(result.validation.errors.map((diagnostic) => diagnostic.code)))
-  const summary = validationCodes.length > 0
-    ? validationCodes.join(', ')
-    : 'PREVIEW_ENTRY_MISSING'
-  const detailLines = result.validation.errors
-    .slice(0, 3)
-    .map((diagnostic) => diagnostic.message)
-
-  return {
-    id: randomUUID(),
-    role: 'status',
-    content: `本次页面改写未自动回滚：CMS authoring 校验失败（${summary}）。当前改动已保留，请按错误信息继续修正。`,
-    createdAt: Date.now(),
-    errorCode: 'invalid_request',
-    errorTitle: 'CMS authoring 校验失败',
-    ...(detailLines.length > 0 ? { errorDetails: detailLines } : {}),
-  }
-}
-
 function pickMcpServersByName(
   servers: AgentMcpServerMap,
   names: readonly string[],
@@ -1695,7 +1673,15 @@ export class AgentOrchestrator {
             )
 
             if (pageBuilderGuardrailResult.status === 'invalid') {
-              appendAgentMessage(sessionId, buildPageBuilderGuardrailStatusMessage(pageBuilderGuardrailResult))
+              const validationCodes = Array.from(new Set(
+                pageBuilderGuardrailResult.validation.errors.map((diagnostic) => diagnostic.code),
+              ))
+              const summary = validationCodes.length > 0
+                ? validationCodes.join(', ')
+                : 'PREVIEW_ENTRY_MISSING'
+              console.warn(
+                `[Agent 编排] Page Builder CMS authoring 校验失败（${summary}），保留当前改动但不向对话注入系统提示消息`,
+              )
             }
           }
 
