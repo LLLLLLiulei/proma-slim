@@ -68,6 +68,7 @@ import {
   getWorkspaceAttachedDirectories,
   getWorkspaceSkillInvocationName,
   getWorkspaceMcpConfig,
+  readWorkspaceSkillBootstrap,
 } from './workspace-service'
 import {
   isPageBuilderDockerRuntime,
@@ -165,6 +166,31 @@ function buildWorkspaceMcpServers(workspace: import('@proma/shared').AgentWorksp
   return mcpServers
 }
 
+function buildBootstrappedSkillsPrompt(workspaceSlug: string, skillSlugs: readonly string[]): string | null {
+  const bootstrappedSkills = Array.from(new Set(skillSlugs))
+    .map((skillSlug) => ({
+      skillSlug,
+      bootstrap: readWorkspaceSkillBootstrap(workspaceSlug, skillSlug),
+    }))
+    .filter((entry): entry is { skillSlug: string; bootstrap: { invocationName: string; content: string } } => (
+      entry.bootstrap !== null
+    ))
+
+  if (bootstrappedSkills.length === 0) {
+    return null
+  }
+
+  return `<bootstrapped_skills>
+宿主已为本次 turn 预加载以下 Skill。即使没有显式 Skill tool 记录，也必须遵守这些控制边界；显式 Skill 调用仅用于透明度和审计。
+${bootstrappedSkills.map(({ skillSlug, bootstrap }) => [
+  '',
+  `## ${skillSlug}`,
+  `Invocation: ${bootstrap.invocationName}`,
+  bootstrap.content,
+].join('\n')).join('\n')}
+</bootstrapped_skills>`
+}
+
 function pickMcpServersByName(
   servers: AgentMcpServerMap,
   names: readonly string[],
@@ -206,6 +232,7 @@ function buildWorkspaceMcpStateLines(servers: AgentMcpServerMap): string[] {
 
 function resolveCmsRuntimeToolBundle(
   workspace: import('@proma/shared').AgentWorkspace,
+  sessionId: string,
 ): CmsRuntimeToolBundle | null {
   if (workspace.template !== 'page-builder') {
     return null
@@ -222,6 +249,7 @@ function resolveCmsRuntimeToolBundle(
 
   return buildCmsRuntimeToolBundle(gateway, {
     workspace,
+    sessionId,
   })
 }
 
@@ -750,6 +778,7 @@ export class AgentOrchestrator {
       additionalDirectories,
       customMcpServers,
       mentionedSkills,
+      bootstrappedSkills,
       mentionedMcpServers,
       attachments,
     } = input
@@ -762,7 +791,7 @@ export class AgentOrchestrator {
     const isPageBuilderWorkspace = workspaceRuntime.workspace.template === 'page-builder'
     const priorMessages = getAgentSessionMessages(sessionId)
     const isFirstUserTurn = !priorMessages.some((message) => message.role === 'user')
-    const cmsRuntimeToolBundle = resolveCmsRuntimeToolBundle(workspaceRuntime.workspace)
+    const cmsRuntimeToolBundle = resolveCmsRuntimeToolBundle(workspaceRuntime.workspace, sessionId)
     const availableWorkspaceMcpServers: AgentMcpServerMap = {
       ...workspaceRuntime.mcpServers,
       ...(cmsRuntimeToolBundle ? {
@@ -994,11 +1023,22 @@ export class AgentOrchestrator {
       const runtimeUserMessage = composedUserMessage ?? userMessage
       const availableMentionedMcpServers = (mentionedMcpServers ?? [])
         .filter((name) => Object.prototype.hasOwnProperty.call(resolvedMcpServers, name))
+      const bootstrappedSkillSet = new Set((bootstrappedSkills ?? []).filter(Boolean))
       let enrichedMessage = runtimeUserMessage
+      const bootstrappedSkillsPrompt = workspaceSlug && bootstrappedSkills?.length
+        ? buildBootstrappedSkillsPrompt(workspaceSlug, bootstrappedSkills)
+        : null
+      if (bootstrappedSkillsPrompt) {
+        enrichedMessage = `${bootstrappedSkillsPrompt}\n\n${enrichedMessage}`
+        console.log(`[Agent 编排] 注入 bootstrapped_skills: ${bootstrappedSkills.length} skills`)
+      }
       if (mentionedSkills?.length || availableMentionedMcpServers.length > 0) {
         const toolLines: string[] = ['用户在消息中明确引用了以下工具，请在本次回复中主动调用：']
 
         for (const slug of mentionedSkills ?? []) {
+          if (bootstrappedSkillSet.has(slug)) {
+            continue
+          }
           const qualifiedName = workspaceSlug
             ? getWorkspaceSkillInvocationName(workspaceSlug, slug)
             : slug
@@ -1009,8 +1049,10 @@ export class AgentOrchestrator {
           toolLines.push(`- MCP 服务器: ${name}（请使用此 MCP 服务器的工具来完成任务）`)
         }
 
-        enrichedMessage = `<mentioned_tools>\n${toolLines.join('\n')}\n</mentioned_tools>\n\n${runtimeUserMessage}`
-        console.log(`[Agent 编排] 注入 mentioned_tools: ${mentionedSkills?.length ?? 0} skills, ${availableMentionedMcpServers.length} MCP`)
+        if (toolLines.length > 1) {
+          enrichedMessage = `<mentioned_tools>\n${toolLines.join('\n')}\n</mentioned_tools>\n\n${enrichedMessage}`
+          console.log(`[Agent 编排] 注入 mentioned_tools: ${mentionedSkills?.length ?? 0} skills, ${availableMentionedMcpServers.length} MCP`)
+        }
       }
 
       enrichedMessage = buildPromptMessageContent(enrichedMessage, attachments, agentCwd)

@@ -5,6 +5,7 @@ Keep this file lightweight. Use it for the decision contract, minimal payload/re
 Do not treat this file as the full authoring handbook. The canonical CMS authoring contract remains the source of truth for supported props, slot scope, item fields, and forbidden structures.
 
 Real auto-handoff payloads also include `authoringContext` and `targetSnapshot`. These examples stay minimal on purpose; do not treat them as the complete Phase 1A input shape.
+In the current runtime chain, a `ready` result is not enough to write by itself: it must be passed to `mcp__cms__decide_cms_binding`, which returns `decisionId` before `mcp__cms__apply_cms_binding` can run.
 
 ## Routing
 
@@ -19,7 +20,8 @@ Real auto-handoff payloads also include `authoringContext` and `targetSnapshot`.
 
 ```json
 {
-  "version": 6,
+  "version": 8,
+  "handoffId": "handoff-1",
   "entryPoint": "cms-browser-confirm",
   "applyIntent": "replace-current",
   "workspacePolicy": {
@@ -45,7 +47,8 @@ Real auto-handoff payloads also include `authoringContext` and `targetSnapshot`.
     "sourceType": "catalogs-by-ids",
     "selectionMode": "fixed-items",
     "catalogIds": ["news", "products", "about"]
-  }
+  },
+  "authoringRevision": "rev-1"
 }
 ```
 
@@ -59,7 +62,11 @@ Real auto-handoff payloads also include `authoringContext` and `targetSnapshot`.
   "renderMode": "replace-current",
   "applyStrategy": "replace-current",
   "mappingKind": "catalog-content-list",
-  "toolKind": "catalog-nav"
+  "toolKind": "catalog-nav",
+  "source": {
+    "siteId": "14",
+    "ids": ["news", "products", "about"]
+  }
 }
 ```
 
@@ -69,7 +76,8 @@ Real auto-handoff payloads also include `authoringContext` and `targetSnapshot`.
 
 ```json
 {
-  "version": 6,
+  "version": 8,
+  "handoffId": "handoff-2",
   "entryPoint": "cms-browser-confirm",
   "applyIntent": "replace-current",
   "workspacePolicy": {
@@ -96,7 +104,8 @@ Real auto-handoff payloads also include `authoringContext` and `targetSnapshot`.
     "selectionMode": "fixed-items",
     "catalogId": "news",
     "contentIds": ["n-101", "n-102", "n-103"]
-  }
+  },
+  "authoringRevision": "rev-2"
 }
 ```
 
@@ -110,7 +119,12 @@ Real auto-handoff payloads also include `authoringContext` and `targetSnapshot`.
   "renderMode": "replace-current",
   "applyStrategy": "replace-current",
   "mappingKind": "catalog-content-list",
-  "toolKind": "content-list"
+  "toolKind": "content-list",
+  "source": {
+    "siteId": "14",
+    "catalogId": "news",
+    "ids": ["n-101", "n-102", "n-103"]
+  }
 }
 ```
 

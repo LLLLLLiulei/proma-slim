@@ -706,6 +706,7 @@ describe('AgentOrchestrator workspace runtime', () => {
     expect(adapter.lastInput?.allowedTools).toEqual(expect.arrayContaining([
       'mcp__cms__list_catalogs',
       'mcp__cms__list_contents',
+      'mcp__cms__decide_cms_binding',
       'mcp__cms__apply_cms_binding',
     ]))
   })
@@ -747,6 +748,7 @@ describe('AgentOrchestrator workspace runtime', () => {
     expect(adapter.lastInput?.allowedTools).toEqual(expect.arrayContaining([
       'mcp__cms__list_catalogs',
       'mcp__cms__list_contents',
+      'mcp__cms__decide_cms_binding',
       'mcp__cms__apply_cms_binding',
     ]))
     expect(adapter.lastInput?.prompt).toContain('- MCP 服务器: cms（请使用此 MCP 服务器的工具来完成任务）')
@@ -788,9 +790,49 @@ describe('AgentOrchestrator workspace runtime', () => {
     expect(adapter.lastInput?.allowedTools).toEqual(expect.arrayContaining([
       'mcp__cms__list_catalogs',
       'mcp__cms__list_contents',
+      'mcp__cms__decide_cms_binding',
       'mcp__cms__apply_cms_binding',
     ]))
     expect(adapter.lastInput?.prompt).toContain('- Skill: page-builder-cms-skill-mention:cms-binding-apply（请立即调用此 Skill）')
+  })
+
+  test('injects host-bootstrapped skill context for confirmed cms handoff turns without relying only on mentioned skills', async () => {
+    process.env.PROMA_CMS_BASE_URL = 'https://demo.zving.com/manager'
+    process.env.PROMA_CMS_SITE_ID = '277'
+    process.env.PROMA_CMS_USERNAME = 'test-user'
+    process.env.PROMA_CMS_PASSWORD = 'test-pass'
+
+    const adapter = new RecordingAdapter()
+    const orchestrator = new AgentOrchestrator(adapter, new AgentEventBus())
+    const workspace = createAgentWorkspace('Page Builder CMS Bootstrapped Skill', { template: 'page-builder' })
+    const session = createAgentSession('CMS bootstrapped skill session', undefined, workspace.id)
+
+    await orchestrator.sendMessage(
+      {
+        sessionId: session.id,
+        userMessage: '请根据刚确认的 CMS 选择结果，判断如何应用到当前区块',
+        composedUserMessage: '<cms_binding_apply_input>{"version":8,"handoffId":"handoff-1"}</cms_binding_apply_input>',
+        channelId: '',
+        mentionedSkills: ['cms-binding-apply'],
+        bootstrappedSkills: ['cms-binding-apply'],
+        mentionedMcpServers: ['cms'],
+      },
+      {
+        onError: (message) => {
+          throw new Error(message)
+        },
+        onComplete: () => {},
+        onTitleUpdated: () => {},
+      },
+    )
+
+    expect(adapter.lastInput?.prompt).toContain('<bootstrapped_skills>')
+    expect(adapter.lastInput?.prompt).toContain('宿主已为本次 turn 预加载以下 Skill')
+    expect(adapter.lastInput?.prompt).toContain('cms-binding-apply')
+    expect(adapter.lastInput?.prompt).toContain('Use this skill after CMS browsing is already complete.')
+    expect(adapter.lastInput?.prompt).toContain('<mentioned_tools>')
+    expect(adapter.lastInput?.prompt).toContain('- MCP 服务器: cms（请使用此 MCP 服务器的工具来完成任务）')
+    expect(adapter.lastInput?.prompt).not.toContain('- Skill: page-builder-cms-bootstrapped-skill:cms-binding-apply（请立即调用此 Skill）')
   })
 
   test('keeps page-builder queries on the existing string prompt path even when cms env is configured', async () => {

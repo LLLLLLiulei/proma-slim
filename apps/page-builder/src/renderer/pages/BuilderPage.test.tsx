@@ -6,7 +6,7 @@ import { act, create } from 'react-test-renderer'
 import type {
   AgentSessionMeta,
   AgentWorkspace,
-  PageBuilderCmsApplyTargetSnapshot,
+  PageBuilderCmsAutoAgentHandoffRequest,
   PageBuilderCmsAutoAgentHandoffSettledResult,
   PageBuilderCmsSelectionResult,
   PageBuilderTargetSelection,
@@ -196,10 +196,14 @@ async function loadBuilderPage(options: {
   previewStates?: WorkspacePreviewState[]
   getWorkspacePreviewStateImpl?: () => Promise<WorkspacePreviewState>
   savePageBuilderInlineTextImpl?: (workspaceId: string, payload: unknown) => Promise<WorkspacePreviewState>
-  getPageBuilderCmsTargetSnapshotImpl?: (
+  createPageBuilderCmsAutoHandoffImpl?: (
     workspaceId: string,
-    targetSelection: PageBuilderTargetSelection,
-  ) => Promise<PageBuilderCmsApplyTargetSnapshot>
+    payload: {
+      sessionId: string
+      selection: PageBuilderCmsSelectionResult
+      uiEntryPoint?: 'block-toolbar' | 'agent-flow'
+    },
+  ) => Promise<PageBuilderCmsAutoAgentHandoffRequest>
   deletePageBuilderBlockImpl?: (
     workspaceId: string,
     payload: PageBuilderBlockDeletionPayload,
@@ -291,22 +295,17 @@ async function loadBuilderPage(options: {
         previewStateIndex += 1
         return state
       }),
-      getPageBuilderCmsTargetSnapshot: options.getPageBuilderCmsTargetSnapshotImpl ?? (async (_workspaceId: string, targetSelection: PageBuilderTargetSelection) => ({
-        kind: targetSelection.kind,
-        parentBlockSelector: targetSelection.parentBlockSelector,
-        targetOuterHtml: targetSelection.kind === 'cms-island'
-          ? `<${targetSelection.component}></${targetSelection.component}>`
-          : '<section></section>',
-        ...(targetSelection.kind === 'cms-island'
-          ? {
-              htmlPath: targetSelection.htmlPath,
-              sourceSelector: targetSelection.sourceSelector,
-              parentBlockOuterHtml: '<section></section>',
-              component: targetSelection.component,
-            }
-          : {
-              selector: targetSelection.selector,
-            }),
+      createPageBuilderCmsAutoHandoff: options.createPageBuilderCmsAutoHandoffImpl ?? (async (_workspaceId: string, payload: {
+        sessionId: string
+        selection: PageBuilderCmsSelectionResult
+        uiEntryPoint?: 'block-toolbar' | 'agent-flow'
+      }) => ({
+        requestId: `auto-handoff:${payload.selection.targetBlock.selector}`,
+        userMessage: '请根据刚确认的 CMS 选择结果，判断如何应用到当前目标。',
+        composedUserMessage: '<cms_binding_apply_input>{"version":8}</cms_binding_apply_input>',
+        mentionedSkills: ['cms-binding-apply'],
+        bootstrappedSkills: ['cms-binding-apply'],
+        mentionedMcpServers: ['cms'],
       })),
       deletePageBuilderBlock: options.deletePageBuilderBlockImpl ?? (async () => {
         throw new Error('deletePageBuilderBlock 未在测试中模拟')
@@ -1894,11 +1893,16 @@ describe('BuilderPage', () => {
       createdAt: 1,
       updatedAt: 1,
     }
-    const getPageBuilderCmsTargetSnapshot = mock(async () => ({
-      kind: 'block' as const,
-      selector: '#hero-banner',
-      parentBlockSelector: '#hero-banner',
-      targetOuterHtml: '<section id="hero-banner" data-proma-block-id="pb_blk_hero"><h1>Hero</h1></section>',
+    const createPageBuilderCmsAutoHandoff = mock(async () => ({
+      requestId: 'auto-handoff-1',
+      userMessage: '请根据刚确认的 CMS 选择结果，判断如何应用到当前目标。',
+      composedUserMessage: [
+        '<cms_binding_apply_input>{"version":8,"handoffId":"auto-handoff-1","authoringRevision":"rev-1","targetSnapshot":{"targetOuterHtml":"<section id=\\"hero-banner\\" data-proma-block-id=\\"pb_blk_hero\\"><h1>Hero</h1></section>"}}</cms_binding_apply_input>',
+        '优先让 cms-* 标签作为动态区域源码根节点，并把 ul、nav、section、article 等主要动态容器写进 slot。',
+      ].join('\n\n'),
+      mentionedSkills: ['cms-binding-apply'],
+      bootstrappedSkills: ['cms-binding-apply'],
+      mentionedMcpServers: ['cms'],
     }))
 
     const {
@@ -1909,7 +1913,7 @@ describe('BuilderPage', () => {
     } = await loadBuilderPage({
       sessions: [session],
       workspaces: [workspace],
-      getPageBuilderCmsTargetSnapshotImpl: getPageBuilderCmsTargetSnapshot,
+      createPageBuilderCmsAutoHandoffImpl: createPageBuilderCmsAutoHandoff,
       mockCmsBrowserDialog: true,
       mockPreviewPane: true,
     })
@@ -1938,7 +1942,7 @@ describe('BuilderPage', () => {
     })
 
     const selection: PageBuilderCmsSelectionResult = {
-      version: 5,
+      version: 6,
       siteId: '14',
       targetSelection: createBlockTargetSelection('#hero-banner'),
       targetBlock: {
@@ -1969,11 +1973,16 @@ describe('BuilderPage', () => {
       programmaticSendRequest: expect.objectContaining({
         userMessage: '请根据刚确认的 CMS 选择结果，判断如何应用到当前目标。',
         mentionedSkills: ['cms-binding-apply'],
+        bootstrappedSkills: ['cms-binding-apply'],
         mentionedMcpServers: ['cms'],
       }),
     })
-    expect(getPageBuilderCmsTargetSnapshot).toHaveBeenCalledTimes(1)
-    expect(getPageBuilderCmsTargetSnapshot).toHaveBeenCalledWith(workspace.id, selection.targetSelection)
+    expect(createPageBuilderCmsAutoHandoff).toHaveBeenCalledTimes(1)
+    expect(createPageBuilderCmsAutoHandoff).toHaveBeenCalledWith(workspace.id, {
+      sessionId: session.id,
+      selection,
+      uiEntryPoint: 'block-toolbar',
+    })
     expect(request?.composedUserMessage).toContain(
       '优先让 cms-* 标签作为动态区域源码根节点，并把 ul、nav、section、article 等主要动态容器写进 slot。',
     )
@@ -2017,7 +2026,7 @@ describe('BuilderPage', () => {
       createdAt: 1,
       updatedAt: 1,
     }
-    const getPageBuilderCmsTargetSnapshot = mock(async () => {
+    const createPageBuilderCmsAutoHandoff = mock(async () => {
       throw new Error('无法读取当前目标的作者态源码快照')
     })
 
@@ -2030,7 +2039,7 @@ describe('BuilderPage', () => {
     } = await loadBuilderPage({
       sessions: [session],
       workspaces: [workspace],
-      getPageBuilderCmsTargetSnapshotImpl: getPageBuilderCmsTargetSnapshot,
+      createPageBuilderCmsAutoHandoffImpl: createPageBuilderCmsAutoHandoff,
       mockCmsBrowserDialog: true,
       mockPreviewPane: true,
     })
@@ -2061,7 +2070,7 @@ describe('BuilderPage', () => {
       await (getLastCmsBrowserDialogProps() as {
         onConfirmSelection?: (value: PageBuilderCmsSelectionResult) => void
       }).onConfirmSelection?.({
-        version: 5,
+        version: 6,
         siteId: '14',
         targetSelection: createBlockTargetSelection('#hero-banner'),
         targetBlock: {
@@ -2078,7 +2087,7 @@ describe('BuilderPage', () => {
       })
     })
 
-    expect(getPageBuilderCmsTargetSnapshot).toHaveBeenCalledTimes(1)
+    expect(createPageBuilderCmsAutoHandoff).toHaveBeenCalledTimes(1)
     expect(getLastAgentViewProps()?.programmaticSendRequest ?? null).toBeNull()
     expect(getLastCmsBrowserDialogProps()).toMatchObject({
       open: true,
@@ -2208,7 +2217,7 @@ describe('BuilderPage', () => {
     })
 
     const selection: PageBuilderCmsSelectionResult = {
-      version: 5,
+      version: 6,
       siteId: '14',
       targetSelection: createBlockTargetSelection('#hero-banner'),
       targetBlock: {
@@ -2247,6 +2256,83 @@ describe('BuilderPage', () => {
       confirming: false,
     })
     expect(getPreviewSelectionActionState(getLastPreviewPaneProps())).toBe('selected')
+  })
+
+  test('does not install cms-island natural-language rebind interception and keeps rebinding on explicit CMS entry points only', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const {
+      BuilderPage,
+      getLastAgentViewProps,
+      getLastCmsBrowserDialogProps,
+      getLastPreviewPaneProps,
+    } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      mockCmsBrowserDialog: true,
+      mockPreviewPane: true,
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      (getLastPreviewPaneProps() as {
+        onSelectionEvent?: (event: { type: string; targetSelection?: PageBuilderTargetSelection }) => void
+      }).onSelectionEvent?.({
+        type: 'selected',
+        targetSelection: createCmsIslandTargetSelection(
+          'section:nth-of-type(2) > cms-content:nth-of-type(1)',
+          '[data-proma-block-id="pb_blk_news"]',
+          'cms-content',
+        ),
+      })
+    })
+
+    expect(getLastCmsBrowserDialogProps()).toMatchObject({
+      open: false,
+      requestContext: {
+        entryPoint: 'block-toolbar',
+        targetSelection: {
+          kind: 'cms-island',
+          htmlPath: 'index.html',
+          sourceSelector: 'section:nth-of-type(2) > cms-content:nth-of-type(1)',
+          parentBlockSelector: '[data-proma-block-id="pb_blk_news"]',
+          component: 'cms-content',
+          editBoundary: 'source-atomic',
+        },
+        targetBlock: {
+          selector: '[data-proma-block-id="pb_blk_news"]',
+        },
+      },
+      confirming: false,
+    })
+    expect(getLastAgentViewProps()).not.toHaveProperty('beforeSendMessage')
+    expect(getLastAgentViewProps()).toMatchObject({
+      programmaticSendRequest: null,
+    })
   })
 
   test('opens an image-only file picker for replace-image actions and ignores canceled selections', async () => {

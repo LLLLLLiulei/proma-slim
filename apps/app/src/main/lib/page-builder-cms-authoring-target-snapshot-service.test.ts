@@ -68,6 +68,9 @@ describe('page-builder CMS authoring target snapshot service', () => {
     })
 
     expect(snapshot.kind).toBe('cms-island')
+    if (snapshot.kind !== 'cms-island') {
+      throw new Error('expected cms-island snapshot')
+    }
     expect(snapshot.htmlPath).toBe('index.html')
     expect(snapshot.sourceSelector).toBe('#latest-news > cms-content:nth-of-type(1)')
     expect(snapshot.component).toBe('cms-content')

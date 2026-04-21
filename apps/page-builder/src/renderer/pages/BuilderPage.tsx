@@ -6,6 +6,7 @@ import type {
   PageBuilderBlockDeletionPayload,
   PageBuilderCmsAutoAgentHandoffRequest,
   PageBuilderCmsAutoAgentHandoffSettledResult,
+  PageBuilderCmsSelectionEntryPoint,
   PageBuilderCmsSelectionRequestContext,
   PageBuilderCmsSelectionResult,
   PageBuilderImageReplacementPayload,
@@ -37,7 +38,6 @@ import { Button } from '@/components/ui/button'
 import { api } from '@/lib/api'
 import { clearBootstrapPayload, readBootstrapPayload } from '@page-builder/lib/bootstrap-cache'
 import { resolveBuilderContext } from '@page-builder/lib/builder-context'
-import { createPageBuilderCmsAutoAgentHandoffRequest } from '@page-builder/lib/cms-auto-agent-handoff'
 import {
   BUILDER_SPLIT_GAP,
   BUILDER_SPLIT_RAIL_WIDTH,
@@ -75,6 +75,12 @@ type LoadState =
 type SelectionActionState = 'idle' | 'armed' | 'selected'
 
 const PAGE_BUILDER_GUIDED_GENERATION_SKILL = 'page-builder-guided-generation'
+
+function resolvePageBuilderTargetBlockSelector(targetSelection: PageBuilderTargetSelection): string {
+  return targetSelection.kind === 'cms-island'
+    ? targetSelection.parentBlockSelector
+    : targetSelection.selector
+}
 
 export function BuilderPage({
   workspaceId,
@@ -114,6 +120,7 @@ export function BuilderPage({
   const [selectedTargetSelection, setSelectedTargetSelection] = React.useState<PageBuilderTargetSelection | null>(null)
   const [pendingDeleteSelector, setPendingDeleteSelector] = React.useState<string | null>(null)
   const [cmsBrowserOpen, setCmsBrowserOpen] = React.useState(false)
+  const [cmsSelectionEntryPoint, setCmsSelectionEntryPoint] = React.useState<PageBuilderCmsSelectionEntryPoint>('block-toolbar')
   const [cmsAutoHandoffRequest, setCmsAutoHandoffRequest] = React.useState<PageBuilderCmsAutoAgentHandoffRequest | null>(null)
   const [isDeletingBlock, setIsDeletingBlock] = React.useState(false)
   const [isReplacingImage, setIsReplacingImage] = React.useState(false)
@@ -479,7 +486,7 @@ export function BuilderPage({
     try {
       const nextState = await api.deletePageBuilderBlock(workspaceId, {
         selector,
-        ...(selectedTargetSelection?.selector === selector
+        ...(selectedTargetSelection && resolvePageBuilderTargetBlockSelector(selectedTargetSelection) === selector
           ? { targetSelection: selectedTargetSelection }
           : {}),
       } satisfies PageBuilderBlockDeletionPayload)
@@ -609,7 +616,11 @@ export function BuilderPage({
     }
 
     if (event.type === 'hover') {
-      setHoveredSelector(event.targetSelection?.selector ?? null)
+      setHoveredSelector(
+        event.targetSelection
+          ? resolvePageBuilderTargetBlockSelector(event.targetSelection)
+          : event.selector ?? null,
+      )
       return
     }
 
@@ -695,24 +706,25 @@ export function BuilderPage({
       : selectedTargetSelection.selector
 
     return {
-      entryPoint: 'block-toolbar',
+      entryPoint: cmsSelectionEntryPoint,
       targetSelection: selectedTargetSelection,
       targetBlock: {
         selector: targetBlockSelector,
       },
     }
-  }, [selectedTargetSelection])
+  }, [cmsSelectionEntryPoint, selectedTargetSelection])
   const handleCmsSelectionConfirm = React.useCallback(async (selection: PageBuilderCmsSelectionResult) => {
     try {
-      const targetSnapshot = await api.getPageBuilderCmsTargetSnapshot(workspaceId, selection.targetSelection)
-      setCmsAutoHandoffRequest(createPageBuilderCmsAutoAgentHandoffRequest(selection, {
-        targetSnapshot,
-        uiEntryPoint: cmsSelectionRequestContext?.entryPoint,
-      }))
+      const request = await api.createPageBuilderCmsAutoHandoff(workspaceId, {
+        sessionId,
+        selection,
+        ...(cmsSelectionRequestContext?.entryPoint ? { uiEntryPoint: cmsSelectionRequestContext.entryPoint } : {}),
+      })
+      setCmsAutoHandoffRequest(request)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '无法读取当前目标的作者态源码快照')
     }
-  }, [cmsSelectionRequestContext?.entryPoint, workspaceId])
+  }, [cmsSelectionRequestContext?.entryPoint, sessionId, workspaceId])
   const handleCmsAutoHandoffSettled = React.useCallback((result: PageBuilderCmsAutoAgentHandoffSettledResult) => {
     if (!cmsAutoHandoffRequest || result.requestId !== cmsAutoHandoffRequest.requestId) {
       return
@@ -778,6 +790,7 @@ export function BuilderPage({
               return
             }
 
+            setCmsSelectionEntryPoint('block-toolbar')
             setCmsBrowserOpen(true)
           }}
           onRequestReplaceImage={handleRequestReplaceImage}

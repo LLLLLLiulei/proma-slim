@@ -136,6 +136,19 @@ export interface AgentViewProps {
   messageDecorator?: AgentMessageDecorator
   composerLeadingActions?: React.ReactNode
   onMessageSent?: (userMessage: string) => void
+  beforeSendMessage?: (input: {
+    userMessage: string
+    sessionId: string
+    workspaceId?: string
+  }) => Promise<{
+    handled: true
+    clearComposer?: boolean
+    clearAttachments?: boolean
+  } | void> | {
+    handled: true
+    clearComposer?: boolean
+    clearAttachments?: boolean
+  } | void
   programmaticSendRequest?: PageBuilderCmsAutoAgentHandoffRequest | null
   onProgrammaticSendSettled?: (result: PageBuilderCmsAutoAgentHandoffSettledResult) => void
 }
@@ -146,6 +159,7 @@ export interface PreparedAgentSendPayload {
   userMessage: string
   composedUserMessage?: string
   mentionedSkills: string[]
+  bootstrappedSkills?: string[]
   mentionedMcpServers: string[]
 }
 
@@ -246,6 +260,7 @@ export function AgentView({
   messageDecorator,
   composerLeadingActions,
   onMessageSent,
+  beforeSendMessage,
   programmaticSendRequest = null,
   onProgrammaticSendSettled,
 }: AgentViewProps): React.ReactElement {
@@ -387,6 +402,7 @@ export function AgentView({
     userMessage,
     composedUserMessage,
     mentionedSkills = [],
+    bootstrappedSkills = [],
     mentionedMcpServers = [],
     optimisticAttachments = [],
     attachmentFiles = [],
@@ -397,6 +413,7 @@ export function AgentView({
     userMessage: string
     composedUserMessage?: string
     mentionedSkills?: string[]
+    bootstrappedSkills?: string[]
     mentionedMcpServers?: string[]
     optimisticAttachments?: ReadonlyArray<PendingAgentAttachment>
     attachmentFiles?: File[]
@@ -455,6 +472,7 @@ export function AgentView({
         ...(sessionWorkspaceId && { workspaceId: sessionWorkspaceId }),
         ...(attachedDirectories.length > 0 && { additionalDirectories: attachedDirectories }),
         ...(mentionedSkills.length > 0 && { mentionedSkills }),
+        ...(bootstrappedSkills.length > 0 && { bootstrappedSkills }),
         ...(mentionedMcpServers.length > 0 && { mentionedMcpServers }),
       })
 
@@ -501,6 +519,30 @@ export function AgentView({
   ])
 
   const sendDraftMessage = React.useCallback(async (nextUserMessage: string): Promise<boolean> => {
+    const trimmedUserMessage = nextUserMessage.trim()
+    if (beforeSendMessage) {
+      const interception = await beforeSendMessage({
+        userMessage: trimmedUserMessage,
+        sessionId,
+        ...(sessionWorkspaceId ? { workspaceId: sessionWorkspaceId } : {}),
+      })
+
+      if (interception?.handled) {
+        if (interception.clearComposer) {
+          setInputValue('')
+        }
+
+        if (interception.clearAttachments) {
+          setPendingAttachments((current) => {
+            releasePendingAgentAttachments(current)
+            return []
+          })
+        }
+
+        return false
+      }
+    }
+
     const payload = prepareAgentSendPayload(nextUserMessage.trim(), messageDecorator, defaultMentionedSkills)
     const result = await executeSend({
       userMessage: payload.userMessage,
@@ -515,7 +557,16 @@ export function AgentView({
     })
 
     return result.ok
-  }, [defaultMentionedSkills, executeSend, messageDecorator, pendingAttachments])
+  }, [
+    beforeSendMessage,
+    defaultMentionedSkills,
+    executeSend,
+    messageDecorator,
+    pendingAttachments,
+    sessionId,
+    sessionWorkspaceId,
+    setInputValue,
+  ])
 
   const handleSend = React.useCallback(async (): Promise<void> => {
     await sendDraftMessage(inputValue)
@@ -621,6 +672,7 @@ export function AgentView({
       userMessage: programmaticSendRequest.userMessage,
       composedUserMessage: programmaticSendRequest.composedUserMessage,
       mentionedSkills: programmaticSendRequest.mentionedSkills,
+      bootstrappedSkills: programmaticSendRequest.bootstrappedSkills ?? [],
       mentionedMcpServers: programmaticSendRequest.mentionedMcpServers ?? [],
       optimisticAttachments: [],
       attachmentFiles: [],

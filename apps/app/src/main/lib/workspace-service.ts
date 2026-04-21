@@ -418,6 +418,35 @@ export function getWorkspaceSkills(workspaceSlug: string): SkillMeta[] {
   return scanSkillsInDir(getWorkspaceSkillsDir(workspaceSlug), true)
 }
 
+function stripSkillFrontmatter(content: string): string {
+  return content.replace(/^---\s*\n[\s\S]*?\n---\s*\n?/, '').trim()
+}
+
+export function readWorkspaceSkillBootstrap(
+  workspaceSlug: string,
+  skillSlug: string,
+): { invocationName: string; content: string } | null {
+  ensureWorkspaceStructure(workspaceSlug)
+  const skillMdPath = join(getWorkspaceSkillsDir(workspaceSlug), skillSlug, 'SKILL.md')
+  if (!existsSync(skillMdPath)) {
+    return null
+  }
+
+  try {
+    const content = stripSkillFrontmatter(readFileSync(skillMdPath, 'utf-8'))
+    if (!content) {
+      return null
+    }
+
+    return {
+      invocationName: getWorkspaceSkillInvocationName(workspaceSlug, skillSlug),
+      content,
+    }
+  } catch {
+    return null
+  }
+}
+
 export function getAllWorkspaceSkills(workspaceSlug: string): SkillMeta[] {
   ensureWorkspaceStructure(workspaceSlug)
   return [

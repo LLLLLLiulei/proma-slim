@@ -27,11 +27,13 @@ Do not use this skill when:
 
 The incoming payload must already be structured. Expect:
 
+- `handoffId`
 - `selection`
 - `targetSelection`
 - `targetBlock`
 - `authoringContext`
 - `targetSnapshot`
+- `authoringRevision`
 - `entryPoint`
 - `applyIntent`
 - `workspacePolicy`
@@ -76,8 +78,12 @@ When `sourceType = contents-by-ids`, treat it as a single-catalog fixed content 
 
 When the result is `ready`, continue in the same turn instead of stopping at an abstract contract summary:
 
-- Call `mcp__cms__apply_cms_binding` in the same turn. Do not reply that the skill is only a template, and do not edit workspace files directly.
-- Pass the current `targetSelection` as an object and keep `targetBlock.selector` as the compatibility context.
+- Call `mcp__cms__decide_cms_binding` in the same turn with the current `handoffId` and the structured `ready` decision.
+- Pass `decision` as a nested object. Do not JSON-stringify `decision`; if you currently have JSON text, parse it into an object before calling `mcp__cms__decide_cms_binding`.
+- Only when `mcp__cms__decide_cms_binding` returns `status = ready` plus a `decisionId`, call `mcp__cms__apply_cms_binding` in the same turn.
+- If `mcp__cms__decide_cms_binding` fails, stop, correct the payload, and retry the tool call. Do not edit `workspace-files/index.html`, and do not handwrite `cms-catalog` / `cms-content` as a fallback bypass.
+- Pass only `decisionId`, `templateBody`, `emptyTemplate`, and `errorTemplate` into `mcp__cms__apply_cms_binding`. Do not try to resend `targetSelection`, `siteId`, `source`, or other raw binding identity fields.
+- Do not reply that the skill is only a template, and do not edit workspace files directly.
 - Keep page-builder authoring HTML-first. `cms-catalog` / `cms-content` are host-managed source tags; this flow should author the selected source tag plus its slot templates, not a page-wide Vue app.
 - Inspect the current target block in the workspace source. Preserve the existing outer shell, classes, and major layout structure whenever they are still compatible with the selected CMS data.
 - Treat the task as an in-place replacement of the selected target. Do not append a sibling `cms-catalog` / `cms-content` beside the current block.

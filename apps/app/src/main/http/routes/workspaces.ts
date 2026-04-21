@@ -1,6 +1,9 @@
 import { Hono } from 'hono'
+import { PAGE_BUILDER_CMS_SELECTION_RESULT_VERSION } from '@proma/shared'
 import type {
   PageBuilderBlockDeletionPayload,
+  PageBuilderCmsSelectionEntryPoint,
+  PageBuilderCmsSelectionResult,
   PageBuilderImageReplacementPayload,
   PageBuilderInlineTextSavePayload,
   PageBuilderTargetSelection,
@@ -32,6 +35,10 @@ import {
   PageBuilderCmsAuthoringTargetSnapshotError,
   readPageBuilderCmsApplyTargetSnapshot,
 } from '../../lib/page-builder-cms-authoring-target-snapshot-service'
+import {
+  PageBuilderCmsAutoAgentHandoffServiceError,
+  createPageBuilderCmsAutoAgentHandoff,
+} from '../../lib/page-builder-cms-auto-agent-handoff-service'
 import {
   PageBuilderStaticExportServiceError,
   pageBuilderStaticExportService,
@@ -130,6 +137,45 @@ workspaceRoutes.post('/:workspaceId/page-builder/cms-target-snapshot', async (c)
     }
 
     if (error.code === 'target-not-found' || error.code === 'selector-not-unique' || error.code === 'target-mismatch') {
+      throw new HttpError(409, error.message)
+    }
+
+    throw error
+  }
+})
+
+workspaceRoutes.post('/:workspaceId/page-builder/cms-auto-handoff', async (c) => {
+  const body = await readJsonBody<{
+    sessionId?: unknown
+    selection?: unknown
+    uiEntryPoint?: unknown
+  }>(c.req.raw)
+  const sessionId = typeof body.sessionId === 'string' ? body.sessionId.trim() : ''
+  if (!sessionId) {
+    throw new HttpError(400, 'sessionId 不能为空')
+  }
+
+  const selection = readPageBuilderCmsSelectionResult(body.selection)
+  const uiEntryPoint = readPageBuilderCmsSelectionEntryPoint(body.uiEntryPoint)
+
+  try {
+    return json(createPageBuilderCmsAutoAgentHandoff(c.var.workspace, {
+      sessionId,
+      selection,
+      ...(uiEntryPoint ? { uiEntryPoint } : {}),
+    }))
+  } catch (error) {
+    if (error instanceof PageBuilderCmsAuthoringTargetSnapshotError) {
+      if (error.code === 'entry-missing') {
+        throw new HttpError(404, error.message)
+      }
+
+      if (error.code === 'target-not-found' || error.code === 'selector-not-unique' || error.code === 'target-mismatch') {
+        throw new HttpError(409, error.message)
+      }
+    }
+
+    if (error instanceof PageBuilderCmsAutoAgentHandoffServiceError && error.code === 'authoring-revision-missing') {
       throw new HttpError(409, error.message)
     }
 
@@ -349,6 +395,188 @@ function readPageBuilderTargetSelection(value: unknown): PageBuilderTargetSelect
   }
 
   throw new HttpError(400, 'targetSelection.kind 不合法')
+}
+
+function readPageBuilderCmsSelectionEntryPoint(value: unknown): PageBuilderCmsSelectionEntryPoint | undefined {
+  if (value === undefined) {
+    return undefined
+  }
+
+  if (value === 'block-toolbar' || value === 'agent-flow') {
+    return value
+  }
+
+  throw new HttpError(400, 'uiEntryPoint 不合法')
+}
+
+function readPageBuilderCmsSelectionResult(value: unknown): PageBuilderCmsSelectionResult {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new HttpError(400, 'selection 必须是对象')
+  }
+
+  const selection = value as Record<string, unknown>
+  const siteId = typeof selection.siteId === 'string' ? selection.siteId.trim() : ''
+  if (!siteId) {
+    throw new HttpError(400, 'selection.siteId 不能为空')
+  }
+
+  const targetSelection = readPageBuilderTargetSelection(selection.targetSelection)
+  const targetBlock = selection.targetBlock
+  if (!targetBlock || typeof targetBlock !== 'object' || Array.isArray(targetBlock)) {
+    throw new HttpError(400, 'selection.targetBlock 不能为空')
+  }
+
+  const targetBlockSelectorValue = (targetBlock as Record<string, unknown>).selector
+  const targetBlockSelector = typeof targetBlockSelectorValue === 'string'
+    ? targetBlockSelectorValue.trim()
+    : ''
+  if (!targetBlockSelector) {
+    throw new HttpError(400, 'selection.targetBlock.selector 不能为空')
+  }
+
+  const snapshot = selection.snapshot
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
+    throw new HttpError(400, 'selection.snapshot 不能为空')
+  }
+
+  const version = selection.version === PAGE_BUILDER_CMS_SELECTION_RESULT_VERSION
+    ? PAGE_BUILDER_CMS_SELECTION_RESULT_VERSION
+    : 0
+  if (version === 0) {
+    throw new HttpError(400, 'selection.version 不合法')
+  }
+
+  if (selection.selectionKind === 'catalogs') {
+    if (selection.sourceType === 'catalogs-by-parent') {
+      const parentCatalogId = typeof selection.parentCatalogId === 'string' ? selection.parentCatalogId.trim() : ''
+      if (!parentCatalogId) {
+        throw new HttpError(400, 'selection.parentCatalogId 不能为空')
+      }
+
+      if (selection.selectionMode !== 'children-of-parent') {
+        throw new HttpError(400, 'selection.selectionMode 不合法')
+      }
+
+      return {
+        version,
+        siteId,
+        targetSelection,
+        targetBlock: {
+          selector: targetBlockSelector,
+        },
+        selectionKind: 'catalogs',
+        sourceType: 'catalogs-by-parent',
+        selectionMode: 'children-of-parent',
+        parentCatalogId,
+        snapshot: snapshot as Extract<
+          PageBuilderCmsSelectionResult,
+          { selectionKind: 'catalogs'; sourceType: 'catalogs-by-parent' }
+        >['snapshot'],
+      }
+    }
+
+    if (selection.sourceType === 'catalogs-by-ids') {
+      const catalogIds = readRequiredStringArray(selection.catalogIds, 'selection.catalogIds')
+      if (selection.selectionMode !== 'fixed-items') {
+        throw new HttpError(400, 'selection.selectionMode 不合法')
+      }
+
+      return {
+        version,
+        siteId,
+        targetSelection,
+        targetBlock: {
+          selector: targetBlockSelector,
+        },
+        selectionKind: 'catalogs',
+        sourceType: 'catalogs-by-ids',
+        selectionMode: 'fixed-items',
+        catalogIds,
+        snapshot: snapshot as Extract<
+          PageBuilderCmsSelectionResult,
+          { selectionKind: 'catalogs'; sourceType: 'catalogs-by-ids' }
+        >['snapshot'],
+      }
+    }
+  }
+
+  if (selection.selectionKind === 'contents') {
+    if (selection.sourceType === 'contents-by-catalog') {
+      const catalogId = typeof selection.catalogId === 'string' ? selection.catalogId.trim() : ''
+      if (!catalogId) {
+        throw new HttpError(400, 'selection.catalogId 不能为空')
+      }
+
+      if (selection.selectionMode !== 'by-catalog') {
+        throw new HttpError(400, 'selection.selectionMode 不合法')
+      }
+
+      return {
+        version,
+        siteId,
+        targetSelection,
+        targetBlock: {
+          selector: targetBlockSelector,
+        },
+        selectionKind: 'contents',
+        sourceType: 'contents-by-catalog',
+        selectionMode: 'by-catalog',
+        catalogId,
+        snapshot: snapshot as Extract<
+          PageBuilderCmsSelectionResult,
+          { selectionKind: 'contents'; sourceType: 'contents-by-catalog' }
+        >['snapshot'],
+      }
+    }
+
+    if (selection.sourceType === 'contents-by-ids') {
+      const catalogId = typeof selection.catalogId === 'string' ? selection.catalogId.trim() : ''
+      if (!catalogId) {
+        throw new HttpError(400, 'selection.catalogId 不能为空')
+      }
+
+      const contentIds = readRequiredStringArray(selection.contentIds, 'selection.contentIds')
+      if (selection.selectionMode !== 'fixed-items') {
+        throw new HttpError(400, 'selection.selectionMode 不合法')
+      }
+
+      return {
+        version,
+        siteId,
+        targetSelection,
+        targetBlock: {
+          selector: targetBlockSelector,
+        },
+        selectionKind: 'contents',
+        sourceType: 'contents-by-ids',
+        selectionMode: 'fixed-items',
+        catalogId,
+        contentIds,
+        snapshot: snapshot as Extract<
+          PageBuilderCmsSelectionResult,
+          { selectionKind: 'contents'; sourceType: 'contents-by-ids' }
+        >['snapshot'],
+      }
+    }
+  }
+
+  throw new HttpError(400, 'selection.sourceType 不合法')
+}
+
+function readRequiredStringArray(value: unknown, fieldName: string): string[] {
+  if (!Array.isArray(value)) {
+    throw new HttpError(400, `${fieldName} 必须是数组`)
+  }
+
+  const normalized = value
+    .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+    .filter(Boolean)
+
+  if (normalized.length === 0) {
+    throw new HttpError(400, `${fieldName} 不能为空`)
+  }
+
+  return normalized
 }
 
 async function readPageBuilderImageReplacementRequest(request: Request): Promise<{

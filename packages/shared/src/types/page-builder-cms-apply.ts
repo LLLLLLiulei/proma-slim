@@ -12,7 +12,7 @@ import type {
 
 export type { PageBuilderCmsCatalog, PageBuilderCmsContentSummary } from './page-builder-cms'
 
-export const PAGE_BUILDER_CMS_APPLY_SKILL_CONTRACT_VERSION = 7
+export const PAGE_BUILDER_CMS_APPLY_SKILL_CONTRACT_VERSION = 8
 
 export type PageBuilderCmsApplySkillEntryPoint = 'cms-browser-confirm'
 
@@ -25,6 +25,25 @@ export type PageBuilderCmsApplyRenderMode = 'replace-current'
 export type PageBuilderCmsApplyMappingKind = 'catalog-nav' | 'catalog-content-list'
 
 export type PageBuilderCmsApplyToolKind = 'catalog-nav' | 'content-list'
+
+export interface PageBuilderCmsApplyCatalogSource {
+  siteId: string
+  ids?: string[]
+  level?: string
+  parentId?: string
+  contentType?: string
+  searchKeyword?: string
+  take?: string | number
+}
+
+export interface PageBuilderCmsApplyContentSource {
+  siteId: string
+  ids?: string[]
+  catalogId: string
+  keyword?: string
+  pageIndex?: string | number
+  pageSize?: string | number
+}
 
 export interface PageBuilderCmsApplyWorkspacePolicy {
   scope: 'target-selection-only'
@@ -68,6 +87,7 @@ export type PageBuilderCmsApplyTargetSnapshot =
 
 export interface PageBuilderCmsApplySkillInput {
   version: typeof PAGE_BUILDER_CMS_APPLY_SKILL_CONTRACT_VERSION
+  handoffId: string
   entryPoint: PageBuilderCmsApplySkillEntryPoint
   applyIntent: PageBuilderCmsApplyIntent
   workspacePolicy: PageBuilderCmsApplyWorkspacePolicy
@@ -76,6 +96,7 @@ export interface PageBuilderCmsApplySkillInput {
   selection: PageBuilderCmsSelectionResult
   authoringContext: PageBuilderCmsApplyAuthoringContext
   targetSnapshot: PageBuilderCmsApplyTargetSnapshot
+  authoringRevision: string
   uiContext?: {
     userIntent?: string
     notes?: string[]
@@ -100,15 +121,28 @@ export interface PageBuilderCmsApplyClarification {
   options: PageBuilderCmsApplyClarificationOption[]
 }
 
-export interface PageBuilderCmsApplyReadyDecision {
+interface PageBuilderCmsApplyReadyDecisionBase {
   status: 'ready'
   targetBlockKind: PageBuilderCmsApplyTargetBlockKind
   supportedRenderModes: PageBuilderCmsApplyRenderMode[]
   renderMode: PageBuilderCmsApplyRenderMode
   applyStrategy: PageBuilderCmsApplyIntent
   mappingKind: PageBuilderCmsApplyMappingKind
-  toolKind: PageBuilderCmsApplyToolKind
 }
+
+export interface PageBuilderCmsApplyCatalogReadyDecision extends PageBuilderCmsApplyReadyDecisionBase {
+  toolKind: 'catalog-nav'
+  source: PageBuilderCmsApplyCatalogSource
+}
+
+export interface PageBuilderCmsApplyContentReadyDecision extends PageBuilderCmsApplyReadyDecisionBase {
+  toolKind: 'content-list'
+  source: PageBuilderCmsApplyContentSource
+}
+
+export type PageBuilderCmsApplyReadyDecision =
+  | PageBuilderCmsApplyCatalogReadyDecision
+  | PageBuilderCmsApplyContentReadyDecision
 
 export interface PageBuilderCmsApplyNeedsClarificationDecision {
   status: 'needs-clarification'

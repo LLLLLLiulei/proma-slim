@@ -1,8 +1,5 @@
-# page-builder-cms-sdk-tools Specification
+## MODIFIED Requirements
 
-## Purpose
-定义 `page-builder` 会话可用的宿主创建 CMS SDK tools，包括 runtime MCP server 挂载条件、只读工具面、宿主管理的鉴权上下文，以及归一化栏目与内容摘要结果。
-## Requirements
 ### Requirement: Page-builder 会话必须暴露宿主创建的 CMS SDK tools
 系统 SHALL 在满足 CMS 集成启用条件时，为 `page-builder` 会话的 Agent 查询附加一个宿主创建的 runtime SDK MCP server `cms`，并在保留宿主管理边界的前提下暴露只读 CMS data tools、宿主管理的 `decide_cms_binding` 工具与受控 `apply_cms_binding` 工具，而不是要求用户配置外部 MCP 进程或修改工作区 `mcp.json`。
 
@@ -34,11 +31,6 @@
 - **THEN** tool 输入 SHALL 只包含 `decisionId`、`templateBody`、`emptyTemplate?` 与 `errorTemplate?`
 - **AND** 输入 SHALL NOT 再要求模型显式提供 `siteId`、`targetSelection`、`kind`、raw source props 或等价 binding identity 字段
 
-#### Scenario: 鉴权失败时返回脱敏错误
-- **WHEN** 宿主使用当前 CMS 配置发起请求，但上游返回鉴权失败、权限不足或其他认证错误
-- **THEN** 系统 SHALL 向模型返回可操作的工具错误
-- **AND** 系统 SHALL NOT 在错误内容中泄露密码、token、Cookie 值或完整请求头
-
 ### Requirement: CMS 读写工具必须区分“读取兼容回退”与“正式写入强约束”
 系统 SHALL 让 page-builder CMS 读工具继续接受显式 `siteId` 业务参数，以表达当前业务站点；其中读取链路在兼容旧页面时 MAY 按 `siteId = 1` 回退，但正式 confirmed CMS 写入链路 MUST 先通过 `mcp__cms__decide_cms_binding` 创建有效 `decisionId`，再由 `mcp__cms__apply_cms_binding` 从宿主持久化 apply plan 派生正式站点与 binding props，而不得继续从宿主静态 `siteID` 配置、caller 显式 `siteId` 或 raw binding 输入继承运行时站点。
 
@@ -47,7 +39,7 @@
 - **THEN** 系统 SHALL 基于该 `siteId` 请求上游 CMS 数据
 - **AND** 系统 SHALL NOT 从宿主配置中覆盖或改写该业务站点
 
-#### Scenario: 缺少显式站点时统一回退到站点 1
+#### Scenario: 缺少显式站点时读取链路统一回退到站点 1
 - **WHEN** CMS 栏目 / 内容读取链路缺少显式 `siteId`
 - **THEN** 系统 SHALL 以 `siteId = 1` 作为兼容回退值继续执行
 - **AND** 系统 SHALL NOT 读取宿主静态 `siteID` 配置作为该次请求的站点
@@ -56,44 +48,3 @@
 - **WHEN** `mcp__cms__apply_cms_binding` 缺少有效 `decisionId`，或其对应 apply plan 缺少正式 `siteId`
 - **THEN** 系统 SHALL 拒绝本次正式 CMS 写入
 - **AND** 系统 SHALL NOT 擅自写出 `site-id="1"` 或其他猜测值
-
-### Requirement: CMS tool 结果必须提供稳定的归一化内容形状
-系统 SHALL 将 CMS 的栏目列表与内容列表响应转换为稳定的归一化结果，使后续 Agent 能基于统一字段理解栏目和内容摘要，而不是直接依赖上游异构 JSON 或无法稳定提供的素材形状字段。
-
-#### Scenario: 栏目列表返回归一化树结构
-- **WHEN** 模型调用 `mcp__cms__list_catalogs`
-- **THEN** 系统 SHALL 返回包含栏目 `id`、`name`、`parentId`、`path`、`contentType`、`contentTypeName`、`hasChild`、`total` 与 `children` 的归一化树结构
-
-#### Scenario: 内容列表返回分页摘要与基础内容项
-- **WHEN** 模型调用 `mcp__cms__list_contents`
-- **THEN** 系统 SHALL 返回分页信息与归一化内容项列表
-- **AND** 每个内容项 SHALL 至少包含 `id`、`catalogId`、`title`、`summary` 与 `publishUrl`
-- **AND** 当上游提供 `logoFile` 或 `addTime`/`publishDate` 时，系统 SHALL 在归一化结果中返回 `listLogoUrl` 与 `addedAt`
-
-#### Scenario: 不再返回宿主推导的素材形状与计数
-- **WHEN** 宿主通过 slim API 读取内容列表
-- **THEN** 系统 SHALL NOT 在归一化结果中返回基于旧 `extendJSON` 或素材计数字段推导的 `shape`、`assetCounts` 或 `assetHints`
-
-### Requirement: 宿主管理的 CMS 读取链路必须支持受控的 fixed-ids 查询
-系统 SHALL 在宿主管理的 CMS 读取链路中支持固定栏目 ID 和固定内容 ID 的受控查询能力，以供 preview、static export 与共享 runtime 复用；固定栏目 `ids` MAY 通过 batch API、并发单条读取或等价宿主实现完成；固定内容 `ids` MUST 绑定到单一 `catalogId`，并 MAY 通过该栏目内容列表的分页读取后本地过滤保序实现；系统 MUST NOT 退化为整棵栏目树或整站内容列表加载后再本地过滤。
-
-#### Scenario: 固定栏目 ids 返回有序栏目摘要集合
-- **WHEN** 宿主管理的 CMS 读取链路收到某个站点下的有序栏目 `ids`
-- **THEN** 系统 SHALL 只查询这些 `ids` 对应的栏目摘要
-- **AND** 返回结果 SHALL 保持输入 `ids` 的顺序
-
-#### Scenario: 固定内容 ids 在单一栏目上下文内返回有序内容摘要集合
-- **WHEN** 宿主管理的 CMS 读取链路收到某个站点下、同一 `catalogId` 内的有序内容 `ids`
-- **THEN** 系统 SHALL 只在该 `catalogId` 的内容范围内解析这些 `ids`
-- **AND** 返回结果 SHALL 保持输入 `ids` 的顺序
-
-#### Scenario: fixed-ids 查询不得退化为全量加载
-- **WHEN** 宿主管理的 CMS 读取链路执行固定栏目或固定内容 `ids` 查询
-- **THEN** 系统 SHALL NOT 先加载整棵栏目树或整站内容列表再本地过滤
-- **AND** 系统 SHALL NOT 将 fixed-ids 读取语义退化为全量扫描
-
-#### Scenario: fixed-ids 查询部分失效时默认丢弃无效项
-- **WHEN** 某次固定 `ids` 查询中只有部分栏目或内容仍然有效
-- **THEN** 系统 SHALL 保留有效项并保持其原始顺序
-- **AND** 系统 SHALL 默认丢弃失效项
-- **AND** 当所有 `ids` 都失效时，系统 SHALL 返回空结果而不是结构化读取失败

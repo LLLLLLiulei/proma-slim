@@ -138,7 +138,9 @@ For factual content:
 
 ## CMS Boundaries In Ordinary Flow
 
-Ordinary page generation and ordinary iteration are not allowed to invent new `cms-catalog` / `cms-content` tags. New CMS source tags, or rebinding an existing CMS source tag to different query props, must go through the controlled CMS browser selection flow plus `cms-binding-apply` and `mcp__cms__apply_cms_binding`.
+Ordinary page generation and ordinary iteration are not allowed to invent new `cms-catalog` / `cms-content` tags. New CMS source tags, or rebinding an existing CMS source tag to different query props, must go through the controlled CMS browser selection flow plus `cms-binding-apply`, `mcp__cms__decide_cms_binding`, and `mcp__cms__apply_cms_binding`.
+
+If that controlled CMS chain fails, stop and retry the CMS flow with corrected tool payloads. Do not fall back to directly editing `workspace-files/index.html` to simulate a successful CMS binding.
 
 Keep page-builder authoring HTML-first. Existing or newly applied `cms-catalog` / `cms-content` tags are host-managed CMS islands, not a signal to convert the whole page into a Vue app.
 

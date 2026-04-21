@@ -93,6 +93,7 @@ export async function createSendResponse(
     ...(body.customMcpServers && { customMcpServers: body.customMcpServers }),
     ...(body.permissionModeOverride && { permissionModeOverride: body.permissionModeOverride }),
     ...(body.mentionedSkills && { mentionedSkills: body.mentionedSkills }),
+    ...(body.bootstrappedSkills && { bootstrappedSkills: body.bootstrappedSkills }),
     ...(body.mentionedMcpServers && { mentionedMcpServers: body.mentionedMcpServers }),
     ...(body.attachments && { attachments: body.attachments }),
   }

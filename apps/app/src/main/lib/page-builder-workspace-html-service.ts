@@ -5,6 +5,7 @@ import {
   scanCmsRenderingManifest,
   validateCmsRendering,
   type CmsRenderingManifest,
+  type CmsRenderingValidationResult,
 } from '@proma/page-builder-cms-rendering'
 import {
   getWorkspaceCmsRenderingManifestPath,

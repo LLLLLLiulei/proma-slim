@@ -54,10 +54,15 @@ describe('page-builder-guided-generation skill docs', () => {
     expect(enTemplate).toContain('host-managed CMS source tags')
     expect(enTemplate).toContain('Do not self-manage Vue runtime')
     expect(enTemplate).toContain('page-wide `createApp` / `mount`')
+    expect(enTemplate).toContain('host-controlled confirmed CMS apply flow')
+    expect(enTemplate).toContain('Do not bypass that confirmed CMS flow by editing `workspace-files/index.html` directly')
     expect(enTemplate).not.toContain('must ask / conditional ask / mandatory confirmation')
     expect(enTemplate).not.toContain('redesign-existing-projects')
     expect(enTemplate).not.toContain('slot inner content only')
     expect(enTemplate).not.toContain('source.pageSize')
+    expect(enTemplate).not.toContain('mcp__cms__decide_cms_binding')
+    expect(enTemplate).not.toContain('decisionId')
+    expect(enTemplate).not.toContain('Do not JSON-stringify the `decision` payload')
     expect(enTemplate).not.toContain('Proma')
   })
 
@@ -65,6 +70,7 @@ describe('page-builder-guided-generation skill docs', () => {
     const skill = readRelativeText('../../../default-skills/page-builder-guided-generation/SKILL.md')
 
     expect(skill).toContain('must go through the controlled CMS browser selection flow')
+    expect(skill).toContain('`mcp__cms__decide_cms_binding`')
     expect(skill).toContain('Keep page-builder authoring HTML-first')
     expect(skill).toContain('host-managed CMS islands')
     expect(skill).toContain('it must not silently change query props such as `site-id`, `catalog-id`, `ids`, or `page-size`')

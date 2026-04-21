@@ -6,12 +6,14 @@ import type {
   AskUserResponse,
   FileSearchResult,
   PageBuilderBlockDeletionPayload,
+  PageBuilderCmsAutoAgentHandoffRequest,
   PageBuilderCmsApplyTargetSnapshot,
   PageBuilderCmsCatalogList,
   PageBuilderCmsCatalogDetail,
   PageBuilderCmsCatalogQuery,
   PageBuilderCmsContentList,
   PageBuilderCmsContentQuery,
+  PageBuilderCmsSelectionResult,
   PageBuilderCmsSiteSummary,
   PageBuilderImageReplacementPayload,
   PageBuilderInlineTextSavePayload,
@@ -312,6 +314,20 @@ export const api = {
     return request<PageBuilderCmsApplyTargetSnapshot>(`/api/workspaces/${encodeURIComponent(workspaceId)}/page-builder/cms-target-snapshot`, {
       method: 'POST',
       body: { targetSelection },
+    })
+  },
+
+  createPageBuilderCmsAutoHandoff(
+    workspaceId: string,
+    payload: {
+      sessionId: string
+      selection: PageBuilderCmsSelectionResult
+      uiEntryPoint?: 'block-toolbar' | 'agent-flow'
+    },
+  ): Promise<PageBuilderCmsAutoAgentHandoffRequest> {
+    return request<PageBuilderCmsAutoAgentHandoffRequest>(`/api/workspaces/${encodeURIComponent(workspaceId)}/page-builder/cms-auto-handoff`, {
+      method: 'POST',
+      body: payload,
     })
   },
 

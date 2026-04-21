@@ -270,7 +270,8 @@ test('page-builder preview bridge uses solid borders for selected blocks and das
     islandId: 'catalog',
     targetSelection: {
       kind: 'cms-island',
-      selector: '#catalog',
+      htmlPath: 'index.html',
+      sourceSelector: '#catalog',
       parentBlockSelector: '#catalog-parent',
       component: 'cms-catalog',
       editBoundary: 'source-atomic',

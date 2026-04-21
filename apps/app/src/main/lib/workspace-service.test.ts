@@ -161,6 +161,8 @@ describe('workspace service', () => {
     expect(claudeMd).toContain('cms-binding-apply')
     expect(claudeMd).toContain('page-builder-guided-generation')
     expect(claudeMd).toContain('current workspace')
+    expect(claudeMd).not.toContain('Do not JSON-stringify the `decision` payload')
+    expect(claudeMd).not.toContain('mcp__cms__decide_cms_binding')
     expect(claudeMd).not.toContain('previewed inside Proma')
     expect(claudeMd).not.toContain('Proma')
   })

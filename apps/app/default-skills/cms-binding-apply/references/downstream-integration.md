@@ -1,11 +1,12 @@
 # Downstream Integration Notes
 
-This skill does not implement the write path by itself. It normalizes the decision boundary first against the canonical authoring contract, and when the outcome is `ready`, the same agent should call the formal `mcp__cms__apply_cms_binding` tool.
+This skill does not implement the write path by itself. It normalizes the decision boundary first against the canonical authoring contract, and when the outcome is `ready`, the same agent should first call `mcp__cms__decide_cms_binding` and only then call the formal `mcp__cms__apply_cms_binding` tool.
 Use this file for host-side handoff and write-pipeline notes, not for the main skill prompt.
 
 ## Auto handoff prerequisite
 
 The later auto handoff module must inject `cms-binding-apply` explicitly. Hidden prompt decoration alone is not enough if runtime skill extraction only reads the visible `userMessage`.
+That same host-managed handoff must also pre-register the structured CMS context behind the current `handoffId`, so the downstream decision tool can reload it without trusting the model to restate raw apply inputs.
 
 ## Authoring snapshot prerequisite
 
@@ -13,7 +14,11 @@ The skill input should already include `targetSnapshot`, and `targetSnapshot.tar
 
 ## HTML apply prerequisite
 
-In the current page-builder workflow, a `ready` result should lead directly to a target-selection-scoped `mcp__cms__apply_cms_binding` call. The important boundary is that only `ready` with an explicit `selection.siteId` may proceed to this write tool; `needs-clarification` and `incompatible` must not be treated as direct write instructions.
+In the current page-builder workflow, a `ready` result must first materialize a persisted decision through `mcp__cms__decide_cms_binding`. Only a `ready` outcome with an explicit `selection.siteId` and a returned `decisionId` may proceed to `mcp__cms__apply_cms_binding`; `needs-clarification` and `incompatible` must not be treated as direct write instructions.
+
+`mcp__cms__apply_cms_binding` must now consume `decisionId` plus template fields only. It must load target/source identity from the persisted apply plan instead of trusting raw caller binding fields.
+
+If the caller sends `decision` as a JSON string, the runtime may normalize legacy payloads for compatibility. That recovery path is only a fallback: the caller should still retry with an object-shaped `decision` payload instead of keeping the stringified form.
 
 If `selection.siteId` is missing, the flow must stop and report a malformed payload style error. Do not substitute `siteId = 1` for new writes.
 
@@ -25,7 +30,7 @@ The write path must keep page-builder authoring HTML-first: only the selected `c
 Downstream writes must reject author-managed Vue runtime/importmap/bootstrap and reject page-wide `createApp` / `mount` solutions instead of treating them as valid CMS apply output.
 Downstream writes must also reject non-Vue inline event authoring such as `onclick`, `onerror`, or assignment-style `@click` expressions that rely on `window.location`, `document.querySelector`, or direct DOM mutation.
 
-The downstream write must fail closed on stale, conflicting, or non-unique locators instead of guessing another block. It must not fall back to legacy `sourceId` or invent selector-based recovery from rendered descendants.
+The downstream write must fail closed on missing, stale, conflicting, replayed, or non-unique decisions instead of guessing another block. It must not fall back to legacy `sourceId` or invent selector-based recovery from rendered descendants.
 
 ## Phase 1A boundary
 

@@ -501,6 +501,8 @@ export interface AgentSendInput {
   permissionModeOverride?: PromaPermissionMode
   /** 用户通过 /skill:xxx 引用的 Skill slug 列表 */
   mentionedSkills?: string[]
+  /** 宿主已为当前 turn 预加载的 Skill slug 列表；correctness 不依赖显式 Skill 调用 */
+  bootstrappedSkills?: string[]
   /** 用户通过 #mcp:xxx 引用的 MCP 服务器名称列表 */
   mentionedMcpServers?: string[]
   /** 结构化附件列表 */

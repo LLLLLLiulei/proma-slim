@@ -42,7 +42,8 @@ const contentItemFieldMeta = [
 ] as const
 
 const catalogApplyInput = {
-  version: 6,
+  version: 8,
+  handoffId: 'handoff-catalog-parent',
   entryPoint: 'cms-browser-confirm',
   applyIntent: 'replace-current',
   workspacePolicy: {
@@ -57,7 +58,7 @@ const catalogApplyInput = {
     blockTypeHint: 'nav',
   },
   selection: {
-    version: 5,
+    version: 6,
     siteId: '14',
     targetSelection: createPageBuilderBlockTargetSelection('#main-nav'),
     targetBlock: {
@@ -88,10 +89,12 @@ const catalogApplyInput = {
     parentBlockSelector: '#main-nav',
     targetOuterHtml: '<nav id="main-nav"></nav>',
   },
+  authoringRevision: 'rev-catalog-parent',
 } satisfies PageBuilderCmsApplySkillInput
 
 const catalogListApplyInput = {
-  version: 6,
+  version: 8,
+  handoffId: 'handoff-catalog-list',
   entryPoint: 'cms-browser-confirm',
   applyIntent: 'replace-current',
   workspacePolicy: {
@@ -106,7 +109,7 @@ const catalogListApplyInput = {
     blockTypeHint: 'catalog-list',
   },
   selection: {
-    version: 5,
+    version: 6,
     siteId: '14',
     targetSelection: createPageBuilderBlockTargetSelection('#featured-catalogs'),
     targetBlock: {
@@ -137,10 +140,12 @@ const catalogListApplyInput = {
     parentBlockSelector: '#featured-catalogs',
     targetOuterHtml: '<section id="featured-catalogs"></section>',
   },
+  authoringRevision: 'rev-catalog-list',
 } satisfies PageBuilderCmsApplySkillInput
 
 const contentApplyInput = {
-  version: 6,
+  version: 8,
+  handoffId: 'handoff-content-by-catalog',
   entryPoint: 'cms-browser-confirm',
   applyIntent: 'replace-current',
   workspacePolicy: {
@@ -155,7 +160,7 @@ const contentApplyInput = {
     blockTypeHint: 'content-list',
   },
   selection: {
-    version: 5,
+    version: 6,
     siteId: '14',
     targetSelection: createPageBuilderBlockTargetSelection('#latest-news'),
     targetBlock: {
@@ -187,10 +192,12 @@ const contentApplyInput = {
     parentBlockSelector: '#latest-news',
     targetOuterHtml: '<section id="latest-news"></section>',
   },
+  authoringRevision: 'rev-content-by-catalog',
 } satisfies PageBuilderCmsApplySkillInput
 
 const fixedContentsApplyInput = {
-  version: 6,
+  version: 8,
+  handoffId: 'handoff-content-fixed',
   entryPoint: 'cms-browser-confirm',
   applyIntent: 'replace-current',
   workspacePolicy: {
@@ -205,7 +212,7 @@ const fixedContentsApplyInput = {
     blockTypeHint: 'content-list',
   },
   selection: {
-    version: 5,
+    version: 6,
     siteId: '14',
     targetSelection: createPageBuilderBlockTargetSelection('#latest-news'),
     targetBlock: {
@@ -238,6 +245,7 @@ const fixedContentsApplyInput = {
     parentBlockSelector: '#latest-news',
     targetOuterHtml: '<section id="latest-news"></section>',
   },
+  authoringRevision: 'rev-content-fixed',
 } satisfies PageBuilderCmsApplySkillInput
 
 const readyDecision = {
@@ -248,6 +256,10 @@ const readyDecision = {
   applyStrategy: 'replace-current',
   mappingKind: 'catalog-nav',
   toolKind: 'catalog-nav',
+  source: {
+    siteId: '14',
+    ids: ['catalog-1'],
+  },
 } satisfies PageBuilderCmsApplyDecisionResult
 
 const needsClarificationDecision = {

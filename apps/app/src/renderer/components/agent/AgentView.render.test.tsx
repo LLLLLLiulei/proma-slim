@@ -419,6 +419,7 @@ describe('AgentView rendering extension points', () => {
       userMessage: '请根据刚确认的 CMS 选择结果，判断如何应用到当前区块。',
       composedUserMessage: '<cms_binding_apply_input>{"version":1}</cms_binding_apply_input>',
       mentionedSkills: ['cms-binding-apply'],
+      bootstrappedSkills: ['cms-binding-apply'],
       mentionedMcpServers: ['cms'],
     }
     const { AgentView, sendMessage, getLastRichTextInputProps, getLastPendingAttachments } = await loadAgentView()
@@ -482,6 +483,7 @@ describe('AgentView rendering extension points', () => {
       userMessage: request.userMessage,
       composedUserMessage: request.composedUserMessage,
       mentionedSkills: ['cms-binding-apply'],
+      bootstrappedSkills: ['cms-binding-apply'],
       mentionedMcpServers: ['cms'],
       workspaceId: workspace.id,
     }))
@@ -606,6 +608,7 @@ describe('AgentView rendering extension points', () => {
       userMessage: '请根据刚确认的 CMS 选择结果，判断如何应用到当前区块。',
       composedUserMessage: '<cms_binding_apply_input>{"version":1}</cms_binding_apply_input>',
       mentionedSkills: ['cms-binding-apply'],
+      bootstrappedSkills: ['cms-binding-apply'],
     }
     const { AgentView, sendMessage } = await loadAgentView()
     const store = createStore()
@@ -646,6 +649,7 @@ describe('AgentView rendering extension points', () => {
     expect(sendMessage).toHaveBeenCalledWith(session.id, expect.objectContaining({
       userMessage: request.userMessage,
       mentionedSkills: ['cms-binding-apply'],
+      bootstrappedSkills: ['cms-binding-apply'],
       workspaceId: workspace.id,
     }))
   })
@@ -673,6 +677,7 @@ describe('AgentView rendering extension points', () => {
       userMessage: '请根据刚确认的 CMS 选择结果，判断如何应用到当前区块。',
       composedUserMessage: '<cms_binding_apply_input>{"version":1}</cms_binding_apply_input>',
       mentionedSkills: ['cms-binding-apply'],
+      bootstrappedSkills: ['cms-binding-apply'],
     }
     const { AgentView, sendMessage } = await loadAgentView({
       reconcileSessionStreaming,
@@ -733,11 +738,70 @@ describe('AgentView rendering extension points', () => {
       userMessage: request.userMessage,
       composedUserMessage: request.composedUserMessage,
       mentionedSkills: ['cms-binding-apply'],
+      bootstrappedSkills: ['cms-binding-apply'],
       workspaceId: workspace.id,
     }))
     expect(onProgrammaticSendSettled).toHaveBeenCalledWith({
       requestId: 'handoff-stale-1',
       status: 'sent',
     })
+  })
+
+  test('allows host-side beforeSendMessage interception to reroute a draft without sending it to the agent runtime', async () => {
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: 'Page Builder Project',
+      slug: 'page-builder-project',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const beforeSendMessage = mock(async () => ({
+      handled: true,
+      clearComposer: true,
+    }))
+    const onMessageSent = mock(() => {})
+    const { AgentView, sendMessage, getLastRichTextInputProps } = await loadAgentView()
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <HydrateAgentViewState sessions={[session]} workspaces={[workspace]}>
+            <AgentView
+              sessionId={session.id}
+              beforeSendMessage={beforeSendMessage}
+              onMessageSent={onMessageSent}
+            />
+          </HydrateAgentViewState>
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      getLastRichTextInputProps()?.onChange('把这个列表换成另一个栏目')
+    })
+    await act(async () => {
+      getLastRichTextInputProps()?.onSubmit()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(beforeSendMessage).toHaveBeenCalledWith({
+      userMessage: '把这个列表换成另一个栏目',
+      workspaceId: workspace.id,
+      sessionId: session.id,
+    })
+    expect(sendMessage).not.toHaveBeenCalled()
+    expect(onMessageSent).not.toHaveBeenCalled()
+    expect(getLastRichTextInputProps()?.value).toBe('')
   })
 })

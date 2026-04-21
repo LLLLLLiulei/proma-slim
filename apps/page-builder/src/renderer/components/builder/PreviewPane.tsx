@@ -193,7 +193,9 @@ export function PreviewPane({
         const targetSelection = resolvePreviewTargetSelection(event.data)
         onSelectionEvent?.({
           type: 'hover',
-          selector: targetSelection?.selector ?? event.data.selector,
+          selector: targetSelection
+            ? resolveTargetSelectionSelector(targetSelection)
+            : event.data.selector,
           targetSelection,
         })
         return

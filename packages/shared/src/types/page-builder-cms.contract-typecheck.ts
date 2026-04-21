@@ -27,7 +27,7 @@ const contentSnapshot = {} as PageBuilderCmsContentSummary
 const siteSummary = {} as PageBuilderCmsSiteSummary
 
 const catalogsByParentSelection = {
-  version: 5,
+  version: 6,
   siteId: '14',
   targetSelection: requestContext.targetSelection,
   targetBlock: requestContext.targetBlock,
@@ -41,7 +41,7 @@ const catalogsByParentSelection = {
 } satisfies PageBuilderCmsSelectionResult
 
 const catalogsByIdsSelection = {
-  version: 5,
+  version: 6,
   siteId: '14',
   targetSelection: requestContext.targetSelection,
   targetBlock: requestContext.targetBlock,
@@ -55,7 +55,7 @@ const catalogsByIdsSelection = {
 } satisfies PageBuilderCmsSelectionResult
 
 const contentsByCatalogSelection = {
-  version: 5,
+  version: 6,
   siteId: '14',
   targetSelection: requestContext.targetSelection,
   targetBlock: requestContext.targetBlock,
@@ -69,7 +69,7 @@ const contentsByCatalogSelection = {
 } satisfies PageBuilderCmsSelectionResult
 
 const contentsByIdsSelection = {
-  version: 5,
+  version: 6,
   siteId: '14',
   targetSelection: requestContext.targetSelection,
   targetBlock: requestContext.targetBlock,

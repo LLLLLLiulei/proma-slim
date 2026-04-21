@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
-import type { PageBuilderProjectSummary, PageBuilderTargetSelection } from '@proma/shared'
+import type { PageBuilderCmsSelectionResult, PageBuilderProjectSummary, PageBuilderTargetSelection } from '@proma/shared'
 
 const originalFetch = globalThis.fetch
 
@@ -255,7 +255,7 @@ describe('renderer api wrappers', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
-  test('getPageBuilderCmsTargetSnapshot posts the target selection to the workspace snapshot endpoint', async () => {
+  test('createPageBuilderCmsAutoHandoff posts the confirmed selection to the workspace auto handoff endpoint', async () => {
     const targetSelection: PageBuilderTargetSelection = {
       kind: 'cms-island',
       htmlPath: 'index.html',
@@ -264,27 +264,59 @@ describe('renderer api wrappers', () => {
       component: 'cms-content',
       editBoundary: 'source-atomic',
     }
+    const selection: PageBuilderCmsSelectionResult = {
+      version: 6,
+      siteId: '14',
+      targetSelection,
+      targetBlock: {
+        selector: '#latest-news',
+      },
+      selectionKind: 'contents',
+      sourceType: 'contents-by-catalog',
+      selectionMode: 'by-catalog',
+      catalogId: 'news',
+      snapshot: {
+        catalog: {
+          id: 'news',
+          name: '新闻',
+          parentId: null,
+          path: '/news',
+          contentType: 'article',
+          contentTypeName: '文章',
+          hasChild: false,
+          total: 12,
+          children: [],
+        },
+      },
+    }
     const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
-      expect(String(input)).toBe('/api/workspaces/workspace-1/page-builder/cms-target-snapshot')
+      expect(String(input)).toBe('/api/workspaces/workspace-1/page-builder/cms-auto-handoff')
       expect(init?.method).toBe('POST')
       expect(new Headers(init?.headers).get('content-type')).toBe('application/json')
-      expect(JSON.parse(String(init?.body))).toEqual({ targetSelection })
+      expect(JSON.parse(String(init?.body))).toEqual({
+        sessionId: 'session-1',
+        selection,
+        uiEntryPoint: 'block-toolbar',
+      })
       return jsonResponse({
-        kind: 'cms-island',
-        htmlPath: targetSelection.htmlPath,
-        sourceSelector: targetSelection.sourceSelector,
-        parentBlockSelector: targetSelection.parentBlockSelector,
-        targetOuterHtml: '<cms-content site-id="14" catalog-id="news"></cms-content>',
-        parentBlockOuterHtml: '<section id="latest-news"></section>',
-        component: 'cms-content',
+        requestId: 'handoff-1',
+        userMessage: '请根据刚确认的 CMS 选择结果，判断如何应用到当前目标。',
+        composedUserMessage: '<cms_binding_apply_input>{"version":8,"handoffId":"handoff-1"}</cms_binding_apply_input>',
+        mentionedSkills: ['cms-binding-apply'],
+        mentionedMcpServers: ['cms'],
       })
     })
     globalThis.fetch = fetchMock as unknown as typeof fetch
 
     const { api } = await import('./api')
-    const snapshot = await api.getPageBuilderCmsTargetSnapshot('workspace-1', targetSelection)
+    const handoff = await api.createPageBuilderCmsAutoHandoff('workspace-1', {
+      sessionId: 'session-1',
+      selection,
+      uiEntryPoint: 'block-toolbar',
+    })
 
-    expect(snapshot.targetOuterHtml).toContain('catalog-id="news"')
+    expect(handoff.requestId).toBe('handoff-1')
+    expect(handoff.composedUserMessage).toContain('handoff-1')
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 

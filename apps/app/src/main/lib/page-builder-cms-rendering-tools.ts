@@ -3,6 +3,7 @@ import { parseHTML } from 'linkedom'
 import {
   PAGE_BUILDER_DEFAULT_HTML_PATH,
   type AgentWorkspace,
+  type PageBuilderCmsBindingStructureGuardrails,
   type PageBuilderTargetSelection,
 } from '@proma/shared'
 import type {
@@ -35,6 +36,7 @@ export const PAGE_BUILDER_CMS_ERROR_TEMPLATE_DESCRIPTION =
 const CMS_ISLAND_SELECTOR = 'cms-catalog, cms-content'
 const BLOCKED_PARENT_BLOCK_TAGS = new Set(['HTML', 'BODY', 'HEAD'])
 const DANGEROUS_CMS_TEMPLATE_TAGS = ['script', 'style'] as const
+const PRESERVED_SHELL_CONFLICT_TAGS = new Set(['section', 'nav', 'main', 'aside', 'ul', 'ol'])
 
 const pageBuilderBlockTargetSelectionSchema = z.object({
   kind: z.literal('block'),
@@ -67,6 +69,13 @@ const pageBuilderCmsBindingBaseSchema = z.object({
   templateBody: z.string().min(1).describe(PAGE_BUILDER_CMS_TEMPLATE_BODY_DESCRIPTION),
   emptyTemplate: z.string().describe(PAGE_BUILDER_CMS_EMPTY_TEMPLATE_DESCRIPTION).optional(),
   errorTemplate: z.string().describe(PAGE_BUILDER_CMS_ERROR_TEMPLATE_DESCRIPTION).optional(),
+  structureGuardrails: z.object({
+    shellMode: z.enum(['preserve-target-shell', 'replace-existing-cms-island', 'slot-owns-major-region']),
+    majorContainerOwner: z.enum(['shell', 'slot']),
+    shellSelector: z.string().min(1).optional(),
+    shellTagName: z.string().min(1).optional(),
+    shellReason: z.enum(['existing-shell-major-container', 'source-atomic-cms-island', 'slot-major-region-default']),
+  }).strict().optional(),
 }).strict()
 
 const catalogNavSourceSchema = z.object({
@@ -104,6 +113,7 @@ export interface ApplyPageBuilderCmsBindingInput {
   templateBody: string
   emptyTemplate?: string
   errorTemplate?: string
+  structureGuardrails?: PageBuilderCmsBindingStructureGuardrails
 }
 
 interface NormalizedCatalogNavBindingInput extends Omit<ApplyPageBuilderCmsBindingInput, 'kind' | 'source' | 'targetSelection'> {
@@ -317,18 +327,22 @@ function normalizeApplyCmsBindingInput(
   }
   const emptyTemplate = normalizeOptionalTemplate(parsedBase.emptyTemplate)
   const errorTemplate = normalizeOptionalTemplate(parsedBase.errorTemplate)
+  const structureGuardrails = parsedBase.structureGuardrails
   assertTemplateFieldHasNoDangerousTags('templateBody', templateBody)
   assertTemplateFieldHasNoNestedCmsIslands('templateBody', templateBody)
   assertTemplateFieldHasNoSlotTemplateWrapper('templateBody', templateBody)
+  assertTemplateFieldMatchesStructureGuardrails('templateBody', templateBody, structureGuardrails)
   if (emptyTemplate) {
     assertTemplateFieldHasNoDangerousTags('emptyTemplate', emptyTemplate)
     assertTemplateFieldHasNoNestedCmsIslands('emptyTemplate', emptyTemplate)
     assertTemplateFieldHasNoSlotTemplateWrapper('emptyTemplate', emptyTemplate)
+    assertTemplateFieldMatchesStructureGuardrails('emptyTemplate', emptyTemplate, structureGuardrails)
   }
   if (errorTemplate) {
     assertTemplateFieldHasNoDangerousTags('errorTemplate', errorTemplate)
     assertTemplateFieldHasNoNestedCmsIslands('errorTemplate', errorTemplate)
     assertTemplateFieldHasNoSlotTemplateWrapper('errorTemplate', errorTemplate)
+    assertTemplateFieldMatchesStructureGuardrails('errorTemplate', errorTemplate, structureGuardrails)
   }
   const targetSelection = normalizeTargetSelectionInput(parsedBase.targetSelection) ?? {
     kind: 'block',
@@ -339,26 +353,28 @@ function normalizeApplyCmsBindingInput(
 
   if (parsedBase.kind === 'catalog-nav') {
     assertCatalogNavSourceDoesNotUsePageSize(parsedBase.source)
-    const normalizedInput = {
+    const normalizedInput: NormalizedCatalogNavBindingInput = {
       targetSelection,
       targetBlock: parsedBase.targetBlock,
       kind: 'catalog-nav',
       templateBody,
       emptyTemplate,
       errorTemplate,
+      structureGuardrails,
       source: normalizeCatalogNavSource(parseSchema(catalogNavSourceSchema, parsedBase.source)),
     }
     assertCmsBindingAuthoringPreflight(normalizedInput)
     return normalizedInput
   }
 
-  const normalizedInput = {
+  const normalizedInput: NormalizedContentListBindingInput = {
     targetSelection,
     targetBlock: parsedBase.targetBlock,
     kind: 'content-list',
     templateBody,
     emptyTemplate,
     errorTemplate,
+    structureGuardrails,
     source: normalizeContentListSource(parseSchema(contentListSourceSchema, parsedBase.source)),
   }
   assertCmsBindingAuthoringPreflight(normalizedInput)
@@ -660,6 +676,70 @@ function assertTemplateFieldHasNoDangerousTags(fieldName: string, template: stri
     'invalid-input',
     `${fieldName} 不能包含 <script> 或 <style>`,
   )
+}
+
+function assertTemplateFieldMatchesStructureGuardrails(
+  fieldName: string,
+  template: string,
+  structureGuardrails?: PageBuilderCmsBindingStructureGuardrails,
+): void {
+  if (
+    !structureGuardrails
+    || structureGuardrails.shellMode !== 'preserve-target-shell'
+    || structureGuardrails.majorContainerOwner !== 'shell'
+  ) {
+    return
+  }
+
+  const normalizedTemplate = template.trim()
+  if (!normalizedTemplate) {
+    return
+  }
+
+  const { document } = parseHTML(`<!doctype html><html><body><div data-proma-template-root>${normalizedTemplate}</div></body></html>`)
+  const root = document.querySelector('[data-proma-template-root]')
+  if (!root) {
+    return
+  }
+
+  const conflictingElement = Array.from(root.children).find((element) => {
+    const localName = element.localName.toLowerCase()
+    if (PRESERVED_SHELL_CONFLICT_TAGS.has(localName)) {
+      return true
+    }
+
+    const role = element.getAttribute('role')?.toLowerCase()
+    return role === 'navigation' || role === 'list'
+  })
+
+  if (!conflictingElement) {
+    return
+  }
+
+  throw new PageBuilderCmsBindingApplyError(
+    'invalid-input',
+    `${fieldName} 与当前保留外层壳层的结构计划冲突：当前 decision 要求保留${formatPreservedShellDescriptor(structureGuardrails)}作为主容器，请改为复用现有壳层，只在 slot 中保留与之兼容的内部动态内容，不要再生成新的 <${conflictingElement.localName.toLowerCase()}> 主容器后重试`,
+  )
+}
+
+function formatPreservedShellDescriptor(
+  structureGuardrails: PageBuilderCmsBindingStructureGuardrails,
+): string {
+  const tagName = structureGuardrails.shellTagName?.trim()
+  const selector = structureGuardrails.shellSelector?.trim()
+  if (tagName && selector) {
+    return `外层 ${tagName}${selector} `
+  }
+
+  if (tagName) {
+    return `外层 ${tagName} `
+  }
+
+  if (selector) {
+    return `外层壳层 ${selector} `
+  }
+
+  return '外层壳层 '
 }
 
 function isSlotTemplateAttributeName(name: string): boolean {

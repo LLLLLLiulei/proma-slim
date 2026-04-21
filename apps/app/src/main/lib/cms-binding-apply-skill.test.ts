@@ -31,10 +31,12 @@ describe('cms-binding-apply skill contract docs', () => {
     expect(skill).toContain('contents` favor `content-list`')
   })
 
-  test('documents that ready decisions should call the formal apply tool', () => {
+  test('documents that ready decisions must create a decision before the formal apply tool', () => {
     const skill = readRelativeText('../../../default-skills/cms-binding-apply/SKILL.md')
 
     expect(skill).toContain('`ready`')
+    expect(skill).toContain('`mcp__cms__decide_cms_binding`')
+    expect(skill).toContain('`decisionId`')
     expect(skill).toContain('`mcp__cms__apply_cms_binding`')
     expect(skill).not.toContain('update the preview source files directly')
   })
@@ -140,7 +142,7 @@ describe('cms-binding-apply skill contract docs', () => {
     expect(skill).toContain('`selection.siteId` is missing or blank')
     expect(skill).toContain('Do not guess `siteId = 1`')
     expect(shared).toContain('Only the confirmed CMS browser selection flow may create a new `cms-catalog` / `cms-content`')
-    expect(downstream).toContain('only `ready` with an explicit `selection.siteId` may proceed')
+    expect(downstream).toContain('Only a `ready` outcome with an explicit `selection.siteId` and a returned `decisionId` may proceed')
     expect(downstream).toContain('`catalog-list`')
   })
 
@@ -177,6 +179,29 @@ describe('cms-binding-apply skill contract docs', () => {
     expect(shared).toContain('app.mount(document.body)')
     expect(downstream).toContain('keep page-builder authoring HTML-first')
     expect(downstream).toContain('reject author-managed Vue runtime/importmap/bootstrap')
+  })
+
+  test('documents the decision-backed downstream chain and no-decision-no-write boundary', () => {
+    const skill = readRelativeText('../../../default-skills/cms-binding-apply/SKILL.md')
+    const downstream = readRelativeText('../../../default-skills/cms-binding-apply/references/downstream-integration.md')
+
+    expect(skill).toContain('Call `mcp__cms__decide_cms_binding` in the same turn with the current `handoffId`')
+    expect(skill).toContain('Pass only `decisionId`, `templateBody`, `emptyTemplate`, and `errorTemplate`')
+    expect(downstream).toContain('must first materialize a persisted decision through `mcp__cms__decide_cms_binding`')
+    expect(downstream).toContain('`mcp__cms__apply_cms_binding` must now consume `decisionId` plus template fields only')
+    expect(downstream).toContain('fail closed on missing, stale, conflicting, replayed, or non-unique decisions')
+  })
+
+  test('documents object-shaped decide payloads and forbids bypassing the decision chain after failure', () => {
+    const skill = readRelativeText('../../../default-skills/cms-binding-apply/SKILL.md')
+    const downstream = readRelativeText('../../../default-skills/cms-binding-apply/references/downstream-integration.md')
+
+    expect(skill).toContain('Pass `decision` as a nested object')
+    expect(skill).toContain('Do not JSON-stringify `decision`')
+    expect(skill).toContain('If `mcp__cms__decide_cms_binding` fails')
+    expect(skill).toContain('Do not edit `workspace-files/index.html`')
+    expect(downstream).toContain('If the caller sends `decision` as a JSON string')
+    expect(downstream).toContain('retry with an object-shaped `decision` payload')
   })
 
   test('keeps cms-catalog guidance limited to catalog props, source modes, fields, and recipes', () => {
