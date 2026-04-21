@@ -36,7 +36,12 @@ The incoming payload must already be structured. Expect:
 - `applyIntent`
 - `workspacePolicy`
 
-Read [references/contract-examples.md](references/contract-examples.md) for payload shapes, authoring examples, and anti-patterns. Read [references/downstream-integration.md](references/downstream-integration.md) for host-side handoff and write-pipeline notes.
+Read [references/contract-examples.md](references/contract-examples.md) first for the decision contract, payload shapes, and minimal outcome examples.
+
+- If `selection.selectionKind = catalogs` or `authoringContext.component = cms-catalog`, then read [references/cms-catalog-authoring.md](references/cms-catalog-authoring.md).
+- If `selection.selectionKind = contents` or `authoringContext.component = cms-content`, then read [references/cms-content-authoring.md](references/cms-content-authoring.md).
+- Read [references/shared-authoring-rules.md](references/shared-authoring-rules.md) when you need shared slot boundaries, HTML-first / Vue rules, apply payload boundaries, or cross-component anti-patterns.
+- Use [references/downstream-integration.md](references/downstream-integration.md) for host-side handoff and write-pipeline notes only.
 
 Treat `authoringContext.itemFieldMeta` as the semantic field reference for slot authoring.
 
@@ -114,4 +119,7 @@ When the result is `ready`, continue in the same turn instead of stopping at an 
 ## References
 
 - [references/contract-examples.md](references/contract-examples.md)
+- [references/shared-authoring-rules.md](references/shared-authoring-rules.md)
+- [references/cms-catalog-authoring.md](references/cms-catalog-authoring.md)
+- [references/cms-content-authoring.md](references/cms-content-authoring.md)
 - [references/downstream-integration.md](references/downstream-integration.md)
