@@ -86,21 +86,11 @@ function writeIndex(index: AgentWorkspacesIndex): void {
   writeFileSync(getAgentWorkspacesIndexPath(), JSON.stringify(index, null, 2), 'utf-8')
 }
 
-function slugify(name: string, existingSlugs: Set<string>): string {
-  let base = name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
+function createWorkspaceSlug(existingSlugs: Set<string>): string {
+  let slug = randomUUID()
 
-  if (!base) {
-    base = `workspace-${Date.now()}`
-  }
-
-  let slug = base
-  let counter = 1
   while (existingSlugs.has(slug)) {
-    slug = `${base}-${counter}`
-    counter += 1
+    slug = randomUUID()
   }
 
   return slug
@@ -338,7 +328,7 @@ export function createAgentWorkspace(name: string, options?: CreateWorkspaceOpti
   ensureDefaultWorkspace()
   const index = readIndex()
   const now = Date.now()
-  const slug = slugify(trimmedName, new Set(index.workspaces.map((workspace) => workspace.slug)))
+  const slug = createWorkspaceSlug(new Set(index.workspaces.map((workspace) => workspace.slug)))
 
   const workspace: AgentWorkspace = {
     id: randomUUID(),

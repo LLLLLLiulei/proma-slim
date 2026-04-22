@@ -2,6 +2,7 @@ import { afterEach, describe, expect, mock, test } from 'bun:test'
 import type { PageBuilderCmsSelectionResult, PageBuilderProjectSummary, PageBuilderTargetSelection } from '@proma/shared'
 
 const originalFetch = globalThis.fetch
+const UUID_WORKSPACE_SLUG = '550e8400-e29b-41d4-a716-446655440000'
 
 function jsonResponse(payload: unknown, init: ResponseInit = {}): Response {
   return new Response(JSON.stringify(payload), {
@@ -198,14 +199,14 @@ describe('renderer api wrappers', () => {
       expect(String(input)).toBe('/api/workspaces')
       expect(init?.method).toBe('POST')
       expect(JSON.parse(String(init?.body))).toEqual({ name: 'Proma Docs' })
-      return jsonResponse({ id: 'workspace-1', name: 'Proma Docs', slug: 'proma-docs', createdAt: 1, updatedAt: 2 })
+      return jsonResponse({ id: 'workspace-1', name: 'Proma Docs', slug: UUID_WORKSPACE_SLUG, createdAt: 1, updatedAt: 2 })
     })
     globalThis.fetch = fetchMock as unknown as typeof fetch
 
     const { api } = await import('./api')
     const workspace = await api.createWorkspace('Proma Docs')
 
-    expect(workspace.slug).toBe('proma-docs')
+    expect(workspace.slug).toBe(UUID_WORKSPACE_SLUG)
   })
 
   test('createWorkspace forwards the page-builder template when requested', async () => {
@@ -216,14 +217,14 @@ describe('renderer api wrappers', () => {
         name: '未命名项目',
         template: 'page-builder',
       })
-      return jsonResponse({ id: 'workspace-1', name: '未命名项目', slug: 'page-builder', createdAt: 1, updatedAt: 2 })
+      return jsonResponse({ id: 'workspace-1', name: '未命名项目', slug: UUID_WORKSPACE_SLUG, createdAt: 1, updatedAt: 2 })
     })
     globalThis.fetch = fetchMock as unknown as typeof fetch
 
     const { api } = await import('./api')
     const workspace = await api.createWorkspace('未命名项目', { template: 'page-builder' })
 
-    expect(workspace.slug).toBe('page-builder')
+    expect(workspace.slug).toBe(UUID_WORKSPACE_SLUG)
   })
 
   test('updateWorkspace PATCHes the workspace endpoint', async () => {
@@ -595,12 +596,12 @@ describe('renderer api wrappers', () => {
       return jsonResponse({
         workspaceId: 'workspace-1',
         workspaceName: 'Proma Docs',
-        workspaceSlug: 'proma-docs',
-        workspacePath: '/tmp/proma-docs',
-        workspaceFilesPath: '/tmp/proma-docs/workspace-files',
-        skillsPath: '/tmp/proma-docs/skills',
-        mcpConfigPath: '/tmp/proma-docs/mcp.json',
-        memoryFilePath: '/tmp/proma-docs/memory/MEMORY.md',
+        workspaceSlug: UUID_WORKSPACE_SLUG,
+        workspacePath: `/tmp/${UUID_WORKSPACE_SLUG}`,
+        workspaceFilesPath: `/tmp/${UUID_WORKSPACE_SLUG}/workspace-files`,
+        skillsPath: `/tmp/${UUID_WORKSPACE_SLUG}/skills`,
+        mcpConfigPath: `/tmp/${UUID_WORKSPACE_SLUG}/mcp.json`,
+        memoryFilePath: `/tmp/${UUID_WORKSPACE_SLUG}/memory/MEMORY.md`,
         attachedDirectories: ['/tmp/external-docs'],
       })
     })
@@ -609,7 +610,7 @@ describe('renderer api wrappers', () => {
     const { api } = await import('./api')
     const context = await api.getWorkspaceContext('workspace-1')
 
-    expect(context.workspaceSlug).toBe('proma-docs')
+    expect(context.workspaceSlug).toBe(UUID_WORKSPACE_SLUG)
     expect(context.attachedDirectories).toEqual(['/tmp/external-docs'])
   })
 

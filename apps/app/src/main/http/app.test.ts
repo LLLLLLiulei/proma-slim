@@ -14,6 +14,8 @@ import { getPageBuilderPreviewBridgeAssetUrl } from '../lib/page-builder-preview
 import { createAgentWorkspace, ensureDefaultWorkspace } from '../lib/workspace-service'
 import { createHttpApp } from './app'
 
+const UUID_V4_SLUG_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+
 afterEach(() => {
   rmSync(join(homedir(), '.proma'), { recursive: true, force: true })
 })
@@ -181,7 +183,7 @@ describe('createHttpApp', () => {
     expect(createResponse.status).toBe(201)
     const created = await createResponse.json() as { id: string; name: string; slug: string }
     expect(created.name).toBe('Proma Docs')
-    expect(created.slug).toBe('proma-docs')
+    expect(created.slug).toMatch(UUID_V4_SLUG_PATTERN)
 
     const renameResponse = await app.fetch(new Request(`http://localhost/api/workspaces/${created.id}`, {
       method: 'PATCH',
@@ -193,7 +195,7 @@ describe('createHttpApp', () => {
     expect(renameResponse.status).toBe(200)
     const renamed = await renameResponse.json() as { name: string; slug: string }
     expect(renamed.name).toBe('Renamed Docs')
-    expect(renamed.slug).toBe('proma-docs')
+    expect(renamed.slug).toBe(created.slug)
 
     const capabilityResponse = await app.fetch(new Request(`http://localhost/api/workspaces/${created.id}/capabilities`))
     expect(capabilityResponse.status).toBe(200)
@@ -205,7 +207,7 @@ describe('createHttpApp', () => {
       workspaceFilesPath: string
       memoryFilePath: string
     }
-    expect(context.workspaceSlug).toBe('proma-docs')
+    expect(context.workspaceSlug).toBe(created.slug)
     expect(context.workspaceFilesPath).toContain('/workspace-files')
     expect(context.memoryFilePath).toContain('/memory/MEMORY.md')
 

@@ -26,6 +26,8 @@ import {
   updateAgentWorkspace,
 } from './workspace-service'
 
+const UUID_V4_SLUG_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+
 describe('workspace service', () => {
   let configDir: string
   let originalDefaultSkillsDir: string | undefined
@@ -139,13 +141,23 @@ describe('workspace service', () => {
     expect(refreshedSkill).not.toContain('[TODO:')
   })
 
-  test('creates a workspace with a stable slug and directory', () => {
+  test('creates a workspace with a UUID slug and directory', () => {
     ensureDefaultWorkspace()
     const workspace = createAgentWorkspace('Release Planning')
 
-    expect(workspace.slug).toBe('release-planning')
-    expect(existsSync(getAgentWorkspacePath('release-planning'))).toBe(true)
-    expect(existsSync(getWorkspacePluginManifestPath('release-planning'))).toBe(true)
+    expect(workspace.slug).toMatch(UUID_V4_SLUG_PATTERN)
+    expect(existsSync(getAgentWorkspacePath(workspace.slug))).toBe(true)
+    expect(existsSync(getWorkspacePluginManifestPath(workspace.slug))).toBe(true)
+  })
+
+  test('creates different UUID slugs even when workspace names are the same', () => {
+    ensureDefaultWorkspace()
+    const first = createAgentWorkspace('Release Planning')
+    const second = createAgentWorkspace('Release Planning')
+
+    expect(first.slug).toMatch(UUID_V4_SLUG_PATTERN)
+    expect(second.slug).toMatch(UUID_V4_SLUG_PATTERN)
+    expect(first.slug).not.toBe(second.slug)
   })
 
   test('creates a page-builder workspace with a root CLAUDE.md file', () => {
@@ -416,7 +428,9 @@ describe('workspace service', () => {
 
   test('builds workspace skill invocation names from the workspace slug', () => {
     expect(getWorkspaceSkillInvocationName('default', 'skill-creator')).toBe('default:skill-creator')
-    expect(getWorkspaceSkillInvocationName('release-planning', 'docs')).toBe('release-planning:docs')
+    expect(
+      getWorkspaceSkillInvocationName('550e8400-e29b-41d4-a716-446655440000', 'docs'),
+    ).toBe('550e8400-e29b-41d4-a716-446655440000:docs')
   })
 
   test('updates the name without changing the slug', () => {
