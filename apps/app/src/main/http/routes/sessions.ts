@@ -14,6 +14,12 @@ import {
 import { isAgentSessionActive, stopAgent } from '../../lib/agent-service'
 import { permissionService } from '../../lib/agent-permission-service'
 import {
+  buildStructuredRequestPayload,
+  createTurnTraceContext,
+  getDiagnosticBackendLogger,
+  type StructuredRequestPayload,
+} from '../../lib/diagnostic-logging'
+import {
   createAgentSession,
   deleteAgentSession,
   getAgentSessionMessages,
@@ -37,12 +43,18 @@ async function readSendRequestBody(
 ): Promise<{
   body: Pick<AgentSendInput, 'userMessage'> & Partial<AgentSendInput>
   attachments: FileAttachment[]
+  structuredRequestPayload: StructuredRequestPayload
 }> {
   const contentType = request.headers.get('content-type') ?? ''
   if (!contentType.includes('multipart/form-data')) {
+    const body = await readJsonBody<Pick<AgentSendInput, 'userMessage'> & Partial<AgentSendInput>>(request)
     return {
-      body: await readJsonBody<Pick<AgentSendInput, 'userMessage'> & Partial<AgentSendInput>>(request),
+      body,
       attachments: [],
+      structuredRequestPayload: buildStructuredRequestPayload({
+        contentType,
+        body,
+      }),
     }
   }
 
@@ -84,7 +96,22 @@ async function readSendRequestBody(
     ...(attachments.length > 0 ? { attachments } : {}),
   }
 
-  return { body, attachments }
+  return {
+    body,
+    attachments,
+    structuredRequestPayload: buildStructuredRequestPayload({
+      contentType,
+      body: parsedPayload,
+      files: attachments.map((attachment) => ({
+        fieldName: 'attachments',
+        filename: attachment.filename,
+        mediaType: attachment.mediaType,
+        size: attachment.size,
+        localPath: attachment.localPath,
+        attachmentId: attachment.id,
+      })),
+    }),
+  }
 }
 
 sessionRoutes.get('/', (c) => {
@@ -165,7 +192,7 @@ sessionRoutes.post('/:sessionId/move-workspace', async (c) => {
 
 sessionRoutes.post('/:sessionId/stop', (c) => {
   stopAgent(c.var.sessionMeta.id)
-  sseManager.closeSession(c.var.sessionMeta.id)
+  sseManager.closeSession(c.var.sessionMeta.id, 'manual_stop')
   return noContent()
 })
 
@@ -196,14 +223,47 @@ sessionRoutes.post('/:sessionId/ask-user-respond', async (c) => {
 })
 
 sessionRoutes.post('/:sessionId/send', async (c) => {
-  const { body, attachments } = await readSendRequestBody(
+  const { body, attachments, structuredRequestPayload } = await readSendRequestBody(
     c.req.raw,
     c.var.sessionMeta.id,
     c.var.sessionMeta.workspaceId,
   )
+  const requestTrace = c.var.diagnostic.requestTrace
+  const turnTrace = createTurnTraceContext({
+    requestId: requestTrace.requestId,
+    sessionId: c.var.sessionMeta.id,
+    workspaceId: c.var.sessionMeta.workspaceId,
+  })
+  c.var.diagnostic.resource.turnId = turnTrace.turnId
+
+  const turnLogger = getDiagnosticBackendLogger({
+    component: 'sessions_route',
+    category: 'turn_trace',
+    requestId: requestTrace.requestId,
+    turnId: turnTrace.turnId,
+    sessionId: c.var.sessionMeta.id,
+    workspaceId: c.var.sessionMeta.workspaceId ?? null,
+  })
+
+  turnLogger.info({
+    phase: 'request_body_parsed',
+    contentType: structuredRequestPayload.contentType,
+    hasAttachments: attachments.length > 0,
+    attachmentCount: attachments.length,
+    bodyKeys: structuredRequestPayload.body
+      && typeof structuredRequestPayload.body === 'object'
+      && !Array.isArray(structuredRequestPayload.body)
+      ? Object.keys(structuredRequestPayload.body as Record<string, unknown>)
+      : [],
+    attachmentIds: attachments.map((attachment) => attachment.id),
+  }, '发送请求体已解析完成')
 
   try {
-    const response = await createSendResponse(c.var.sessionMeta.id, body)
+    const response = await createSendResponse(c.var.sessionMeta.id, body, {}, {
+      requestTrace,
+      turnTrace,
+      structuredRequestPayload,
+    })
     if (!response.ok && attachments.length > 0) {
       deleteAgentSessionAttachments({
         sessionId: c.var.sessionMeta.id,

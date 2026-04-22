@@ -17,5 +17,9 @@ export const sessionMiddleware = createMiddleware<HttpAppEnv>(async (c, next) =>
   }
 
   c.set('sessionMeta', sessionMeta)
+  c.var.diagnostic.resource.sessionId = sessionMeta.id
+  if (sessionMeta.workspaceId) {
+    c.var.diagnostic.resource.workspaceId = sessionMeta.workspaceId
+  }
   await next()
 })

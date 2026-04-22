@@ -11,6 +11,7 @@ import type {
   AgentGenerateTitleInput,
   AgentSendInput,
 } from '@proma/shared'
+import type { AgentSendDiagnosticContext } from './diagnostic-logging'
 import { sseManager } from '../sse-manager'
 import { ClaudeAgentAdapter } from './adapters/claude-agent-adapter'
 import { AgentEventBus } from './agent-event-bus'
@@ -29,8 +30,9 @@ export { eventBus as agentEventBus }
 export async function runAgent(
   input: AgentSendInput,
   callbacks: SessionCallbacks,
+  diagnostic?: AgentSendDiagnosticContext,
 ): Promise<void> {
-  await orchestrator.sendMessage(input, callbacks)
+  await orchestrator.sendMessage(input, callbacks, diagnostic)
 }
 
 export async function generateAgentTitle(input: AgentGenerateTitleInput): Promise<string | null> {

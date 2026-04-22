@@ -17,5 +17,6 @@ export const workspaceMiddleware = createMiddleware<HttpAppEnv>(async (c, next) 
   }
 
   c.set('workspace', workspace)
+  c.var.diagnostic.resource.workspaceId = workspace.id
   await next()
 })

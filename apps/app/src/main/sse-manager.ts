@@ -1,19 +1,49 @@
 import type { AgentEvent } from '@proma/shared'
+import {
+  createSseConnectionTraceContext,
+  getDiagnosticBackendLogger,
+  type SseConnectionTraceContext,
+} from './lib/diagnostic-logging'
 
 const encoder = new TextEncoder()
+
+export type SseConnectionCloseReason =
+  | 'client_cancel'
+  | 'emit_failed'
+  | 'server_close'
+  | 'turn_complete'
+  | 'turn_error'
+  | 'manual_stop'
 
 function logSseLifecycle(
   level: 'info' | 'warn' | 'error',
   payload: Record<string, unknown>,
 ): void {
-  const logger = level === 'info' ? console.info : level === 'warn' ? console.warn : console.error
-  logger('[sse-manager]', payload)
+  const diagnosticLogger = getDiagnosticBackendLogger({
+    component: 'sse_manager',
+    category: 'transport',
+    requestId: payload.requestId ?? null,
+    turnId: payload.turnId ?? null,
+    sessionId: payload.sessionId ?? null,
+    sseConnectionId: payload.sseConnectionId ?? null,
+  })
+  if (level === 'info') {
+    diagnosticLogger.info(payload, 'SSE 连接生命周期')
+  } else if (level === 'warn') {
+    diagnosticLogger.warn(payload, 'SSE 连接生命周期')
+  } else {
+    diagnosticLogger.error(payload, 'SSE 连接生命周期')
+  }
+
+  const consoleLogger = level === 'info' ? console.info : level === 'warn' ? console.warn : console.error
+  consoleLogger('[sse-manager]', payload)
 }
 
 interface SessionConnection {
   controller: ReadableStreamDefaultController<Uint8Array>
   onClose?: () => void
   closed: boolean
+  traceContext: SseConnectionTraceContext
 }
 
 function formatEvent(event: string, payload: unknown): Uint8Array {
@@ -23,15 +53,23 @@ function formatEvent(event: string, payload: unknown): Uint8Array {
 export class SSEManager {
   private sessions = new Map<string, Set<SessionConnection>>()
 
-  createResponse(sessionId: string, onClose?: () => void): Response {
+  createResponse(
+    sessionId: string,
+    options?: {
+      onClose?: () => void
+      traceContext?: SseConnectionTraceContext
+    },
+  ): Response {
     let connection: SessionConnection | null = null
 
     const stream = new ReadableStream<Uint8Array>({
       start: (controller) => {
+        const traceContext = options?.traceContext ?? createSseConnectionTraceContext({ sessionId })
         connection = {
           controller,
-          onClose,
+          onClose: options?.onClose,
           closed: false,
+          traceContext,
         }
 
         const sessionConnections = this.sessions.get(sessionId) ?? new Set<SessionConnection>()
@@ -41,6 +79,9 @@ export class SSEManager {
         logSseLifecycle('info', {
           phase: 'connection_open',
           sessionId,
+          requestId: traceContext.requestId ?? null,
+          turnId: traceContext.turnId ?? null,
+          sseConnectionId: traceContext.sseConnectionId,
           connectionCount: sessionConnections.size,
         })
 
@@ -50,9 +91,12 @@ export class SSEManager {
         logSseLifecycle('info', {
           phase: 'connection_cancel',
           sessionId,
+          requestId: connection?.traceContext.requestId ?? null,
+          turnId: connection?.traceContext.turnId ?? null,
+          sseConnectionId: connection?.traceContext.sseConnectionId ?? null,
         })
         if (connection) {
-          this.closeConnection(sessionId, connection)
+          this.closeConnection(sessionId, connection, 'client_cancel')
         }
       },
     })
@@ -84,12 +128,12 @@ export class SSEManager {
     })
   }
 
-  closeSession(sessionId: string): void {
+  closeSession(sessionId: string, reason: SseConnectionCloseReason = 'server_close'): void {
     const connections = this.sessions.get(sessionId)
     if (!connections) return
 
     for (const connection of connections) {
-      this.closeConnection(sessionId, connection)
+      this.closeConnection(sessionId, connection, reason)
     }
   }
 
@@ -108,16 +152,23 @@ export class SSEManager {
         logSseLifecycle('warn', {
           phase: 'emit_failed',
           sessionId,
+          requestId: connection.traceContext.requestId ?? null,
+          turnId: connection.traceContext.turnId ?? null,
+          sseConnectionId: connection.traceContext.sseConnectionId,
           event,
           error: error instanceof Error ? error.message : String(error),
         })
         console.warn(`[SSE] 推送事件失败 (${sessionId}/${event}):`, error)
-        this.closeConnection(sessionId, connection)
+        this.closeConnection(sessionId, connection, 'emit_failed')
       }
     }
   }
 
-  private closeConnection(sessionId: string, connection: SessionConnection): void {
+  private closeConnection(
+    sessionId: string,
+    connection: SessionConnection,
+    reason: SseConnectionCloseReason,
+  ): void {
     if (connection.closed) return
     connection.closed = true
 
@@ -133,6 +184,9 @@ export class SSEManager {
       logSseLifecycle('warn', {
         phase: 'connection_on_close_failed',
         sessionId,
+        requestId: connection.traceContext.requestId ?? null,
+        turnId: connection.traceContext.turnId ?? null,
+        sseConnectionId: connection.traceContext.sseConnectionId,
         error: error instanceof Error ? error.message : String(error),
       })
       console.warn(`[SSE] 关闭连接回调失败 (${sessionId}):`, error)
@@ -149,6 +203,10 @@ export class SSEManager {
     logSseLifecycle('info', {
       phase: 'connection_close',
       sessionId,
+      requestId: connection.traceContext.requestId ?? null,
+      turnId: connection.traceContext.turnId ?? null,
+      sseConnectionId: connection.traceContext.sseConnectionId,
+      closeReason: reason,
       remainingConnections: connections.size,
     })
   }

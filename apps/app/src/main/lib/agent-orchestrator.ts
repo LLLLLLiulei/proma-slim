@@ -89,6 +89,15 @@ import {
   finalizePageBuilderAgentHtmlGuardrails,
   type PageBuilderAgentHtmlSnapshot,
 } from './page-builder-agent-html-guardrails-service'
+import {
+  buildSidecarSummary,
+  getDiagnosticBackendLogger,
+  getDiagnosticLoggingRuntimeState,
+  serializeDiagnosticText,
+  serializeDiagnosticError,
+  type AgentSendDiagnosticContext,
+} from './diagnostic-logging'
+import { writeTurnDiagnosticSidecar } from './diagnostic-sidecar-writer'
 
 type AgentMcpServerMap = Record<string, AgentMcpServerConfig>
 
@@ -356,8 +365,24 @@ function logAgentLifecycle(
   level: 'info' | 'warn' | 'error',
   payload: Record<string, unknown>,
 ): void {
-  const logger = level === 'info' ? console.info : level === 'warn' ? console.warn : console.error
-  logger('[AgentOrchestrator]', payload)
+  const diagnosticLogger = getDiagnosticBackendLogger({
+    component: 'agent_orchestrator',
+    category: 'turn_trace',
+    requestId: payload.requestId ?? null,
+    turnId: payload.turnId ?? null,
+    sessionId: payload.sessionId ?? null,
+    workspaceId: payload.workspaceId ?? null,
+  })
+  if (level === 'info') {
+    diagnosticLogger.info(payload, 'Agent 编排执行生命周期')
+  } else if (level === 'warn') {
+    diagnosticLogger.warn(payload, 'Agent 编排执行生命周期')
+  } else {
+    diagnosticLogger.error(payload, 'Agent 编排执行生命周期')
+  }
+
+  const consoleLogger = level === 'info' ? console.info : level === 'warn' ? console.warn : console.error
+  consoleLogger('[AgentOrchestrator]', payload)
 }
 
 function truncateDiagnostic(text: string, maxLength = 8_000): string {
@@ -836,7 +861,11 @@ export class AgentOrchestrator {
    * 核心编排方法，从 agent-service.ts 的 runAgent 提取。
    * 通过 EventBus 分发 AgentEvent，通过 callbacks 发送控制信号。
    */
-  async sendMessage(input: AgentSendInput, callbacks: SessionCallbacks): Promise<void> {
+  async sendMessage(
+    input: AgentSendInput,
+    callbacks: SessionCallbacks,
+    diagnostic?: AgentSendDiagnosticContext,
+  ): Promise<void> {
     const {
       sessionId,
       userMessage,
@@ -857,6 +886,7 @@ export class AgentOrchestrator {
     const workspaceSlug = workspaceRuntime.workspace.slug
     const isPageBuilderWorkspace = workspaceRuntime.workspace.template === 'page-builder'
     const priorMessages = getAgentSessionMessages(sessionId)
+    const turnMessageStartIndex = priorMessages.length
     const isFirstUserTurn = !priorMessages.some((message) => message.role === 'user')
     const cmsRuntimeToolBundle = resolveCmsRuntimeToolBundle(workspaceRuntime.workspace, sessionId)
     const availableWorkspaceMcpServers: AgentMcpServerMap = {
@@ -876,14 +906,127 @@ export class AgentOrchestrator {
         attachments,
       })
     }
+    const requestId = diagnostic?.requestTrace?.requestId ?? null
+    const turnId = diagnostic?.turnTrace?.turnId ?? null
+    const diagnosticRuntime = getDiagnosticLoggingRuntimeState()
+    const logTurnPhase = (
+      level: 'info' | 'warn' | 'error',
+      phase: string,
+      payload: Record<string, unknown> = {},
+      message = 'Agent send 处理链路',
+    ) => {
+      const eventPayload = {
+        phase,
+        requestId,
+        turnId,
+        sessionId,
+        workspaceId: workspaceRuntime.workspace.id,
+        ...payload,
+      }
+
+      const diagnosticLogger = getDiagnosticBackendLogger({
+        component: 'agent_orchestrator',
+        category: 'turn_trace',
+        requestId,
+        turnId,
+        sessionId,
+        workspaceId: workspaceRuntime.workspace.id,
+      })
+
+      if (level === 'info') {
+        diagnosticLogger.info(eventPayload, message)
+      } else if (level === 'warn') {
+        diagnosticLogger.warn(eventPayload, message)
+      } else {
+        diagnosticLogger.error(eventPayload, message)
+      }
+    }
+    const writeTurnTextSidecar = (
+      baseName: string,
+      extension: string,
+      content: string | null | undefined,
+    ): string[] => {
+      if (!turnId || !content) {
+        return []
+      }
+
+      try {
+        const result = writeTurnDiagnosticSidecar({
+          turnsDir: diagnosticRuntime.turnsDir,
+          turnId,
+          baseName,
+          extension,
+          content,
+          maxFileSizeBytes: diagnosticRuntime.maxFileSizeBytes,
+        })
+        logTurnPhase('info', 'sidecar_written', {
+          sidecarType: baseName,
+          contentLength: content.length,
+          ...buildSidecarSummary(result.relativePaths),
+        }, 'Agent turn sidecar written')
+        return result.relativePaths
+      } catch (error) {
+        logTurnPhase('warn', 'sidecar_write_failed', {
+          sidecarType: baseName,
+          error: serializeDiagnosticError(error),
+        }, 'Agent turn sidecar write failed')
+        return []
+      }
+    }
+    const writeTurnStructuredSidecar = (
+      baseName: string,
+      value: unknown,
+    ): string[] => writeTurnTextSidecar(baseName, '.txt', serializeDiagnosticText(value))
+    let conversationMessagesSidecarPaths: string[] = []
+    const buildCurrentTurnConversationMessagesPayload = (): {
+      scope: 'current_turn_messages'
+      omittedHistoryMessageCount: number
+      currentTurnMessageCount: number
+      messages: AgentMessage[]
+    } => {
+      const currentTurnMessages = getAgentSessionMessages(sessionId).slice(turnMessageStartIndex)
+
+      return {
+        scope: 'current_turn_messages',
+        omittedHistoryMessageCount: turnMessageStartIndex,
+        currentTurnMessageCount: currentTurnMessages.length,
+        messages: currentTurnMessages,
+      }
+    }
+    const refreshConversationMessagesSidecar = (): void => {
+      conversationMessagesSidecarPaths = writeTurnStructuredSidecar(
+        'conversation-messages',
+        buildCurrentTurnConversationMessagesPayload(),
+      )
+    }
+    const appendTurnConversationMessage = (message: AgentMessage): void => {
+      appendAgentMessage(sessionId, message)
+      refreshConversationMessagesSidecar()
+    }
+    const requestPayloadSidecarPaths = diagnostic?.structuredRequestPayload
+      ? writeTurnStructuredSidecar('request-payload', diagnostic.structuredRequestPayload)
+      : []
+    const userMessageSidecarPaths = writeTurnTextSidecar('user-message', '.txt', userMessage)
+    const composedUserMessageSidecarPaths = composedUserMessage
+      ? writeTurnTextSidecar('composed-user-message', '.txt', composedUserMessage)
+      : []
+
+    logTurnPhase('info', 'request_received', {
+      hasStructuredRequestPayload: Boolean(diagnostic?.structuredRequestPayload),
+      requestContentType: diagnostic?.structuredRequestPayload?.contentType ?? null,
+      userMessageLength: userMessage.length,
+      hasComposedUserMessage: Boolean(composedUserMessage),
+      attachmentCount: attachments?.length ?? 0,
+      mentionedSkills: mentionedSkills ?? [],
+      mentionedMcpServers: mentionedMcpServers ?? [],
+      ...buildSidecarSummary(requestPayloadSidecarPaths),
+    }, 'Agent turn request received')
 
     // 0. 并发保护
     if (this.activeSessions.has(sessionId)) {
-      logAgentLifecycle('warn', {
-        phase: 'reject_busy',
-        sessionId,
+      logTurnPhase('warn', 'reject_busy', {
         workspaceId: workspaceId ?? workspaceRuntime.workspace.id,
-      })
+      }, 'Agent turn rejected because session is busy')
       console.warn(`[Agent 编排] 会话 ${sessionId} 正在处理中，拒绝新请求`)
       callbacks.onError('上一条消息仍在处理中，请稍候再试')
       return
@@ -908,6 +1051,10 @@ export class AgentOrchestrator {
 安装完成后请重启应用。`
 
         rollbackPendingAttachments()
+        logTurnPhase('error', 'runtime_shell_missing', {
+          platform: process.platform,
+          shellStatus,
+        }, 'Agent runtime shell requirement missing')
         callbacks.onError(errorMsg)
         return
       }
@@ -917,6 +1064,7 @@ export class AgentOrchestrator {
     const apiKey = process.env.ANTHROPIC_API_KEY?.trim()
     if (!apiKey) {
       rollbackPendingAttachments()
+      logTurnPhase('error', 'api_key_missing', {}, '缺少 Agent API Key')
       callbacks.onError('未检测到 ANTHROPIC_API_KEY 环境变量，请先在终端配置后再发送消息')
       return
     }
@@ -941,6 +1089,9 @@ export class AgentOrchestrator {
       sdk = await import('@anthropic-ai/claude-agent-sdk')
     } catch (error) {
       rollbackPendingAttachments()
+      logTurnPhase('error', 'sdk_bootstrap_failed', {
+        error: serializeDiagnosticError(error),
+      }, 'Agent SDK bootstrap failed')
       throw error
     }
 
@@ -959,6 +1110,9 @@ export class AgentOrchestrator {
       const errMsg = `SDK CLI 文件不存在: ${cliPath}`
       console.error(`[Agent 编排] ${errMsg}`)
       rollbackPendingAttachments()
+      logTurnPhase('error', 'sdk_cli_missing', {
+        cliPath,
+      }, 'Agent SDK CLI missing')
       callbacks.onError(errMsg)
       return
     }
@@ -980,16 +1134,29 @@ export class AgentOrchestrator {
       ? capturePageBuilderAgentHtmlSnapshot(workspaceRuntime.workspace)
       : null
     try {
-      appendAgentMessage(sessionId, userMsg)
+      appendTurnConversationMessage(userMsg)
     } catch (error) {
       rollbackPendingAttachments()
+      logTurnPhase('error', 'user_message_persist_failed', {
+        error: serializeDiagnosticError(error),
+      }, 'Agent user message persistence failed')
       throw error
     }
+    logTurnPhase('info', 'user_message_persisted', {
+      messageId: userMsg.id,
+      hasAttachments: Boolean(attachments?.length),
+      attachmentCount: attachments?.length ?? 0,
+      userMessageSidecarPaths,
+      composedUserMessageSidecarPaths,
+      conversationMessagesSidecarPaths,
+    }, 'Agent user message persisted')
 
     // 6. 注册活跃会话
     this.activeSessions.add(sessionId)
     logAgentLifecycle('info', {
       phase: 'active_session_add',
+      requestId,
+      turnId,
       sessionId,
       workspaceId: workspaceRuntime.workspace.id,
       activeCount: this.activeSessions.size,
@@ -999,6 +1166,13 @@ export class AgentOrchestrator {
     let accumulatedText = ''
     const accumulatedEvents: AgentEvent[] = []
     let resolvedModel = DEFAULT_MODEL_ID
+    const persistAssistantMessageForTurn = (
+      text: string,
+      events: AgentEvent[],
+    ): void => {
+      this.persistAssistantMessage(sessionId, text, events, resolvedModel)
+      refreshConversationMessagesSidecar()
+    }
     let agentCwd = workspaceRuntime.agentCwd
     let pluginPath = workspaceRuntime.pluginPath
     let resolvedAdditionalDirectories: string[] = [...workspaceRuntime.additionalDirectories]
@@ -1097,6 +1271,13 @@ export class AgentOrchestrator {
         pageBuilderRuntimePlaywrightActive: hasRuntimePageBuilderPlaywright,
         pageBuilderInternalPreviewUrl: runtimePlaywrightPreviewUrl,
       })
+      logTurnPhase('info', 'dynamic_context_built', {
+        dynamicContextLength: dynamicCtx.length,
+        additionalDirectoryCount: resolvedAdditionalDirectories.length,
+        mcpServerNames: Object.keys(resolvedMcpServers),
+        hasRuntimePageBuilderPlaywright,
+        runtimePlaywrightPreviewUrl: runtimePlaywrightPreviewUrl ?? null,
+      }, 'Agent dynamic context built')
 
       const runtimeUserMessage = composedUserMessage ?? userMessage
       const availableMentionedMcpServers = (mentionedMcpServers ?? [])
@@ -1108,7 +1289,7 @@ export class AgentOrchestrator {
         : null
       if (bootstrappedSkillsPrompt) {
         enrichedMessage = `${bootstrappedSkillsPrompt}\n\n${enrichedMessage}`
-        console.log(`[Agent 编排] 注入 bootstrapped_skills: ${bootstrappedSkills.length} skills`)
+        console.log(`[Agent 编排] 注入 bootstrapped_skills: ${bootstrappedSkills?.length ?? 0} skills`)
       }
       if (mentionedSkills?.length || availableMentionedMcpServers.length > 0) {
         const toolLines: string[] = ['用户在消息中明确引用了以下工具，请在本次回复中主动调用：']
@@ -1157,6 +1338,24 @@ export class AgentOrchestrator {
       const bypassPermissions = permissionMode === 'auto' && !keepsAskUserInteractive
       const promptPermissionMode: PromaPermissionMode = bypassPermissions ? permissionMode : 'smart'
       console.log(`[Agent 编排] 权限模式: ${permissionMode}${isPageBuilderWorkspace ? ' (page-builder 工作区策略已接管)' : ''}`)
+
+      const systemPromptAppend = buildSystemPromptAppend({
+        sessionId,
+        permissionMode: promptPermissionMode,
+        workspaceName: workspaceRuntime.workspace.name,
+        workspaceSlug,
+      })
+      const finalPromptSidecarPaths = writeTurnTextSidecar('final-prompt', '.txt', finalPrompt)
+      const systemPromptSidecarPaths = writeTurnTextSidecar('system-prompt', '.txt', systemPromptAppend)
+      logTurnPhase('info', 'prompt_built', {
+        finalPromptLength: finalPrompt.length,
+        contextualMessageLength: contextualMessage.length,
+        systemPromptLength: systemPromptAppend.length,
+        isCompactCommand,
+        usedResumeSessionId: existingSdkSessionId ?? null,
+        finalPromptSidecarPaths,
+        systemPromptSidecarPaths,
+      }, 'Agent prompt built')
 
       const baseCanUseTool = !bypassPermissions
         ? permissionService.createCanUseTool(
@@ -1287,12 +1486,7 @@ export class AgentOrchestrator {
         systemPrompt: {
           type: 'preset',
           preset: 'claude_code',
-          append: buildSystemPromptAppend({
-            sessionId,
-            permissionMode: promptPermissionMode,
-            workspaceName: workspaceRuntime.workspace.name,
-            workspaceSlug,
-          }),
+          append: systemPromptAppend,
         },
         resumeSessionId: existingSdkSessionId,
         ...(resolvedAdditionalDirectories.length > 0 && { additionalDirectories: resolvedAdditionalDirectories }),
@@ -1306,6 +1500,10 @@ export class AgentOrchestrator {
         }),
         onStderr: (data: string) => {
           stderrChunks.push(data)
+          logTurnPhase('warn', 'sdk_stderr_chunk', {
+            chunkLength: data.length,
+            stderrChunkPreview: truncateDiagnostic(data, 1_000),
+          }, 'Agent SDK stderr chunk received')
           console.error(`[Agent SDK stderr] ${data}`)
         },
         onSessionId: (sdkSessionId: string) => {
@@ -1322,6 +1520,10 @@ export class AgentOrchestrator {
             if (!isCompactCommand) {
               queryOptions.prompt = contextualMessage
             }
+            logTurnPhase('info', 'sdk_session_resolved', {
+              sdkSessionId,
+              resumeMode: Boolean(existingSdkSessionId),
+            }, 'Agent SDK session resolved')
             console.log(`[Agent 编排] 已保存 SDK session_id: ${sdkSessionId}`)
           } catch {
             // 索引更新失败不影响主流程
@@ -1329,16 +1531,34 @@ export class AgentOrchestrator {
         },
         onModelResolved: (model: string) => {
           resolvedModel = model
+          logTurnPhase('info', 'sdk_model_resolved', {
+            resolvedModel: model,
+          }, 'Agent SDK model resolved')
           console.log(`[Agent 编排] SDK 确认模型: ${resolvedModel}`)
           // 通知渲染进程更新流式状态中的模型信息
           const modelEvent: AgentEvent = { type: 'model_resolved', model }
           this.eventBus.emit(sessionId, modelEvent)
         },
         onContextWindow: (cw: number) => {
+          logTurnPhase('info', 'sdk_context_window', {
+            contextWindow: cw,
+          }, 'Agent SDK context window updated')
           console.log(`[Agent 编排] 缓存 contextWindow: ${cw}`)
         },
       }
 
+      logTurnPhase('info', 'sdk_query_started', {
+        cwd: agentCwd,
+        sdkCliPath: cliPath,
+        executableType: agentExec.type,
+        executablePath: agentExec.path,
+        hasResumeSessionId: Boolean(existingSdkSessionId),
+        additionalDirectoryCount: resolvedAdditionalDirectories.length,
+        mcpServerNames: Object.keys(resolvedMcpServers),
+        allowedToolCount: allowedTools?.length ?? 0,
+        permissionMode,
+        bypassPermissions,
+      }, 'Agent SDK query started')
       console.log(`[Agent 编排] 开始通过 Adapter 遍历事件流...`)
 
       // 14. 遍历 Adapter 产出的 AgentEvent 流（含自动重试 + Watchdog 死锁检测）
@@ -1369,12 +1589,19 @@ export class AgentOrchestrator {
 
         const resumeSessionId = capturedSdkSessionId ?? existingSdkSessionId
         if (!resumeSessionId) {
+          logTurnPhase('warn', 'compact_recovery_unavailable', {
+            source,
+          }, 'Agent compact recovery unavailable')
           console.warn(`[Agent 编排] ${source} 路径检测到上下文过长，但当前无可恢复的 sdkSessionId`)
           return 'failed'
         }
 
         attemptedCompactRecovery = true
         stderrChunks.length = 0
+        logTurnPhase('warn', 'compact_recovery_started', {
+          source,
+          resumeSessionId,
+        }, 'Agent compact recovery started')
         console.log(`[Agent 编排] ${source} 路径检测到上下文过长，尝试自动执行 /compact (resume=${resumeSessionId})`)
 
         try {
@@ -1393,6 +1620,9 @@ export class AgentOrchestrator {
               if (sawCompacting && !sawCompactComplete) {
                 this.eventBus.emit(sessionId, { type: 'compact_complete' })
               }
+              logTurnPhase('warn', 'turn_aborted', {
+                abortStage: 'compact_recovery',
+              }, 'Agent turn aborted during compact recovery')
               console.log(`[Agent 编排] 自动 /compact 期间会话 ${sessionId} 已被用户中止`)
               return 'aborted'
             }
@@ -1401,6 +1631,11 @@ export class AgentOrchestrator {
               if (sawCompacting && !sawCompactComplete) {
                 this.eventBus.emit(sessionId, { type: 'compact_complete' })
               }
+              writeTurnStructuredSidecar('compact-typed-error', event.error)
+              logTurnPhase('error', 'compact_recovery_typed_error', {
+                errorCode: event.error.code,
+                errorTitle: event.error.title,
+              }, 'Agent compact recovery typed error')
               console.error(`[Agent 编排] 自动 /compact 返回 typed_error: ${event.error.code} - ${event.error.message}`)
               return 'failed'
             }
@@ -1409,6 +1644,10 @@ export class AgentOrchestrator {
               if (sawCompacting && !sawCompactComplete) {
                 this.eventBus.emit(sessionId, { type: 'compact_complete' })
               }
+              writeTurnStructuredSidecar('compact-error', event)
+              logTurnPhase('error', 'compact_recovery_error', {
+                message: event.message,
+              }, 'Agent compact recovery error')
               console.error(`[Agent 编排] 自动 /compact 返回 error: ${event.message}`)
               return 'failed'
             }
@@ -1442,10 +1681,18 @@ export class AgentOrchestrator {
             queryOptions.prompt = contextualMessage
           }
           stderrChunks.length = 0
+          logTurnPhase('info', 'compact_recovery_succeeded', {
+            source,
+            resumeSessionId,
+          }, 'Agent compact recovery succeeded')
           console.log('[Agent 编排] 自动 /compact 成功，准备重放原始用户消息')
           return 'recovered'
         } catch (compactError) {
           this.eventBus.emit(sessionId, { type: 'compact_complete' })
+          logTurnPhase('error', 'compact_recovery_failed', {
+            source,
+            error: serializeDiagnosticError(compactError),
+          }, 'Agent compact recovery failed')
           console.error('[Agent 编排] 自动 /compact 失败:', compactError)
           return this.activeSessions.has(sessionId) ? 'failed' : 'aborted'
         }
@@ -1475,13 +1722,21 @@ export class AgentOrchestrator {
               reason: lastRetryableError ?? '未知错误',
             })
             this.eventBus.emit(sessionId, { type: 'retry_attempt', attemptData })
+            logTurnPhase('warn', 'retry_scheduled', {
+              attempt: attempt - 1,
+              delaySeconds: delaySec,
+              reason: lastRetryableError ?? '未知错误',
+            }, 'Agent retry scheduled')
 
             console.log(`[Agent 编排] 第 ${attempt - 1} 次重试，等待 ${delaySec}s...`)
             await new Promise((r) => setTimeout(r, delayMs))
 
             // 等待期间如果会话被中止，退出
             if (!this.activeSessions.has(sessionId)) {
-              this.persistAssistantMessage(sessionId, accumulatedText, accumulatedEvents, resolvedModel)
+              persistAssistantMessageForTurn(accumulatedText, accumulatedEvents)
+              logTurnPhase('warn', 'turn_aborted', {
+                abortStage: 'retry_wait',
+              }, 'Agent turn aborted during retry wait')
               callbacks.onComplete(getAgentSessionMessages(sessionId))
               return
             }
@@ -1530,6 +1785,7 @@ export class AgentOrchestrator {
           let pendingNext: Promise<IteratorResult<AgentEvent>> | null = null
           // Teams 活跃时延迟 complete 事件，避免前端提前标记 teammates 为 stopped
           let deferredCompleteEvent: AgentEvent | null = null
+          let firstEventReceived = false
 
           while (!loopAbort.signal.aborted) {
             if (!pendingNext) {
@@ -1567,14 +1823,22 @@ export class AgentOrchestrator {
 
             pendingNext = null
             const event = iterResult.value
+            if (!firstEventReceived) {
+              firstEventReceived = true
+              logTurnPhase('info', 'first_event_received', {
+                eventType: event.type,
+                attempt,
+              }, 'Agent first stream event received')
+            }
 
             // typed_error：判断是否可自动重试
             if (event.type === 'typed_error') {
+              const typedErrorSidecarPaths = writeTurnStructuredSidecar('typed-error', event.error)
               const shouldAttemptCompactRecovery = event.error.code === 'prompt_too_long'
                 || isPromptTooLongError(event.error.message, event.error.originalError ?? '')
 
               if (shouldAttemptCompactRecovery) {
-                this.persistAssistantMessage(sessionId, accumulatedText, accumulatedEvents, resolvedModel)
+                persistAssistantMessageForTurn(accumulatedText, accumulatedEvents)
                 accumulatedText = ''
                 accumulatedEvents.length = 0
 
@@ -1597,9 +1861,15 @@ export class AgentOrchestrator {
                 lastRetryableError = event.error.title
                   ? `${event.error.title}: ${event.error.message}`
                   : event.error.message
+                logTurnPhase('warn', 'typed_error_retry_scheduled', {
+                  errorCode: event.error.code,
+                  errorTitle: event.error.title,
+                  typedErrorSidecarPaths,
+                  reason: lastRetryableError,
+                }, 'Agent retry scheduled from typed error')
                 console.log(`[Agent 编排] 可重试错误 (typed_error): ${event.error.code} - ${lastRetryableError}`)
                 // 保存部分内容后准备重试
-                this.persistAssistantMessage(sessionId, accumulatedText, accumulatedEvents, resolvedModel)
+                persistAssistantMessageForTurn(accumulatedText, accumulatedEvents)
                 accumulatedText = ''
                 accumulatedEvents.length = 0
                 shouldRetryFromTypedError = true
@@ -1607,7 +1877,7 @@ export class AgentOrchestrator {
               }
 
               // 不可重试 → 走原有终止逻辑
-              this.persistAssistantMessage(sessionId, accumulatedText, accumulatedEvents, resolvedModel)
+              persistAssistantMessageForTurn(accumulatedText, accumulatedEvents)
 
               const errorMsg: AgentMessage = {
                 id: randomUUID(),
@@ -1623,9 +1893,11 @@ export class AgentOrchestrator {
                 errorCanRetry: event.error.canRetry,
                 errorActions: event.error.actions,
               }
-              appendAgentMessage(sessionId, errorMsg)
+              appendTurnConversationMessage(errorMsg)
               logAgentLifecycle('error', {
                 phase: 'typed_error_persisted',
+                requestId,
+                turnId,
                 sessionId,
                 workspaceId: workspaceRuntime.workspace.id,
                 errorCode: event.error.code,
@@ -1633,6 +1905,7 @@ export class AgentOrchestrator {
                 canRetry: event.error.canRetry,
                 detailsCount: event.error.details?.length ?? 0,
                 hasOriginalError: Boolean(event.error.originalError),
+                typedErrorSidecarPaths,
               })
               console.log(`[Agent 编排] 已保存 TypedError 消息: ${event.error.code} - ${event.error.title}`)
 
@@ -1655,6 +1928,10 @@ export class AgentOrchestrator {
               if (!loopAbort.signal.aborted) loopAbort.abort()
               await watchdogDone
               try { updateAgentSessionMeta(sessionId, {}) } catch { /* 忽略 */ }
+              logTurnPhase('error', 'turn_failed', {
+                failureSource: 'typed_error',
+                errorCode: event.error.code,
+              }, 'Agent turn failed with typed error')
               callbacks.onComplete(getAgentSessionMessages(sessionId))
               return
             }
@@ -1696,6 +1973,9 @@ export class AgentOrchestrator {
           await watchdogDone
 
           if (abortedByWatchdog) {
+            logTurnPhase('warn', 'watchdog_aborted_stream_loop', {
+              startedTaskCount: startedTaskIds.size,
+            }, 'Agent watchdog aborted stream loop')
             console.log(`[Agent 编排] Watchdog 中断了事件循环，将触发 auto-resume`)
           }
 
@@ -1707,17 +1987,35 @@ export class AgentOrchestrator {
           // 正常完成 — 如果之前有重试，发送 retry_cleared
           if (attempt > 1) {
             this.eventBus.emit(sessionId, { type: 'retry_cleared' })
+            logTurnPhase('info', 'retry_cleared', {
+              recoveredAttempt: attempt,
+            }, 'Agent retry state cleared after success')
             console.log(`[Agent 编排] 重试成功，已在第 ${attempt} 次尝试后恢复`)
           }
           retrySucceeded = true
 
           // 15. 持久化 assistant 消息
-          this.persistAssistantMessage(sessionId, accumulatedText, accumulatedEvents, resolvedModel)
+          persistAssistantMessageForTurn(accumulatedText, accumulatedEvents)
+          const successStderrOutput = stderrChunks.join('').trim()
+          const successStderrSidecarPaths = successStderrOutput
+            ? writeTurnTextSidecar('stderr', '.log', successStderrOutput)
+            : []
+          logTurnPhase('info', 'assistant_message_persisted', {
+            assistantTextLength: accumulatedText.length,
+            assistantEventCount: accumulatedEvents.length,
+            resolvedModel,
+            conversationMessagesSidecarPaths,
+            successStderrSidecarPaths,
+          }, 'Agent assistant message persisted')
 
           // 16. Agent Teams Auto-Resume：teammates 完成后自动收集结果并汇总
           //     触发条件：有 teammate 启动过（正常完成或 Watchdog 中断均适用）
           console.log(`[Agent 编排] Auto-resume 条件检查: startedTasks=${startedTaskIds.size}, sdkSession=${!!capturedSdkSessionId}, active=${this.activeSessions.has(sessionId)}`)
           if (startedTaskIds.size > 0 && capturedSdkSessionId && this.activeSessions.has(sessionId)) {
+            logTurnPhase('info', 'auto_resume_started', {
+              startedTaskCount: startedTaskIds.size,
+              sdkSessionId: capturedSdkSessionId,
+            }, 'Agent auto-resume started')
             console.log(`[Agent 编排] Agent Teams 检测到 ${startedTaskIds.size} 个 teammate，启动 auto-resume`)
 
             // 通知前端：正在收集 teammate 结果
@@ -1776,11 +2074,18 @@ export class AgentOrchestrator {
 
                 // 持久化 resume 助手消息
                 if (resumeText || resumeEvents.length > 0) {
-                  this.persistAssistantMessage(sessionId, resumeText, resumeEvents, resolvedModel)
+                  persistAssistantMessageForTurn(resumeText, resumeEvents)
                 }
 
+                logTurnPhase('info', 'auto_resume_completed', {
+                  resumeTextLength: resumeText.length,
+                  resumeEventCount: resumeEvents.length,
+                }, 'Agent auto-resume completed')
                 console.log(`[Agent 编排] Auto-resume 完成，输出 ${resumeText.length} 字符`)
               } catch (resumeError) {
+                logTurnPhase('error', 'auto_resume_failed', {
+                  error: serializeDiagnosticError(resumeError),
+                }, 'Agent auto-resume failed')
                 console.error('[Agent 编排] Auto-resume 失败:', resumeError)
                 // 已流式的部分内容已保存，继续完成流程
               }
@@ -1816,6 +2121,12 @@ export class AgentOrchestrator {
           }
 
           await this.autoGenerateTitle(sessionId, userMessage, callbacks)
+          logTurnPhase('info', 'turn_completed', {
+            resolvedModel,
+            totalAssistantTextLength: accumulatedText.length,
+            totalAssistantEventCount: accumulatedEvents.length,
+            hasAutoResume: startedTaskIds.size > 0,
+          }, 'Agent turn completed')
           callbacks.onComplete(getAgentSessionMessages(sessionId))
 
           break  // 成功完成，退出重试循环
@@ -1823,6 +2134,9 @@ export class AgentOrchestrator {
         } catch (error) {
           // 打印 stderr
           const fullStderr = stderrChunks.join('').trim()
+          const stderrSidecarPaths = fullStderr
+            ? writeTurnTextSidecar('stderr', '.log', fullStderr)
+            : []
           if (fullStderr) {
             console.error(`[Agent 编排] 完整 stderr 输出 (${fullStderr.length} 字符):`)
             console.error(fullStderr)
@@ -1833,7 +2147,11 @@ export class AgentOrchestrator {
           // 用户主动中止
           if (!this.activeSessions.has(sessionId)) {
             console.log(`[Agent 编排] 会话 ${sessionId} 已被用户中止`)
-            this.persistAssistantMessage(sessionId, accumulatedText, accumulatedEvents, resolvedModel)
+            persistAssistantMessageForTurn(accumulatedText, accumulatedEvents)
+            logTurnPhase('warn', 'turn_aborted', {
+              abortStage: 'catch',
+              stderrSidecarPaths,
+            }, 'Agent turn aborted by user')
             callbacks.onComplete(getAgentSessionMessages(sessionId))
             return
           }
@@ -1847,9 +2165,15 @@ export class AgentOrchestrator {
             rawErrorMessage,
             stderrOutput,
           )
+          const catchErrorSidecarPaths = writeTurnStructuredSidecar('catch-error', {
+            apiError,
+            rawErrorMessage,
+            stderrOutput,
+            error: serializeDiagnosticError(error),
+          })
 
           if (isPromptTooLong) {
-            this.persistAssistantMessage(sessionId, accumulatedText, accumulatedEvents, resolvedModel)
+            persistAssistantMessageForTurn(accumulatedText, accumulatedEvents)
             accumulatedText = ''
             accumulatedEvents.length = 0
 
@@ -1870,9 +2194,15 @@ export class AgentOrchestrator {
             lastRetryableError = apiError
               ? `API Error ${apiError.statusCode}: ${apiError.message}`
               : (error instanceof Error ? error.message : '未知错误')
+            logTurnPhase('warn', 'catch_error_retry_scheduled', {
+              apiStatusCode: apiError?.statusCode ?? null,
+              reason: lastRetryableError,
+              stderrSidecarPaths,
+              catchErrorSidecarPaths,
+            }, 'Agent retry scheduled from catch error')
             console.log(`[Agent 编排] 可重试错误 (catch): ${lastRetryableError}`)
             // 保存部分内容
-            this.persistAssistantMessage(sessionId, accumulatedText, accumulatedEvents, resolvedModel)
+            persistAssistantMessageForTurn(accumulatedText, accumulatedEvents)
             accumulatedText = ''
             accumulatedEvents.length = 0
             stderrChunks.length = 0
@@ -1886,7 +2216,7 @@ export class AgentOrchestrator {
           // 保存已累积的部分内容
           if (accumulatedText || accumulatedEvents.length > 0) {
             try {
-              this.persistAssistantMessage(sessionId, accumulatedText, accumulatedEvents, resolvedModel)
+              persistAssistantMessageForTurn(accumulatedText, accumulatedEvents)
               console.log(`[Agent 编排] 已保存部分执行结果 (${accumulatedText.length} 字符, ${accumulatedEvents.length} 事件)`)
             } catch (saveError) {
               console.error('[Agent 编排] 保存部分内容失败:', saveError)
@@ -1913,6 +2243,8 @@ export class AgentOrchestrator {
 
           logAgentLifecycle('error', {
             phase: 'catch_error',
+            requestId,
+            turnId,
             sessionId,
             workspaceId: workspaceRuntime.workspace.id,
             apiStatusCode: apiError?.statusCode ?? null,
@@ -1920,9 +2252,11 @@ export class AgentOrchestrator {
             rawErrorMessage,
             detailsCount: errorDetails?.length ?? 0,
             hasOriginalError: Boolean(errorOriginal),
+            stderrSidecarPaths,
+            catchErrorSidecarPaths,
           })
 
-          // 保存错误消息到 JSONL
+          // 保存错误状态消息到会话存储
           try {
             const errMsg: AgentMessage = {
               id: randomUUID(),
@@ -1936,8 +2270,8 @@ export class AgentOrchestrator {
               errorDetails,
               errorOriginal,
             }
-            appendAgentMessage(sessionId, errMsg)
-            console.log(`[Agent 编排] 已保存错误消息到 JSONL`)
+            appendTurnConversationMessage(errMsg)
+            console.log('[Agent 编排] 已保存错误状态消息到会话存储')
           } catch (saveError) {
             console.error('[Agent 编排] 保存错误消息失败:', saveError)
           }
@@ -1956,6 +2290,13 @@ export class AgentOrchestrator {
             })
           }
 
+          logTurnPhase('error', 'turn_failed', {
+            failureSource: 'catch_error',
+            apiStatusCode: apiError?.statusCode ?? null,
+            userFacingError,
+            stderrSidecarPaths,
+            catchErrorSidecarPaths,
+          }, 'Agent turn failed with catch error')
           callbacks.onError(userFacingError)
           callbacks.onComplete(getAgentSessionMessages(sessionId))
 
@@ -1996,8 +2337,12 @@ export class AgentOrchestrator {
           errorCode: 'unknown_error',
           errorTitle: '重试失败',
         }
-        appendAgentMessage(sessionId, retryErrorMsg)
+        appendTurnConversationMessage(retryErrorMsg)
 
+        logTurnPhase('error', 'turn_failed_after_retries', {
+          reason: lastRetryableError,
+          maxAutoRetries: MAX_AUTO_RETRIES,
+        }, 'Agent turn failed after exhausting retries')
         callbacks.onError(`重试 ${MAX_AUTO_RETRIES} 次后仍然失败: ${lastRetryableError}`)
         callbacks.onComplete(getAgentSessionMessages(sessionId))
       }
@@ -2006,6 +2351,8 @@ export class AgentOrchestrator {
       this.activeSessions.delete(sessionId)
       logAgentLifecycle('info', {
         phase: 'active_session_delete',
+        requestId,
+        turnId,
         sessionId,
         workspaceId: workspaceRuntime.workspace.id,
         activeCount: this.activeSessions.size,

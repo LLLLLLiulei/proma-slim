@@ -1,6 +1,11 @@
 import type { AgentGenerateTitleInput, AgentSendInput } from '@proma/shared'
+import type { AgentSendDiagnosticContext } from '../lib/diagnostic-logging'
 import { agentEventBus, generateAgentTitle, isAgentSessionActive, runAgent, stopAgent } from '../lib/agent-service'
 import { getAgentSessionMeta, updateAgentSessionMeta } from '../lib/agent-session-manager'
+import {
+  createSseConnectionTraceContext,
+  getDiagnosticBackendLogger,
+} from '../lib/diagnostic-logging'
 import { sseManager } from '../sse-manager'
 import { HttpError } from './errors'
 import { json } from './responses'
@@ -11,8 +16,24 @@ function logAgentHttpLifecycle(
   level: 'info' | 'warn' | 'error',
   payload: Record<string, unknown>,
 ): void {
-  const logger = level === 'info' ? console.info : level === 'warn' ? console.warn : console.error
-  logger('[agent-stream]', payload)
+  const diagnosticLogger = getDiagnosticBackendLogger({
+    component: 'agent_stream',
+    category: 'turn_trace',
+    requestId: payload.requestId ?? null,
+    turnId: payload.turnId ?? null,
+    sessionId: payload.sessionId ?? null,
+    workspaceId: payload.workspaceId ?? null,
+  })
+  if (level === 'info') {
+    diagnosticLogger.info(payload, 'Agent HTTP 生命周期')
+  } else if (level === 'warn') {
+    diagnosticLogger.warn(payload, 'Agent HTTP 生命周期')
+  } else {
+    diagnosticLogger.error(payload, 'Agent HTTP 生命周期')
+  }
+
+  const consoleLogger = level === 'info' ? console.info : level === 'warn' ? console.warn : console.error
+  consoleLogger('[agent-stream]', payload)
 }
 
 interface SendResponseDeps {
@@ -29,27 +50,36 @@ const defaultDeps: SendResponseDeps = {
   generateTitle: generateAgentTitle,
 }
 
-export function createAgentStreamCallbacks(sessionId: string) {
+export function createAgentStreamCallbacks(
+  sessionId: string,
+  diagnostic?: AgentSendDiagnosticContext,
+) {
   return {
     onError: (message: string) => {
       logAgentHttpLifecycle('error', {
         phase: 'callbacks_error',
+        requestId: diagnostic?.requestTrace?.requestId ?? null,
+        turnId: diagnostic?.turnTrace?.turnId ?? null,
         sessionId,
         errorMessage: message,
       })
       agentEventBus.emit(sessionId, { type: 'error', message })
-      sseManager.closeSession(sessionId)
+      sseManager.closeSession(sessionId, 'turn_error')
     },
     onComplete: () => {
       logAgentHttpLifecycle('info', {
         phase: 'callbacks_complete',
+        requestId: diagnostic?.requestTrace?.requestId ?? null,
+        turnId: diagnostic?.turnTrace?.turnId ?? null,
         sessionId,
       })
-      sseManager.closeSession(sessionId)
+      sseManager.closeSession(sessionId, 'turn_complete')
     },
     onTitleUpdated: (title: string) => {
       logAgentHttpLifecycle('info', {
         phase: 'callbacks_title_updated',
+        requestId: diagnostic?.requestTrace?.requestId ?? null,
+        turnId: diagnostic?.turnTrace?.turnId ?? null,
         sessionId,
         title,
       })
@@ -84,6 +114,7 @@ export async function createSendResponse(
   sessionId: string,
   body: Pick<AgentSendInput, 'userMessage'> & Partial<AgentSendInput>,
   overrides: Partial<SendResponseDeps> = {},
+  diagnostic?: AgentSendDiagnosticContext,
 ): Promise<Response> {
   const deps: SendResponseDeps = {
     ...defaultDeps,
@@ -93,6 +124,8 @@ export async function createSendResponse(
   if (deps.isAgentSessionActive(sessionId)) {
     logAgentHttpLifecycle('warn', {
       phase: 'send_rejected_busy',
+      requestId: diagnostic?.requestTrace?.requestId ?? null,
+      turnId: diagnostic?.turnTrace?.turnId ?? null,
       sessionId,
       workspaceId: body.workspaceId ?? null,
     })
@@ -112,6 +145,8 @@ export async function createSendResponse(
 
   logAgentHttpLifecycle('info', {
     phase: 'send_accepted',
+    requestId: diagnostic?.requestTrace?.requestId ?? null,
+    turnId: diagnostic?.turnTrace?.turnId ?? null,
     sessionId,
     workspaceId: body.workspaceId ?? null,
     hasAttachments: Boolean(body.attachments?.length),
@@ -134,11 +169,19 @@ export async function createSendResponse(
     ...(body.attachments && { attachments: body.attachments }),
   }
 
-  const response = sseManager.createResponse(sessionId)
+  const response = sseManager.createResponse(sessionId, {
+    traceContext: createSseConnectionTraceContext({
+      requestId: diagnostic?.requestTrace?.requestId,
+      turnId: diagnostic?.turnTrace?.turnId,
+      sessionId,
+    }),
+  })
 
-  void deps.runAgent(input, createAgentStreamCallbacks(sessionId)).catch((error) => {
+  void deps.runAgent(input, createAgentStreamCallbacks(sessionId, diagnostic), diagnostic).catch((error) => {
     logAgentHttpLifecycle('error', {
       phase: 'send_run_failed',
+      requestId: diagnostic?.requestTrace?.requestId ?? null,
+      turnId: diagnostic?.turnTrace?.turnId ?? null,
       sessionId,
       workspaceId: body.workspaceId ?? null,
       error: error instanceof Error ? error.message : String(error),
@@ -148,7 +191,7 @@ export async function createSendResponse(
     if (sseManager.hasSession(sessionId)) {
       const message = error instanceof Error ? error.message : String(error)
       agentEventBus.emit(sessionId, { type: 'error', message })
-      sseManager.closeSession(sessionId)
+      sseManager.closeSession(sessionId, 'turn_error')
     }
   })
 

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import type { AgentEvent, AgentQueryInput, AgentProviderAdapter, AskUserRequest } from '@proma/shared'
@@ -8,6 +8,12 @@ import { saveAgentSessionAttachments } from './agent-attachment-service'
 import { AgentOrchestrator } from './agent-orchestrator'
 import { askUserService } from './agent-ask-user-service'
 import {
+  buildStructuredRequestPayload,
+  createRequestTraceContext,
+  createTurnTraceContext,
+} from './diagnostic-logging'
+import {
+  appendAgentMessage,
   getAgentSessionMessages,
   createAgentSession,
   getAgentSessionMeta,
@@ -219,6 +225,135 @@ describe('AgentOrchestrator workspace runtime', () => {
     expect(adapter.lastInput?.plugins).toEqual([
       { type: 'local', path: getAgentWorkspacePath(workspace.slug) },
     ])
+  })
+
+  test('writes request payload and prompt sidecars when diagnostic context is provided', async () => {
+    const adapter = new RecordingAdapter()
+    const orchestrator = new AgentOrchestrator(adapter, new AgentEventBus())
+    const workspace = createAgentWorkspace('Diagnostic Sidecars')
+    const session = createAgentSession('Diagnostic sidecar session', undefined, workspace.id)
+    const requestTrace = createRequestTraceContext({
+      requestId: 'request-sidecar-test',
+      method: 'POST',
+      path: `/api/sessions/${session.id}/send`,
+    })
+    const turnTrace = createTurnTraceContext({
+      requestId: requestTrace.requestId,
+      turnId: 'turn-sidecar-test',
+      sessionId: session.id,
+      workspaceId: workspace.id,
+    })
+
+    await orchestrator.sendMessage(
+      {
+        sessionId: session.id,
+        userMessage: 'Inspect this workspace and summarize the current state.',
+        channelId: '',
+      },
+      {
+        onError: (message) => {
+          throw new Error(message)
+        },
+        onComplete: () => {},
+        onTitleUpdated: () => {},
+      },
+      {
+        requestTrace,
+        turnTrace,
+        structuredRequestPayload: buildStructuredRequestPayload({
+          contentType: 'application/json',
+          body: {
+            userMessage: 'Inspect this workspace and summarize the current state.',
+            workspaceId: workspace.id,
+          },
+        }),
+      },
+    )
+
+    const turnDir = join(configDir, 'logs', 'turns', turnTrace.turnId)
+    const sidecarFiles = readdirSync(turnDir)
+
+    expect(sidecarFiles).toEqual(expect.arrayContaining([
+      'conversation-messages.part-001.txt',
+      'final-prompt.part-001.txt',
+      'request-payload.part-001.txt',
+      'system-prompt.part-001.txt',
+      'user-message.part-001.txt',
+    ]))
+    expect(readFileSync(join(turnDir, 'request-payload.part-001.txt'), 'utf-8')).toContain('Inspect this workspace')
+    expect(readFileSync(join(turnDir, 'final-prompt.part-001.txt'), 'utf-8')).toContain('Inspect this workspace')
+    expect(readFileSync(join(turnDir, 'system-prompt.part-001.txt'), 'utf-8')).toContain(session.id)
+  })
+
+  test('records only current-turn messages in the conversation sidecar instead of the full session history', async () => {
+    const adapter = new RecordingAdapter()
+    const orchestrator = new AgentOrchestrator(adapter, new AgentEventBus())
+    const workspace = createAgentWorkspace('Diagnostic Turn Slice')
+    const session = createAgentSession('Diagnostic turn slice session', undefined, workspace.id)
+
+    appendAgentMessage(session.id, {
+      id: 'history-user-message',
+      role: 'user',
+      content: 'Historical user message that should stay out of the sidecar.',
+      createdAt: Date.now() - 2_000,
+    })
+    appendAgentMessage(session.id, {
+      id: 'history-assistant-message',
+      role: 'assistant',
+      content: 'Historical assistant message that should stay out of the sidecar.',
+      createdAt: Date.now() - 1_000,
+      model: 'historical-model',
+      events: [],
+    })
+
+    const requestTrace = createRequestTraceContext({
+      requestId: 'request-turn-slice-test',
+      method: 'POST',
+      path: `/api/sessions/${session.id}/send`,
+    })
+    const turnTrace = createTurnTraceContext({
+      requestId: requestTrace.requestId,
+      turnId: 'turn-slice-test',
+      sessionId: session.id,
+      workspaceId: workspace.id,
+    })
+
+    await orchestrator.sendMessage(
+      {
+        sessionId: session.id,
+        userMessage: 'Only keep the current turn messages in the sidecar.',
+        channelId: '',
+      },
+      {
+        onError: (message) => {
+          throw new Error(message)
+        },
+        onComplete: () => {},
+        onTitleUpdated: () => {},
+      },
+      {
+        requestTrace,
+        turnTrace,
+        structuredRequestPayload: buildStructuredRequestPayload({
+          contentType: 'application/json',
+          body: {
+            userMessage: 'Only keep the current turn messages in the sidecar.',
+            workspaceId: workspace.id,
+          },
+        }),
+      },
+    )
+
+    const conversationMessages = readFileSync(
+      join(configDir, 'logs', 'turns', turnTrace.turnId, 'conversation-messages.part-001.txt'),
+      'utf-8',
+    )
+
+    expect(conversationMessages).toContain('scope: current_turn_messages')
+    expect(conversationMessages).toContain('omittedHistoryMessageCount: 2')
+    expect(conversationMessages).toContain('Only keep the current turn messages in the sidecar.')
+    expect(conversationMessages).not.toContain('Historical user message that should stay out of the sidecar.')
+    expect(conversationMessages).not.toContain('Historical assistant message that should stay out of the sidecar.')
   })
 
   test('adds workspace-files and attached directories into additionalDirectories', async () => {
@@ -793,7 +928,7 @@ describe('AgentOrchestrator workspace runtime', () => {
       'mcp__cms__decide_cms_binding',
       'mcp__cms__apply_cms_binding',
     ]))
-    expect(adapter.lastInput?.prompt).toContain('- Skill: page-builder-cms-skill-mention:cms-binding-apply（请立即调用此 Skill）')
+    expect(adapter.lastInput?.prompt).toContain(`- Skill: ${workspace.slug}:cms-binding-apply（请立即调用此 Skill）`)
   })
 
   test('injects host-bootstrapped skill context for confirmed cms handoff turns without relying only on mentioned skills', async () => {
@@ -832,7 +967,7 @@ describe('AgentOrchestrator workspace runtime', () => {
     expect(adapter.lastInput?.prompt).toContain('Use this skill after CMS browsing is already complete.')
     expect(adapter.lastInput?.prompt).toContain('<mentioned_tools>')
     expect(adapter.lastInput?.prompt).toContain('- MCP 服务器: cms（请使用此 MCP 服务器的工具来完成任务）')
-    expect(adapter.lastInput?.prompt).not.toContain('- Skill: page-builder-cms-bootstrapped-skill:cms-binding-apply（请立即调用此 Skill）')
+    expect(adapter.lastInput?.prompt).not.toContain(`- Skill: ${workspace.slug}:cms-binding-apply（请立即调用此 Skill）`)
   })
 
   test('keeps page-builder queries on the existing string prompt path even when cms env is configured', async () => {
