@@ -104,6 +104,8 @@ export interface AgentStreamState {
   isCompacting?: boolean
   /** 流式开始时间戳（用于思考计时持久化） */
   startedAt?: number
+  /** 最近一次流式活动时间戳（用于 stale busy 自愈） */
+  lastActivityAt?: number
   /** 重试状态（扩展版） */
   retrying?: {
     /** 当前第几次尝试 */

@@ -189,6 +189,7 @@ describe('AgentOrchestrator friendly error handling', () => {
 
     expect(onErrorMessages).toEqual([LOGIN_CONFIGURATION_ERROR_MESSAGE])
     expect(persistedStatus?.content).toBe(LOGIN_CONFIGURATION_ERROR_MESSAGE)
+    expect(persistedStatus?.errorDetails?.some((detail) => detail.includes('Not logged in. Please run /login to authenticate.'))).toBe(true)
     expect(persistedStatus?.errorOriginal).toContain('Not logged in. Please run /login to authenticate.')
   })
 

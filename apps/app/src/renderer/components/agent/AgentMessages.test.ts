@@ -247,7 +247,7 @@ describe('AgentMessages transient assistant rendering', () => {
     expect(markup).toContain('正在处理...')
   })
 
-  test('reuses the latest persisted assistant model for the transient streaming header before model_resolved arrives', () => {
+  test('does not duplicate persisted assistant model info into the transient streaming header before model_resolved arrives', () => {
     const markup = renderToStaticMarkup(
       React.createElement(AgentMessages, {
         sessionId: 'session-streaming-model-fallback',
@@ -263,11 +263,10 @@ describe('AgentMessages transient assistant rendering', () => {
       })
     )
 
-    expect(countOccurrences(markup, 'claude-sonnet-4-6')).toBeGreaterThanOrEqual(2)
-    expect(countOccurrences(markup, 'alt="claude-sonnet-4-6"')).toBe(2)
+    expect(countOccurrences(markup, 'alt="claude-sonnet-4-6"')).toBe(1)
   })
 
-  test('falls back to the default Claude model for the transient streaming header in a brand-new session', () => {
+  test('does not render a fallback model identity in the transient streaming header for a brand-new session', () => {
     const markup = renderToStaticMarkup(
       React.createElement(AgentMessages, {
         sessionId: 'session-streaming-model-default',
@@ -277,8 +276,9 @@ describe('AgentMessages transient assistant rendering', () => {
       })
     )
 
-    expect(markup).toContain('claude-sonnet-4-5-20250929')
-    expect(markup).toContain('alt="claude-sonnet-4-5-20250929"')
+    expect(markup).not.toContain('claude-sonnet-4-5-20250929')
+    expect(markup).not.toContain('alt="claude-sonnet-4-5-20250929"')
+    expect(markup).toContain('Agent')
   })
 
   test('renders a transient status notice while the sdk is waiting without assistant text yet', () => {
@@ -392,5 +392,38 @@ describe('AgentMessages transient assistant rendering', () => {
     expect(markup).toContain('max-h-[180px]')
     expect(markup).toContain('object-contain')
     expect(markup).not.toContain('sm:max-w-[500px]')
+  })
+
+  test('renders status-message diagnostics and original upstream errors inside expandable sections', () => {
+    const markup = renderToStaticMarkup(
+      React.createElement(AgentMessages, {
+        sessionId: 'session-status-error',
+        messages: [{
+          id: 'status-1',
+          role: 'status',
+          content: 'Anthropic 认证失败，请检查 ANTHROPIC_API_KEY 是否正确。',
+          createdAt: 1,
+          errorCode: 'invalid_api_key',
+          errorTitle: '认证失败',
+          errorDetails: [
+            'HTTP 401: invalid x-api-key',
+            '请求已被上游模型提供方拒绝',
+          ],
+          errorOriginal: 'API Error: 401 {"error":{"message":"invalid x-api-key"}}',
+          errorActions: [
+            { key: 's', label: '设置', action: 'settings' },
+            { key: 'r', label: '重试', action: 'retry' },
+          ],
+        }],
+        streaming: false,
+      })
+    )
+
+    expect(markup).toContain('Anthropic 认证失败，请检查 ANTHROPIC_API_KEY 是否正确。')
+    expect(markup).toContain('诊断详情')
+    expect(markup).toContain('invalid_api_key')
+    expect(markup).toContain('HTTP 401: invalid x-api-key')
+    expect(markup).toContain('原始错误')
+    expect(markup).toContain('API Error: 401')
   })
 })

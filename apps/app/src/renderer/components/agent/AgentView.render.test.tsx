@@ -69,6 +69,7 @@ async function loadAgentView(options?: {
   sendMessage?: ReturnType<typeof mock>
   getSessionMessages?: () => Promise<unknown[]>
   getSessionActivity?: (sessionId: string) => Promise<{ active: boolean }>
+  toastError?: ReturnType<typeof mock>
 }) {
   let lastRichTextInputProps: RichTextInputProps | null = null
   let lastPendingAttachments: unknown[] = []
@@ -78,6 +79,7 @@ async function loadAgentView(options?: {
   const stopSession = mock(async () => undefined)
   const getSessionMessages = options?.getSessionMessages ?? (async () => [])
   const getSessionActivity = options?.getSessionActivity ?? (async () => ({ active: false }))
+  const toastError = options?.toastError ?? mock(() => {})
 
   mock.module('./AgentHeader', () => ({
     AgentHeader() {
@@ -123,6 +125,11 @@ async function loadAgentView(options?: {
       }
     },
   }))
+  mock.module('sonner', () => ({
+    toast: {
+      error: toastError,
+    },
+  }))
   mock.module('@/lib/api', () => ({
     api: {
       getStatus: async () => ({
@@ -147,6 +154,9 @@ async function loadAgentView(options?: {
     },
     getLastPendingAttachments() {
       return lastPendingAttachments
+    },
+    getToastError() {
+      return toastError
     },
   }
 }
@@ -733,7 +743,17 @@ describe('AgentView rendering extension points', () => {
       await Promise.resolve()
     })
 
-    expect(reconcileSessionStreaming).toHaveBeenCalledWith(session.id)
+    expect(reconcileSessionStreaming).toHaveBeenCalledWith(session.id, expect.objectContaining({
+      passive: true,
+      reason: 'mount',
+      source: 'agent-view',
+      workspaceId: workspace.id,
+    }))
+    expect(reconcileSessionStreaming).toHaveBeenCalledWith(session.id, expect.objectContaining({
+      reason: 'send-while-local-busy',
+      source: 'programmatic-send',
+      workspaceId: workspace.id,
+    }))
     expect(sendMessage).toHaveBeenCalledWith(session.id, expect.objectContaining({
       userMessage: request.userMessage,
       composedUserMessage: request.composedUserMessage,
@@ -745,6 +765,158 @@ describe('AgentView rendering extension points', () => {
       requestId: 'handoff-stale-1',
       status: 'sent',
     })
+  })
+
+  test('auto-reconciles a stale running session on mount without waiting for another send', async () => {
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: 'Page Builder Project',
+      slug: 'page-builder-project',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const reconcileSessionStreaming = mock(async (_sessionId: string) => false)
+    const { AgentView } = await loadAgentView({
+      reconcileSessionStreaming,
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <HydrateAgentViewState
+            sessions={[session]}
+            streamingStates={new Map([
+              [session.id, { running: true, content: '', toolActivities: [], teammates: [], startedAt: 1 }],
+            ])}
+            workspaces={[workspace]}
+          >
+            <AgentView sessionId={session.id} />
+          </HydrateAgentViewState>
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(reconcileSessionStreaming).toHaveBeenCalled()
+  })
+
+  test('probes activity after reload when the last persisted message is still from the user', async () => {
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: 'Page Builder Project',
+      slug: 'page-builder-project',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const reconcileSessionStreaming = mock(async (_sessionId: string) => false)
+    const { AgentView } = await loadAgentView({
+      reconcileSessionStreaming,
+      getSessionMessages: async () => [{
+        id: 'msg-user-1',
+        role: 'user',
+        content: '继续处理当前页面',
+        createdAt: 1,
+      }],
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <HydrateAgentViewState sessions={[session]} workspaces={[workspace]}>
+            <AgentView sessionId={session.id} />
+          </HydrateAgentViewState>
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(reconcileSessionStreaming).toHaveBeenCalledWith(session.id, expect.objectContaining({
+      passive: true,
+      recoverIfActive: true,
+      reason: 'message-reload-last-user',
+      source: 'agent-view',
+      workspaceId: workspace.id,
+    }))
+  })
+
+  test('adopts backend 409 busy responses as a recovered busy state instead of surfacing a generic send failure', async () => {
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: 'Page Builder Project',
+      slug: 'page-builder-project',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const busyError = Object.assign(new Error('上一条消息仍在处理中，请稍候再试'), { status: 409 })
+    const reconcileSessionStreaming = mock(async (_sessionId: string) => true)
+    const sendMessage = mock(async () => {
+      throw busyError
+    })
+    const getSessionMessages = mock(async () => [])
+    const toastError = mock(() => {})
+    const { AgentView, getLastRichTextInputProps, getToastError } = await loadAgentView({
+      reconcileSessionStreaming,
+      sendMessage,
+      getSessionMessages,
+      toastError,
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <HydrateAgentViewState sessions={[session]} workspaces={[workspace]}>
+            <AgentView sessionId={session.id} />
+          </HydrateAgentViewState>
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      getLastRichTextInputProps()?.onChange('请继续')
+    })
+    await act(async () => {
+      getLastRichTextInputProps()?.onSubmit()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(reconcileSessionStreaming).toHaveBeenCalledWith(session.id, expect.objectContaining({
+      passive: true,
+      recoverIfActive: true,
+      reason: 'send-rejected-active-session',
+      source: 'user-send',
+      workspaceId: workspace.id,
+    }))
+    expect(getToastError()).toHaveBeenCalledWith('当前会话正在处理中，请稍候再试')
+    expect(getSessionMessages).toHaveBeenCalledTimes(2)
   })
 
   test('allows host-side beforeSendMessage interception to reroute a draft without sending it to the agent runtime', async () => {

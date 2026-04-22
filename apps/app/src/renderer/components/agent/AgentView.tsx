@@ -27,6 +27,7 @@ import {
 } from '@/atoms/agent-atoms'
 import { api, type AppStatus } from '@/lib/api'
 import { useGlobalAgentListeners } from '@/hooks/useGlobalAgentListeners'
+import { STALE_STREAM_RECONCILE_IDLE_MS } from '@/hooks/useAgentSSE'
 import { cn } from '@/lib/utils'
 import type {
   AgentMessage,
@@ -40,6 +41,27 @@ interface SyncSessionMessagesDeps {
 
 const defaultSyncSessionMessagesDeps: SyncSessionMessagesDeps = {
   loadSessionMessagesWithCatchup,
+}
+
+function logAgentViewLifecycle(
+  level: 'info' | 'warn' | 'error',
+  payload: Record<string, unknown>,
+): void {
+  const logger = level === 'info' ? console.info : level === 'warn' ? console.warn : console.error
+  logger('[AgentView]', payload)
+}
+
+const SESSION_BUSY_ERROR_MESSAGE = '当前会话正在处理中，请稍候再试'
+const ACTIVE_SESSION_CONFLICT_MESSAGE = '上一条消息仍在处理中，请稍候再试'
+
+function resolveErrorStatus(error: unknown): number | null {
+  const status = (error as { status?: unknown } | null)?.status
+  return typeof status === 'number' ? status : null
+}
+
+function isActiveSessionConflictError(error: unknown): boolean {
+  return resolveErrorStatus(error) === 409
+    || (error instanceof Error && error.message.includes(ACTIVE_SESSION_CONFLICT_MESSAGE))
 }
 
 export function getMessagesForSession(
@@ -283,6 +305,7 @@ export function AgentView({
   const { reconcileSessionStreaming, sendMessage, stopSession } = useGlobalAgentListeners()
   const initialMessageTriggeredRef = React.useRef(false)
   const lastProgrammaticRequestIdRef = React.useRef<string | null>(null)
+  const lastReloadRecoveryProbeKeyRef = React.useRef<string | null>(null)
   const pendingAttachmentsRef = React.useRef(pendingAttachments)
   pendingAttachmentsRef.current = pendingAttachments
   const fileInputRef = React.useRef<HTMLInputElement>(null)
@@ -426,11 +449,30 @@ export function AgentView({
       return { ok: false }
     }
 
+    const source = emitMessageSent ? 'user-send' : 'programmatic-send'
+
     if (streaming) {
-      const stillBusy = await reconcileSessionStreaming(sessionId)
+      logAgentViewLifecycle('info', {
+        phase: 'send_busy_probe',
+        sessionId,
+        workspaceId: sessionWorkspaceId ?? null,
+        source,
+      })
+
+      const stillBusy = await reconcileSessionStreaming(sessionId, {
+        reason: 'send-while-local-busy',
+        source,
+        workspaceId: sessionWorkspaceId,
+      })
       if (stillBusy) {
-        const errorMessage = '当前会话正在处理中，请稍候再试'
+        const errorMessage = SESSION_BUSY_ERROR_MESSAGE
         toast.error(errorMessage)
+        logAgentViewLifecycle('warn', {
+          phase: 'send_blocked_busy',
+          sessionId,
+          workspaceId: sessionWorkspaceId ?? null,
+          source,
+        })
         return { ok: false, errorMessage }
       }
     }
@@ -465,6 +507,16 @@ export function AgentView({
     }
 
     try {
+      logAgentViewLifecycle('info', {
+        phase: 'send_dispatch',
+        sessionId,
+        workspaceId: sessionWorkspaceId ?? null,
+        source,
+        attachmentCount: attachmentFiles.length,
+        mentionedSkills,
+        mentionedMcpServers,
+      })
+
       await sendMessage(sessionId, {
         userMessage: trimmedUserMessage,
         ...(composedUserMessage ? { composedUserMessage } : {}),
@@ -493,7 +545,54 @@ export function AgentView({
 
       return { ok: true }
     } catch (error) {
-      console.error('[AgentView] 发送消息失败:', error)
+      if (isActiveSessionConflictError(error)) {
+        logAgentViewLifecycle('warn', {
+          phase: 'send_conflict_busy',
+          sessionId,
+          workspaceId: sessionWorkspaceId ?? null,
+          source,
+          status: resolveErrorStatus(error),
+        })
+
+        const stillBusy = await reconcileSessionStreaming(sessionId, {
+          passive: true,
+          recoverIfActive: true,
+          reason: 'send-rejected-active-session',
+          source,
+          workspaceId: sessionWorkspaceId,
+        })
+
+        setStreamErrors((prev) => {
+          if (!prev.has(sessionId)) return prev
+
+          const map = new Map(prev)
+          map.delete(sessionId)
+          return map
+        })
+
+        const nextMessages = await api.getSessionMessages(sessionId)
+        setMessagesBySession((prev) => replaceMessagesForSession(prev, sessionId, nextMessages))
+        toast.error(SESSION_BUSY_ERROR_MESSAGE)
+        logAgentViewLifecycle('warn', {
+          phase: 'send_conflict_busy_adopted',
+          sessionId,
+          workspaceId: sessionWorkspaceId ?? null,
+          source,
+          restoredBusy: stillBusy,
+        })
+        return {
+          ok: false,
+          errorMessage: SESSION_BUSY_ERROR_MESSAGE,
+        }
+      }
+
+      logAgentViewLifecycle('error', {
+        phase: 'send_failed',
+        sessionId,
+        workspaceId: sessionWorkspaceId ?? null,
+        source,
+        error: error instanceof Error ? error.message : String(error),
+      })
       const errorMessage = error instanceof Error ? error.message : '发送消息失败'
       toast.error(errorMessage)
       const nextMessages = await api.getSessionMessages(sessionId)
@@ -517,6 +616,24 @@ export function AgentView({
     status,
     streaming,
   ])
+
+  const triggerPassiveReconcile = React.useCallback((reason: string): void => {
+    if (!streaming) return
+
+    logAgentViewLifecycle('info', {
+      phase: 'passive_reconcile_trigger',
+      sessionId,
+      workspaceId: sessionWorkspaceId ?? null,
+      reason,
+    })
+
+    void reconcileSessionStreaming(sessionId, {
+      passive: true,
+      reason,
+      source: 'agent-view',
+      workspaceId: sessionWorkspaceId,
+    })
+  }, [reconcileSessionStreaming, sessionId, sessionWorkspaceId, streaming])
 
   const sendDraftMessage = React.useCallback(async (nextUserMessage: string): Promise<boolean> => {
     const trimmedUserMessage = nextUserMessage.trim()
@@ -680,6 +797,15 @@ export function AgentView({
       clearAttachmentsOnSuccess: false,
       emitMessageSent: false,
     }).then((result) => {
+      logAgentViewLifecycle(result.ok ? 'info' : 'warn', {
+        phase: 'programmatic_send_settled',
+        sessionId,
+        workspaceId: sessionWorkspaceId ?? null,
+        requestId: programmaticSendRequest.requestId,
+        status: result.ok ? 'sent' : 'failed',
+        errorMessage: result.errorMessage ?? null,
+      })
+
       onProgrammaticSendSettled?.({
         requestId: programmaticSendRequest.requestId,
         status: result.ok ? 'sent' : 'failed',
@@ -690,6 +816,101 @@ export function AgentView({
     executeSend,
     onProgrammaticSendSettled,
     programmaticSendRequest,
+    sessionId,
+    sessionWorkspaceId,
+  ])
+
+  React.useEffect(() => {
+    if (streaming) {
+      return
+    }
+
+    const lastMessage = messages.at(-1)
+    if (lastMessage?.role !== 'user') {
+      return
+    }
+
+    const probeKey = `${sessionId}:${refreshVersion}:${lastMessage.id}:${lastMessage.createdAt}`
+    if (lastReloadRecoveryProbeKeyRef.current === probeKey) {
+      return
+    }
+
+    lastReloadRecoveryProbeKeyRef.current = probeKey
+    logAgentViewLifecycle('info', {
+      phase: 'message_reload_busy_probe',
+      sessionId,
+      workspaceId: sessionWorkspaceId ?? null,
+      messageId: lastMessage.id,
+    })
+
+    void reconcileSessionStreaming(sessionId, {
+      passive: true,
+      recoverIfActive: true,
+      reason: 'message-reload-last-user',
+      source: 'agent-view',
+      workspaceId: sessionWorkspaceId,
+    })
+  }, [
+    messages,
+    reconcileSessionStreaming,
+    refreshVersion,
+    sessionId,
+    sessionWorkspaceId,
+    streaming,
+  ])
+
+  React.useEffect(() => {
+    if (!streaming) return
+    triggerPassiveReconcile('mount')
+  }, [sessionId, streaming, triggerPassiveReconcile])
+
+  React.useEffect(() => {
+    if (!streaming || typeof window === 'undefined') {
+      return
+    }
+
+    const handleFocus = () => {
+      triggerPassiveReconcile('window-focus')
+    }
+
+    window.addEventListener('focus', handleFocus)
+
+    const doc = typeof document !== 'undefined' ? document : null
+    const handleVisibilityChange = () => {
+      if (doc?.visibilityState === 'visible') {
+        triggerPassiveReconcile('document-visible')
+      }
+    }
+
+    doc?.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      window.removeEventListener('focus', handleFocus)
+      doc?.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [streaming, triggerPassiveReconcile])
+
+  React.useEffect(() => {
+    if (!streaming) {
+      return
+    }
+
+    const referenceTime = streamingState?.lastActivityAt ?? Date.now()
+    const idleForMs = Date.now() - referenceTime
+    const delayMs = Math.max(STALE_STREAM_RECONCILE_IDLE_MS - idleForMs, 0)
+    const timerId = setTimeout(() => {
+      triggerPassiveReconcile('idle-timeout')
+    }, delayMs)
+
+    return () => {
+      clearTimeout(timerId)
+    }
+  }, [
+    sessionId,
+    streaming,
+    streamingState?.lastActivityAt,
+    streamingState?.startedAt,
+    triggerPassiveReconcile,
   ])
 
   const handleStop = React.useCallback(async (): Promise<void> => {

@@ -2,6 +2,14 @@ import type { AgentEvent } from '@proma/shared'
 
 const encoder = new TextEncoder()
 
+function logSseLifecycle(
+  level: 'info' | 'warn' | 'error',
+  payload: Record<string, unknown>,
+): void {
+  const logger = level === 'info' ? console.info : level === 'warn' ? console.warn : console.error
+  logger('[sse-manager]', payload)
+}
+
 interface SessionConnection {
   controller: ReadableStreamDefaultController<Uint8Array>
   onClose?: () => void
@@ -30,9 +38,19 @@ export class SSEManager {
         sessionConnections.add(connection)
         this.sessions.set(sessionId, sessionConnections)
 
+        logSseLifecycle('info', {
+          phase: 'connection_open',
+          sessionId,
+          connectionCount: sessionConnections.size,
+        })
+
         controller.enqueue(encoder.encode(': connected\n\n'))
       },
       cancel: () => {
+        logSseLifecycle('info', {
+          phase: 'connection_cancel',
+          sessionId,
+        })
         if (connection) {
           this.closeConnection(sessionId, connection)
         }
@@ -87,6 +105,12 @@ export class SSEManager {
       try {
         connection.controller.enqueue(frame)
       } catch (error) {
+        logSseLifecycle('warn', {
+          phase: 'emit_failed',
+          sessionId,
+          event,
+          error: error instanceof Error ? error.message : String(error),
+        })
         console.warn(`[SSE] 推送事件失败 (${sessionId}/${event}):`, error)
         this.closeConnection(sessionId, connection)
       }
@@ -106,6 +130,11 @@ export class SSEManager {
     try {
       connection.onClose?.()
     } catch (error) {
+      logSseLifecycle('warn', {
+        phase: 'connection_on_close_failed',
+        sessionId,
+        error: error instanceof Error ? error.message : String(error),
+      })
       console.warn(`[SSE] 关闭连接回调失败 (${sessionId}):`, error)
     }
 
@@ -116,6 +145,12 @@ export class SSEManager {
     if (connections.size === 0) {
       this.sessions.delete(sessionId)
     }
+
+    logSseLifecycle('info', {
+      phase: 'connection_close',
+      sessionId,
+      remainingConnections: connections.size,
+    })
   }
 }
 

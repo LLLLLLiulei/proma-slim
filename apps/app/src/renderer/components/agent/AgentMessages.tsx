@@ -171,6 +171,69 @@ function FixedAssistantIdentityLogo(): React.ReactElement {
   )
 }
 
+function ErrorDiagnostics({
+  message,
+}: {
+  message: AgentMessage
+}): React.ReactElement | null {
+  const hasDiagnostics = Boolean(
+    message.errorCode
+    || message.errorTitle
+    || message.errorDetails?.length
+    || message.errorActions?.length,
+  )
+  const hasOriginalError = Boolean(message.errorOriginal?.trim())
+
+  if (!hasDiagnostics && !hasOriginalError) {
+    return null
+  }
+
+  return (
+    <div className="mt-3 space-y-2">
+      {hasDiagnostics && (
+        <details className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
+          <summary className="cursor-pointer text-sm font-medium text-foreground">诊断详情</summary>
+          <div className="mt-3 space-y-2 text-sm text-muted-foreground">
+            {message.errorCode && (
+              <div>
+                <span className="font-medium text-foreground">错误代码：</span>
+                <code>{message.errorCode}</code>
+              </div>
+            )}
+            {message.errorTitle && (
+              <div>
+                <span className="font-medium text-foreground">错误标题：</span>
+                <span>{message.errorTitle}</span>
+              </div>
+            )}
+            {message.errorDetails && message.errorDetails.length > 0 && (
+              <ul className="list-disc space-y-1 pl-5">
+                {message.errorDetails.map((detail, index) => (
+                  <li key={`${message.id}-detail-${index}`}>{detail}</li>
+                ))}
+              </ul>
+            )}
+            {message.errorActions && message.errorActions.length > 0 && (
+              <div>
+                <span className="font-medium text-foreground">建议操作：</span>
+                <span>{message.errorActions.map((action) => action.label).join(' / ')}</span>
+              </div>
+            )}
+          </div>
+        </details>
+      )}
+      {hasOriginalError && (
+        <details className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
+          <summary className="cursor-pointer text-sm font-medium text-foreground">原始错误</summary>
+          <pre className="mt-3 overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-background/70 p-3 text-xs text-muted-foreground">
+            {message.errorOriginal}
+          </pre>
+        </details>
+      )}
+    </div>
+  )
+}
+
 /** 从持久化事件中提取工具活动列表 */
 function extractToolActivities(events: AgentMessage['events']): ToolActivity[] {
   if (!events) return []
@@ -539,13 +602,14 @@ function AgentMessageItem({
 
   if (message.role === 'assistant') {
     const toolActivities = extractToolActivities(message.events)
+    const assistantModel = message.model ?? FIXED_ASSISTANT_NAME
 
     return (
       <Message from="assistant">
         <MessageHeader
-          model={FIXED_ASSISTANT_NAME}
+          model={assistantModel}
           time={formatMessageTime(message.createdAt)}
-          logo={<FixedAssistantIdentityLogo />}
+          logo={message.model ? <AssistantLogo model={message.model} /> : <FixedAssistantIdentityLogo />}
         />
         <MessageContent>
           {toolActivities.length > 0 && (
@@ -568,11 +632,10 @@ function AgentMessageItem({
   }
 
   if (message.role === 'status' && message.errorCode) {
-    // TypedError 消息 - 复用普通消息格式，简单显示错误
     return (
       <Message from="assistant">
         <MessageHeader
-          model={undefined}
+          model={message.errorTitle ?? '执行错误'}
           time={formatMessageTime(message.createdAt)}
           logo={
             <div className="size-[35px] rounded-[25%] bg-destructive/10 flex items-center justify-center">
@@ -584,6 +647,7 @@ function AgentMessageItem({
           <div className="text-destructive">
             <MessageResponse>{message.content}</MessageResponse>
           </div>
+          <ErrorDiagnostics message={message} />
           {/* 错误操作按钮 */}
           <div className="flex items-center gap-2 mt-3">
             {message.errorCode === 'prompt_too_long' && onCompact && (

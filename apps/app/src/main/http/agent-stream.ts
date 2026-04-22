@@ -7,6 +7,14 @@ import { json } from './responses'
 
 const DEFAULT_AGENT_SESSION_TITLE = '新 Agent 会话'
 
+function logAgentHttpLifecycle(
+  level: 'info' | 'warn' | 'error',
+  payload: Record<string, unknown>,
+): void {
+  const logger = level === 'info' ? console.info : level === 'warn' ? console.warn : console.error
+  logger('[agent-stream]', payload)
+}
+
 interface SendResponseDeps {
   isAgentSessionActive: typeof isAgentSessionActive
   runAgent: typeof runAgent
@@ -24,13 +32,27 @@ const defaultDeps: SendResponseDeps = {
 export function createAgentStreamCallbacks(sessionId: string) {
   return {
     onError: (message: string) => {
+      logAgentHttpLifecycle('error', {
+        phase: 'callbacks_error',
+        sessionId,
+        errorMessage: message,
+      })
       agentEventBus.emit(sessionId, { type: 'error', message })
       sseManager.closeSession(sessionId)
     },
     onComplete: () => {
+      logAgentHttpLifecycle('info', {
+        phase: 'callbacks_complete',
+        sessionId,
+      })
       sseManager.closeSession(sessionId)
     },
     onTitleUpdated: (title: string) => {
+      logAgentHttpLifecycle('info', {
+        phase: 'callbacks_title_updated',
+        sessionId,
+        title,
+      })
       sseManager.emitTitleUpdated(sessionId, title)
     },
   }
@@ -69,6 +91,11 @@ export async function createSendResponse(
   }
 
   if (deps.isAgentSessionActive(sessionId)) {
+    logAgentHttpLifecycle('warn', {
+      phase: 'send_rejected_busy',
+      sessionId,
+      workspaceId: body.workspaceId ?? null,
+    })
     return json(
       {
         error: '上一条消息仍在处理中，请稍候再试',
@@ -82,6 +109,15 @@ export async function createSendResponse(
   }
 
   await persistGeneratedSessionTitle(sessionId, body.userMessage, deps)
+
+  logAgentHttpLifecycle('info', {
+    phase: 'send_accepted',
+    sessionId,
+    workspaceId: body.workspaceId ?? null,
+    hasAttachments: Boolean(body.attachments?.length),
+    mentionedSkills: body.mentionedSkills ?? [],
+    mentionedMcpServers: body.mentionedMcpServers ?? [],
+  })
 
   const input: AgentSendInput = {
     sessionId,
@@ -101,6 +137,12 @@ export async function createSendResponse(
   const response = sseManager.createResponse(sessionId)
 
   void deps.runAgent(input, createAgentStreamCallbacks(sessionId)).catch((error) => {
+    logAgentHttpLifecycle('error', {
+      phase: 'send_run_failed',
+      sessionId,
+      workspaceId: body.workspaceId ?? null,
+      error: error instanceof Error ? error.message : String(error),
+    })
     console.error(`[HTTP] 会话 ${sessionId} 流式执行失败:`, error)
 
     if (sseManager.hasSession(sessionId)) {

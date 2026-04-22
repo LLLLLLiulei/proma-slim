@@ -734,7 +734,10 @@ export function BuilderPage({
 
     if (result.status === 'sent') {
       setCmsBrowserOpen(false)
+      return
     }
+
+    toast.error(result.errorMessage ?? 'CMS 自动交接发送失败')
   }, [cmsAutoHandoffRequest])
   const messageDecorator = React.useMemo(() => {
     if (!selectedTargetSelection) return undefined

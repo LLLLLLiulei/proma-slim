@@ -2164,6 +2164,78 @@ describe('BuilderPage', () => {
     expect(getLastAgentViewProps()?.programmaticSendRequest ?? null).toBeNull()
   })
 
+  test('re-applies builder interaction locks when the session busy state is restored after mount', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const {
+      BuilderPage,
+      getLastAgentViewProps,
+      getLastCmsBrowserDialogProps,
+      getLastPreviewPaneProps,
+    } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      mockCmsBrowserDialog: true,
+      mockPreviewPane: true,
+    })
+
+    const store = createStore()
+    await act(async () => {
+      create(
+        <Provider store={store}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    act(() => {
+      setStreamingStatesForTest(store, new Map([
+        [session.id, {
+          running: true,
+          content: '',
+          toolActivities: [],
+          teammates: [],
+          startedAt: 1,
+        }],
+      ]))
+    })
+
+    await act(async () => {
+      (getLastPreviewPaneProps() as {
+        onSelectionEvent?: (event: { type: string; selector?: string }) => void
+      }).onSelectionEvent?.({ type: 'selected', selector: '#hero-banner' })
+    })
+
+    await act(async () => {
+      (getLastPreviewPaneProps() as {
+        onRequestOpenCmsBrowser?: () => void
+      }).onRequestOpenCmsBrowser?.()
+    })
+
+    expect(getLastCmsBrowserDialogProps()).toMatchObject({
+      open: false,
+      confirming: false,
+    })
+    expect(getLastAgentViewProps()?.programmaticSendRequest ?? null).toBeNull()
+  })
+
   test('keeps the dialog open after auto handoff send failure so the user can retry in place', async () => {
     installWindowHarness()
     const workspace: AgentWorkspace = {
@@ -2187,6 +2259,7 @@ describe('BuilderPage', () => {
       getLastAgentViewProps,
       getLastCmsBrowserDialogProps,
       getLastPreviewPaneProps,
+      getToastError,
     } = await loadBuilderPage({
       sessions: [session],
       workspaces: [workspace],
@@ -2255,6 +2328,7 @@ describe('BuilderPage', () => {
       open: true,
       confirming: false,
     })
+    expect(getToastError()).toHaveBeenCalledWith('send failed')
     expect(getPreviewSelectionActionState(getLastPreviewPaneProps())).toBe('selected')
   })
 

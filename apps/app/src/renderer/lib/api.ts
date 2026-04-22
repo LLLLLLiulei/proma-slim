@@ -55,6 +55,16 @@ interface PageBuilderImageReplacementRequest extends PageBuilderImageReplacement
   file: File
 }
 
+export class ApiError extends Error {
+  status: number
+
+  constructor(message: string, status: number) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+  }
+}
+
 type SendMessagePayload = Partial<AgentSendInput> & {
   userMessage: string
   attachmentFiles?: File[]
@@ -137,7 +147,7 @@ async function request<T>(url: string, options: RequestOptions = {}): Promise<T>
   })
 
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response))
+    throw new ApiError(await readErrorMessage(response), response.status)
   }
 
   if (response.status === 204) {
@@ -155,7 +165,7 @@ async function requestStream(url: string, options: RequestOptions = {}): Promise
   })
 
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response))
+    throw new ApiError(await readErrorMessage(response), response.status)
   }
 
   return response

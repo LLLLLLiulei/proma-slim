@@ -118,8 +118,14 @@ sessionRoutes.patch('/:sessionId', async (c) => {
 })
 
 sessionRoutes.get('/:sessionId/activity', (c) => {
+  const active = isAgentSessionActive(c.var.sessionMeta.id)
+  console.info('[sessions-route]', {
+    phase: 'session_activity',
+    sessionId: c.var.sessionMeta.id,
+    active,
+  })
   return c.json({
-    active: isAgentSessionActive(c.var.sessionMeta.id),
+    active,
   })
 })
 

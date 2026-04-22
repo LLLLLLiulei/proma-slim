@@ -21,6 +21,10 @@ import {
 import { api } from '@/lib/api'
 
 type JotaiStore = ReturnType<typeof createStore>
+type AgentSendRequestPayload =
+  Pick<AgentSendInput, 'userMessage'>
+  & Partial<AgentSendInput>
+  & { attachmentFiles?: File[] }
 
 interface RawSSEFrame {
   event: string
@@ -40,13 +44,33 @@ interface EnsureStreamingStateOptions {
   reset?: boolean
 }
 
-function createInitialStreamState(): AgentStreamState {
+export interface ReconcileSessionStreamingOptions {
+  passive?: boolean
+  recoverIfActive?: boolean
+  reason?: string
+  source?: string
+  workspaceId?: string | null
+}
+
+export const PASSIVE_RECONCILE_COOLDOWN_MS = 5_000
+export const STALE_STREAM_RECONCILE_IDLE_MS = 15_000
+
+function logStreamLifecycle(
+  level: 'info' | 'warn' | 'error',
+  payload: Record<string, unknown>,
+): void {
+  const logger = level === 'info' ? console.info : level === 'warn' ? console.warn : console.error
+  logger('[useAgentSSE]', payload)
+}
+
+function createInitialStreamState(now = Date.now()): AgentStreamState {
   return {
     running: true,
     content: '',
     toolActivities: [],
     teammates: [],
-    startedAt: Date.now(),
+    startedAt: now,
+    lastActivityAt: now,
   }
 }
 
@@ -69,6 +93,7 @@ export function ensureStreamingState(
   sessionId: string,
   options?: EnsureStreamingStateOptions,
 ): void {
+  const now = Date.now()
   store.set(agentStreamingStatesAtom, (prev: Map<string, AgentStreamState>) => {
     const current = prev.get(sessionId)
     const map = new Map(prev)
@@ -76,11 +101,12 @@ export function ensureStreamingState(
     map.set(
       sessionId,
       !current || options?.reset
-        ? createInitialStreamState()
+        ? createInitialStreamState(now)
         : {
             ...current,
             running: true,
-            startedAt: current.startedAt ?? Date.now(),
+            startedAt: current.startedAt ?? now,
+            lastActivityAt: now,
           },
     )
 
@@ -197,12 +223,13 @@ export function applyStreamFrame(store: JotaiStore, frame: ParsedFrame): void {
 }
 
 export function finalizeStream(store: JotaiStore, sessionId: string, options?: FinalizeOptions): void {
+  const now = Date.now()
   store.set(agentStreamingStatesAtom, (prev: Map<string, AgentStreamState>) => {
     const current = prev.get(sessionId)
     if (!current) return prev
 
     const map = new Map(prev)
-    map.set(sessionId, { ...current, running: false })
+    map.set(sessionId, { ...current, running: false, lastActivityAt: now })
     return map
   })
 
@@ -228,6 +255,8 @@ export function useAgentSSE() {
   const detachedSessionsRef = useRef(new Set<string>())
   const stoppingSessionsRef = useRef(new Set<string>())
   const stopSucceededSessionsRef = useRef(new Set<string>())
+  const reconcileInFlightRef = useRef(new Map<string, Promise<boolean>>())
+  const passiveReconcileCooldownRef = useRef(new Map<string, number>())
 
   useEffect(() => {
     return () => {
@@ -239,67 +268,222 @@ export function useAgentSSE() {
     }
   }, [])
 
+  const clearStreamError = useCallback((sessionId: string): void => {
+    store.set(agentStreamErrorsAtom, (prev: Map<string, string>) => {
+      if (!prev.has(sessionId)) return prev
+
+      const map = new Map(prev)
+      map.delete(sessionId)
+      return map
+    })
+  }, [store])
+
+  const finalizeStaleStream = useCallback((
+    sessionId: string,
+    options?: Pick<ReconcileSessionStreamingOptions, 'reason' | 'source' | 'workspaceId'>,
+  ): void => {
+    const staleController = controllersRef.current.get(sessionId)
+    if (staleController) {
+      detachedSessionsRef.current.add(sessionId)
+      staleController.abort()
+    }
+
+    finalizeStream(store, sessionId)
+    clearStreamError(sessionId)
+    passiveReconcileCooldownRef.current.delete(sessionId)
+
+    logStreamLifecycle('info', {
+      phase: 'reconcile_finalize_stale',
+      sessionId,
+      workspaceId: options?.workspaceId ?? null,
+      reason: options?.reason ?? 'unspecified',
+      source: options?.source ?? 'unknown',
+      hadController: Boolean(staleController),
+    })
+  }, [clearStreamError, store])
+
   const stopSession = useCallback(async (sessionId: string): Promise<void> => {
     const controller = controllersRef.current.get(sessionId)
     const hadActiveStream = Boolean(controller)
     stoppingSessionsRef.current.add(sessionId)
+
+    logStreamLifecycle('info', {
+      phase: 'stop_start',
+      sessionId,
+      hadActiveStream,
+    })
 
     try {
       await api.stopSession(sessionId)
 
       if (!hadActiveStream) {
         finalizeStream(store, sessionId)
+        clearStreamError(sessionId)
         return
       }
 
       stopSucceededSessionsRef.current.add(sessionId)
       controller?.abort()
+      logStreamLifecycle('info', {
+        phase: 'stop_requested',
+        sessionId,
+      })
     } catch (error) {
       stoppingSessionsRef.current.delete(sessionId)
       stopSucceededSessionsRef.current.delete(sessionId)
+      logStreamLifecycle('error', {
+        phase: 'stop_failed',
+        sessionId,
+        error: error instanceof Error ? error.message : String(error),
+      })
       throw error
     } finally {
       if (!hadActiveStream) {
         stoppingSessionsRef.current.delete(sessionId)
       }
     }
-  }, [store])
+  }, [clearStreamError, store])
 
-  const reconcileSessionStreaming = useCallback(async (sessionId: string): Promise<boolean> => {
-    try {
-      const activity = await api.getSessionActivity(sessionId)
-      if (activity.active) {
+  const reconcileSessionStreaming = useCallback(async (
+    sessionId: string,
+    options?: ReconcileSessionStreamingOptions,
+  ): Promise<boolean> => {
+    const passive = options?.passive === true
+    const recoverIfActive = options?.recoverIfActive === true
+    const localRunning = store.get(agentStreamingStatesAtom).get(sessionId)?.running ?? false
+
+    if (!localRunning && !recoverIfActive) {
+      return false
+    }
+
+    const inFlight = reconcileInFlightRef.current.get(sessionId)
+    if (inFlight) {
+      logStreamLifecycle('info', {
+        phase: 'reconcile_reuse_inflight',
+        sessionId,
+        workspaceId: options?.workspaceId ?? null,
+        passive,
+        reason: options?.reason ?? 'unspecified',
+        source: options?.source ?? 'unknown',
+      })
+      return inFlight
+    }
+
+    if (passive && localRunning) {
+      const lastProbeAt = passiveReconcileCooldownRef.current.get(sessionId) ?? 0
+      const now = Date.now()
+      if (now - lastProbeAt < PASSIVE_RECONCILE_COOLDOWN_MS) {
+        logStreamLifecycle('info', {
+          phase: 'reconcile_skip_cooldown',
+          sessionId,
+          workspaceId: options?.workspaceId ?? null,
+          passive: true,
+          reason: options?.reason ?? 'unspecified',
+          source: options?.source ?? 'unknown',
+          cooldownMs: PASSIVE_RECONCILE_COOLDOWN_MS,
+        })
         return true
       }
-
-      const staleController = controllersRef.current.get(sessionId)
-      if (staleController) {
-        detachedSessionsRef.current.add(sessionId)
-        staleController.abort()
-      }
-
-      finalizeStream(store, sessionId)
-      store.set(agentStreamErrorsAtom, (prev: Map<string, string>) => {
-        const map = new Map(prev)
-        map.delete(sessionId)
-        return map
-      })
-      return false
-    } catch (error) {
-      console.error('[useAgentSSE] 探测会话活跃状态失败:', error)
-      return true
+      passiveReconcileCooldownRef.current.set(sessionId, now)
     }
-  }, [store])
+
+    const probePromise = (async () => {
+      try {
+        logStreamLifecycle('info', {
+          phase: 'reconcile_start',
+          sessionId,
+          workspaceId: options?.workspaceId ?? null,
+          passive,
+          reason: options?.reason ?? 'unspecified',
+          source: options?.source ?? 'unknown',
+        })
+
+        const activity = await api.getSessionActivity(sessionId)
+        logStreamLifecycle('info', {
+          phase: 'reconcile_result',
+          sessionId,
+          workspaceId: options?.workspaceId ?? null,
+          passive,
+          reason: options?.reason ?? 'unspecified',
+          source: options?.source ?? 'unknown',
+          active: activity.active,
+        })
+
+        if (activity.active) {
+          const currentRunning = store.get(agentStreamingStatesAtom).get(sessionId)?.running ?? false
+          const shouldRestore = recoverIfActive && !currentRunning
+
+          if (currentRunning || shouldRestore) {
+            ensureStreamingState(store, sessionId, {
+              reset: shouldRestore,
+            })
+            clearStreamError(sessionId)
+          }
+
+          if (passive) {
+            passiveReconcileCooldownRef.current.set(sessionId, Date.now())
+          }
+          logStreamLifecycle('info', {
+            phase: shouldRestore ? 'reconcile_restore_active' : 'reconcile_confirm_active',
+            sessionId,
+            workspaceId: options?.workspaceId ?? null,
+            passive,
+            reason: options?.reason ?? 'unspecified',
+            source: options?.source ?? 'unknown',
+            recoverIfActive,
+          })
+          return true
+        }
+
+        if (localRunning) {
+          finalizeStaleStream(sessionId, options)
+        } else {
+          logStreamLifecycle('info', {
+            phase: 'reconcile_inactive_without_local_stream',
+            sessionId,
+            workspaceId: options?.workspaceId ?? null,
+            passive,
+            reason: options?.reason ?? 'unspecified',
+            source: options?.source ?? 'unknown',
+          })
+        }
+        return false
+      } catch (error) {
+        logStreamLifecycle('error', {
+          phase: 'reconcile_failed',
+          sessionId,
+          workspaceId: options?.workspaceId ?? null,
+          passive,
+          reason: options?.reason ?? 'unspecified',
+          source: options?.source ?? 'unknown',
+          error: error instanceof Error ? error.message : String(error),
+        })
+        return true
+      } finally {
+        reconcileInFlightRef.current.delete(sessionId)
+      }
+    })()
+
+    reconcileInFlightRef.current.set(sessionId, probePromise)
+    return probePromise
+  }, [finalizeStaleStream, store])
 
   const sendMessage = useCallback(async (
     sessionId: string,
-    payload: Pick<AgentSendInput, 'userMessage'> & Partial<AgentSendInput>,
+    payload: AgentSendRequestPayload,
   ): Promise<void> => {
     ensureStreamingState(store, sessionId, { reset: true })
-    store.set(agentStreamErrorsAtom, (prev: Map<string, string>) => {
-      const map = new Map(prev)
-      map.delete(sessionId)
-      return map
+    clearStreamError(sessionId)
+    passiveReconcileCooldownRef.current.delete(sessionId)
+
+    logStreamLifecycle('info', {
+      phase: 'send_start',
+      sessionId,
+      workspaceId: payload.workspaceId ?? null,
+      source: payload.composedUserMessage ? 'composed-send' : 'user-send',
+      hasAttachments: Boolean(payload.attachments?.length || payload.attachmentFiles?.length),
+      mentionedSkills: payload.mentionedSkills ?? [],
+      mentionedMcpServers: payload.mentionedMcpServers ?? [],
     })
 
     const controller = new AbortController()
@@ -313,25 +497,54 @@ export function useAgentSSE() {
     }
 
     const handleStreamFailure = (error: unknown): string | null => {
-      if (detachedSessionsRef.current.has(sessionId)) return null
+      if (detachedSessionsRef.current.has(sessionId)) {
+        logStreamLifecycle('info', {
+          phase: 'send_stream_detached',
+          sessionId,
+          workspaceId: payload.workspaceId ?? null,
+        })
+        return null
+      }
 
       if (stopSucceededSessionsRef.current.has(sessionId)) {
         finalizeStream(store, sessionId)
+        clearStreamError(sessionId)
+        logStreamLifecycle('info', {
+          phase: 'send_stream_stopped',
+          sessionId,
+          workspaceId: payload.workspaceId ?? null,
+        })
         return null
       }
 
       if (stoppingSessionsRef.current.has(sessionId)) {
+        logStreamLifecycle('info', {
+          phase: 'send_stream_stopping',
+          sessionId,
+          workspaceId: payload.workspaceId ?? null,
+        })
         return null
       }
 
       const message = error instanceof Error ? error.message : '连接已断开'
       finalizeStream(store, sessionId, { error: message || '连接已断开' })
+      logStreamLifecycle('error', {
+        phase: 'send_stream_failed',
+        sessionId,
+        workspaceId: payload.workspaceId ?? null,
+        error: message || '连接已断开',
+      })
       return message || '连接已断开'
     }
 
     let response: Response
     try {
       response = await api.sendMessage(sessionId, payload, { signal: controller.signal })
+      logStreamLifecycle('info', {
+        phase: 'send_stream_connected',
+        sessionId,
+        workspaceId: payload.workspaceId ?? null,
+      })
     } catch (error) {
       const message = handleStreamFailure(error)
       cleanupSessionRefs()
@@ -356,6 +569,8 @@ export function useAgentSSE() {
       try {
         const decoder = new TextDecoder()
         let remainder = ''
+        let sawFirstFrame = false
+        let appliedFrameCount = 0
 
         while (true) {
           const { done, value } = await reader.read()
@@ -367,12 +582,37 @@ export function useAgentSSE() {
 
           for (const frame of parsed.frames) {
             try {
+              const parsedPayload = JSON.parse(frame.data)
+              appliedFrameCount += 1
+              if (!sawFirstFrame) {
+                sawFirstFrame = true
+                logStreamLifecycle('info', {
+                  phase: 'send_first_frame',
+                  sessionId,
+                  workspaceId: payload.workspaceId ?? null,
+                  event: frame.event,
+                })
+              } else if (frame.event !== 'text_delta') {
+                logStreamLifecycle('info', {
+                  phase: 'send_frame',
+                  sessionId,
+                  workspaceId: payload.workspaceId ?? null,
+                  event: frame.event,
+                })
+              }
+
               applyStreamFrame(store, {
                 event: frame.event,
-                data: JSON.parse(frame.data),
+                data: parsedPayload,
               })
             } catch (error) {
-              console.warn('[SSE] 解析事件失败:', error)
+              logStreamLifecycle('warn', {
+                phase: 'send_frame_parse_failed',
+                sessionId,
+                workspaceId: payload.workspaceId ?? null,
+                event: frame.event,
+                error: error instanceof Error ? error.message : String(error),
+              })
             }
           }
         }
@@ -385,23 +625,38 @@ export function useAgentSSE() {
         const parsed = extractSSEFrames(remainder)
         for (const frame of parsed.frames) {
           try {
+            const parsedPayload = JSON.parse(frame.data)
+            appliedFrameCount += 1
             applyStreamFrame(store, {
               event: frame.event,
-              data: JSON.parse(frame.data),
+              data: parsedPayload,
             })
           } catch (error) {
-            console.warn('[SSE] 解析尾部事件失败:', error)
+            logStreamLifecycle('warn', {
+              phase: 'send_tail_parse_failed',
+              sessionId,
+              workspaceId: payload.workspaceId ?? null,
+              event: frame.event,
+              error: error instanceof Error ? error.message : String(error),
+            })
           }
         }
 
         finalizeStream(store, sessionId)
+        clearStreamError(sessionId)
+        logStreamLifecycle('info', {
+          phase: 'send_finalize',
+          sessionId,
+          workspaceId: payload.workspaceId ?? null,
+          frameCount: appliedFrameCount,
+        })
       } catch (error) {
         handleStreamFailure(error)
       } finally {
         cleanupSessionRefs()
       }
     })()
-  }, [store])
+  }, [clearStreamError, store])
 
   return {
     reconcileSessionStreaming,

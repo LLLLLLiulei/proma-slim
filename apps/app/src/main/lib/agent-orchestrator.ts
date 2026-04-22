@@ -352,6 +352,73 @@ function extractApiError(stderr: string): { statusCode: number; message: string 
   return null
 }
 
+function logAgentLifecycle(
+  level: 'info' | 'warn' | 'error',
+  payload: Record<string, unknown>,
+): void {
+  const logger = level === 'info' ? console.info : level === 'warn' ? console.warn : console.error
+  logger('[AgentOrchestrator]', payload)
+}
+
+function truncateDiagnostic(text: string, maxLength = 8_000): string {
+  if (text.length <= maxLength) return text
+  return `${text.slice(0, maxLength)}\n\n...[truncated ${text.length - maxLength} chars]`
+}
+
+function buildCatchErrorDetails(params: {
+  apiError: { statusCode: number; message: string } | null
+  rawErrorMessage: string
+  stderrOutput: string
+  userFacingError: string
+}): string[] | undefined {
+  const details: string[] = []
+
+  if (params.apiError) {
+    details.push(`HTTP ${params.apiError.statusCode}: ${params.apiError.message}`)
+  } else if (params.rawErrorMessage && params.rawErrorMessage !== params.userFacingError) {
+    details.push(`运行时错误: ${params.rawErrorMessage}`)
+  }
+
+  const stderrFirstLine = params.stderrOutput
+    .split('\n')
+    .map((line) => line.trim())
+    .find(Boolean)
+  if (stderrFirstLine && !details.some((detail) => detail.includes(stderrFirstLine))) {
+    details.push(`SDK stderr: ${stderrFirstLine}`)
+  }
+
+  return details.length > 0 ? details : undefined
+}
+
+function buildCatchOriginalError(params: {
+  apiError: { statusCode: number; message: string } | null
+  error: unknown
+  stderrOutput: string
+}): string | undefined {
+  const sections: string[] = []
+
+  if (params.apiError) {
+    sections.push(`API Error ${params.apiError.statusCode}: ${params.apiError.message}`)
+  }
+
+  if (params.error instanceof Error) {
+    sections.push(params.error.stack ?? params.error.message)
+  } else if (params.error !== undefined && params.error !== null) {
+    sections.push(String(params.error))
+  }
+
+  if (params.stderrOutput) {
+    sections.push(`stderr:\n${params.stderrOutput}`)
+  }
+
+  const combined = sections
+    .map((section) => section.trim())
+    .filter(Boolean)
+    .join('\n\n')
+
+  return combined ? truncateDiagnostic(combined) : undefined
+}
+
 function normalizeAnthropicBaseUrlForSdk(baseUrl: string): string {
   return baseUrl
     .trim()
@@ -812,6 +879,11 @@ export class AgentOrchestrator {
 
     // 0. 并发保护
     if (this.activeSessions.has(sessionId)) {
+      logAgentLifecycle('warn', {
+        phase: 'reject_busy',
+        sessionId,
+        workspaceId: workspaceId ?? workspaceRuntime.workspace.id,
+      })
       console.warn(`[Agent 编排] 会话 ${sessionId} 正在处理中，拒绝新请求`)
       callbacks.onError('上一条消息仍在处理中，请稍候再试')
       return
@@ -916,6 +988,12 @@ export class AgentOrchestrator {
 
     // 6. 注册活跃会话
     this.activeSessions.add(sessionId)
+    logAgentLifecycle('info', {
+      phase: 'active_session_add',
+      sessionId,
+      workspaceId: workspaceRuntime.workspace.id,
+      activeCount: this.activeSessions.size,
+    })
 
     // 7. 状态初始化
     let accumulatedText = ''
@@ -1546,6 +1624,16 @@ export class AgentOrchestrator {
                 errorActions: event.error.actions,
               }
               appendAgentMessage(sessionId, errorMsg)
+              logAgentLifecycle('error', {
+                phase: 'typed_error_persisted',
+                sessionId,
+                workspaceId: workspaceRuntime.workspace.id,
+                errorCode: event.error.code,
+                errorTitle: event.error.title,
+                canRetry: event.error.canRetry,
+                detailsCount: event.error.details?.length ?? 0,
+                hasOriginalError: Boolean(event.error.originalError),
+              })
               console.log(`[Agent 编排] 已保存 TypedError 消息: ${event.error.code} - ${event.error.title}`)
 
               // 如果之前有重试记录，发送 retry_failed
@@ -1811,6 +1899,28 @@ export class AgentOrchestrator {
           } else {
             userFacingError = mapAgentFriendlyError(errorMessage).userMessage
           }
+          const errorDetails = buildCatchErrorDetails({
+            apiError,
+            rawErrorMessage,
+            stderrOutput,
+            userFacingError,
+          })
+          const errorOriginal = buildCatchOriginalError({
+            apiError,
+            error,
+            stderrOutput,
+          })
+
+          logAgentLifecycle('error', {
+            phase: 'catch_error',
+            sessionId,
+            workspaceId: workspaceRuntime.workspace.id,
+            apiStatusCode: apiError?.statusCode ?? null,
+            userFacingError,
+            rawErrorMessage,
+            detailsCount: errorDetails?.length ?? 0,
+            hasOriginalError: Boolean(errorOriginal),
+          })
 
           // 保存错误消息到 JSONL
           try {
@@ -1823,7 +1933,8 @@ export class AgentOrchestrator {
               createdAt: Date.now(),
               errorCode: isPromptTooLong ? 'prompt_too_long' : 'unknown_error',
               errorTitle: isPromptTooLong ? '上下文过长' : '执行错误',
-              errorOriginal: error instanceof Error ? error.stack : String(error),
+              errorDetails,
+              errorOriginal,
             }
             appendAgentMessage(sessionId, errMsg)
             console.log(`[Agent 编排] 已保存错误消息到 JSONL`)
@@ -1893,6 +2004,12 @@ export class AgentOrchestrator {
 
     } finally {
       this.activeSessions.delete(sessionId)
+      logAgentLifecycle('info', {
+        phase: 'active_session_delete',
+        sessionId,
+        workspaceId: workspaceRuntime.workspace.id,
+        activeCount: this.activeSessions.size,
+      })
       permissionService.clearSessionPending(sessionId)
       askUserService.clearSessionPending(sessionId)
     }
@@ -1907,6 +2024,11 @@ export class AgentOrchestrator {
   stop(sessionId: string): void {
     this.activeSessions.delete(sessionId)
     this.adapter.abort(sessionId)
+    logAgentLifecycle('info', {
+      phase: 'stop',
+      sessionId,
+      activeCount: this.activeSessions.size,
+    })
     console.log(`[Agent 编排] 已中止会话: ${sessionId}`)
   }
 
@@ -1918,6 +2040,10 @@ export class AgentOrchestrator {
   /** 中止所有活跃的 Agent 会话（应用退出时调用） */
   stopAll(): void {
     if (this.activeSessions.size === 0) return
+    logAgentLifecycle('info', {
+      phase: 'stop_all',
+      activeCount: this.activeSessions.size,
+    })
     console.log(`[Agent 编排] 正在中止所有活跃会话 (${this.activeSessions.size} 个)...`)
     this.adapter.dispose()
     this.activeSessions.clear()

@@ -306,6 +306,76 @@ describe('useAgentSSE helpers', () => {
     expect(harness.store.get(agentMessageRefreshAtom).get('session-1')).toBe(1)
   })
 
+  test('reconcileSessionStreaming deduplicates concurrent passive probes for the same session', async () => {
+    const getSessionActivityDeferred = createDeferred<{ active: boolean }>()
+    const getSessionActivityMock = mock(async (_sessionId: string) => getSessionActivityDeferred.promise)
+    api.getSessionActivity = getSessionActivityMock
+
+    const harness = createHookHarness()
+    harness.store.set(agentStreamingStatesAtom, new Map([
+      ['session-1', {
+        running: true,
+        content: '',
+        toolActivities: [],
+        teammates: [],
+        startedAt: 1,
+      }],
+    ]))
+
+    const probeA = harness.controls.reconcileSessionStreaming('session-1', { passive: true })
+    const probeB = harness.controls.reconcileSessionStreaming('session-1', { passive: true })
+
+    getSessionActivityDeferred.resolve({ active: true })
+
+    await expect(probeA).resolves.toBe(true)
+    await expect(probeB).resolves.toBe(true)
+    expect(getSessionActivityMock).toHaveBeenCalledTimes(1)
+  })
+
+  test('reconcileSessionStreaming throttles back-to-back passive probes within the cooldown window', async () => {
+    const getSessionActivityMock = mock(async (_sessionId: string) => ({ active: true }))
+    api.getSessionActivity = getSessionActivityMock
+
+    const harness = createHookHarness()
+    harness.store.set(agentStreamingStatesAtom, new Map([
+      ['session-1', {
+        running: true,
+        content: '',
+        toolActivities: [],
+        teammates: [],
+        startedAt: 1,
+      }],
+    ]))
+
+    await expect(harness.controls.reconcileSessionStreaming('session-1', { passive: true })).resolves.toBe(true)
+    await expect(harness.controls.reconcileSessionStreaming('session-1', { passive: true })).resolves.toBe(true)
+
+    expect(getSessionActivityMock).toHaveBeenCalledTimes(1)
+  })
+
+  test('reconcileSessionStreaming restores a local busy state after refresh when the backend still reports the session active', async () => {
+    const getSessionActivityMock = mock(async (_sessionId: string) => ({ active: true }))
+    api.getSessionActivity = getSessionActivityMock
+
+    const harness = createHookHarness()
+
+    await expect(harness.controls.reconcileSessionStreaming(
+      'session-1',
+      {
+        passive: true,
+        recoverIfActive: true,
+        reason: 'message-reload-last-user',
+        source: 'agent-view',
+      } as unknown as Parameters<typeof harness.controls.reconcileSessionStreaming>[1],
+    )).resolves.toBe(true)
+
+    const restoredState = harness.store.get(agentStreamingStatesAtom).get('session-1')
+    expect(restoredState?.running).toBe(true)
+    expect(restoredState?.content).toBe('')
+    expect(restoredState?.lastActivityAt).toBeDefined()
+    expect(harness.store.get(agentStreamErrorsAtom).get('session-1')).toBeUndefined()
+  })
+
   test('unmount abort only detaches the local stream and does not finalize or record an error', async () => {
     const pendingResponse = createDeferred<Response>()
     const sendMessageMock = mock((_sessionId: string, _payload: unknown, init?: Pick<RequestInit, 'signal'>) => {
