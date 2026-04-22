@@ -64,26 +64,20 @@ async function waitForTerminalJob(
 }
 
 describe('page-builder static export service', () => {
-  test('retries remote resources up to three times before succeeding', async () => {
-    const workspace = createAgentWorkspace('Static Export Retry Success', { template: 'page-builder' })
+  test('fetches remote resources without injecting timeout signals or manual redirect handling', async () => {
+    const workspace = createAgentWorkspace('Static Export Direct Fetch', { template: 'page-builder' })
     const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
 
     mkdirSync(workspaceFilesDir, { recursive: true })
     writeFileSync(
       join(workspaceFilesDir, 'index.html'),
-      '<!doctype html><html><body><img src="https://cdn.example.com/retry-success.png"></body></html>',
+      '<!doctype html><html><body><img src="https://cdn.example.com/direct-fetch.png"></body></html>',
       'utf-8',
     )
 
-    let attempts = 0
-    const fetchMock = mock(async () => {
-      attempts += 1
-      if (attempts <= 3) {
-        const error = new Error('The operation was aborted')
-        error.name = 'AbortError'
-        throw error
-      }
-
+    let requestInit: RequestInit | undefined
+    const fetchMock = mock(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      requestInit = init
       return new Response('ok', {
         status: 200,
         headers: {
@@ -98,14 +92,17 @@ describe('page-builder static export service', () => {
     } = await import('./page-builder-static-export-service')
     const service = new PageBuilderStaticExportService({
       fetchFn: fetchMock as unknown as typeof fetch,
-      randomUUID: () => 'job-retry-success',
+      randomUUID: () => 'job-direct-fetch',
     })
 
     const createdJob = service.createJob(workspace)
     const finishedJob = await waitForTerminalJob(service, workspace.id, createdJob.jobId)
 
     expect(finishedJob.status).toBe('completed')
-    expect(fetchMock).toHaveBeenCalledTimes(4)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(requestInit?.method).toBe('GET')
+    expect(requestInit?.signal).toBeUndefined()
+    expect(requestInit?.redirect).toBeUndefined()
   })
 
   test('localizes supported remote assets, uses the CMS gateway, and records warnings plus unsupported runtime dependencies', async () => {
@@ -640,21 +637,31 @@ describe('page-builder static export service', () => {
     expect(finishedJob.errorMessage).toContain('hero.png')
   })
 
-  test('surfaces a Chinese timeout error after exhausting three retries for a remote resource', async () => {
-    const workspace = createAgentWorkspace('Static Export Timeout Failure', { template: 'page-builder' })
+  test('allows remote resources whose combined size exceeds the previous total budget', async () => {
+    const workspace = createAgentWorkspace('Static Export Large Total Budget', { template: 'page-builder' })
     const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+    const resourceUrls = Array.from({ length: 5 }, (_, index) => `https://cdn.example.com/large-${index + 1}.png`)
 
     mkdirSync(workspaceFilesDir, { recursive: true })
     writeFileSync(
       join(workspaceFilesDir, 'index.html'),
-      '<!doctype html><html><body><img src="https://cdn.example.com/timeout.png"></body></html>',
+      `<!doctype html><html><body>${resourceUrls.map((url) => `<img src="${url}">`).join('')}</body></html>`,
       'utf-8',
     )
 
-    const fetchMock = mock(async () => {
-      const error = new Error('The operation was aborted')
-      error.name = 'AbortError'
-      throw error
+    const largeAsset = new Uint8Array(13 * 1024 * 1024)
+    const fetchMock = mock(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (!resourceUrls.includes(url)) {
+        throw new Error(`未预期的远程请求: ${url}`)
+      }
+
+      return new Response(largeAsset, {
+        status: 200,
+        headers: {
+          'content-type': 'image/png',
+        },
+      })
     })
     globalThis.fetch = fetchMock as unknown as typeof fetch
 
@@ -663,32 +670,152 @@ describe('page-builder static export service', () => {
     } = await import('./page-builder-static-export-service')
     const service = new PageBuilderStaticExportService({
       fetchFn: fetchMock as unknown as typeof fetch,
-      randomUUID: () => 'job-timeout-failure',
+      randomUUID: () => 'job-large-total-budget',
+    })
+
+    const createdJob = service.createJob(workspace)
+    const finishedJob = await waitForTerminalJob(service, workspace.id, createdJob.jobId)
+
+    expect(finishedJob.status).toBe('completed')
+    expect(fetchMock).toHaveBeenCalledTimes(resourceUrls.length)
+  })
+
+  test('allows a single remote resource larger than the previous per-file limit', async () => {
+    const workspace = createAgentWorkspace('Static Export Large Single Resource', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(
+      join(workspaceFilesDir, 'index.html'),
+      '<!doctype html><html><body><img src="https://cdn.example.com/oversized.png"></body></html>',
+      'utf-8',
+    )
+
+    const largeAsset = new Uint8Array(17 * 1024 * 1024)
+    const fetchMock = mock(async () => {
+      return new Response(largeAsset, {
+        status: 200,
+        headers: {
+          'content-type': 'image/png',
+          'content-length': String(largeAsset.byteLength),
+        },
+      })
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const {
+      PageBuilderStaticExportService,
+    } = await import('./page-builder-static-export-service')
+    const service = new PageBuilderStaticExportService({
+      fetchFn: fetchMock as unknown as typeof fetch,
+      randomUUID: () => 'job-large-single-resource',
+    })
+
+    const createdJob = service.createJob(workspace)
+    const finishedJob = await waitForTerminalJob(service, workspace.id, createdJob.jobId)
+
+    expect(finishedJob.status).toBe('completed')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  test('fails immediately on a remote fetch error without automatic retries', async () => {
+    const workspace = createAgentWorkspace('Static Export No Retry Failure', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(
+      join(workspaceFilesDir, 'index.html'),
+      '<!doctype html><html><body><img src="https://cdn.example.com/no-retry.png"></body></html>',
+      'utf-8',
+    )
+
+    const fetchMock = mock(async () => {
+      throw new Error('network down')
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const {
+      PageBuilderStaticExportService,
+    } = await import('./page-builder-static-export-service')
+    const service = new PageBuilderStaticExportService({
+      fetchFn: fetchMock as unknown as typeof fetch,
+      randomUUID: () => 'job-no-retry-failure',
     })
 
     const createdJob = service.createJob(workspace)
     const finishedJob = await waitForTerminalJob(service, workspace.id, createdJob.jobId)
 
     expect(finishedJob.status).toBe('failed')
-    expect(finishedJob.errorMessage).toContain('远程资源下载超时')
-    expect(finishedJob.errorMessage).toContain('单次超时 30 秒')
-    expect(finishedJob.errorMessage).toContain('已重试3次')
-    expect(finishedJob.errorMessage).toContain('https://cdn.example.com/timeout.png')
-    expect(fetchMock).toHaveBeenCalledTimes(4)
+    expect(finishedJob.errorMessage).toContain('network down')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
-  test('rejects high-risk private-network targets before performing the fetch', async () => {
+  test('allows more remote resources than the previous count limit', async () => {
+    const workspace = createAgentWorkspace('Static Export Many Resources', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+    const resourceUrls = Array.from({ length: 129 }, (_, index) => `https://cdn.example.com/many-${index + 1}.png`)
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(
+      join(workspaceFilesDir, 'index.html'),
+      `<!doctype html><html><body>${resourceUrls.map((url) => `<img src="${url}">`).join('')}</body></html>`,
+      'utf-8',
+    )
+
+    const fetchMock = mock(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (!resourceUrls.includes(url)) {
+        throw new Error(`未预期的远程请求: ${url}`)
+      }
+
+      return new Response('ok', {
+        status: 200,
+        headers: {
+          'content-type': 'image/png',
+        },
+      })
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const {
+      PageBuilderStaticExportService,
+    } = await import('./page-builder-static-export-service')
+    const service = new PageBuilderStaticExportService({
+      fetchFn: fetchMock as unknown as typeof fetch,
+      randomUUID: () => 'job-many-resources',
+    })
+
+    const createdJob = service.createJob(workspace)
+    const finishedJob = await waitForTerminalJob(service, workspace.id, createdJob.jobId)
+
+    expect(finishedJob.status).toBe('completed')
+    expect(fetchMock).toHaveBeenCalledTimes(resourceUrls.length)
+  })
+
+  test('allows private-network targets when the fetch succeeds', async () => {
     const workspace = createAgentWorkspace('Static Export Private Target', { template: 'page-builder' })
     const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
 
     mkdirSync(workspaceFilesDir, { recursive: true })
     writeFileSync(
       join(workspaceFilesDir, 'index.html'),
-      '<!doctype html><html><body><img src="http://127.0.0.1/internal.png"></body></html>',
+      '<!doctype html><html><body><img src="http://127.0.0.1/internal.png"><img src="http://192.168.1.2/banner.png"></body></html>',
       'utf-8',
     )
 
-    const fetchMock = mock(async () => new Response('should-not-run', { status: 200 }))
+    const fetchMock = mock(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url !== 'http://127.0.0.1/internal.png' && url !== 'http://192.168.1.2/banner.png') {
+        throw new Error(`未预期的远程请求: ${url}`)
+      }
+
+      return new Response('ok', {
+        status: 200,
+        headers: {
+          'content-type': 'image/png',
+        },
+      })
+    })
     globalThis.fetch = fetchMock as unknown as typeof fetch
 
     const {
@@ -702,8 +829,7 @@ describe('page-builder static export service', () => {
     const createdJob = service.createJob(workspace)
     const finishedJob = await waitForTerminalJob(service, workspace.id, createdJob.jobId)
 
-    expect(finishedJob.status).toBe('failed')
-    expect(finishedJob.errorMessage).toContain('高风险')
-    expect(fetchMock).toHaveBeenCalledTimes(0)
+    expect(finishedJob.status).toBe('completed')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 })

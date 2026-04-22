@@ -43,18 +43,10 @@ import {
 type CmsAssetGateway = Pick<CmsGateway, 'fetchAsset'>
 type CmsQueryAdapter = Pick<CmsGateway, 'listCatalogs' | 'listContents'>
 
-const MAX_REDIRECTS = 3
-const MAX_REMOTE_RESOURCE_COUNT = 128
-const MAX_REMOTE_RESOURCE_BYTES = 64 * 1024 * 1024
-const MAX_SINGLE_REMOTE_RESOURCE_BYTES = 16 * 1024 * 1024
-const MAX_REMOTE_RESOURCE_RETRIES = 3
-const REMOTE_REQUEST_TIMEOUT_MS = 30_000
-
 class RemoteFetchError extends Error {
   constructor(
-    readonly code: 'timeout' | 'request' | 'invalid-target' | 'redirect',
+    readonly code: 'request' | 'invalid-target',
     message: string,
-    readonly retryable: boolean,
   ) {
     super(message)
     this.name = 'RemoteFetchError'
@@ -99,11 +91,6 @@ interface ExportReportCollector {
   failures: PageBuilderStaticExportFailure[]
 }
 
-interface RemoteFetchBudget {
-  resourceCount: number
-  totalBytes: number
-}
-
 interface ExportContext {
   workspace: AgentWorkspace
   workspaceFilesDir: string
@@ -112,7 +99,6 @@ interface ExportContext {
   collector: ExportReportCollector
   localizedByUrl: Map<string, string>
   processedCssFiles: Set<string>
-  budget: RemoteFetchBudget
   fetchFn: typeof fetch
   cmsGateway: CmsAssetGateway | null
   cmsBaseUrl: string | null
@@ -284,10 +270,6 @@ export class PageBuilderStaticExportService {
         collector,
         localizedByUrl: new Map(),
         processedCssFiles: new Set(),
-        budget: {
-          resourceCount: 0,
-          totalBytes: 0,
-        },
         fetchFn: this.fetchFn,
         cmsGateway,
         cmsBaseUrl,
@@ -332,10 +314,6 @@ export class PageBuilderStaticExportService {
         collector,
         localizedByUrl: new Map(),
         processedCssFiles: new Set(),
-        budget: {
-          resourceCount: 0,
-          totalBytes: 0,
-        },
         fetchFn: this.fetchFn,
         cmsGateway: null,
         cmsBaseUrl: null,
@@ -699,7 +677,6 @@ export class PageBuilderStaticExportService {
       return cached
     }
 
-    this.updateBudget(context.budget)
     const response = await this.fetchRemoteResource(resourceUrl, context)
     if (!response.ok) {
       throw new Error(`资源下载失败 (${response.status}): ${resourceUrl}`)
@@ -707,14 +684,6 @@ export class PageBuilderStaticExportService {
 
     const contentType = response.headers.get('content-type') ?? ''
     const bytes = new Uint8Array(await response.arrayBuffer())
-    if (bytes.byteLength > MAX_SINGLE_REMOTE_RESOURCE_BYTES) {
-      throw new Error(`资源体积超限: ${resourceUrl}`)
-    }
-
-    context.budget.totalBytes += bytes.byteLength
-    if (context.budget.totalBytes > MAX_REMOTE_RESOURCE_BYTES) {
-      throw new Error('导出过程中远程资源总体积超限')
-    }
 
     const outputPath = join(
       context.exportedAssetsDir,
@@ -734,13 +703,6 @@ export class PageBuilderStaticExportService {
     return outputPath
   }
 
-  private updateBudget(budget: RemoteFetchBudget): void {
-    budget.resourceCount += 1
-    if (budget.resourceCount > MAX_REMOTE_RESOURCE_COUNT) {
-      throw new Error('导出过程中远程资源数量超限')
-    }
-  }
-
   private async fetchRemoteResource(resourceUrl: string, context: ExportContext): Promise<Response> {
     if (context.cmsGateway && isCmsResourceUrl(resourceUrl, context.cmsBaseUrl)) {
       this.updateSnapshotForPhase('downloading')
@@ -748,7 +710,7 @@ export class PageBuilderStaticExportService {
     }
 
     this.updateSnapshotForPhase('downloading')
-    return await fetchWithLimits(context.fetchFn, resourceUrl)
+    return await fetchWithoutLimits(context.fetchFn, resourceUrl)
   }
 
   private updateSnapshotForPhase(phase: PageBuilderStaticExportJobPhase): void {
@@ -1070,61 +1032,16 @@ function isCmsResourceUrl(resourceUrl: string, cmsBaseUrl: string | null): boole
   return Boolean(resolvedCmsUrl && isAllowedCmsAssetUrl(cmsBaseUrl, resolvedCmsUrl))
 }
 
-async function fetchWithLimits(fetchFn: typeof fetch, initialUrl: string): Promise<Response> {
-  const maxAttempts = MAX_REMOTE_RESOURCE_RETRIES + 1
+async function fetchWithoutLimits(fetchFn: typeof fetch, resourceUrl: string): Promise<Response> {
+  assertSafeRemoteTarget(resourceUrl)
 
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    try {
-      return await fetchWithRedirects(fetchFn, initialUrl)
-    } catch (error) {
-      const resolvedError = normalizeRemoteFetchError(error, initialUrl)
-      if (!resolvedError.retryable || attempt >= maxAttempts) {
-        throw buildRemoteFetchFailureError(resolvedError, initialUrl, attempt)
-      }
-    }
+  try {
+    return await fetchFn(resourceUrl, {
+      method: 'GET',
+    })
+  } catch (error) {
+    throw normalizeRemoteFetchError(error, resourceUrl)
   }
-
-  throw new Error(`远程资源下载失败（已重试${MAX_REMOTE_RESOURCE_RETRIES}次）: ${initialUrl}`)
-}
-
-async function fetchWithRedirects(fetchFn: typeof fetch, initialUrl: string): Promise<Response> {
-  let currentUrl = initialUrl
-
-  for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount += 1) {
-    assertSafeRemoteTarget(currentUrl)
-
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), REMOTE_REQUEST_TIMEOUT_MS)
-    try {
-      const response = await fetchFn(currentUrl, {
-        method: 'GET',
-        redirect: 'manual',
-        signal: controller.signal,
-      })
-
-      if (response.status >= 300 && response.status < 400) {
-        const location = response.headers.get('location')
-        if (!location) {
-          throw new RemoteFetchError('redirect', `远程资源重定向缺少 location: ${currentUrl}`, false)
-        }
-        currentUrl = new URL(location, currentUrl).toString()
-        continue
-      }
-
-      const contentLength = Number(response.headers.get('content-length') ?? '0')
-      if (contentLength > MAX_SINGLE_REMOTE_RESOURCE_BYTES) {
-        throw new RemoteFetchError('request', `资源体积超限: ${currentUrl}`, false)
-      }
-
-      return response
-    } catch (error) {
-      throw normalizeRemoteFetchError(error, currentUrl)
-    } finally {
-      clearTimeout(timer)
-    }
-  }
-
-  throw new RemoteFetchError('redirect', `远程资源重定向次数过多: ${initialUrl}`, false)
 }
 
 function normalizeRemoteFetchError(error: unknown, resourceUrl: string): RemoteFetchError {
@@ -1132,35 +1049,8 @@ function normalizeRemoteFetchError(error: unknown, resourceUrl: string): RemoteF
     return error
   }
 
-  if (isAbortError(error)) {
-    return new RemoteFetchError('timeout', `远程资源下载超时（单次超时 30 秒）: ${resourceUrl}`, true)
-  }
-
   const message = error instanceof Error ? error.message : String(error)
-  return new RemoteFetchError('request', `远程资源下载失败: ${resourceUrl}；原因: ${message}`, true)
-}
-
-function buildRemoteFetchFailureError(error: RemoteFetchError, resourceUrl: string, attemptCount: number): Error {
-  const retryCount = Math.max(0, attemptCount - 1)
-  const retrySuffix = retryCount > 0 ? `，已重试${retryCount}次` : ''
-
-  if (error.code === 'timeout') {
-    return new Error(`远程资源下载超时（单次超时 30 秒${retrySuffix}）: ${resourceUrl}`)
-  }
-
-  if (error.code === 'request' && retryCount > 0) {
-    return new Error(`远程资源下载失败（已重试${retryCount}次）: ${resourceUrl}；原因: ${stripLeadingRemoteFetchPrefix(error.message)}`)
-  }
-
-  return new Error(error.message)
-}
-
-function stripLeadingRemoteFetchPrefix(message: string): string {
-  return message.replace(/^远程资源下载失败:\s*.*?；原因:\s*/u, '').trim()
-}
-
-function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === 'AbortError'
+  return new RemoteFetchError('request', `远程资源下载失败: ${resourceUrl}；原因: ${message}`)
 }
 
 function assertSafeRemoteTarget(resourceUrl: string): void {
@@ -1168,24 +1058,10 @@ function assertSafeRemoteTarget(resourceUrl: string): void {
   try {
     parsed = new URL(resourceUrl)
   } catch {
-    throw new RemoteFetchError('invalid-target', `资源地址不合法: ${resourceUrl}`, false)
+    throw new RemoteFetchError('invalid-target', `资源地址不合法: ${resourceUrl}`)
   }
 
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new RemoteFetchError('invalid-target', `仅支持 http/https 资源: ${resourceUrl}`, false)
-  }
-
-  const hostname = parsed.hostname.toLowerCase()
-  if (
-    hostname === 'localhost'
-    || hostname === '127.0.0.1'
-    || hostname === '::1'
-    || hostname.endsWith('.local')
-    || /^10\./.test(hostname)
-    || /^127\./.test(hostname)
-    || /^192\.168\./.test(hostname)
-    || /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname)
-  ) {
-    throw new RemoteFetchError('invalid-target', `资源地址指向高风险内部目标，已拒绝抓取: ${resourceUrl}`, false)
+    throw new RemoteFetchError('invalid-target', `仅支持 http/https 资源: ${resourceUrl}`)
   }
 }
