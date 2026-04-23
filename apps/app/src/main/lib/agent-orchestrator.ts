@@ -86,6 +86,11 @@ import {
   type CmsRuntimeToolBundle,
 } from './cms-sdk-tools'
 import {
+  buildImageSearchRuntimeToolBundle,
+  IMAGE_SEARCH_RUNTIME_SERVER_NAME,
+  type BuildImageSearchRuntimeToolBundleOptions,
+} from './image-search-sdk-tools'
+import {
   capturePageBuilderAgentHtmlSnapshot,
   finalizePageBuilderAgentHtmlGuardrails,
   type PageBuilderAgentHtmlSnapshot,
@@ -261,6 +266,18 @@ function resolveCmsRuntimeToolBundle(
     workspace,
     sessionId,
   })
+}
+
+function resolveImageSearchRuntimeToolBundle(
+  workspace: import('@proma/shared').AgentWorkspace,
+): ReturnType<typeof buildImageSearchRuntimeToolBundle> | null {
+  if (workspace.template !== 'page-builder') {
+    return null
+  }
+
+  return buildImageSearchRuntimeToolBundle({
+    workspace,
+  } satisfies BuildImageSearchRuntimeToolBundleOptions)
 }
 
 export function resolveWorkspaceRuntimeContext(
@@ -895,11 +912,18 @@ export class AgentOrchestrator {
     const turnMessageStartIndex = priorMessages.length
     const isFirstUserTurn = !priorMessages.some((message) => message.role === 'user')
     const cmsRuntimeToolBundle = resolveCmsRuntimeToolBundle(workspaceRuntime.workspace, sessionId)
-    const availableWorkspaceMcpServers: AgentMcpServerMap = {
-      ...workspaceRuntime.mcpServers,
+    const imageSearchRuntimeToolBundle = resolveImageSearchRuntimeToolBundle(workspaceRuntime.workspace)
+    const runtimeMcpServers: AgentMcpServerMap = {
       ...(cmsRuntimeToolBundle ? {
         [CMS_RUNTIME_SERVER_NAME]: cmsRuntimeToolBundle.mcpServer,
       } : {}),
+      ...(imageSearchRuntimeToolBundle ? {
+        [IMAGE_SEARCH_RUNTIME_SERVER_NAME]: imageSearchRuntimeToolBundle.mcpServer,
+      } : {}),
+    }
+    const availableWorkspaceMcpServers: AgentMcpServerMap = {
+      ...workspaceRuntime.mcpServers,
+      ...runtimeMcpServers,
     }
     const rollbackPendingAttachments = () => {
       if (!attachments || attachments.length === 0) {
@@ -1220,9 +1244,7 @@ export class AgentOrchestrator {
     let resolvedMcpServers: AgentMcpServerMap = suppressedDefaultPageBuilderMcp
       ? {
           ...pickMcpServersByName(availableWorkspaceMcpServers, mentionedMcpServers ?? []),
-          ...(cmsRuntimeToolBundle ? {
-            [CMS_RUNTIME_SERVER_NAME]: cmsRuntimeToolBundle.mcpServer,
-          } : {}),
+          ...runtimeMcpServers,
         }
       : { ...availableWorkspaceMcpServers }
 
@@ -1232,7 +1254,7 @@ export class AgentOrchestrator {
 
       if (suppressedDefaultPageBuilderMcp) {
         console.log(
-          `[Agent 编排] page-builder 首轮消息延后挂载默认 MCP（显式提及: ${mentionedMcpServers?.join(', ') || '无'}；宿主 CMS runtime: ${cmsRuntimeToolBundle ? '保留' : '无'}）`,
+          `[Agent 编排] page-builder 首轮消息延后挂载默认 MCP（显式提及: ${mentionedMcpServers?.join(', ') || '无'}；宿主 runtime MCP: ${Object.keys(runtimeMcpServers).join(', ') || '无'}）`,
         )
       }
 
@@ -1497,10 +1519,14 @@ export class AgentOrchestrator {
       const maxTurns = appSettings.agentMaxTurns && appSettings.agentMaxTurns > 0
         ? appSettings.agentMaxTurns
         : undefined
-      const runtimeAllowedTools = cmsRuntimeToolBundle
-        && Object.prototype.hasOwnProperty.call(resolvedMcpServers, CMS_RUNTIME_SERVER_NAME)
-        ? cmsRuntimeToolBundle.allowedTools
-        : []
+      const runtimeAllowedTools = [
+        ...(cmsRuntimeToolBundle && Object.prototype.hasOwnProperty.call(resolvedMcpServers, CMS_RUNTIME_SERVER_NAME)
+          ? cmsRuntimeToolBundle.allowedTools
+          : []),
+        ...(imageSearchRuntimeToolBundle && Object.prototype.hasOwnProperty.call(resolvedMcpServers, IMAGE_SEARCH_RUNTIME_SERVER_NAME)
+          ? imageSearchRuntimeToolBundle.allowedTools
+          : []),
+      ]
       const allowedTools = !bypassPermissions && permissionMode !== 'auto'
         ? Array.from(new Set([
             ...SAFE_TOOLS,

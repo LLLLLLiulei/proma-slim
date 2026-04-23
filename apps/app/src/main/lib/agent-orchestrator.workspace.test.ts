@@ -474,7 +474,14 @@ describe('AgentOrchestrator workspace runtime', () => {
       },
     )
 
-    expect(adapter.lastInput?.mcpServers).toBeUndefined()
+    expect(adapter.lastInput?.mcpServers).toMatchObject({
+      image_search: {
+        type: 'sdk',
+        name: 'image_search',
+      },
+    })
+    expect(adapter.lastInput?.mcpServers).not.toHaveProperty('playwright')
+    expect(adapter.lastInput?.mcpServers).not.toHaveProperty('server-sequential-thinking')
   })
 
   test('restores default page-builder MCP servers after the first turn completes when runtime playwright is not configured', async () => {
@@ -514,8 +521,19 @@ describe('AgentOrchestrator workspace runtime', () => {
     )
 
     expect(adapter.inputs).toHaveLength(2)
-    expect(adapter.inputs[0]?.mcpServers).toBeUndefined()
+    expect(adapter.inputs[0]?.mcpServers).toMatchObject({
+      image_search: {
+        type: 'sdk',
+        name: 'image_search',
+      },
+    })
+    expect(adapter.inputs[0]?.mcpServers).not.toHaveProperty('playwright')
+    expect(adapter.inputs[0]?.mcpServers).not.toHaveProperty('server-sequential-thinking')
     expect(adapter.inputs[1]?.mcpServers).toMatchObject({
+      image_search: {
+        type: 'sdk',
+        name: 'image_search',
+      },
       playwright: {
         type: 'stdio',
         command: 'npx',
@@ -549,7 +567,11 @@ describe('AgentOrchestrator workspace runtime', () => {
       },
     )
 
-    expect(adapter.lastInput?.mcpServers).toEqual({
+    expect(adapter.lastInput?.mcpServers).toMatchObject({
+      image_search: {
+        type: 'sdk',
+        name: 'image_search',
+      },
       playwright: {
         type: 'stdio',
         command: 'npx',
@@ -643,7 +665,11 @@ describe('AgentOrchestrator workspace runtime', () => {
       },
     )
 
-    expect(adapter.lastInput?.mcpServers).toEqual({
+    expect(adapter.lastInput?.mcpServers).toMatchObject({
+      image_search: {
+        type: 'sdk',
+        name: 'image_search',
+      },
       playwright: {
         type: 'http',
         url: 'http://playwright:8931/mcp',
@@ -678,7 +704,11 @@ describe('AgentOrchestrator workspace runtime', () => {
       },
     )
 
-    expect(adapter.lastInput?.mcpServers).toEqual({
+    expect(adapter.lastInput?.mcpServers).toMatchObject({
+      image_search: {
+        type: 'sdk',
+        name: 'image_search',
+      },
       playwright: {
         type: 'http',
         url: 'http://playwright:8931/mcp',
@@ -723,7 +753,11 @@ describe('AgentOrchestrator workspace runtime', () => {
       },
     )
 
-    expect(adapter.lastInput?.mcpServers).toEqual({
+    expect(adapter.lastInput?.mcpServers).toMatchObject({
+      image_search: {
+        type: 'sdk',
+        name: 'image_search',
+      },
       playwright: {
         type: 'stdio',
         command: 'node',
@@ -843,6 +877,40 @@ describe('AgentOrchestrator workspace runtime', () => {
       'mcp__cms__list_contents',
       'mcp__cms__decide_cms_binding',
       'mcp__cms__apply_cms_binding',
+    ]))
+  })
+
+  test('auto-injects runtime image search sdk tools into page-builder queries without persisting them to workspace mcp config', async () => {
+    const adapter = new RecordingAdapter()
+    const orchestrator = new AgentOrchestrator(adapter, new AgentEventBus())
+    const workspace = createAgentWorkspace('Page Builder Image Search Runtime', { template: 'page-builder' })
+    const session = createAgentSession('image search runtime session', undefined, workspace.id)
+
+    await orchestrator.sendMessage(
+      {
+        sessionId: session.id,
+        userMessage: '帮我搜索一些适合首页 hero 的图片',
+        channelId: '',
+      },
+      {
+        onError: (message) => {
+          throw new Error(message)
+        },
+        onComplete: () => {},
+        onTitleUpdated: () => {},
+      },
+    )
+
+    expect(adapter.lastInput?.mcpServers).toMatchObject({
+      image_search: {
+        type: 'sdk',
+        name: 'image_search',
+      },
+    })
+    expect(adapter.lastInput?.mcpServers?.image_search).toHaveProperty('instance')
+    expect(adapter.lastInput?.allowedTools).toEqual(expect.arrayContaining([
+      'mcp__image_search__search_images',
+      'mcp__image_search__download_images',
     ]))
   })
 
@@ -1030,6 +1098,10 @@ describe('AgentOrchestrator workspace runtime', () => {
     expect(adapter.lastInput?.allowedTools).not.toEqual(expect.arrayContaining([
       'mcp__cms__list_catalogs',
       'mcp__cms__list_contents',
+    ]))
+    expect(adapter.lastInput?.allowedTools).not.toEqual(expect.arrayContaining([
+      'mcp__image_search__search_images',
+      'mcp__image_search__download_images',
     ]))
   })
 

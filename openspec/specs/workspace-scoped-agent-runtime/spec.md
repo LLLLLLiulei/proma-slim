@@ -95,6 +95,15 @@
 - **THEN** 系统 SHALL 在该次 query 的 `mcpServers` 中合并这些 runtime server 与工作区持久化 MCP 条目
 - **AND** 系统 SHALL NOT 将这些 runtime server 回写到工作区持久化 MCP 配置
 
+#### Scenario: Page-builder 查询可合并图片搜索 runtime SDK MCP server
+- **WHEN** 某个带有 `page-builder` 模板标记的会话开始执行 Agent 查询，且宿主运行时按当前策略启用了图片搜索能力
+- **THEN** 系统 SHALL 在该次 query 的 `mcpServers` 中合并 runtime `image_search` SDK MCP server
+- **AND** 系统 SHALL 保持该 runtime server 仅对当前 query 生效
+
+#### Scenario: 图片搜索 runtime server 不回写到工作区持久化 MCP 配置
+- **WHEN** 系统为某次 `page-builder` query 附加 runtime `image_search` SDK MCP server
+- **THEN** 系统 SHALL NOT 将该 runtime server 写回工作区的持久化 MCP 配置文件
+
 #### Scenario: Docker page-builder 查询可将默认 playwright 解析为远程 MCP
 - **WHEN** 某个带有 `page-builder` 模板标记的会话开始执行 Agent 查询，且宿主运行时已为当前部署声明 `AI_PAGE_BUILDER_PLAYWRIGHT_MCP_URL`
 - **AND** 当前工作区未将默认 `playwright` 条目改写为用户自定义的非默认配置
@@ -166,6 +175,10 @@
 #### Scenario: CMS runtime tools 进入当前 query 的 allowlist
 - **WHEN** 某次交互式权限模式下的 query 附加了 runtime `cms` SDK MCP server
 - **THEN** 系统 SHALL 将该 server 暴露的 `mcp__cms__*` 工具名加入当前 query 的 `allowedTools`
+
+#### Scenario: 图片搜索 runtime tools 进入当前 query 的 allowlist
+- **WHEN** 某次交互式权限模式下的 `page-builder` query 附加了 runtime `image_search` SDK MCP server
+- **THEN** 系统 SHALL 将 `mcp__image_search__search_images` 与 `mcp__image_search__download_images` 加入该次 query 的 `allowedTools`
 
 #### Scenario: 未附加 runtime tools 的查询保持原有 allowlist 行为
 - **WHEN** 某次 query 没有附加宿主创建的 runtime SDK MCP tools
