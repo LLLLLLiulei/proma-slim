@@ -61,6 +61,23 @@ function createStreamingStateWithStatusNotice(message: string): AgentStreamState
   } as AgentStreamState
 }
 
+function createStreamingStateWithCompactNotice(message: string, options?: { isCompacting?: boolean }): AgentStreamState {
+  return {
+    running: true,
+    content: '',
+    model: 'claude-sonnet-4-6',
+    startedAt: 1,
+    teammates: [],
+    toolActivities: [],
+    isCompacting: options?.isCompacting ?? false,
+    compactNotice: {
+      kind: 'compact',
+      level: 'info',
+      message,
+    },
+  } as AgentStreamState
+}
+
 function createAssistantMessageWithToolEvents(content: string, includeEvents: boolean): AgentMessage {
   return {
     id: 'assistant-1',
@@ -315,6 +332,34 @@ describe('AgentMessages transient assistant rendering', () => {
     expect(markup).toContain('正在思考...')
   })
 
+  test('renders a compacting notice and switches the loading label while context compaction is in progress', () => {
+    const markup = renderToStaticMarkup(
+      React.createElement(AgentMessages, {
+        sessionId: 'session-compacting',
+        messages: [],
+        streaming: true,
+        streamState: createStreamingStateWithCompactNotice('正在压缩上下文，请稍候…', { isCompacting: true }),
+      })
+    )
+
+    expect(markup).toContain('正在压缩上下文，请稍候…')
+    expect(markup).toContain('正在压缩上下文...')
+    expect(markup).not.toContain('正在思考...')
+  })
+
+  test('renders the compact success notice while the resumed turn is still processing', () => {
+    const markup = renderToStaticMarkup(
+      React.createElement(AgentMessages, {
+        sessionId: 'session-compact-complete',
+        messages: [],
+        streaming: true,
+        streamState: createStreamingStateWithCompactNotice('已压缩，继续处理中'),
+      })
+    )
+
+    expect(markup).toContain('已压缩，继续处理中')
+  })
+
   test('renders structured user attachments through the session-scoped content route', () => {
     const markup = renderToStaticMarkup(
       React.createElement(AgentMessages, {
@@ -414,36 +459,43 @@ describe('AgentMessages transient assistant rendering', () => {
     expect(markup).not.toContain('sm:max-w-[500px]')
   })
 
-  test('renders status-message diagnostics and original upstream errors inside expandable sections', () => {
+  test('renders status-message diagnostics and original upstream errors without any suggested actions', () => {
     const markup = renderToStaticMarkup(
       React.createElement(AgentMessages, {
         sessionId: 'session-status-error',
         messages: [{
           id: 'status-1',
           role: 'status',
-          content: 'Anthropic 认证失败，请检查 ANTHROPIC_API_KEY 是否正确。',
+          content: '上下文过长：当前对话的上下文已超出模型限制，请压缩上下文或开启新会话。',
           createdAt: 1,
-          errorCode: 'invalid_api_key',
-          errorTitle: '认证失败',
+          errorCode: 'prompt_too_long',
+          errorTitle: '上下文过长',
           errorDetails: [
-            'HTTP 401: invalid x-api-key',
+            'HTTP 400: prompt is too long',
             '请求已被上游模型提供方拒绝',
           ],
-          errorOriginal: 'API Error: 401 {"error":{"message":"invalid x-api-key"}}',
+          errorOriginal: 'API Error: 400 {"error":{"message":"prompt is too long"}}',
           errorActions: [
-            { key: 's', label: '设置', action: 'settings' },
+            { key: 'c', label: '压缩上下文', action: 'compact' },
             { key: 'r', label: '重试', action: 'retry' },
           ],
         }],
         streaming: false,
+        onRetry: () => {},
+        onRetryInNewSession: () => {},
+        onCompact: () => {},
       })
     )
 
-    expect(markup).toContain('Anthropic 认证失败，请检查 ANTHROPIC_API_KEY 是否正确。')
+    expect(markup).toContain('上下文过长：当前对话的上下文已超出模型限制，请压缩上下文或开启新会话。')
     expect(markup).toContain('诊断详情')
-    expect(markup).toContain('invalid_api_key')
-    expect(markup).toContain('HTTP 401: invalid x-api-key')
+    expect(markup).toContain('prompt_too_long')
+    expect(markup).toContain('HTTP 400: prompt is too long')
     expect(markup).toContain('原始错误')
-    expect(markup).toContain('API Error: 401')
+    expect(markup).toContain('API Error: 400')
+    expect(markup).not.toContain('建议操作：')
+    expect(markup).not.toContain('>压缩上下文<')
+    expect(markup).not.toContain('>重试<')
+    expect(markup).not.toContain('>在新会话中重试<')
   })
 })

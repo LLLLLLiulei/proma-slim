@@ -7,7 +7,7 @@
 
 import * as React from 'react'
 import { useAtomValue } from 'jotai'
-import { Bot, FileText, FileImage, RotateCw, AlertTriangle, ChevronDown, ChevronRight, Plus, Minimize2 } from 'lucide-react'
+import { Bot, FileText, FileImage, RotateCw, AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react'
 import {
   Message,
   MessageAttachments,
@@ -29,13 +29,17 @@ import { useSmoothStream } from '@proma/ui'
 import { UserAvatar } from '@/components/common/UserAvatar'
 import { CopyButton } from '@/components/common/CopyButton'
 import { formatMessageTime } from '@/lib/message-time'
-import { Button } from '@/components/ui/button'
 import { getModelLogo } from '@/lib/model-logo'
 import { ToolActivityList } from './ToolActivityItem'
 import { userProfileAtom } from '@/atoms/user-profile'
 import { cn } from '@/lib/utils'
 import type { AgentMessage, RetryAttempt } from '@proma/shared'
-import type { ToolActivity, AgentStreamState } from '@/atoms/agent-atoms'
+import type {
+  AgentCompactNotice,
+  AgentStatusNotice,
+  ToolActivity,
+  AgentStreamState,
+} from '@/atoms/agent-atoms'
 
 /** AgentMessages 属性接口 */
 interface AgentMessagesProps {
@@ -179,8 +183,7 @@ function ErrorDiagnostics({
   const hasDiagnostics = Boolean(
     message.errorCode
     || message.errorTitle
-    || message.errorDetails?.length
-    || message.errorActions?.length,
+    || message.errorDetails?.length,
   )
   const hasOriginalError = Boolean(message.errorOriginal?.trim())
 
@@ -212,12 +215,6 @@ function ErrorDiagnostics({
                   <li key={`${message.id}-detail-${index}`}>{detail}</li>
                 ))}
               </ul>
-            )}
-            {message.errorActions && message.errorActions.length > 0 && (
-              <div>
-                <span className="font-medium text-foreground">建议操作：</span>
-                <span>{message.errorActions.map((action) => action.label).join(' / ')}</span>
-              </div>
             )}
           </div>
         </details>
@@ -436,7 +433,7 @@ function RetryingNotice({ retrying }: { retrying: NonNullable<AgentStreamState['
   )
 }
 
-function StatusNotice({ notice }: { notice: NonNullable<AgentStreamState['statusNotice']> }): React.ReactElement {
+function StatusNotice({ notice }: { notice: AgentStatusNotice | AgentCompactNotice }): React.ReactElement {
   return (
     <div
       className={cn(
@@ -647,27 +644,6 @@ function AgentMessageItem({
             <MessageResponse>{message.content}</MessageResponse>
           </div>
           <ErrorDiagnostics message={message} />
-          {/* 错误操作按钮 */}
-          <div className="flex items-center gap-2 mt-3">
-            {message.errorCode === 'prompt_too_long' && onCompact && (
-              <Button size="sm" onClick={onCompact}>
-                <Minimize2 className="size-3.5 mr-1.5" />
-                压缩上下文
-              </Button>
-            )}
-            {onRetry && (
-              <Button size="sm" variant={message.errorCode === 'prompt_too_long' ? 'outline' : 'default'} onClick={onRetry}>
-                <RotateCw className="size-3.5 mr-1.5" />
-                重试
-              </Button>
-            )}
-            {onRetryInNewSession && (
-              <Button size="sm" variant="outline" onClick={onRetryInNewSession}>
-                <Plus className="size-3.5 mr-1.5" />
-                在新会话中重试
-              </Button>
-            )}
-          </div>
         </MessageContent>
         {/* 操作按钮（hover 时可见） */}
         <MessageActions className="pl-[46px] mt-0.5">
@@ -687,8 +663,9 @@ export function AgentMessages({ sessionId, messages, streaming, streamState, onR
   const streamingContent = streamState?.content ?? ''
   const toolActivities = streamState?.toolActivities ?? []
   const retrying = streamState?.retrying
-  const statusNotice = streamState?.statusNotice
+  const statusNotice = streamState?.statusNotice ?? streamState?.compactNotice
   const startedAt = streamState?.startedAt
+  const isCompacting = streamState?.isCompacting === true
 
   const { displayedContent: smoothContent } = useSmoothStream({
     content: streamingContent,
@@ -707,11 +684,13 @@ export function AgentMessages({ sessionId, messages, streaming, streamState, onR
     toolActivities,
   })
   const shouldShowTransientShell = streaming || shouldShowTransientToolBlock || Boolean(retrying) || Boolean(statusNotice) || shouldShowTransientAssistant
-  const loadingLabel = shouldShowTransientAssistant
-    ? '正在处理...'
-    : toolActivities.length > 0
-      ? '正在执行工具...'
-      : '正在思考...'
+  const loadingLabel = isCompacting
+    ? '正在压缩上下文...'
+    : shouldShowTransientAssistant
+      ? '正在处理...'
+      : toolActivities.length > 0
+        ? '正在执行工具...'
+        : '正在思考...'
 
   // 迷你地图数据
   const minimapItems: MinimapItem[] = React.useMemo(

@@ -191,6 +191,93 @@ describe('useAgentSSE helpers', () => {
     expect(store.get(agentStreamErrorsAtom).get('session-1')).toBe('stream failed')
   })
 
+  test('applyStreamFrame derives compact lifecycle state from compacting events and clears it when resumed output arrives', async () => {
+    const { applyStreamFrame } = await import('./useAgentSSE')
+    const store = createStore()
+
+    applyStreamFrame(store, {
+      event: 'compacting',
+      data: {
+        sessionId: 'session-1',
+        event: { type: 'compacting' },
+      },
+    })
+
+    let state = store.get(agentStreamingStatesAtom).get('session-1') as (typeof store extends never ? never : {
+      isCompacting?: boolean
+      compactNotice?: { kind: string; level: string; message: string }
+      content?: string
+    }) | undefined
+
+    expect(state?.isCompacting).toBe(true)
+    expect(state?.compactNotice).toEqual({
+      kind: 'compact',
+      level: 'info',
+      message: '正在压缩上下文，请稍候…',
+    })
+
+    applyStreamFrame(store, {
+      event: 'compact_complete',
+      data: {
+        sessionId: 'session-1',
+        event: { type: 'compact_complete' },
+      },
+    })
+
+    state = store.get(agentStreamingStatesAtom).get('session-1') as typeof state
+    expect(state?.isCompacting).toBe(false)
+    expect(state?.compactNotice?.message).toBe('已压缩，继续处理中')
+
+    applyStreamFrame(store, {
+      event: 'text_delta',
+      data: {
+        sessionId: 'session-1',
+        event: { type: 'text_delta', text: '恢复后的回复' },
+      },
+    })
+
+    state = store.get(agentStreamingStatesAtom).get('session-1') as typeof state
+    expect(state?.content).toBe('恢复后的回复')
+    expect(state?.compactNotice).toBeUndefined()
+  })
+
+  test('applyStreamFrame keeps regular status notices separate from locally derived compact notices', async () => {
+    const { applyStreamFrame } = await import('./useAgentSSE')
+    const store = createStore()
+
+    applyStreamFrame(store, {
+      event: 'status_notice',
+      data: {
+        sessionId: 'session-1',
+        event: {
+          type: 'status_notice',
+          level: 'warning',
+          message: '接近使用上限，请尽快完成当前操作。',
+        },
+      },
+    })
+
+    let state = store.get(agentStreamingStatesAtom).get('session-1') as (typeof store extends never ? never : {
+      statusNotice?: { message: string }
+      compactNotice?: { message: string }
+    }) | undefined
+
+    expect(state?.statusNotice?.message).toBe('接近使用上限，请尽快完成当前操作。')
+    expect(state?.compactNotice).toBeUndefined()
+
+    applyStreamFrame(store, {
+      event: 'compact_complete',
+      data: {
+        sessionId: 'session-1',
+        event: { type: 'compact_complete' },
+      },
+    })
+
+    state = store.get(agentStreamingStatesAtom).get('session-1') as typeof state
+    expect(state?.statusNotice).toBeUndefined()
+    expect(state?.compactNotice?.message).toBe('已压缩，继续处理中')
+  })
+
   test('ensureStreamingState can reset stale streaming content before a new request starts', async () => {
     const sseModule = await import('./useAgentSSE') as Record<string, unknown>
     expect(typeof sseModule.ensureStreamingState).toBe('function')

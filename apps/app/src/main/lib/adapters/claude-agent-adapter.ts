@@ -256,7 +256,6 @@ function mapSDKErrorToTypedError(
     title: mapped.title,
     message: detailedMessage || mapped.message,
     actions: [
-      { key: 's', label: '设置', action: 'settings' },
       ...(mapped.canRetry ? [{ key: 'r', label: '重试', action: 'retry' }] : []),
       ...(mapped.code === 'prompt_too_long' ? [{ key: 'c', label: '压缩上下文', action: 'compact' }] : []),
     ],

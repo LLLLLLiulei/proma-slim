@@ -179,6 +179,56 @@ describe('ClaudeAgentAdapter SDK option pass-through', () => {
     })
   })
 
+  test('does not attach a placeholder settings action to unknown typed errors', async () => {
+    mock.module('@anthropic-ai/claude-agent-sdk', () => ({
+      query: async function* () {
+        yield {
+          type: 'assistant',
+          parent_tool_use_id: null,
+          error: {
+            message: 'Unexpected upstream failure',
+          },
+          message: {
+            content: [
+              {
+                type: 'text',
+                text: 'Unexpected upstream failure',
+              },
+            ],
+          },
+        }
+      },
+    }))
+
+    const { ClaudeAgentAdapter } = await import('./claude-agent-adapter')
+    const adapter = new ClaudeAgentAdapter()
+    const events = []
+
+    for await (const event of adapter.query({
+      sessionId: 'session-unknown-error',
+      prompt: 'Inspect upstream failure',
+      cwd: '/tmp/workspace/session-unknown-error',
+      sdkCliPath: '/tmp/claude.js',
+      executable: { type: 'node', path: '/usr/bin/node' },
+      executableArgs: [],
+      env: {},
+      sdkPermissionMode: 'default',
+      allowDangerouslySkipPermissions: false,
+      systemPrompt: { type: 'preset', preset: 'claude_code', append: '' },
+    } as ClaudeAgentQueryOptions)) {
+      events.push(event)
+    }
+
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({
+      type: 'typed_error',
+      error: {
+        code: 'unknown_error',
+        actions: [],
+      },
+    })
+  })
+
   test('translates known sdk result errors into a friendly realtime error message', async () => {
     mock.module('@anthropic-ai/claude-agent-sdk', () => ({
       query: async function* () {

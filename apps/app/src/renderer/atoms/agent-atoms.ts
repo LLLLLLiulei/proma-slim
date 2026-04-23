@@ -86,16 +86,23 @@ interface TeammateState {
 /** 工具历史最大记录数 */
 const MAX_TOOL_HISTORY = 20
 
+export interface AgentStatusNotice {
+  level: 'info' | 'warning' | 'error'
+  message: string
+}
+
+export interface AgentCompactNotice extends AgentStatusNotice {
+  kind: 'compact'
+}
+
 /** Agent 会话的流式状态 */
 export interface AgentStreamState {
   running: boolean
   content: string
   toolActivities: ToolActivity[]
   model?: string
-  statusNotice?: {
-    level: 'info' | 'warning' | 'error'
-    message: string
-  }
+  statusNotice?: AgentStatusNotice
+  compactNotice?: AgentCompactNotice
   /** 当前输入 token 数（上下文使用量） */
   inputTokens?: number
   /** 模型上下文窗口大小 */
@@ -121,6 +128,22 @@ export interface AgentStreamState {
   teammates: TeammateState[]
   /** 是否等待 auto-resume（teammate 结果收集中） */
   waitingResume?: boolean
+}
+
+const COMPACTING_NOTICE: AgentCompactNotice = {
+  kind: 'compact',
+  level: 'info',
+  message: '正在压缩上下文，请稍候…',
+}
+
+const COMPACT_COMPLETE_NOTICE: AgentCompactNotice = {
+  kind: 'compact',
+  level: 'info',
+  message: '已压缩，继续处理中',
+}
+
+function clearCompactNotice(prev: AgentStreamState): Pick<AgentStreamState, 'compactNotice'> {
+  return prev.compactNotice ? { compactNotice: undefined } : {}
 }
 
 /** 从 ToolActivity 派生状态 */
@@ -253,17 +276,29 @@ export function applyAgentEvent(
   switch (event.type) {
     case 'text_delta':
       // 开始接收文本 - 清除重试状态（重试成功）
-      return { ...prev, content: prev.content + event.text, retrying: undefined, statusNotice: undefined }
+      return {
+        ...prev,
+        ...clearCompactNotice(prev),
+        content: prev.content + event.text,
+        retrying: undefined,
+        statusNotice: undefined,
+      }
 
     case 'text_complete':
       // 用完整文本替换增量累积的文本（用于回放场景：只需 text_complete 即可重建文本状态）
-      return { ...prev, content: event.text, statusNotice: undefined }
+      return {
+        ...prev,
+        ...clearCompactNotice(prev),
+        content: event.text,
+        statusNotice: undefined,
+      }
 
     case 'tool_start': {
       const existing = prev.toolActivities.find((t) => t.toolUseId === event.toolUseId)
       if (existing) {
         return {
           ...prev,
+          ...clearCompactNotice(prev),
           toolActivities: prev.toolActivities.map((t) =>
             t.toolUseId === event.toolUseId
               ? { ...t, input: event.input, intent: event.intent || t.intent, displayName: event.displayName || t.displayName }
@@ -276,6 +311,7 @@ export function applyAgentEvent(
       }
       return {
         ...prev,
+        ...clearCompactNotice(prev),
         toolActivities: [...prev.toolActivities, {
           toolUseId: event.toolUseId,
           toolName: event.toolName,
@@ -294,6 +330,7 @@ export function applyAgentEvent(
     case 'tool_result':
       return {
         ...prev,
+        ...clearCompactNotice(prev),
         statusNotice: undefined,
         toolActivities: prev.toolActivities.map((t) =>
           t.toolUseId === event.toolUseId
@@ -305,6 +342,7 @@ export function applyAgentEvent(
     case 'task_backgrounded':
       return {
         ...prev,
+        ...clearCompactNotice(prev),
         toolActivities: prev.toolActivities.map((t) =>
           t.toolUseId === event.toolUseId
             ? { ...t, isBackground: true, taskId: event.taskId, done: true }
@@ -341,13 +379,14 @@ export function applyAgentEvent(
           }
           const nextTeammates = [...prev.teammates]
           nextTeammates[tmIdx] = updatedTm
-          return { ...prev, teammates: nextTeammates, statusNotice: undefined }
+          return { ...prev, ...clearCompactNotice(prev), teammates: nextTeammates, statusNotice: undefined }
         }
       }
       // 普通 tool 计时语义（仅当有真实 elapsedSeconds 时更新）
       if (event.elapsedSeconds != null) {
         return {
           ...prev,
+          ...clearCompactNotice(prev),
           statusNotice: undefined,
           toolActivities: prev.toolActivities.map((t) =>
             t.toolUseId === event.toolUseId
@@ -373,7 +412,7 @@ export function applyAgentEvent(
       }
       // 去重：已有同 taskId 的 teammate 时仅更新 activities
       if (prev.teammates.some((t) => t.taskId === event.taskId)) {
-        return { ...prev, toolActivities: nextActivities }
+        return { ...prev, ...clearCompactNotice(prev), toolActivities: nextActivities }
       }
       // 创建 TeammateState
       const newTeammate: TeammateState = {
@@ -388,6 +427,7 @@ export function applyAgentEvent(
       }
       return {
         ...prev,
+        ...clearCompactNotice(prev),
         statusNotice: undefined,
         toolActivities: nextActivities,
         teammates: [...prev.teammates, newTeammate],
@@ -397,6 +437,7 @@ export function applyAgentEvent(
     case 'shell_backgrounded':
       return {
         ...prev,
+        ...clearCompactNotice(prev),
         toolActivities: prev.toolActivities.map((t) =>
           t.toolUseId === event.toolUseId
             ? { ...t, isBackground: true, shellId: event.shellId, done: true }
@@ -436,7 +477,7 @@ export function applyAgentEvent(
         currentToolElapsedSeconds: undefined,
         currentToolUseId: undefined,
       }
-      return { ...prev, teammates: nextTeammates, statusNotice: undefined }
+      return { ...prev, ...clearCompactNotice(prev), teammates: nextTeammates, statusNotice: undefined }
     }
 
     case 'tool_use_summary':
@@ -444,10 +485,10 @@ export function applyAgentEvent(
       return prev
 
     case 'waiting_resume':
-      return { ...prev, waitingResume: true, statusNotice: undefined }
+      return { ...prev, ...clearCompactNotice(prev), waitingResume: true, statusNotice: undefined }
 
     case 'resume_start':
-      return { ...prev, waitingResume: false, statusNotice: undefined }
+      return { ...prev, ...clearCompactNotice(prev), waitingResume: false, statusNotice: undefined }
 
     case 'complete':
       // 成功完成 — 清除 retrying，但保持 running: true
@@ -456,6 +497,7 @@ export function applyAgentEvent(
       // 同时将仍 running 的 teammates 标记为 stopped（兜底）
       return {
         ...prev,
+        ...clearCompactNotice(prev),
         retrying: undefined,
         statusNotice: undefined,
         teammates: prev.teammates.map((tm) =>
@@ -468,12 +510,25 @@ export function applyAgentEvent(
     case 'typed_error':
       // 处理类型化错误（TypedError）
       // 停止运行，清除重试状态
-      return { ...prev, running: false, retrying: undefined, statusNotice: undefined }
+      return {
+        ...prev,
+        ...clearCompactNotice(prev),
+        isCompacting: false,
+        running: false,
+        retrying: undefined,
+        statusNotice: undefined,
+      }
 
     case 'error':
       // 改进：error 事件不再清除 retrying 状态
       // retrying 状态由专用事件控制
-      return { ...prev, running: false, statusNotice: undefined }
+      return {
+        ...prev,
+        ...clearCompactNotice(prev),
+        isCompacting: false,
+        running: false,
+        statusNotice: undefined,
+      }
 
     case 'usage_update':
       return {
@@ -483,10 +538,20 @@ export function applyAgentEvent(
       }
 
     case 'compacting':
-      return { ...prev, isCompacting: true }
+      return {
+        ...prev,
+        isCompacting: true,
+        statusNotice: undefined,
+        compactNotice: COMPACTING_NOTICE,
+      }
 
     case 'compact_complete':
-      return { ...prev, isCompacting: false }
+      return {
+        ...prev,
+        isCompacting: false,
+        statusNotice: undefined,
+        compactNotice: COMPACT_COMPLETE_NOTICE,
+      }
 
     case 'model_resolved':
       return { ...prev, model: event.model }
@@ -495,6 +560,7 @@ export function applyAgentEvent(
       // 向后兼容：保留原有的简单 retrying 事件
       return {
         ...prev,
+        ...clearCompactNotice(prev),
         statusNotice: undefined,
         retrying: prev.retrying ?? {
           currentAttempt: event.attempt,
@@ -509,6 +575,7 @@ export function applyAgentEvent(
       const currentHistory = prev.retrying?.history ?? []
       return {
         ...prev,
+        ...clearCompactNotice(prev),
         statusNotice: undefined,
         retrying: {
           currentAttempt: event.attemptData.attempt,
@@ -521,13 +588,14 @@ export function applyAgentEvent(
 
     case 'retry_cleared':
       // 新增：重试成功，清除状态
-      return { ...prev, retrying: undefined, statusNotice: undefined }
+      return { ...prev, ...clearCompactNotice(prev), retrying: undefined, statusNotice: undefined }
 
     case 'retry_failed': {
       // 新增：重试失败，标记为 failed 但保留历史
       const finalHistory = prev.retrying?.history ?? []
       return {
         ...prev,
+        ...clearCompactNotice(prev),
         running: false,
         statusNotice: undefined,
         retrying: {
@@ -542,6 +610,7 @@ export function applyAgentEvent(
     case 'status_notice':
       return {
         ...prev,
+        compactNotice: undefined,
         statusNotice: {
           level: event.level,
           message: event.message,
