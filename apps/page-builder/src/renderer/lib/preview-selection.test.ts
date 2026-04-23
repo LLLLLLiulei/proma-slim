@@ -1,10 +1,31 @@
 import { describe, expect, test } from 'bun:test'
-import { decoratePageBuilderSelectionMessage } from './preview-selection'
+import {
+  composePageBuilderAuthoringMessage,
+  decoratePageBuilderSelectionMessage,
+} from './preview-selection'
 
 function extractSelectionPayload(message: string): unknown {
   const match = message.match(/<page_builder_selection>\s*([\s\S]*?)\s*<\/page_builder_selection>/)
   if (!match) {
     throw new Error('missing page_builder_selection payload')
+  }
+
+  return JSON.parse(match[1]!)
+}
+
+function extractCmsRegionDigest(message: string): unknown {
+  const match = message.match(/<page_builder_cms_region_authoring>\s*([\s\S]*?)\s*<\/page_builder_cms_region_authoring>/)
+  if (!match) {
+    throw new Error('missing page_builder_cms_region_authoring payload')
+  }
+
+  return JSON.parse(match[1]!)
+}
+
+function extractCmsGuidanceNotice(message: string): unknown {
+  const match = message.match(/<page_builder_cms_guidance_notice>\s*([\s\S]*?)\s*<\/page_builder_cms_guidance_notice>/)
+  if (!match) {
+    throw new Error('missing page_builder_cms_guidance_notice payload')
   }
 
   return JSON.parse(match[1]!)
@@ -67,5 +88,73 @@ describe('page builder preview selection helpers', () => {
         forbidDangerousSlotTags: ['script', 'style'],
       },
     })
+  })
+
+  test('includes the ordinary cms-region digest only for existing cms region edits', () => {
+    const decorated = decoratePageBuilderSelectionMessage('把这里的栏目样式改成横向导航', {
+      kind: 'cms-island',
+      htmlPath: 'index.html',
+      sourceSelector: 'section:nth-of-type(2) > cms-catalog:nth-of-type(1)',
+      parentBlockSelector: '[data-proma-block-id="pb_blk_nav"]',
+      component: 'cms-catalog',
+      editBoundary: 'source-atomic',
+    }, {
+      ordinaryCmsRegionDigest: {
+        mode: 'ordinary-existing-region',
+        component: 'cms-catalog',
+        sourceType: 'catalogs-by-parent',
+        allowedProps: ['site-id', 'ids', 'level', 'parent-id', 'content-type', 'search-keyword', 'take'],
+        requiredProps: ['site-id', 'level', 'parent-id'],
+        slotScope: ['items', 'loading', 'error', 'empty'],
+        itemFields: ['id', 'name', 'path'],
+        itemFieldMeta: [],
+        recommendedLinkField: 'path',
+        forbiddenStructures: ['nested-cms-islands'],
+        boundary: {
+          editBoundary: 'source-atomic',
+          sourceFirst: true,
+          queryPropsChangeRequiresConfirmedApply: true,
+          runtimeOnlyAttrsAreNotAuthoringSurface: true,
+          vueSyntaxInsideSourceTagOnly: true,
+          nonCmsRegionsHtmlOnly: true,
+        },
+      },
+    })
+
+    expect(extractCmsRegionDigest(decorated)).toMatchObject({
+      mode: 'ordinary-existing-region',
+      component: 'cms-catalog',
+      sourceType: 'catalogs-by-parent',
+      boundary: {
+        editBoundary: 'source-atomic',
+        sourceFirst: true,
+        queryPropsChangeRequiresConfirmedApply: true,
+      },
+    })
+  })
+
+  test('supports page-level cms guidance notices without requiring a selected target', () => {
+    const decorated = composePageBuilderAuthoringMessage('继续微调这个页面', {
+      cmsGuidanceNotice: {
+        mode: 'page-has-existing-cms-regions',
+        consultSkill: 'page-builder-cms-region-authoring-guidance',
+        currentPageHasExistingCmsRegions: true,
+        doNotInventCmsTags: true,
+        doNotGuessBindingProps: true,
+        doNotAddPageWideVueRuntime: true,
+        queryPropsChangeRequiresConfirmedApply: true,
+      },
+    })
+
+    expect(extractCmsGuidanceNotice(decorated)).toEqual({
+      mode: 'page-has-existing-cms-regions',
+      consultSkill: 'page-builder-cms-region-authoring-guidance',
+      currentPageHasExistingCmsRegions: true,
+      doNotInventCmsTags: true,
+      doNotGuessBindingProps: true,
+      doNotAddPageWideVueRuntime: true,
+      queryPropsChangeRequiresConfirmedApply: true,
+    })
+    expect(decorated).not.toContain('<page_builder_selection>')
   })
 })

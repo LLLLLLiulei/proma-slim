@@ -31,7 +31,7 @@ describe('page-builder CMS authoring contract', () => {
     }
 
     expect(module.PAGE_BUILDER_CMS_AUTHORING_CONTRACT_VERSION).toBeGreaterThan(0)
-    expect(module.PAGE_BUILDER_CMS_AUTHORING_CONTRACT_VERSION).toBe(2)
+    expect(module.PAGE_BUILDER_CMS_AUTHORING_CONTRACT_VERSION).toBe(3)
     expect(module.PAGE_BUILDER_CMS_AUTHORING_CONTRACT.slotScope).toEqual(['items', 'loading', 'error', 'empty'])
     expect(module.PAGE_BUILDER_CMS_AUTHORING_CONTRACT.forbiddenStructures).toEqual(expect.arrayContaining([
       'nested-cms-islands',
@@ -146,5 +146,114 @@ describe('page-builder CMS authoring contract', () => {
       recommendedImageField: 'listLogoUrl',
       forbiddenStructures: ['nested-cms-islands', 'dangerous-tags', 'outer-slot-wrapper'],
     })
+  })
+
+  test('derives an ordinary existing-region digest from the same canonical contract', async () => {
+    expect(existsSync(CONTRACT_PATH)).toBe(true)
+    if (!existsSync(CONTRACT_PATH)) {
+      return
+    }
+
+    const module = await import(pathToFileURL(CONTRACT_PATH).href) as {
+      buildPageBuilderCmsOrdinaryAuthoringDigest: (component: 'cms-catalog' | 'cms-content', sourceType: string) => {
+        mode: string
+        component: string
+        sourceType: string
+        boundary: {
+          editBoundary: string
+          sourceFirst: boolean
+          queryPropsChangeRequiresConfirmedApply: boolean
+          runtimeOnlyAttrsAreNotAuthoringSurface: boolean
+          vueSyntaxInsideSourceTagOnly: boolean
+          nonCmsRegionsHtmlOnly: boolean
+        }
+      }
+    }
+
+    expect(module.buildPageBuilderCmsOrdinaryAuthoringDigest('cms-catalog', 'catalogs-by-parent')).toMatchObject({
+      mode: 'ordinary-existing-region',
+      component: 'cms-catalog',
+      sourceType: 'catalogs-by-parent',
+      boundary: {
+        editBoundary: 'source-atomic',
+        sourceFirst: true,
+        queryPropsChangeRequiresConfirmedApply: true,
+        runtimeOnlyAttrsAreNotAuthoringSurface: true,
+        vueSyntaxInsideSourceTagOnly: true,
+        nonCmsRegionsHtmlOnly: true,
+      },
+    })
+  })
+
+  test('infers sourceType from the existing cms source tag outer html', async () => {
+    expect(existsSync(CONTRACT_PATH)).toBe(true)
+    if (!existsSync(CONTRACT_PATH)) {
+      return
+    }
+
+    const module = await import(pathToFileURL(CONTRACT_PATH).href) as {
+      resolvePageBuilderCmsAuthoringSourceTypeFromSourceTag: (
+        component: 'cms-catalog' | 'cms-content',
+        sourceTagOuterHtml: string,
+      ) => string
+    }
+
+    expect(module.resolvePageBuilderCmsAuthoringSourceTypeFromSourceTag(
+      'cms-catalog',
+      '<cms-catalog site-id="14" ids="nav-a,nav-b"></cms-catalog>',
+    )).toBe('catalogs-by-ids')
+    expect(module.resolvePageBuilderCmsAuthoringSourceTypeFromSourceTag(
+      'cms-catalog',
+      '<cms-catalog site-id="14" level="children" parent-id="7"></cms-catalog>',
+    )).toBe('catalogs-by-parent')
+    expect(module.resolvePageBuilderCmsAuthoringSourceTypeFromSourceTag(
+      'cms-content',
+      '<cms-content site-id="14" catalog-id="news" ids="c-1,c-2"></cms-content>',
+    )).toBe('contents-by-ids')
+    expect(module.resolvePageBuilderCmsAuthoringSourceTypeFromSourceTag(
+      'cms-content',
+      '<cms-content site-id="14" catalog-id="news" page-size="4"></cms-content>',
+    )).toBe('contents-by-catalog')
+  })
+
+  test('keeps sourceType derivation conservative when source props are missing or conflicting', async () => {
+    expect(existsSync(CONTRACT_PATH)).toBe(true)
+    if (!existsSync(CONTRACT_PATH)) {
+      return
+    }
+
+    const module = await import(pathToFileURL(CONTRACT_PATH).href) as {
+      tryResolvePageBuilderCmsAuthoringSourceTypeFromSourceTag: (
+        component: 'cms-catalog' | 'cms-content',
+        sourceTagOuterHtml: string,
+      ) => unknown
+      resolvePageBuilderCmsAuthoringSourceTypeFromSourceTag: (
+        component: 'cms-catalog' | 'cms-content',
+        sourceTagOuterHtml: string,
+      ) => string
+    }
+
+    expect(module.tryResolvePageBuilderCmsAuthoringSourceTypeFromSourceTag(
+      'cms-content',
+      '<cms-content catalog-id="news"></cms-content>',
+    )).toEqual({
+      status: 'unresolved',
+      reason: 'missing-required-props',
+      missingProps: ['site-id'],
+    })
+
+    expect(module.tryResolvePageBuilderCmsAuthoringSourceTypeFromSourceTag(
+      'cms-content',
+      '<cms-content site-id="14" catalog-id="news" ids="c-1" page-size="4"></cms-content>',
+    )).toEqual({
+      status: 'unresolved',
+      reason: 'conflicting-source-props',
+      conflictingProps: ['page-size'],
+    })
+
+    expect(() => module.resolvePageBuilderCmsAuthoringSourceTypeFromSourceTag(
+      'cms-catalog',
+      '<cms-catalog site-id="14" parent-id="7"></cms-catalog>',
+    )).toThrow('Unable to resolve CMS authoring sourceType')
   })
 })

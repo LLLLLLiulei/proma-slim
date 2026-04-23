@@ -4,6 +4,7 @@ import { AlertTriangle, LoaderCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import type {
   PageBuilderBlockDeletionPayload,
+  PageBuilderCmsAuthoringComponent,
   PageBuilderCmsAutoAgentHandoffRequest,
   PageBuilderCmsAutoAgentHandoffSettledResult,
   PageBuilderCmsSelectionEntryPoint,
@@ -15,8 +16,16 @@ import type {
   PageBuilderStaticExportJob,
   PageBuilderTargetSelection,
 } from '@proma/shared'
-import { createPageBuilderBlockTargetSelection } from '@proma/shared'
-import { AgentView } from '@/components/agent'
+import {
+  buildPageBuilderCmsOrdinaryAuthoringDigest,
+  createPageBuilderBlockTargetSelection,
+  tryResolvePageBuilderCmsAuthoringSourceTypeFromSourceTag,
+} from '@proma/shared'
+import {
+  AgentView,
+  prepareAgentSendPayload,
+  type AgentSendPayloadPreparationResult,
+} from '@/components/agent'
 import {
   agentStreamingStatesAtom,
   agentSessionsAtom,
@@ -35,7 +44,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
-import { api } from '@/lib/api'
+import { ApiError, api } from '@/lib/api'
 import { clearBootstrapPayload, readBootstrapPayload } from '@page-builder/lib/bootstrap-cache'
 import { resolveBuilderContext } from '@page-builder/lib/builder-context'
 import {
@@ -59,7 +68,9 @@ import {
   writeWorkspacePreviewState,
 } from '@page-builder/lib/preview-state-cache'
 import {
+  composePageBuilderAuthoringMessage,
   decoratePageBuilderSelectionMessage,
+  type PageBuilderCmsGuidanceNotice,
   type PageBuilderPreviewSelectionEvent,
 } from '@page-builder/lib/preview-selection'
 import { CmsBrowserDialog } from '@page-builder/components/builder/CmsBrowserDialog'
@@ -75,6 +86,57 @@ type LoadState =
 type SelectionActionState = 'idle' | 'armed' | 'selected'
 
 const PAGE_BUILDER_GUIDED_GENERATION_SKILL = 'page-builder-guided-generation'
+const PAGE_BUILDER_CMS_REGION_AUTHORING_GUIDANCE_SKILL = 'page-builder-cms-region-authoring-guidance'
+const CMS_REGION_BLOCKED_ERROR_MESSAGE = '当前已选 CMS 区域已失效或无法确认，请重新选择该区域后再修改。'
+
+function buildPageBuilderCmsGlobalGuidanceNotice(): PageBuilderCmsGuidanceNotice {
+  return {
+    mode: 'page-has-existing-cms-regions',
+    consultSkill: 'page-builder-cms-region-authoring-guidance',
+    currentPageHasExistingCmsRegions: true,
+    doNotInventCmsTags: true,
+    doNotGuessBindingProps: true,
+    doNotAddPageWideVueRuntime: true,
+    queryPropsChangeRequiresConfirmedApply: true,
+  }
+}
+
+function buildPageBuilderDegradedCmsRegionNotice(
+  component: 'cms-catalog' | 'cms-content',
+  reason: 'target-snapshot-fetch-failed' | 'source-type-unresolved',
+): PageBuilderCmsGuidanceNotice {
+  return {
+    ...buildPageBuilderCmsGlobalGuidanceNotice(),
+    mode: 'targeted-cms-region-guidance-degraded',
+    currentTargetIsExistingCmsRegion: true,
+    component,
+    allowOnlyNonBindingEdits: true,
+    reason,
+  }
+}
+
+function buildGuidedMentionedSkills(baseSkills: string[], needsCmsGuidance: boolean): string[] {
+  return Array.from(new Set([
+    ...baseSkills,
+    ...(needsCmsGuidance ? [PAGE_BUILDER_CMS_REGION_AUTHORING_GUIDANCE_SKILL] : []),
+  ]))
+}
+
+function shouldBlockCmsTargetSendPreparation(error: unknown): boolean {
+  return error instanceof ApiError && (error.status === 404 || error.status === 409)
+}
+
+function buildCmsTargetSendBlockedResult(error: unknown): AgentSendPayloadPreparationResult {
+  const rawMessage = error instanceof Error ? error.message.trim() : ''
+  const errorMessage = rawMessage.length > 0 && rawMessage !== CMS_REGION_BLOCKED_ERROR_MESSAGE
+    ? `${CMS_REGION_BLOCKED_ERROR_MESSAGE} ${rawMessage}`
+    : CMS_REGION_BLOCKED_ERROR_MESSAGE
+
+  return {
+    blocked: true,
+    errorMessage,
+  }
+}
 
 function resolvePageBuilderTargetBlockSelector(targetSelection: PageBuilderTargetSelection): string {
   return targetSelection.kind === 'cms-island'
@@ -746,6 +808,112 @@ export function BuilderPage({
       ...selectedTargetSelection,
     })
   }, [selectedTargetSelection])
+  const prepareSendPayload = React.useCallback(async ({
+    userMessage,
+    sessionId: _sessionId,
+    workspaceId: _preparedWorkspaceId,
+  }: {
+    userMessage: string
+    sessionId: string
+    workspaceId?: string
+  }): Promise<AgentSendPayloadPreparationResult> => {
+    const basePayload = prepareAgentSendPayload(
+      userMessage,
+      messageDecorator,
+      [PAGE_BUILDER_GUIDED_GENERATION_SKILL],
+    )
+    const pageHasExistingCmsRegions = previewState?.hasCmsRendering === true
+    const pageLevelCmsNotice = pageHasExistingCmsRegions
+      ? buildPageBuilderCmsGlobalGuidanceNotice()
+      : undefined
+    const baseMentionedSkills = buildGuidedMentionedSkills(
+      basePayload.mentionedSkills,
+      pageHasExistingCmsRegions,
+    )
+
+    if (!selectedTargetSelection) {
+      if (!pageLevelCmsNotice) {
+        return basePayload
+      }
+
+      return {
+        ...basePayload,
+        composedUserMessage: composePageBuilderAuthoringMessage(userMessage, {
+          cmsGuidanceNotice: pageLevelCmsNotice,
+        }),
+        mentionedSkills: baseMentionedSkills,
+      }
+    }
+
+    if (selectedTargetSelection.kind !== 'cms-island') {
+      if (!pageLevelCmsNotice) {
+        return basePayload
+      }
+
+      return {
+        ...basePayload,
+        composedUserMessage: decoratePageBuilderSelectionMessage(userMessage, {
+          ...selectedTargetSelection,
+        }, {
+          cmsGuidanceNotice: pageLevelCmsNotice,
+        }),
+        mentionedSkills: baseMentionedSkills,
+      }
+    }
+
+    try {
+      const targetSnapshot = await api.getPageBuilderCmsTargetSnapshot(workspaceId, selectedTargetSelection)
+      if (targetSnapshot.kind !== 'cms-island') {
+        return buildCmsTargetSendBlockedResult(new Error(CMS_REGION_BLOCKED_ERROR_MESSAGE))
+      }
+
+      const component = selectedTargetSelection.component as PageBuilderCmsAuthoringComponent
+      const sourceTypeResolution = tryResolvePageBuilderCmsAuthoringSourceTypeFromSourceTag(
+        component,
+        targetSnapshot.targetOuterHtml,
+      )
+
+      if (sourceTypeResolution.status !== 'resolved') {
+        return {
+          ...basePayload,
+          composedUserMessage: decoratePageBuilderSelectionMessage(userMessage, {
+            ...selectedTargetSelection,
+          }, {
+            cmsGuidanceNotice: buildPageBuilderDegradedCmsRegionNotice(component, 'source-type-unresolved'),
+          }),
+          mentionedSkills: buildGuidedMentionedSkills(basePayload.mentionedSkills, true),
+        }
+      }
+
+      const ordinaryDigest = buildPageBuilderCmsOrdinaryAuthoringDigest(component, sourceTypeResolution.sourceType)
+
+      return {
+        ...basePayload,
+        composedUserMessage: decoratePageBuilderSelectionMessage(userMessage, {
+          ...selectedTargetSelection,
+        }, {
+          ...(pageLevelCmsNotice ? { cmsGuidanceNotice: pageLevelCmsNotice } : {}),
+          ordinaryCmsRegionDigest: ordinaryDigest,
+        }),
+        mentionedSkills: buildGuidedMentionedSkills(basePayload.mentionedSkills, true),
+      }
+    } catch (error) {
+      if (shouldBlockCmsTargetSendPreparation(error)) {
+        return buildCmsTargetSendBlockedResult(error)
+      }
+
+      console.warn('[BuilderPage] 准备已有 CMS 区域 guidance 注入失败，回退到降级 CMS guidance', error)
+      return {
+        ...basePayload,
+        composedUserMessage: decoratePageBuilderSelectionMessage(userMessage, {
+          ...selectedTargetSelection,
+        }, {
+          cmsGuidanceNotice: buildPageBuilderDegradedCmsRegionNotice(selectedTargetSelection.component, 'target-snapshot-fetch-failed'),
+        }),
+        mentionedSkills: buildGuidedMentionedSkills(basePayload.mentionedSkills, true),
+      }
+    }
+  }, [messageDecorator, previewState?.hasCmsRendering, selectedTargetSelection, workspaceId])
   if (loadState.status === 'loading') {
     return (
       <div className="page-builder-workbench flex min-h-[100dvh] items-center justify-center px-6 py-10">
@@ -832,6 +1000,7 @@ export function BuilderPage({
               onMessageSent={handleMessageSent}
               onInitialUserMessageHandled={handleInitialUserMessageHandled}
               onProgrammaticSendSettled={handleCmsAutoHandoffSettled}
+              prepareSendPayload={prepareSendPayload}
               programmaticSendRequest={cmsAutoHandoffRequest}
               sessionId={sessionId}
               showComposerMeta={false}

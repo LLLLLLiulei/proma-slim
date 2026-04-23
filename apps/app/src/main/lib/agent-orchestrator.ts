@@ -36,6 +36,7 @@ import type { ClaudeAgentQueryOptions } from './adapters/claude-agent-adapter'
 import { isPromptTooLongError } from './adapters/claude-agent-adapter'
 import { AgentEventBus } from './agent-event-bus'
 import { appendAgentMessage, updateAgentSessionMeta, getAgentSessionMeta, getAgentSessionMessages } from './agent-session-manager'
+import { reconstructAssistantContent } from './agent-assistant-content'
 import { deleteAgentSessionAttachments } from './agent-attachment-service'
 import {
   getAgentSessionWorkspacePath,
@@ -844,10 +845,15 @@ export class AgentOrchestrator {
   ): void {
     if (!accumulatedText && accumulatedEvents.length === 0) return
 
+    const persistedContent = reconstructAssistantContent(
+      accumulatedText,
+      accumulatedEvents,
+    )
+
     const assistantMsg: AgentMessage = {
       id: randomUUID(),
       role: 'assistant',
-      content: accumulatedText,
+      content: persistedContent,
       createdAt: Date.now(),
       model: resolvedModel,
       events: accumulatedEvents,

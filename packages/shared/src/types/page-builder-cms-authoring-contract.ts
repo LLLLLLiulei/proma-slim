@@ -1,6 +1,6 @@
 import type { PageBuilderCmsSelectionResult } from './page-builder-cms'
 
-export const PAGE_BUILDER_CMS_AUTHORING_CONTRACT_VERSION = 2
+export const PAGE_BUILDER_CMS_AUTHORING_CONTRACT_VERSION = 3
 
 export const PAGE_BUILDER_CMS_AUTHORING_SLOT_SCOPE = ['items', 'loading', 'error', 'empty'] as const
 export const PAGE_BUILDER_CMS_AUTHORING_FORBIDDEN_STRUCTURES = [
@@ -53,6 +53,36 @@ export interface PageBuilderCmsAuthoringContractDigest {
   recommendedImageField?: string
   forbiddenStructures: string[]
 }
+
+export interface PageBuilderCmsOrdinaryAuthoringBoundaryDigest {
+  editBoundary: 'source-atomic'
+  sourceFirst: true
+  queryPropsChangeRequiresConfirmedApply: true
+  runtimeOnlyAttrsAreNotAuthoringSurface: true
+  vueSyntaxInsideSourceTagOnly: true
+  nonCmsRegionsHtmlOnly: true
+}
+
+export interface PageBuilderCmsOrdinaryAuthoringDigest extends PageBuilderCmsAuthoringContractDigest {
+  mode: 'ordinary-existing-region'
+  boundary: PageBuilderCmsOrdinaryAuthoringBoundaryDigest
+}
+
+export type PageBuilderCmsAuthoringSourceTypeResolutionReason =
+  | 'missing-required-props'
+  | 'conflicting-source-props'
+
+export type PageBuilderCmsAuthoringSourceTypeResolution =
+  | {
+      status: 'resolved'
+      sourceType: PageBuilderCmsAuthoringSourceType
+    }
+  | {
+      status: 'unresolved'
+      reason: PageBuilderCmsAuthoringSourceTypeResolutionReason
+      missingProps?: string[]
+      conflictingProps?: string[]
+    }
 
 export interface PageBuilderCmsAuthoringContract {
   version: typeof PAGE_BUILDER_CMS_AUTHORING_CONTRACT_VERSION
@@ -188,6 +218,14 @@ const CMS_CONTENT_ITEM_META: PageBuilderCmsAuthoringFieldContract[] = [
 
 const CMS_CATALOG_ITEM_FIELDS = CMS_CATALOG_ITEM_META.map((field) => field.name)
 const CMS_CONTENT_ITEM_FIELDS = CMS_CONTENT_ITEM_META.map((field) => field.name)
+const ORDINARY_AUTHORING_BOUNDARY: PageBuilderCmsOrdinaryAuthoringBoundaryDigest = {
+  editBoundary: 'source-atomic',
+  sourceFirst: true,
+  queryPropsChangeRequiresConfirmedApply: true,
+  runtimeOnlyAttrsAreNotAuthoringSurface: true,
+  vueSyntaxInsideSourceTagOnly: true,
+  nonCmsRegionsHtmlOnly: true,
+}
 
 export const PAGE_BUILDER_CMS_AUTHORING_CONTRACT: PageBuilderCmsAuthoringContract = {
   version: PAGE_BUILDER_CMS_AUTHORING_CONTRACT_VERSION,
@@ -261,5 +299,137 @@ export function buildPageBuilderCmsAuthoringDigest(
     ...(componentContract.recommendedLinkField ? { recommendedLinkField: componentContract.recommendedLinkField } : {}),
     ...(componentContract.recommendedImageField ? { recommendedImageField: componentContract.recommendedImageField } : {}),
     forbiddenStructures: [...PAGE_BUILDER_CMS_AUTHORING_CONTRACT.forbiddenStructures],
+  }
+}
+
+function readCmsSourceTagAttribute(sourceTagOuterHtml: string, attributeName: string): string | null {
+  const escapedAttributeName = attributeName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const match = sourceTagOuterHtml.match(new RegExp(`\\b${escapedAttributeName}\\s*=\\s*"([^"]*)"`, 'i'))
+  if (!match) {
+    return null
+  }
+
+  const value = match[1]?.trim() ?? ''
+  return value.length > 0 ? value : null
+}
+
+function findMissingRequiredProps(
+  sourceTagOuterHtml: string,
+  requiredProps: readonly string[],
+): string[] {
+  return requiredProps.filter((prop) => !readCmsSourceTagAttribute(sourceTagOuterHtml, prop))
+}
+
+function findPresentProps(
+  sourceTagOuterHtml: string,
+  props: readonly string[],
+): string[] {
+  return props.filter((prop) => Boolean(readCmsSourceTagAttribute(sourceTagOuterHtml, prop)))
+}
+
+export function tryResolvePageBuilderCmsAuthoringSourceTypeFromSourceTag(
+  component: PageBuilderCmsAuthoringComponent,
+  sourceTagOuterHtml: string,
+): PageBuilderCmsAuthoringSourceTypeResolution {
+  const ids = readCmsSourceTagAttribute(sourceTagOuterHtml, 'ids')
+
+  if (component === 'cms-catalog') {
+    if (ids) {
+      const missingProps = findMissingRequiredProps(sourceTagOuterHtml, ['site-id', 'ids'])
+      const conflictingProps = findPresentProps(sourceTagOuterHtml, ['level', 'parent-id', 'content-type', 'search-keyword'])
+
+      if (conflictingProps.length > 0) {
+        return {
+          status: 'unresolved',
+          reason: 'conflicting-source-props',
+          conflictingProps,
+        }
+      }
+
+      return missingProps.length > 0
+        ? {
+            status: 'unresolved',
+            reason: 'missing-required-props',
+            missingProps,
+          }
+        : {
+            status: 'resolved',
+            sourceType: 'catalogs-by-ids',
+          }
+    }
+
+    const missingProps = findMissingRequiredProps(sourceTagOuterHtml, ['site-id', 'level', 'parent-id'])
+    return missingProps.length > 0
+      ? {
+          status: 'unresolved',
+          reason: 'missing-required-props',
+          missingProps,
+        }
+      : {
+          status: 'resolved',
+          sourceType: 'catalogs-by-parent',
+        }
+  }
+
+  if (ids) {
+    const missingProps = findMissingRequiredProps(sourceTagOuterHtml, ['site-id', 'catalog-id', 'ids'])
+    const conflictingProps = findPresentProps(sourceTagOuterHtml, ['keyword', 'page-index', 'page-size'])
+
+    if (conflictingProps.length > 0) {
+      return {
+        status: 'unresolved',
+        reason: 'conflicting-source-props',
+        conflictingProps,
+      }
+    }
+
+    return missingProps.length > 0
+      ? {
+          status: 'unresolved',
+          reason: 'missing-required-props',
+          missingProps,
+        }
+      : {
+          status: 'resolved',
+          sourceType: 'contents-by-ids',
+        }
+  }
+
+  const missingProps = findMissingRequiredProps(sourceTagOuterHtml, ['site-id', 'catalog-id'])
+  return missingProps.length > 0
+    ? {
+        status: 'unresolved',
+        reason: 'missing-required-props',
+        missingProps,
+      }
+    : {
+        status: 'resolved',
+        sourceType: 'contents-by-catalog',
+      }
+}
+
+export function resolvePageBuilderCmsAuthoringSourceTypeFromSourceTag(
+  component: PageBuilderCmsAuthoringComponent,
+  sourceTagOuterHtml: string,
+): PageBuilderCmsAuthoringSourceType {
+  const result = tryResolvePageBuilderCmsAuthoringSourceTypeFromSourceTag(component, sourceTagOuterHtml)
+  if (result.status === 'resolved') {
+    return result.sourceType
+  }
+
+  const details = result.reason === 'missing-required-props'
+    ? `missing ${result.missingProps?.join(', ') ?? 'required props'}`
+    : `conflicting ${result.conflictingProps?.join(', ') ?? 'source props'}`
+  throw new Error(`Unable to resolve CMS authoring sourceType for ${component}: ${details}`)
+}
+
+export function buildPageBuilderCmsOrdinaryAuthoringDigest(
+  component: PageBuilderCmsAuthoringComponent,
+  sourceType: PageBuilderCmsAuthoringSourceType,
+): PageBuilderCmsOrdinaryAuthoringDigest {
+  return {
+    mode: 'ordinary-existing-region',
+    ...buildPageBuilderCmsAuthoringDigest(component, sourceType),
+    boundary: { ...ORDINARY_AUTHORING_BOUNDARY },
   }
 }

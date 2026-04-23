@@ -21,6 +21,7 @@ Do not use this skill when:
 
 - The user still needs to browse or pick CMS data.
 - The task is generic page generation unrelated to CMS binding.
+- The task is an ordinary edit to an already-bound CMS region without a confirmed CMS handoff. That case should stay in the ordinary guidance path first.
 - The flow needs append, merge, whole-page rewrite, or multi-block orchestration.
 
 ## Input Preconditions

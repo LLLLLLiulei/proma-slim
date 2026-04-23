@@ -17,6 +17,7 @@ import {
   getAgentSessionMessagesPath,
 } from './config-paths'
 import type { AgentSessionMeta, AgentMessage } from '@proma/shared'
+import { reconstructAssistantContent } from './agent-assistant-content'
 import {
   ensureDefaultWorkspace,
   getAgentWorkspace,
@@ -153,7 +154,25 @@ export function getAgentSessionMessages(id: string): AgentMessage[] {
   try {
     const raw = readFileSync(filePath, 'utf-8')
     const lines = raw.split('\n').filter((line) => line.trim())
-    return lines.map((line) => JSON.parse(line) as AgentMessage)
+    return lines.map((line) => {
+      const message = JSON.parse(line) as AgentMessage
+      if (message.role !== 'assistant') {
+        return message
+      }
+
+      const repairedContent = reconstructAssistantContent(
+        message.content,
+        message.events,
+      )
+      if (repairedContent === message.content) {
+        return message
+      }
+
+      return {
+        ...message,
+        content: repairedContent,
+      }
+    })
   } catch (error) {
     console.error(`[Agent 会话] 读取消息失败 (${id}):`, error)
     return []

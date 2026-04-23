@@ -112,4 +112,45 @@ describe('agent session workspace ownership', () => {
     expect(getAgentSessionMeta(session.id)).toBeUndefined()
     expect(existsSync(sessionDir)).toBe(false)
   })
+
+  test('reconstructs assistant content from persisted text_complete events when legacy records stored an empty content field', () => {
+    const session = createAgentSession('兼容旧 assistant 记录')
+
+    appendAgentMessage(session.id, {
+      id: 'assistant-legacy-empty-content',
+      role: 'assistant',
+      content: '',
+      createdAt: Date.now(),
+      model: 'claude-sonnet-4-6',
+      events: [
+        {
+          type: 'text_complete',
+          text: '先说明当前状态。',
+          isIntermediate: true,
+        },
+        {
+          type: 'tool_start',
+          toolName: 'mcp__cms__apply_cms_binding',
+          toolUseId: 'tool-legacy-fix',
+          input: {},
+        },
+        {
+          type: 'tool_result',
+          toolUseId: 'tool-legacy-fix',
+          toolName: 'mcp__cms__apply_cms_binding',
+          result: 'ok',
+          isError: false,
+        },
+        {
+          type: 'text_complete',
+          text: '最终结果：绑定成功。',
+          isIntermediate: false,
+        },
+      ],
+    })
+
+    const messages = getAgentSessionMessages(session.id)
+
+    expect(messages[0]?.content).toBe('先说明当前状态。最终结果：绑定成功。')
+  })
 })

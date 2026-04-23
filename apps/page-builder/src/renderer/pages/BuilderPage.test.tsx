@@ -6,6 +6,7 @@ import { act, create } from 'react-test-renderer'
 import type {
   AgentSessionMeta,
   AgentWorkspace,
+  PageBuilderCmsApplyTargetSnapshot,
   PageBuilderCmsAutoAgentHandoffRequest,
   PageBuilderCmsAutoAgentHandoffSettledResult,
   PageBuilderCmsSelectionResult,
@@ -73,6 +74,24 @@ function extractPageBuilderSelectionPayload(message: string): unknown {
   const match = message.match(/<page_builder_selection>\s*([\s\S]*?)\s*<\/page_builder_selection>/)
   if (!match) {
     throw new Error('missing page_builder_selection payload')
+  }
+
+  return JSON.parse(match[1]!)
+}
+
+function extractPageBuilderCmsRegionAuthoringPayload(message: string): unknown {
+  const match = message.match(/<page_builder_cms_region_authoring>\s*([\s\S]*?)\s*<\/page_builder_cms_region_authoring>/)
+  if (!match) {
+    throw new Error('missing page_builder_cms_region_authoring payload')
+  }
+
+  return JSON.parse(match[1]!)
+}
+
+function extractPageBuilderCmsGuidanceNoticePayload(message: string): unknown {
+  const match = message.match(/<page_builder_cms_guidance_notice>\s*([\s\S]*?)\s*<\/page_builder_cms_guidance_notice>/)
+  if (!match) {
+    throw new Error('missing page_builder_cms_guidance_notice payload')
   }
 
   return JSON.parse(match[1]!)
@@ -195,6 +214,10 @@ async function loadBuilderPage(options: {
   workspaces: AgentWorkspace[]
   previewStates?: WorkspacePreviewState[]
   getWorkspacePreviewStateImpl?: () => Promise<WorkspacePreviewState>
+  getPageBuilderCmsTargetSnapshotImpl?: (
+    workspaceId: string,
+    targetSelection: PageBuilderTargetSelection,
+  ) => Promise<PageBuilderCmsApplyTargetSnapshot>
   savePageBuilderInlineTextImpl?: (workspaceId: string, payload: unknown) => Promise<WorkspacePreviewState>
   createPageBuilderCmsAutoHandoffImpl?: (
     workspaceId: string,
@@ -223,6 +246,15 @@ async function loadBuilderPage(options: {
   let lastPreviewPaneProps: Record<string, unknown> | null = null
   let lastCmsBrowserDialogProps: Record<string, unknown> | null = null
   let previewStateIndex = 0
+  class MockApiError extends Error {
+    status: number
+
+    constructor(message: string, status: number) {
+      super(message)
+      this.name = 'ApiError'
+      this.status = status
+    }
+  }
   const toastError = options.toastErrorImpl ?? mock(() => {})
   const toastSuccess = options.toastSuccessImpl ?? mock(() => {})
 
@@ -230,6 +262,32 @@ async function loadBuilderPage(options: {
     AgentView(props: Record<string, unknown>) {
       lastAgentViewProps = props
       return React.createElement('div', { 'data-testid': 'agent-view' })
+    },
+    prepareAgentSendPayload(
+      userMessage: string,
+      messageDecorator?: (message: string) => string,
+      defaultMentionedSkills: string[] = [],
+    ) {
+      const composedUserMessage = messageDecorator ? messageDecorator(userMessage) : undefined
+      const visibleMentionedSkills = [...userMessage.matchAll(/\/skill:(\S+)/g)]
+        .map((match) => match[1])
+        .filter(Boolean)
+      const mentionedMcpServers = [...userMessage.matchAll(/#mcp:(\S+)/g)]
+        .map((match) => match[1])
+        .filter(Boolean)
+      const mentionedSkills = Array.from(new Set([
+        ...visibleMentionedSkills,
+        ...defaultMentionedSkills.filter(Boolean),
+      ]))
+
+      return {
+        userMessage,
+        ...(composedUserMessage && composedUserMessage !== userMessage
+          ? { composedUserMessage }
+          : {}),
+        mentionedSkills,
+        mentionedMcpServers,
+      }
     },
   }))
 
@@ -280,6 +338,7 @@ async function loadBuilderPage(options: {
   }))
 
   mock.module('@/lib/api', () => ({
+    ApiError: MockApiError,
     api: {
       listSessions: async () => options.sessions,
       listWorkspaces: async () => options.workspaces,
@@ -294,6 +353,23 @@ async function loadBuilderPage(options: {
         const state = states[Math.min(previewStateIndex, states.length - 1)]!
         previewStateIndex += 1
         return state
+      }),
+      getPageBuilderCmsTargetSnapshot: options.getPageBuilderCmsTargetSnapshotImpl ?? (async (_workspaceId: string, targetSelection: PageBuilderTargetSelection) => {
+        if (targetSelection.kind !== 'cms-island') {
+          throw new Error('only cms-island target selections are supported in this mock')
+        }
+
+        return {
+          kind: 'cms-island',
+          htmlPath: targetSelection.htmlPath,
+          sourceSelector: targetSelection.sourceSelector,
+          parentBlockSelector: targetSelection.parentBlockSelector,
+          component: targetSelection.component,
+          targetOuterHtml: targetSelection.component === 'cms-catalog'
+            ? '<cms-catalog site-id="14" level="children" parent-id="7"></cms-catalog>'
+            : '<cms-content site-id="14" catalog-id="news" page-size="4"></cms-content>',
+          parentBlockOuterHtml: '<section data-proma-block-id="pb_blk_region"></section>',
+        }
       }),
       createPageBuilderCmsAutoHandoff: options.createPageBuilderCmsAutoHandoffImpl ?? (async (_workspaceId: string, payload: {
         sessionId: string
@@ -331,6 +407,7 @@ async function loadBuilderPage(options: {
 
   return {
     BuilderPage: module.BuilderPage,
+    ApiError: MockApiError,
     getLastAgentViewProps() {
       return lastAgentViewProps
     },
@@ -1240,6 +1317,13 @@ describe('BuilderPage', () => {
       sessions: [session],
       workspaces: [workspace],
       mockPreviewPane: true,
+      previewStates: [{
+        hasPreview: true,
+        entryUrl: `/api/workspaces/${workspace.id}/preview/`,
+        revision: 'rev-1',
+        hasCmsRendering: true,
+        requiresSameOrigin: true,
+      }],
     })
 
     await act(async () => {
@@ -1538,6 +1622,13 @@ describe('BuilderPage', () => {
       sessions: [session],
       workspaces: [workspace],
       mockPreviewPane: true,
+      previewStates: [{
+        hasPreview: true,
+        entryUrl: `/api/workspaces/${workspace.id}/preview/`,
+        revision: 'rev-1',
+        hasCmsRendering: true,
+        requiresSameOrigin: true,
+      }],
     })
 
     await act(async () => {
@@ -1873,6 +1964,361 @@ describe('BuilderPage', () => {
         forbidSiblingInsertion: true,
         forbidDangerousSlotTags: ['script', 'style'],
       },
+    })
+  })
+
+  test('does not inject cms-region guidance for ordinary static block edits', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const { BuilderPage, getLastAgentViewProps, getLastPreviewPaneProps } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      mockPreviewPane: true,
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      (getLastPreviewPaneProps() as {
+        onSelectionEvent?: (event: { type: string; targetSelection?: PageBuilderTargetSelection }) => void
+      }).onSelectionEvent?.({
+        type: 'selected',
+        targetSelection: createBlockTargetSelection('#hero'),
+      })
+    })
+
+    const payload = await (getLastAgentViewProps() as {
+      prepareSendPayload?: (input: { userMessage: string; sessionId: string; workspaceId?: string }) => Promise<{
+        mentionedSkills: string[]
+        composedUserMessage?: string
+      }>
+    }).prepareSendPayload?.({
+      userMessage: '继续修改这里',
+      sessionId: session.id,
+      workspaceId: workspace.id,
+    })
+
+    expect(payload).toMatchObject({
+      mentionedSkills: ['page-builder-guided-generation'],
+    })
+    expect(payload?.composedUserMessage).toContain('<page_builder_selection>')
+    expect(payload?.composedUserMessage).not.toContain('<page_builder_cms_region_authoring>')
+  })
+
+  test('injects a lightweight page-level cms notice when the current page already contains cms regions', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const { BuilderPage, getLastAgentViewProps } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      previewStates: [{
+        hasPreview: true,
+        entryUrl: `/api/workspaces/${workspace.id}/preview/`,
+        revision: 'rev-1',
+        hasCmsRendering: true,
+        requiresSameOrigin: true,
+      }],
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    const payload = await (getLastAgentViewProps() as {
+      prepareSendPayload?: (input: { userMessage: string; sessionId: string; workspaceId?: string }) => Promise<{
+        mentionedSkills: string[]
+        composedUserMessage?: string
+      }>
+    }).prepareSendPayload?.({
+      userMessage: '继续调整页面的版式',
+      sessionId: session.id,
+      workspaceId: workspace.id,
+    })
+
+    expect(payload).toMatchObject({
+      mentionedSkills: ['page-builder-guided-generation', 'page-builder-cms-region-authoring-guidance'],
+    })
+    expect(extractPageBuilderCmsGuidanceNoticePayload(payload?.composedUserMessage ?? '')).toMatchObject({
+      mode: 'page-has-existing-cms-regions',
+      consultSkill: 'page-builder-cms-region-authoring-guidance',
+      currentPageHasExistingCmsRegions: true,
+    })
+    expect(payload?.composedUserMessage).not.toContain('<page_builder_cms_region_authoring>')
+  })
+
+  test('injects cms-region guidance skill and digest for ordinary cms-island edits', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const { BuilderPage, getLastAgentViewProps, getLastPreviewPaneProps } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      mockPreviewPane: true,
+      previewStates: [{
+        hasPreview: true,
+        entryUrl: `/api/workspaces/${workspace.id}/preview/`,
+        revision: 'rev-1',
+        hasCmsRendering: true,
+        requiresSameOrigin: true,
+      }],
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      (getLastPreviewPaneProps() as {
+        onSelectionEvent?: (event: { type: string; targetSelection?: PageBuilderTargetSelection }) => void
+      }).onSelectionEvent?.({
+        type: 'selected',
+        targetSelection: createCmsIslandTargetSelection(
+          'section:nth-of-type(2) > cms-content:nth-of-type(1)',
+          '[data-proma-block-id="pb_blk_news"]',
+          'cms-content',
+        ),
+      })
+    })
+
+    const payload = await (getLastAgentViewProps() as {
+      prepareSendPayload?: (input: { userMessage: string; sessionId: string; workspaceId?: string }) => Promise<{
+        mentionedSkills: string[]
+        composedUserMessage?: string
+      }>
+    }).prepareSendPayload?.({
+      userMessage: '继续修改这个区块',
+      sessionId: session.id,
+      workspaceId: workspace.id,
+    })
+
+    expect(payload).toMatchObject({
+      mentionedSkills: ['page-builder-guided-generation', 'page-builder-cms-region-authoring-guidance'],
+    })
+    expect(extractPageBuilderSelectionPayload(payload?.composedUserMessage ?? '')).toMatchObject({
+      targetSelection: {
+        kind: 'cms-island',
+        component: 'cms-content',
+      },
+    })
+    expect(extractPageBuilderCmsRegionAuthoringPayload(payload?.composedUserMessage ?? '')).toMatchObject({
+      mode: 'ordinary-existing-region',
+      component: 'cms-content',
+      sourceType: 'contents-by-catalog',
+      boundary: {
+        editBoundary: 'source-atomic',
+        sourceFirst: true,
+        queryPropsChangeRequiresConfirmedApply: true,
+      },
+    })
+    expect(extractPageBuilderCmsGuidanceNoticePayload(payload?.composedUserMessage ?? '')).toMatchObject({
+      mode: 'page-has-existing-cms-regions',
+    })
+  })
+
+  test('degrades to cms guidance instead of silently falling back to ordinary flow when sourceType cannot be resolved', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const { BuilderPage, getLastAgentViewProps, getLastPreviewPaneProps } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      mockPreviewPane: true,
+      getPageBuilderCmsTargetSnapshotImpl: async (_workspaceId, targetSelection) => ({
+        kind: 'cms-island',
+        htmlPath: 'index.html',
+        sourceSelector: targetSelection.kind === 'cms-island' ? targetSelection.sourceSelector : '',
+        parentBlockSelector: targetSelection.kind === 'cms-island' ? targetSelection.parentBlockSelector : '',
+        component: 'cms-content',
+        targetOuterHtml: '<cms-content site-id="14" catalog-id="news" ids="c-1" page-size="4"></cms-content>',
+        parentBlockOuterHtml: '<section data-proma-block-id="pb_blk_news"></section>',
+      }),
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      (getLastPreviewPaneProps() as {
+        onSelectionEvent?: (event: { type: string; targetSelection?: PageBuilderTargetSelection }) => void
+      }).onSelectionEvent?.({
+        type: 'selected',
+        targetSelection: createCmsIslandTargetSelection(
+          'section:nth-of-type(2) > cms-content:nth-of-type(1)',
+          '[data-proma-block-id="pb_blk_news"]',
+          'cms-content',
+        ),
+      })
+    })
+
+    const payload = await (getLastAgentViewProps() as {
+      prepareSendPayload?: (input: { userMessage: string; sessionId: string; workspaceId?: string }) => Promise<{
+        mentionedSkills: string[]
+        composedUserMessage?: string
+      }>
+    }).prepareSendPayload?.({
+      userMessage: '继续修改这个区块',
+      sessionId: session.id,
+      workspaceId: workspace.id,
+    })
+
+    expect(payload).toMatchObject({
+      mentionedSkills: ['page-builder-guided-generation', 'page-builder-cms-region-authoring-guidance'],
+    })
+    expect(extractPageBuilderCmsGuidanceNoticePayload(payload?.composedUserMessage ?? '')).toMatchObject({
+      mode: 'targeted-cms-region-guidance-degraded',
+      component: 'cms-content',
+      reason: 'source-type-unresolved',
+      allowOnlyNonBindingEdits: true,
+    })
+    expect(payload?.composedUserMessage).not.toContain('<page_builder_cms_region_authoring>')
+  })
+
+  test('blocks the send when the selected cms-island target identity is stale', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const { BuilderPage, ApiError, getLastAgentViewProps, getLastPreviewPaneProps } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      mockPreviewPane: true,
+      getPageBuilderCmsTargetSnapshotImpl: async () => {
+        throw new ApiError('未找到当前 CMS 源标签', 409)
+      },
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      (getLastPreviewPaneProps() as {
+        onSelectionEvent?: (event: { type: string; targetSelection?: PageBuilderTargetSelection }) => void
+      }).onSelectionEvent?.({
+        type: 'selected',
+        targetSelection: createCmsIslandTargetSelection(
+          'section:nth-of-type(2) > cms-content:nth-of-type(1)',
+          '[data-proma-block-id="pb_blk_news"]',
+          'cms-content',
+        ),
+      })
+    })
+
+    const payload = await (getLastAgentViewProps() as {
+      prepareSendPayload?: (input: { userMessage: string; sessionId: string; workspaceId?: string }) => Promise<unknown>
+    }).prepareSendPayload?.({
+      userMessage: '继续修改这个区块',
+      sessionId: session.id,
+      workspaceId: workspace.id,
+    })
+
+    expect(payload).toEqual({
+      blocked: true,
+      errorMessage: '当前已选 CMS 区域已失效或无法确认，请重新选择该区域后再修改。 未找到当前 CMS 源标签',
     })
   })
 
