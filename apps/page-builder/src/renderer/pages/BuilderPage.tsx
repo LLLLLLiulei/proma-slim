@@ -13,6 +13,7 @@ import type {
   PageBuilderImageReplacementPayload,
   PageBuilderInlineTextSaveRequest,
   PageBuilderInlineTextSaveResult,
+  PageBuilderStaticExportJobCreateOptions,
   PageBuilderStaticExportJob,
   PageBuilderTargetSelection,
 } from '@proma/shared'
@@ -187,6 +188,9 @@ export function BuilderPage({
   const [isDeletingBlock, setIsDeletingBlock] = React.useState(false)
   const [isReplacingImage, setIsReplacingImage] = React.useState(false)
   const [staticExportJob, setStaticExportJob] = React.useState<PageBuilderStaticExportJob | null>(null)
+  const [staticExportDialogOpen, setStaticExportDialogOpen] = React.useState(false)
+  const [downloadCmsRemoteAssets, setDownloadCmsRemoteAssets] = React.useState(true)
+  const [isCreatingStaticExportJob, setIsCreatingStaticExportJob] = React.useState(false)
   const selectionModeEnabled = selectionActionState !== 'idle'
   const isAgentStreaming = streamingState?.running === true
 
@@ -440,12 +444,14 @@ export function BuilderPage({
     }
 
     handledStaticExportJobsRef.current.add(job.jobId)
+    setIsCreatingStaticExportJob(false)
 
     if (job.status === 'failed') {
       toast.error(job.failure?.message ?? job.errorMessage ?? '静态包导出失败')
       return
     }
 
+    setStaticExportDialogOpen(false)
     const downloadUrl = job.downloadUrl ?? api.getPageBuilderStaticExportDownloadUrl(workspaceId, job.jobId)
     window.open(downloadUrl, '_blank', 'noopener,noreferrer')
 
@@ -466,16 +472,45 @@ export function BuilderPage({
       return
     }
 
+    setDownloadCmsRemoteAssets(true)
+    setStaticExportDialogOpen(true)
+  }, [previewState?.hasPreview, staticExportJob])
+
+  const handleStaticExportDialogOpenChange = React.useCallback((open: boolean) => {
+    if (!isCreatingStaticExportJob) {
+      setStaticExportDialogOpen(open)
+    }
+  }, [isCreatingStaticExportJob])
+
+  const handleConfirmStaticExport = React.useCallback(async (): Promise<void> => {
+    if (!previewState?.hasPreview) {
+      return
+    }
+
+    if (isCreatingStaticExportJob) {
+      return
+    }
+
+    if (staticExportJob && (staticExportJob.status === 'pending' || staticExportJob.status === 'running')) {
+      return
+    }
+
+    setIsCreatingStaticExportJob(true)
+
     try {
-      const job = await api.createPageBuilderStaticExportJob(workspaceId)
+      const options: PageBuilderStaticExportJobCreateOptions = {
+        downloadCmsRemoteAssets,
+      }
+      const job = await api.createPageBuilderStaticExportJob(workspaceId, options)
       setStaticExportJob(job)
       handleStaticExportSettled(job)
     } catch (error) {
       const message = error instanceof Error ? error.message : '静态包导出失败'
       console.error('[BuilderPage] 静态包导出失败:', error)
       toast.error(message)
+      setIsCreatingStaticExportJob(false)
     }
-  }, [handleStaticExportSettled, previewState?.hasPreview, staticExportJob, workspaceId])
+  }, [downloadCmsRemoteAssets, handleStaticExportSettled, isCreatingStaticExportJob, previewState?.hasPreview, staticExportJob, workspaceId])
 
   React.useEffect(() => {
     if (typeof window === 'undefined') return
@@ -754,7 +789,7 @@ export function BuilderPage({
     () => resolveWorkspacePreviewUrl(previewState),
     [previewState],
   )
-  const exportStaticPending = staticExportJob?.status === 'pending' || staticExportJob?.status === 'running'
+  const exportStaticPending = isCreatingStaticExportJob || staticExportJob?.status === 'pending' || staticExportJob?.status === 'running'
   React.useEffect(() => {
     clearSelection()
   }, [clearSelection, previewUrl])
@@ -1020,6 +1055,66 @@ export function BuilderPage({
         }}
         type="file"
       />
+
+      <AlertDialog
+        onOpenChange={handleStaticExportDialogOpenChange}
+        open={staticExportDialogOpen}
+      >
+        {staticExportDialogOpen ? (
+          <AlertDialogContent className="rounded-[24px] border-border/60">
+            <AlertDialogHeader>
+              <AlertDialogTitle>导出静态包</AlertDialogTitle>
+              <AlertDialogDescription>
+                你可以选择是否一并下载 CMS 远程资源。未勾选时，导出页面会直接使用 CMS 源站资源地址。
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <div className="rounded-2xl border border-border/60 bg-muted/30 px-4 py-3">
+              <label className="flex items-start gap-3 text-sm text-foreground">
+                <input
+                  aria-label="导出 CMS 远程资源"
+                  checked={downloadCmsRemoteAssets}
+                  className="mt-0.5 size-4 rounded border-border"
+                  disabled={isCreatingStaticExportJob}
+                  onChange={(event) => {
+                    setDownloadCmsRemoteAssets(event.currentTarget.checked)
+                  }}
+                  type="checkbox"
+                />
+                <span className="space-y-1">
+                  <span className="block font-medium">导出 CMS 远程资源</span>
+                  <span className="block text-xs text-muted-foreground">
+                    勾选后会把 CMS 图片、附件等远程资源下载进静态包；未勾选时页面将继续引用 CMS 提供的源站地址。
+                  </span>
+                </span>
+              </label>
+            </div>
+            <AlertDialogFooter>
+              <AlertDialogCancel
+                disabled={isCreatingStaticExportJob}
+                onClick={() => {
+                  setStaticExportDialogOpen(false)
+                }}
+              >
+                取消
+              </AlertDialogCancel>
+              <Button
+                disabled={isCreatingStaticExportJob}
+                onClick={() => {
+                  void handleConfirmStaticExport()
+                }}
+                type="button"
+              >
+                {isCreatingStaticExportJob ? (
+                  <span className="inline-flex items-center gap-2">
+                    <LoaderCircle className="size-4 animate-spin" />
+                    <span>正在导出...</span>
+                  </span>
+                ) : '确认导出'}
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        ) : null}
+      </AlertDialog>
 
       <AlertDialog
         onOpenChange={handleDeleteDialogOpenChange}

@@ -6,6 +6,8 @@ import type {
   PageBuilderCmsSelectionResult,
   PageBuilderImageReplacementPayload,
   PageBuilderInlineTextSavePayload,
+  PageBuilderStaticExportJobCreateOptions,
+  PageBuilderStaticExportJobCreateRequest,
   PageBuilderTargetSelection,
 } from '@proma/shared'
 import {
@@ -247,9 +249,11 @@ workspaceRoutes.post('/:workspaceId/page-builder/image', async (c) => {
   }
 })
 
-workspaceRoutes.post('/:workspaceId/page-builder/export-static-jobs', (c) => {
+workspaceRoutes.post('/:workspaceId/page-builder/export-static-jobs', async (c) => {
+  const payload = await readPageBuilderStaticExportJobCreatePayload(c.req.raw)
+
   try {
-    return json(pageBuilderStaticExportService.createJob(c.var.workspace), 202)
+    return json(pageBuilderStaticExportService.createJob(c.var.workspace, payload), 202)
   } catch (error) {
     throw mapStaticExportServiceError(error)
   }
@@ -636,6 +640,39 @@ function readPageBuilderImageReplacementPayload(
   return {
     selector: value.selector,
     imageTargetDescriptor: value.imageTargetDescriptor,
+  }
+}
+
+async function readPageBuilderStaticExportJobCreatePayload(
+  request: Request,
+): Promise<Required<PageBuilderStaticExportJobCreateOptions>> {
+  let body: PageBuilderStaticExportJobCreateRequest = {}
+  const rawBody = await request.text()
+
+  if (rawBody.trim()) {
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(rawBody)
+    } catch {
+      throw new HttpError(400, '请求体必须是合法的 JSON')
+    }
+
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new HttpError(400, '请求体必须是 JSON 对象')
+    }
+
+    body = parsed as PageBuilderStaticExportJobCreateRequest
+  }
+
+  if (
+    body.downloadCmsRemoteAssets !== undefined
+    && typeof body.downloadCmsRemoteAssets !== 'boolean'
+  ) {
+    throw new HttpError(400, 'downloadCmsRemoteAssets 必须是 boolean')
+  }
+
+  return {
+    downloadCmsRemoteAssets: body.downloadCmsRemoteAssets ?? true,
   }
 }
 

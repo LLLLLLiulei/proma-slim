@@ -7,6 +7,7 @@ import type {
   AgentWorkspace,
   PageBuilderStaticExportFailure,
   PageBuilderStaticExportJob,
+  PageBuilderStaticExportJobCreateOptions,
   PageBuilderStaticExportJobPhase,
   PageBuilderStaticExportLocalizedResource,
   PageBuilderStaticExportReport,
@@ -26,7 +27,6 @@ import { getWorkspaceFilesDir } from './config-paths'
 import {
   isAbsoluteHttpUrl,
   isAllowedCmsAssetUrl,
-  isCmsRootRelativeAssetPath,
   isIgnorableUrl,
   looksLikeDownloadableAsset,
   resolveCmsAssetUrl,
@@ -73,6 +73,7 @@ interface PageBuilderStaticExportServiceOptions {
 
 interface StoredJob {
   snapshot: PageBuilderStaticExportJob
+  options: Required<PageBuilderStaticExportJobCreateOptions>
   workspaceId: string
   workspaceName: string
   workspaceSlug: string
@@ -102,6 +103,7 @@ interface ExportContext {
   fetchFn: typeof fetch
   cmsGateway: CmsAssetGateway | null
   cmsBaseUrl: string | null
+  downloadCmsRemoteAssets: boolean
   cmsRuntimeClient: ReturnType<typeof createServerCmsClient>
 }
 
@@ -136,8 +138,12 @@ export class PageBuilderStaticExportService {
     this.randomUUID = options.randomUUID ?? nodeRandomUUID
   }
 
-  createJob(workspace: AgentWorkspace): PageBuilderStaticExportJob {
+  createJob(
+    workspace: AgentWorkspace,
+    options: PageBuilderStaticExportJobCreateOptions = {},
+  ): PageBuilderStaticExportJob {
     this.cleanupExpiredJobs()
+    const normalizedOptions = normalizePageBuilderStaticExportJobCreateOptions(options)
 
     const activeJobId = this.activeJobsByWorkspaceId.get(workspace.id)
     if (activeJobId) {
@@ -157,6 +163,7 @@ export class PageBuilderStaticExportService {
     const exportTimestamp = this.now()
     const storedJob: StoredJob = {
       snapshot,
+      options: normalizedOptions,
       workspaceId: workspace.id,
       workspaceName: workspace.name,
       workspaceSlug: workspace.slug,
@@ -268,14 +275,15 @@ export class PageBuilderStaticExportService {
         stagingDir,
         exportedAssetsDir,
         collector,
-        localizedByUrl: new Map(),
-        processedCssFiles: new Set(),
-        fetchFn: this.fetchFn,
-        cmsGateway,
-        cmsBaseUrl,
-        cmsRuntimeClient: createServerCmsClient({
-          adapter: createStaticExportCmsAdapter(cmsQueryAdapter),
-        }),
+      localizedByUrl: new Map(),
+      processedCssFiles: new Set(),
+      fetchFn: this.fetchFn,
+      cmsGateway,
+      cmsBaseUrl,
+      downloadCmsRemoteAssets: job.options.downloadCmsRemoteAssets,
+      cmsRuntimeClient: createServerCmsClient({
+        adapter: createStaticExportCmsAdapter(cmsQueryAdapter),
+      }),
       }
 
       this.updateSnapshot(job, { phase: 'scanning' })
@@ -317,6 +325,7 @@ export class PageBuilderStaticExportService {
         fetchFn: this.fetchFn,
         cmsGateway: null,
         cmsBaseUrl: null,
+        downloadCmsRemoteAssets: job.options.downloadCmsRemoteAssets,
         cmsRuntimeClient: createServerCmsClient({
           adapter: createStaticExportCmsAdapter(null),
         }),
@@ -504,6 +513,11 @@ export class PageBuilderStaticExportService {
     }
 
     if (resolved.type === 'remote') {
+      if (this.shouldSkipCmsRemoteAsset(resolved.url, context)) {
+        this.recordSkippedCmsRemoteAsset(resolved.url, context)
+        return resolved.url
+      }
+
       const localizedPath = await this.localizeRemoteResource(resolved.url, context, 'stylesheet')
       await this.processCssFile(localizedPath, context, resolved.url)
       return toRelativeReference(currentFilePath, localizedPath)
@@ -528,6 +542,11 @@ export class PageBuilderStaticExportService {
     }
 
     if (resolved.type === 'remote') {
+      if (this.shouldSkipCmsRemoteAsset(resolved.url, context)) {
+        this.recordSkippedCmsRemoteAsset(resolved.url, context)
+        return resolved.url
+      }
+
       const localizedPath = await this.localizeRemoteResource(resolved.url, context, kind)
       return toRelativeReference(currentFilePath, localizedPath)
     }
@@ -559,6 +578,11 @@ export class PageBuilderStaticExportService {
         reason: 'external-link',
       })
       return rawHref
+    }
+
+    if (this.shouldSkipCmsRemoteAsset(resolved.url, context)) {
+      this.recordSkippedCmsRemoteAsset(resolved.url, context)
+      return resolved.url
     }
 
     try {
@@ -636,6 +660,13 @@ export class PageBuilderStaticExportService {
       }
 
       if (resolved.type === 'remote') {
+        if (this.shouldSkipCmsRemoteAsset(resolved.url, context)) {
+          this.recordSkippedCmsRemoteAsset(resolved.url, context)
+          nextCss += `url(${quote || '"'}${resolved.url}${quote || '"'})`
+          lastIndex = index + fullMatch.length
+          continue
+        }
+
         const localizedPath = await this.localizeRemoteResource(resolved.url, context, inferResourceKindFromUrl(resolved.url))
         nextCss += `url(${quote || '"'}${toRelativeReference(currentFilePath, localizedPath)}${quote || '"'})`
         lastIndex = index + fullMatch.length
@@ -711,6 +742,22 @@ export class PageBuilderStaticExportService {
 
     this.updateSnapshotForPhase('downloading')
     return await fetchWithoutLimits(context.fetchFn, resourceUrl)
+  }
+
+  private shouldSkipCmsRemoteAsset(resourceUrl: string, context: ExportContext): boolean {
+    return !context.downloadCmsRemoteAssets && isCmsResourceUrl(resourceUrl, context.cmsBaseUrl)
+  }
+
+  private recordSkippedCmsRemoteAsset(resourceUrl: string, context: ExportContext): void {
+    context.collector.retainedExternalLinks.push({
+      resourceUrl,
+      reason: 'cms-remote-asset-skipped',
+    })
+    context.collector.warnings.push({
+      code: 'cms-remote-asset-skipped',
+      message: `已跳过 CMS 远程资源下载，保留源站地址: ${resourceUrl}`,
+      resourceUrl,
+    })
   }
 
   private updateSnapshotForPhase(phase: PageBuilderStaticExportJobPhase): void {
@@ -864,7 +911,7 @@ function resolveRenderableReference(
     }
   }
 
-  if (context.cmsBaseUrl && isCmsRootRelativeAssetPath(context.cmsBaseUrl, trimmed)) {
+  if (context.cmsBaseUrl) {
     const cmsUrl = resolveCmsAssetUrl(context.cmsBaseUrl, trimmed)
     if (cmsUrl && isAllowedCmsAssetUrl(context.cmsBaseUrl, cmsUrl)) {
       return {
@@ -1018,12 +1065,15 @@ function buildDownloadUrl(workspaceId: string, jobId: string): string {
   return `/api/workspaces/${encodeURIComponent(workspaceId)}/page-builder/export-static-jobs/${jobId}/download`
 }
 
-function isCmsResourceUrl(resourceUrl: string, cmsBaseUrl: string | null): boolean {
-  const normalized = resourceUrl.toLowerCase()
-  if (normalized.includes('/preview/') || normalized.includes('/upload/resources/')) {
-    return true
+function normalizePageBuilderStaticExportJobCreateOptions(
+  options: PageBuilderStaticExportJobCreateOptions,
+): Required<PageBuilderStaticExportJobCreateOptions> {
+  return {
+    downloadCmsRemoteAssets: options.downloadCmsRemoteAssets ?? true,
   }
+}
 
+function isCmsResourceUrl(resourceUrl: string, cmsBaseUrl: string | null): boolean {
   if (!cmsBaseUrl) {
     return false
   }

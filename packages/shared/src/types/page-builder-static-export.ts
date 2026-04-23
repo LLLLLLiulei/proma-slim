@@ -27,13 +27,19 @@ export interface PageBuilderStaticExportLocalizedResource {
   via: 'cms' | 'remote'
 }
 
+export interface PageBuilderStaticExportJobCreateOptions {
+  downloadCmsRemoteAssets?: boolean
+}
+
+export interface PageBuilderStaticExportJobCreateRequest extends PageBuilderStaticExportJobCreateOptions {}
+
 export interface PageBuilderStaticExportRetainedExternalLink {
   resourceUrl: string
-  reason: 'external-link' | 'attachment-download-failed'
+  reason: 'external-link' | 'attachment-download-failed' | 'cms-remote-asset-skipped'
 }
 
 export interface PageBuilderStaticExportWarning {
-  code: 'attachment-download-failed'
+  code: 'attachment-download-failed' | 'cms-remote-asset-skipped'
   message: string
   resourceUrl?: string
 }

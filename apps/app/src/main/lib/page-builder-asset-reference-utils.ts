@@ -63,7 +63,8 @@ export function resolveCmsAssetUrl(baseUrl: string, assetUrl: string): string | 
   try {
     const proxyCandidate = new URL(trimmed, 'http://localhost')
     if (proxyCandidate.pathname === '/api/page-builder/cms/assets') {
-      return null
+      const proxiedUrl = proxyCandidate.searchParams.get('url')
+      return proxiedUrl ? resolveCmsAssetUrl(baseUrl, proxiedUrl) : null
     }
   } catch {
     return null

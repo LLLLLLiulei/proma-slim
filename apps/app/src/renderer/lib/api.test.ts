@@ -799,10 +799,13 @@ describe('renderer api wrappers', () => {
     expect(session.workspaceId).toBe('workspace-2')
   })
 
-  test('createPageBuilderStaticExportJob POSTs the export creation endpoint', async () => {
+  test('createPageBuilderStaticExportJob POSTs the export creation endpoint with the default cms export option', async () => {
     const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
       expect(String(input)).toBe('/api/workspaces/workspace-1/page-builder/export-static-jobs')
       expect(init?.method).toBe('POST')
+      expect(JSON.parse(String(init?.body))).toEqual({
+        downloadCmsRemoteAssets: true,
+      })
       return jsonResponse({
         jobId: 'job-1',
         status: 'running',
@@ -820,11 +823,52 @@ describe('renderer api wrappers', () => {
 
     const { api } = await import('./api')
     const result = await (api as unknown as {
-      createPageBuilderStaticExportJob: (workspaceId: string) => Promise<{ jobId: string; phase: string }>
+      createPageBuilderStaticExportJob: (
+        workspaceId: string,
+        options?: { downloadCmsRemoteAssets?: boolean },
+      ) => Promise<{ jobId: string; phase: string }>
     }).createPageBuilderStaticExportJob('workspace-1')
 
     expect(result).toEqual(expect.objectContaining({
       jobId: 'job-1',
+      phase: 'copying',
+    }))
+  })
+
+  test('createPageBuilderStaticExportJob POSTs an explicit false cms export option when requested', async () => {
+    const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe('/api/workspaces/workspace-1/page-builder/export-static-jobs')
+      expect(init?.method).toBe('POST')
+      expect(JSON.parse(String(init?.body))).toEqual({
+        downloadCmsRemoteAssets: false,
+      })
+      return jsonResponse({
+        jobId: 'job-2',
+        status: 'running',
+        phase: 'copying',
+        createdAt: '2026-04-07T10:00:00.000Z',
+        updatedAt: '2026-04-07T10:00:00.000Z',
+        expiresAt: '2026-04-07T11:00:00.000Z',
+        downloadUrl: null,
+        errorMessage: null,
+        failure: null,
+        reportSummary: null,
+      })
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const { api } = await import('./api')
+    const result = await (api as unknown as {
+      createPageBuilderStaticExportJob: (
+        workspaceId: string,
+        options?: { downloadCmsRemoteAssets?: boolean },
+      ) => Promise<{ jobId: string; phase: string }>
+    }).createPageBuilderStaticExportJob('workspace-1', {
+      downloadCmsRemoteAssets: false,
+    })
+
+    expect(result).toEqual(expect.objectContaining({
+      jobId: 'job-2',
       phase: 'copying',
     }))
   })

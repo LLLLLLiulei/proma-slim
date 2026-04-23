@@ -22,4 +22,13 @@ describe('page-builder asset reference utils', () => {
       ),
     ).toBe('https://demo.zving.com/assets/images/addpicture.png')
   })
+
+  test('resolves /upload paths against the cms base path when needed', () => {
+    expect(
+      resolveCmsAssetUrl(
+        'https://demo.zving.com/manager',
+        '/upload/resources/image/inline-css.png',
+      ),
+    ).toBe('https://demo.zving.com/manager/upload/resources/image/inline-css.png')
+  })
 })

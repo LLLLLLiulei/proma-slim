@@ -231,7 +231,10 @@ async function loadBuilderPage(options: {
     workspaceId: string,
     payload: PageBuilderBlockDeletionPayload,
   ) => Promise<WorkspacePreviewState>
-  createPageBuilderStaticExportJobImpl?: (workspaceId: string) => Promise<PageBuilderStaticExportJob>
+  createPageBuilderStaticExportJobImpl?: (
+    workspaceId: string,
+    options?: { downloadCmsRemoteAssets?: boolean },
+  ) => Promise<PageBuilderStaticExportJob>
   getPageBuilderStaticExportJobImpl?: (workspaceId: string, jobId: string) => Promise<PageBuilderStaticExportJob>
   replacePageBuilderImageImpl?: (
     workspaceId: string,
@@ -462,6 +465,20 @@ function findButtonByText(renderer: ReturnType<typeof create>, label: string) {
   return renderer.root.find((node) =>
     node.type === 'button'
     && flattenElementText(node.props.children).trim() === label,
+  )
+}
+
+function findButtonsByText(renderer: ReturnType<typeof create>, label: string) {
+  return renderer.root.findAll((node) =>
+    node.type === 'button'
+    && flattenElementText(node.props.children).trim() === label,
+  )
+}
+
+function findCheckbox(renderer: ReturnType<typeof create>) {
+  return renderer.root.find((node) =>
+    node.type === 'input'
+    && node.props.type === 'checkbox',
   )
 }
 
@@ -3415,7 +3432,7 @@ describe('BuilderPage', () => {
     expect(getPreviewSelectionActionState(getLastPreviewPaneProps())).toBe('selected')
   })
 
-  test('starts a static export job from PreviewPane, polls until completion, and opens the downloaded package', async () => {
+  test('opens an export confirmation dialog, submits the default cms export option, polls until completion, and opens the downloaded package', async () => {
     const windowHarness = installWindowHarness()
     const workspace: AgentWorkspace = {
       id: 'workspace-1',
@@ -3432,18 +3449,10 @@ describe('BuilderPage', () => {
       createdAt: 1,
       updatedAt: 1,
     }
-    const createPageBuilderStaticExportJob = mock(async () => ({
-      jobId: 'job-1',
-      status: 'running',
-      phase: 'scanning',
-      createdAt: '2026-04-07T10:00:00.000Z',
-      updatedAt: '2026-04-07T10:00:00.000Z',
-      expiresAt: '2026-04-07T11:00:00.000Z',
-      downloadUrl: null,
-      errorMessage: null,
-      failure: null,
-      reportSummary: null,
-    } satisfies PageBuilderStaticExportJob))
+    let resolveCreatePageBuilderStaticExportJob!: (value: PageBuilderStaticExportJob) => void
+    const createPageBuilderStaticExportJob = mock(async () => await new Promise<PageBuilderStaticExportJob>((resolve) => {
+      resolveCreatePageBuilderStaticExportJob = resolve
+    }))
     const getPageBuilderStaticExportJob = mock(async () => ({
       jobId: 'job-1',
       status: 'completed',
@@ -3482,8 +3491,9 @@ describe('BuilderPage', () => {
       getPageBuilderStaticExportJobImpl: getPageBuilderStaticExportJob,
     })
 
+    let renderer!: ReturnType<typeof create>
     await act(async () => {
-      create(
+      renderer = create(
         <Provider store={createStore()}>
           <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
         </Provider>,
@@ -3504,8 +3514,47 @@ describe('BuilderPage', () => {
       await Promise.resolve()
     })
 
+    expect(createPageBuilderStaticExportJob).toHaveBeenCalledTimes(0)
+
+    const checkbox = findCheckbox(renderer)
+    expect(checkbox.props.checked).toBe(true)
+
+    await act(async () => {
+      findButtonByText(renderer, '确认导出').props.onClick()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(findButtonsByText(renderer, '确认导出')).toHaveLength(0)
+    expect(findButtonsByText(renderer, '正在导出...')).toHaveLength(1)
+    expect(findButtonByText(renderer, '正在导出...').props.disabled).toBe(true)
+    expect(findButtonByText(renderer, '取消').props.disabled).toBe(true)
+    expect(findCheckbox(renderer).props.disabled).toBe(true)
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      exportStaticPending: true,
+    })
+
+    await act(async () => {
+      resolveCreatePageBuilderStaticExportJob({
+        jobId: 'job-1',
+        status: 'running',
+        phase: 'scanning',
+        createdAt: '2026-04-07T10:00:00.000Z',
+        updatedAt: '2026-04-07T10:00:00.000Z',
+        expiresAt: '2026-04-07T11:00:00.000Z',
+        downloadUrl: null,
+        errorMessage: null,
+        failure: null,
+        reportSummary: null,
+      } satisfies PageBuilderStaticExportJob)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
     expect(createPageBuilderStaticExportJob).toHaveBeenCalledTimes(1)
-    expect(createPageBuilderStaticExportJob).toHaveBeenCalledWith(workspace.id)
+    expect(createPageBuilderStaticExportJob).toHaveBeenCalledWith(workspace.id, {
+      downloadCmsRemoteAssets: true,
+    })
     expect(getLastPreviewPaneProps()).toMatchObject({
       exportStaticPending: true,
     })
@@ -3526,9 +3575,90 @@ describe('BuilderPage', () => {
     expect(getLastPreviewPaneProps()).toMatchObject({
       exportStaticPending: false,
     })
+    expect(findButtonsByText(renderer, '正在导出...')).toHaveLength(0)
+
+    await act(async () => {
+      await (getLastPreviewPaneProps() as {
+        onRequestExportStatic?: () => Promise<void>
+      }).onRequestExportStatic?.()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(findButtonsByText(renderer, '确认导出')).toHaveLength(1)
+    expect(findButtonByText(renderer, '确认导出').props.disabled).toBe(false)
+    expect(findCheckbox(renderer).props.checked).toBe(true)
+    expect(findCheckbox(renderer).props.disabled).toBe(false)
   })
 
-  test('shows a warning-flavored success toast when the static export report contains warnings', async () => {
+  test('cancels the export confirmation dialog without creating a static export job', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const createPageBuilderStaticExportJob = mock(async () => {
+      throw new Error('cancelled export should not create a job')
+    })
+
+    const {
+      BuilderPage,
+      getLastPreviewPaneProps,
+    } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      mockPreviewPane: true,
+      previewStates: [{
+        hasPreview: true,
+        entryUrl: `/api/workspaces/${workspace.id}/preview/`,
+        revision: 'rev-1',
+      }],
+      createPageBuilderStaticExportJobImpl: createPageBuilderStaticExportJob,
+    })
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      await (getLastPreviewPaneProps() as {
+        onRequestExportStatic?: () => Promise<void>
+      }).onRequestExportStatic?.()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      findButtonByText(renderer, '取消').props.onClick()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(createPageBuilderStaticExportJob).toHaveBeenCalledTimes(0)
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      exportStaticPending: false,
+    })
+  })
+
+  test('shows a warning-flavored success toast when the static export report contains warnings and submits an explicit false cms export option', async () => {
     const windowHarness = installWindowHarness()
     const workspace: AgentWorkspace = {
       id: 'workspace-1',
@@ -3546,6 +3676,26 @@ describe('BuilderPage', () => {
       updatedAt: 1,
     }
 
+    const createPageBuilderStaticExportJob = mock(async () => ({
+      jobId: 'job-2',
+      status: 'completed',
+      phase: 'completed',
+      createdAt: '2026-04-07T10:00:00.000Z',
+      updatedAt: '2026-04-07T10:00:02.000Z',
+      expiresAt: '2026-04-07T11:00:00.000Z',
+      downloadUrl: `/api/workspaces/${workspace.id}/page-builder/export-static-jobs/job-2/download`,
+      errorMessage: null,
+      failure: null,
+      reportSummary: {
+        localizedResourceCount: 3,
+        retainedExternalLinkCount: 1,
+        warningCount: 1,
+        unsupportedRuntimeDependencyCount: 0,
+        failureCount: 0,
+        hasWarnings: true,
+      },
+    } satisfies PageBuilderStaticExportJob))
+
     const {
       BuilderPage,
       getLastPreviewPaneProps,
@@ -3559,32 +3709,15 @@ describe('BuilderPage', () => {
         entryUrl: `/api/workspaces/${workspace.id}/preview/`,
         revision: 'rev-1',
       }],
-      createPageBuilderStaticExportJobImpl: async () => ({
-        jobId: 'job-2',
-        status: 'completed',
-        phase: 'completed',
-        createdAt: '2026-04-07T10:00:00.000Z',
-        updatedAt: '2026-04-07T10:00:02.000Z',
-        expiresAt: '2026-04-07T11:00:00.000Z',
-        downloadUrl: `/api/workspaces/${workspace.id}/page-builder/export-static-jobs/job-2/download`,
-        errorMessage: null,
-        failure: null,
-        reportSummary: {
-          localizedResourceCount: 3,
-          retainedExternalLinkCount: 1,
-          warningCount: 1,
-          unsupportedRuntimeDependencyCount: 0,
-          failureCount: 0,
-          hasWarnings: true,
-        },
-      }),
+      createPageBuilderStaticExportJobImpl: createPageBuilderStaticExportJob,
       getPageBuilderStaticExportJobImpl: async () => {
         throw new Error('completed job should not poll again')
       },
     })
 
+    let renderer!: ReturnType<typeof create>
     await act(async () => {
-      create(
+      renderer = create(
         <Provider store={createStore()}>
           <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
         </Provider>,
@@ -3599,6 +3732,31 @@ describe('BuilderPage', () => {
       }).onRequestExportStatic?.()
       await Promise.resolve()
       await Promise.resolve()
+    })
+
+    await act(async () => {
+      findCheckbox(renderer).props.onChange({
+        currentTarget: {
+          checked: false,
+        },
+        target: {
+          checked: false,
+        },
+      })
+      await Promise.resolve()
+    })
+
+    expect(findCheckbox(renderer).props.checked).toBe(false)
+
+    await act(async () => {
+      findButtonByText(renderer, '确认导出').props.onClick()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(createPageBuilderStaticExportJob).toHaveBeenCalledTimes(1)
+    expect(createPageBuilderStaticExportJob).toHaveBeenCalledWith(workspace.id, {
+      downloadCmsRemoteAssets: false,
     })
 
     expect(windowHarness.open).toHaveBeenCalledWith(
@@ -3668,8 +3826,9 @@ describe('BuilderPage', () => {
       },
     })
 
+    let renderer!: ReturnType<typeof create>
     await act(async () => {
-      create(
+      renderer = create(
         <Provider store={createStore()}>
           <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
         </Provider>,
@@ -3686,7 +3845,16 @@ describe('BuilderPage', () => {
       await Promise.resolve()
     })
 
+    await act(async () => {
+      findButtonByText(renderer, '确认导出').props.onClick()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
     expect(createPageBuilderStaticExportJob).toHaveBeenCalledTimes(1)
+    expect(createPageBuilderStaticExportJob).toHaveBeenCalledWith(workspace.id, {
+      downloadCmsRemoteAssets: true,
+    })
     expect(getToastError()).toHaveBeenCalledWith('关键图片下载失败')
   })
 })

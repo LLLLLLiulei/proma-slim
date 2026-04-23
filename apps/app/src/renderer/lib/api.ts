@@ -18,6 +18,7 @@ import type {
   PageBuilderImageReplacementPayload,
   PageBuilderInlineTextSavePayload,
   PageBuilderProjectSummary,
+  PageBuilderStaticExportJobCreateOptions,
   PageBuilderStaticExportJob,
   PageBuilderTargetSelection,
   PermissionResponse,
@@ -371,9 +372,15 @@ export const api = {
     })
   },
 
-  createPageBuilderStaticExportJob(workspaceId: string): Promise<PageBuilderStaticExportJob> {
+  createPageBuilderStaticExportJob(
+    workspaceId: string,
+    options?: PageBuilderStaticExportJobCreateOptions,
+  ): Promise<PageBuilderStaticExportJob> {
     return request<PageBuilderStaticExportJob>(`/api/workspaces/${encodeURIComponent(workspaceId)}/page-builder/export-static-jobs`, {
       method: 'POST',
+      body: {
+        downloadCmsRemoteAssets: options?.downloadCmsRemoteAssets ?? true,
+      },
     })
   },
 

@@ -1,43 +1,4 @@
-## Purpose
-定义 `page-builder` 离线静态导出任务的创建、状态、资源本地化、导出报告与安全限制要求，确保 Builder 可生成可离线打开的完整静态包。
-
-## Requirements
-
-### Requirement: Page-builder 必须支持创建离线静态导出任务
-系统 SHALL 允许用户针对当前 `page-builder` 工作区创建一个离线静态导出任务，以当前工作区的 `workspace-files/` 为导出源生成可离线打开的静态包，而不是直接依赖预览响应或用户手动收集文件。
-
-#### Scenario: 当前工作区存在页面产物时创建导出任务
-- **WHEN** 用户在 `page-builder` Builder 中为一个存在 `workspace-files/index.html` 的工作区触发 `导出静态包`
-- **THEN** 系统 SHALL 为该工作区创建一个新的离线静态导出任务
-- **AND** 该任务 SHALL 以当前工作区 `workspace-files/` 的内容作为导出输入
-
-#### Scenario: 预览入口缺失时拒绝创建导出任务
-- **WHEN** 用户为一个不存在 `workspace-files/index.html` 的 `page-builder` 工作区触发 `导出静态包`
-- **THEN** 系统 SHALL 拒绝创建离线静态导出任务
-- **AND** 系统 SHALL 返回“当前项目没有可导出的页面产物”之类的明确错误
-
-#### Scenario: 同一工作区存在活动导出任务时不重复创建
-- **WHEN** 用户为某个 `page-builder` 工作区触发 `导出静态包`，且该工作区已经存在一个状态为进行中的离线静态导出任务
-- **THEN** 系统 SHALL 不为该工作区再次创建第二个并发导出任务
-- **AND** 系统 SHALL 返回当前活动任务的状态信息或等价提示
-
-### Requirement: 离线静态导出任务必须暴露状态与可下载结果
-系统 SHALL 为离线静态导出任务提供可轮询的状态信息，并在导出成功后暴露一个可下载的静态包结果。
-
-#### Scenario: 运行中的导出任务返回阶段化状态
-- **WHEN** 前端查询一个状态为进行中的离线静态导出任务
-- **THEN** 系统 SHALL 返回该任务当前状态
-- **AND** 系统 SHALL 返回该任务所处阶段，例如复制输入、扫描资源、下载资源或打包输出
-
-#### Scenario: 导出成功后暴露静态包下载结果
-- **WHEN** 某个离线静态导出任务完成且没有阻断导出的关键错误
-- **THEN** 系统 SHALL 为该任务提供一个可下载的静态包结果
-- **AND** 下载结果 SHALL 是一个包含 `index.html` 的压缩包
-
-#### Scenario: 导出失败时返回失败阶段与原因
-- **WHEN** 某个离线静态导出任务因关键错误而失败
-- **THEN** 系统 SHALL 返回该任务失败状态
-- **AND** 系统 SHALL 返回失败所处阶段与可读错误原因
+## MODIFIED Requirements
 
 ### Requirement: 离线静态导出必须本地化 HTML/CSS 中静态可分析的远程资源
 系统 SHALL 在离线静态导出过程中扫描 HTML 和 CSS 中静态可分析的资源引用，并将可支持的远程资源下载到导出包内，再把页面引用改写为包内相对路径；当导出任务显式选择不导出 CMS 远程资源时，系统 SHALL 仅跳过 CMS 远程资源下载，并将这些引用保留或恢复为 CMS 源站可访问 URL。
@@ -84,50 +45,6 @@
 - **THEN** 系统 SHALL 将这些本地资源保留在导出包中
 - **AND** 系统 SHALL 不因为远程资源本地化或 CMS 远程资源跳过下载而破坏这些本地相对引用
 
-### Requirement: 离线静态导出包必须附带结构化导出报告
-系统 SHALL 为每个离线静态导出结果生成一个结构化 report，用于说明该导出包的离线完整性情况。
-
-#### Scenario: 导出成功的压缩包包含结构化报告
-- **WHEN** 用户下载某个成功完成的离线静态导出结果
-- **THEN** 系统 SHALL 在该压缩包中包含一个结构化导出报告文件
-- **AND** 该报告 SHALL 记录入口文件、已本地化资源、保留外链、告警与失败信息摘要
-
-#### Scenario: 未支持的运行时依赖被记录到报告中
-- **WHEN** 当前页面仍包含未被第一版离线导出支持的运行时依赖，例如远程脚本、远程 iframe 或 JS 运行时请求风险
-- **THEN** 系统 SHALL 在导出报告中将这些依赖记录为离线完整性风险
-- **AND** 系统 SHALL 不将这些依赖静默忽略为“完全成功”
-
-### Requirement: 离线静态导出必须区分关键资源失败与附件告警
-系统 SHALL 将影响页面渲染完整性的资源失败视为阻断错误，并将附件类下载失败视为允许继续导出的告警。
-
-#### Scenario: 关键渲染资源下载失败时导出任务失败
-- **WHEN** 导出过程中某个样式表、字体、页面图片、海报图或页面内直接使用的音视频资源无法成功本地化
-- **THEN** 系统 SHALL 将该导出任务标记为失败
-- **AND** 系统 SHALL 不把该结果当作可离线打开的完整静态包继续交付
-
-#### Scenario: 附件类链接下载失败时允许继续导出
-- **WHEN** 导出过程中某个附件类下载链接资源无法成功本地化
-- **THEN** 系统 SHALL 允许导出任务继续完成
-- **AND** 系统 SHALL 在报告中将该失败记录为 warning
-
-#### Scenario: 附件下载失败时保留原始链接
-- **WHEN** 某个附件类下载链接资源本地化失败，但导出任务仍被允许完成
-- **THEN** 系统 SHALL 保留该链接的原始 `href`
-- **AND** 系统 SHALL 不把该链接静默改写为空链接或失效占位
-
-### Requirement: 离线静态导出远程抓取必须受安全与预算限制
-系统 SHALL 对离线静态导出中的通用远程资源抓取施加协议、目标地址、数量、体积和时长限制，以避免导出能力滥用宿主网络环境。
-
-#### Scenario: 非法协议或高风险目标地址被拒绝
-- **WHEN** 导出过程中发现某个远程资源引用使用了不受支持的协议，或目标地址属于 `localhost`、内网 IP 或其他高风险内部地址
-- **THEN** 系统 SHALL 拒绝抓取该资源
-- **AND** 系统 SHALL 将其作为导出错误或离线完整性风险处理
-
-#### Scenario: 超出抓取预算时终止导出
-- **WHEN** 导出过程中远程资源抓取超出了系统配置的数量、体积、重定向次数或超时预算
-- **THEN** 系统 SHALL 终止当前导出任务
-- **AND** 系统 SHALL 返回与预算超限相对应的明确失败原因
-
 ### Requirement: 离线静态导出必须在资源本地化前完成 CMS islands 静态化
 系统 SHALL 在 page-builder 离线静态导出中，先把 staging HTML 中的 CMS islands 固化为静态 HTML，再执行现有 HTML/CSS 资源处理流程，以确保 SSR 新增的资源引用也能按导出任务选项被扫描、本地化或保留为 CMS 源站 URL。
 
@@ -141,6 +58,8 @@
 - **WHEN** 某个导出页面的 staging HTML 不包含 CMS islands
 - **THEN** 系统 SHALL 继续执行现有 HTML/CSS 资源本地化流程
 - **AND** 系统 SHALL 不因为 CMS rendering 集成或 CMS 远程资源导出选项而改变普通非 CMS 资源的导出结果
+
+## ADDED Requirements
 
 ### Requirement: 离线静态导出任务必须支持按任务选择是否下载 CMS 远程资源
 系统 SHALL 在创建 page-builder 离线静态导出任务时接受一个任务级选项，用于控制是否下载 CMS 远程资源；未提供该选项时 SHALL 使用下载 CMS 远程资源的默认行为。
@@ -180,16 +99,3 @@
 - **WHEN** 导出任务选择不下载 CMS 远程资源，但页面中不存在 CMS 远程资源
 - **THEN** 系统 SHALL 正常完成导出
 - **AND** 系统 SHALL NOT 仅因为该选项被关闭而生成离线完整性 warning
-
-### Requirement: 离线静态导出报告必须暴露 CMS island 渲染失败
-系统 SHALL 在离线静态导出因 CMS island 渲染失败而终止时，将该失败写入结构化导出报告与任务状态，而不是只返回泛化的导出失败消息。
-
-#### Scenario: CMS island 查询失败被写入报告和任务状态
-- **WHEN** 某个导出任务因 CMS island 查询失败而终止
-- **THEN** 系统 SHALL 在导出报告的 `failures` 中记录对应 failure
-- **AND** 系统 SHALL 使该任务返回 `failed` 状态与可读失败原因
-
-#### Scenario: CMS island 渲染失败不被降级为普通告警
-- **WHEN** 某个导出任务因 CMS island 模板编译或 SSR 失败而终止
-- **THEN** 系统 SHALL 在导出报告的 `failures` 中记录该 CMS island failure
-- **AND** 系统 SHALL NOT 将该失败静默归类为普通 warning 或 unsupported runtime dependency

@@ -552,6 +552,80 @@ describe('createHttpApp', () => {
     expect(report.summary.localizedResourceCount).toBe(0)
   })
 
+  test('workspace routes pass an explicit downloadCmsRemoteAssets=false option to the static export service', async () => {
+    const app = createApp()
+    const workspace = createAgentWorkspace('Builder Export Explicit Option', { template: 'page-builder' })
+
+    const {
+      pageBuilderStaticExportService,
+    } = await import('../lib/page-builder-static-export-service')
+
+    const originalCreateJob = pageBuilderStaticExportService.createJob.bind(pageBuilderStaticExportService)
+    const createJobCalls: Array<unknown> = []
+
+    pageBuilderStaticExportService.createJob = ((capturedWorkspace, options) => {
+      createJobCalls.push({
+        workspaceId: capturedWorkspace.id,
+        options,
+      })
+
+      return {
+        jobId: 'job-explicit-option',
+        status: 'running',
+        phase: 'copying',
+        createdAt: '2026-04-07T10:00:00.000Z',
+        updatedAt: '2026-04-07T10:00:00.000Z',
+        expiresAt: '2026-04-07T11:00:00.000Z',
+        downloadUrl: null,
+        errorMessage: null,
+        failure: null,
+        reportSummary: null,
+      }
+    }) as typeof pageBuilderStaticExportService.createJob
+
+    try {
+      const response = await app.fetch(new Request(`http://localhost/api/workspaces/${workspace.id}/page-builder/export-static-jobs`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          downloadCmsRemoteAssets: false,
+        }),
+      }))
+
+      expect(response.status).toBe(202)
+      expect(createJobCalls).toEqual([{
+        workspaceId: workspace.id,
+        options: {
+          downloadCmsRemoteAssets: false,
+        },
+      }])
+    } finally {
+      pageBuilderStaticExportService.createJob = originalCreateJob
+    }
+  })
+
+  test('workspace routes reject invalid static export option payloads', async () => {
+    const app = createApp()
+    const workspace = createAgentWorkspace('Builder Export Invalid Option', { template: 'page-builder' })
+
+    const response = await app.fetch(new Request(`http://localhost/api/workspaces/${workspace.id}/page-builder/export-static-jobs`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        downloadCmsRemoteAssets: 'no',
+      }),
+    }))
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({
+      error: 'downloadCmsRemoteAssets 必须是 boolean',
+    })
+  })
+
   test('workspace routes reject static export creation when workspace-files/index.html is missing', async () => {
     const app = createApp()
     const workspace = createAgentWorkspace('Builder Export Missing Entry', { template: 'page-builder' })

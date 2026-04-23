@@ -106,6 +106,11 @@ describe('page-builder static export service', () => {
   })
 
   test('localizes supported remote assets, uses the CMS gateway, and records warnings plus unsupported runtime dependencies', async () => {
+    process.env.PROMA_CMS_BASE_URL = 'https://demo.zving.com/manager/'
+    process.env.PROMA_CMS_SITE_ID = '277'
+    process.env.PROMA_CMS_USERNAME = 'test-user'
+    process.env.PROMA_CMS_PASSWORD = 'test-pass'
+
     const workspace = createAgentWorkspace('Static Export Success', { template: 'page-builder' })
     const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
 
@@ -291,7 +296,227 @@ describe('page-builder static export service', () => {
     expect(fetchAsset).toHaveBeenCalledTimes(1)
   })
 
+  test('skips cms remote assets when downloadCmsRemoteAssets is false and preserves cms source urls', async () => {
+    process.env.PROMA_CMS_BASE_URL = 'https://demo.zving.com/manager/'
+    process.env.PROMA_CMS_SITE_ID = '277'
+    process.env.PROMA_CMS_USERNAME = 'test-user'
+    process.env.PROMA_CMS_PASSWORD = 'test-pass'
+
+    const workspace = createAgentWorkspace('Static Export Skip CMS Assets', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+    const proxyCmsUrl = 'https://demo.zving.com/upload/resources/image/proxy-banner.png'
+
+    mkdirSync(join(workspaceFilesDir, 'assets'), { recursive: true })
+    writeFileSync(
+      join(workspaceFilesDir, 'index.html'),
+      `<!doctype html>
+      <html>
+        <head>
+          <link rel="stylesheet" href="./assets/site.css">
+          <link rel="stylesheet" href="https://demo.zving.com/assets/cms-theme.css">
+        </head>
+        <body>
+          <img src="https://demo.zving.com/zcmstest/preview/news/upload/resources/image/banner.jpg" alt="cms-absolute">
+          <img src="/assets/images/addpicture.png" alt="cms-root-relative">
+          <img src="/api/page-builder/cms/assets?url=${encodeURIComponent(proxyCmsUrl)}" alt="cms-proxy">
+          <img src="https://cdn.example.com/keep-me.png" alt="remote">
+          <div class="hero" style="background-image:url('/upload/resources/image/inline.png')"></div>
+          <a id="content-link" href="https://demo.zving.com/news/article-1.html">查看详情</a>
+          <a id="attachment-link" href="https://demo.zving.com/upload/resources/file/manual.pdf">下载手册</a>
+        </body>
+      </html>`,
+      'utf-8',
+    )
+    writeFileSync(
+      join(workspaceFilesDir, 'assets', 'site.css'),
+      'body { background-image: url("https://cdn.example.com/pattern.png"); } .hero { background-image: url("/upload/resources/image/inline-css.png"); }',
+      'utf-8',
+    )
+
+    const fetchMock = mock(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === 'https://cdn.example.com/keep-me.png' || url === 'https://cdn.example.com/pattern.png') {
+        return new Response(`asset:${url}`, {
+          status: 200,
+          headers: {
+            'content-type': 'image/png',
+          },
+        })
+      }
+
+      throw new Error(`未预期的远程请求: ${url}`)
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const fetchAsset = mock(async () => {
+      throw new Error('downloadCmsRemoteAssets=false 时不应通过 cms gateway 拉取资源')
+    })
+
+    const {
+      PageBuilderStaticExportService,
+    } = await import('./page-builder-static-export-service')
+    const {
+      getPageBuilderStaticExportReportPath,
+      getPageBuilderStaticExportStagingDir,
+    } = await import('./page-builder-static-export-paths')
+
+    const service = new PageBuilderStaticExportService({
+      cmsGatewayFactory: () => ({ fetchAsset }),
+      fetchFn: fetchMock as unknown as typeof fetch,
+      randomUUID: () => 'job-skip-cms-assets',
+    })
+
+    const createdJob = service.createJob(workspace, {
+      downloadCmsRemoteAssets: false,
+    })
+    const finishedJob = await waitForTerminalJob(service, workspace.id, createdJob.jobId)
+
+    expect(finishedJob.status).toBe('completed')
+
+    const stagedHtml = readFileSync(join(getPageBuilderStaticExportStagingDir(createdJob.jobId), 'index.html'), 'utf-8')
+    const stagedCss = readFileSync(join(getPageBuilderStaticExportStagingDir(createdJob.jobId), 'assets', 'site.css'), 'utf-8')
+    const report = JSON.parse(readFileSync(getPageBuilderStaticExportReportPath(createdJob.jobId), 'utf-8')) as {
+      summary: {
+        localizedResourceCount: number
+        warningCount: number
+        hasWarnings: boolean
+      }
+      localizedResources: Array<{ resourceUrl: string; via: string }>
+      retainedExternalLinks: Array<{ resourceUrl: string; reason: string }>
+      warnings: Array<{ code: string; resourceUrl?: string }>
+    }
+
+    expect(stagedHtml).toContain('https://demo.zving.com/zcmstest/preview/news/upload/resources/image/banner.jpg')
+    expect(stagedHtml).toContain('https://demo.zving.com/assets/images/addpicture.png')
+    expect(stagedHtml).toContain(proxyCmsUrl)
+    expect(stagedHtml).toContain('https://demo.zving.com/assets/cms-theme.css')
+    expect(stagedHtml).toContain('https://demo.zving.com/upload/resources/file/manual.pdf')
+    expect(stagedHtml).toContain('https://demo.zving.com/news/article-1.html')
+    expect(stagedHtml).not.toContain('/api/page-builder/cms/assets?url=')
+    expect(stagedHtml).not.toContain('https://cdn.example.com/keep-me.png')
+
+    expect(stagedCss).toContain('https://demo.zving.com/manager/upload/resources/image/inline-css.png')
+    expect(stagedCss).not.toContain('https://cdn.example.com/pattern.png')
+
+    expect(report.summary.localizedResourceCount).toBe(2)
+    expect(report.summary.warningCount).toBeGreaterThanOrEqual(1)
+    expect(report.summary.hasWarnings).toBe(true)
+    expect(report.localizedResources).not.toContainEqual(expect.objectContaining({
+      resourceUrl: 'https://demo.zving.com/zcmstest/preview/news/upload/resources/image/banner.jpg',
+      via: 'cms',
+    }))
+    expect(report.retainedExternalLinks).toContainEqual({
+      resourceUrl: 'https://demo.zving.com/zcmstest/preview/news/upload/resources/image/banner.jpg',
+      reason: 'cms-remote-asset-skipped',
+    })
+    expect(report.retainedExternalLinks).toContainEqual({
+      resourceUrl: 'https://demo.zving.com/upload/resources/file/manual.pdf',
+      reason: 'cms-remote-asset-skipped',
+    })
+    expect(report.warnings).toContainEqual(expect.objectContaining({
+      code: 'cms-remote-asset-skipped',
+      resourceUrl: 'https://demo.zving.com/zcmstest/preview/news/upload/resources/image/banner.jpg',
+    }))
+    expect(report.warnings).toContainEqual(expect.objectContaining({
+      code: 'cms-remote-asset-skipped',
+      resourceUrl: 'https://demo.zving.com/upload/resources/file/manual.pdf',
+    }))
+    expect(report.warnings).not.toContainEqual(expect.objectContaining({
+      resourceUrl: 'https://demo.zving.com/news/article-1.html',
+    }))
+
+    expect(fetchAsset).toHaveBeenCalledTimes(0)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  test('does not treat non-cms upload resources urls as cms assets when cms export is disabled', async () => {
+    process.env.PROMA_CMS_BASE_URL = 'https://demo.zving.com/manager/'
+    process.env.PROMA_CMS_SITE_ID = '277'
+    process.env.PROMA_CMS_USERNAME = 'test-user'
+    process.env.PROMA_CMS_PASSWORD = 'test-pass'
+
+    const workspace = createAgentWorkspace('Static Export Non CMS Upload Resources', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+    const remoteLookalikeUrl = 'https://cdn.example.com/upload/resources/image/not-cms-banner.png'
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(
+      join(workspaceFilesDir, 'index.html'),
+      `<!doctype html><html><body><img src="${remoteLookalikeUrl}" alt="remote-lookalike"></body></html>`,
+      'utf-8',
+    )
+
+    const fetchMock = mock(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === remoteLookalikeUrl) {
+        return new Response(`asset:${url}`, {
+          status: 200,
+          headers: {
+            'content-type': 'image/png',
+          },
+        })
+      }
+
+      throw new Error(`未预期的远程请求: ${url}`)
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const fetchAsset = mock(async () => {
+      throw new Error('非 CMS 远程资源不应通过 cms gateway 拉取')
+    })
+
+    const {
+      PageBuilderStaticExportService,
+    } = await import('./page-builder-static-export-service')
+    const {
+      getPageBuilderStaticExportReportPath,
+      getPageBuilderStaticExportStagingDir,
+    } = await import('./page-builder-static-export-paths')
+
+    const service = new PageBuilderStaticExportService({
+      cmsGatewayFactory: () => ({ fetchAsset }),
+      fetchFn: fetchMock as unknown as typeof fetch,
+      randomUUID: () => 'job-non-cms-upload-resources',
+    })
+
+    const createdJob = service.createJob(workspace, {
+      downloadCmsRemoteAssets: false,
+    })
+    const finishedJob = await waitForTerminalJob(service, workspace.id, createdJob.jobId)
+
+    expect(finishedJob.status).toBe('completed')
+
+    const stagedHtml = readFileSync(join(getPageBuilderStaticExportStagingDir(createdJob.jobId), 'index.html'), 'utf-8')
+    const report = JSON.parse(readFileSync(getPageBuilderStaticExportReportPath(createdJob.jobId), 'utf-8')) as {
+      localizedResources: Array<{ resourceUrl: string; via: string }>
+      retainedExternalLinks: Array<{ resourceUrl: string; reason: string }>
+      warnings: Array<{ code: string; resourceUrl?: string }>
+    }
+
+    expect(stagedHtml).not.toContain(remoteLookalikeUrl)
+    expect(report.localizedResources).toContainEqual(expect.objectContaining({
+      resourceUrl: remoteLookalikeUrl,
+      via: 'remote',
+    }))
+    expect(report.retainedExternalLinks).not.toContainEqual(expect.objectContaining({
+      resourceUrl: remoteLookalikeUrl,
+      reason: 'cms-remote-asset-skipped',
+    }))
+    expect(report.warnings).not.toContainEqual(expect.objectContaining({
+      code: 'cms-remote-asset-skipped',
+      resourceUrl: remoteLookalikeUrl,
+    }))
+
+    expect(fetchAsset).toHaveBeenCalledTimes(0)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
   test('renders CMS islands before resource localization so SSR-generated cms image urls are exported', async () => {
+    process.env.PROMA_CMS_BASE_URL = 'https://cms.example.com/manager/'
+    process.env.PROMA_CMS_SITE_ID = '14'
+    process.env.PROMA_CMS_USERNAME = 'test-user'
+    process.env.PROMA_CMS_PASSWORD = 'test-pass'
+
     const workspace = createAgentWorkspace('Static Export CMS Islands', { template: 'page-builder' })
     const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
 
