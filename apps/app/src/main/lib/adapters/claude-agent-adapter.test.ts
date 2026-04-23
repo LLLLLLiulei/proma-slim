@@ -364,6 +364,57 @@ describe('ClaudeAgentAdapter SDK option pass-through', () => {
     ))).toBe(false)
   })
 
+  test('surfaces compact local-command stderr as a detailed typed error', async () => {
+    const compactStderr = 'Error: Error during compaction: Error: API Error: 429 {"error":{"code":"1302","message":"您的账户已达到速率限制，请您控制请求频率"},"request_id":"202604231622388829f546b90b407b"}'
+
+    mock.module('@anthropic-ai/claude-agent-sdk', () => ({
+      query: async function* () {
+        yield {
+          type: 'system',
+          subtype: 'local_command',
+          content: `<local-command-stderr>${compactStderr}</local-command-stderr>`,
+        }
+        yield {
+          type: 'result',
+          subtype: 'success',
+          usage: {
+            input_tokens: 1,
+            output_tokens: 1,
+          },
+        }
+      },
+    }))
+
+    const { ClaudeAgentAdapter } = await import('./claude-agent-adapter')
+    const adapter = new ClaudeAgentAdapter()
+    const events = []
+
+    for await (const event of adapter.query({
+      sessionId: 'session-compact-local-command-error',
+      prompt: '/compact',
+      cwd: '/tmp/workspace/session-compact-local-command-error',
+      sdkCliPath: '/tmp/claude.js',
+      executable: { type: 'node', path: '/usr/bin/node' },
+      executableArgs: [],
+      env: {},
+      sdkPermissionMode: 'default',
+      allowDangerouslySkipPermissions: false,
+      systemPrompt: { type: 'preset', preset: 'claude_code', append: '' },
+    } as ClaudeAgentQueryOptions)) {
+      events.push(event)
+    }
+
+    expect(events[0]).toMatchObject({
+      type: 'typed_error',
+      error: {
+        code: 'rate_limited',
+        title: '请求频率限制',
+        message: '您的账户已达到速率限制，请您控制请求频率',
+        originalError: compactStderr,
+      },
+    })
+  })
+
   test('does not surface the normal system init event as a visible status notice', async () => {
     mock.module('@anthropic-ai/claude-agent-sdk', () => ({
       query: async function* () {

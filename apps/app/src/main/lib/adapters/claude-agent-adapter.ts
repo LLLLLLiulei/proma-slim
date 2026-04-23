@@ -265,6 +265,108 @@ function mapSDKErrorToTypedError(
   }
 }
 
+function extractLocalCommandStderr(content: unknown): string | null {
+  if (typeof content !== 'string') return null
+
+  const match = content.match(/<local-command-stderr>([\s\S]*?)<\/local-command-stderr>/)
+  const stderr = (match?.[1] ?? '').trim()
+  return stderr || null
+}
+
+function extractJsonObjectAt(text: string, startIndex: number): string | null {
+  let depth = 0
+  let inString = false
+  let escaped = false
+
+  for (let i = startIndex; i < text.length; i += 1) {
+    const char = text[i]
+
+    if (inString) {
+      if (escaped) {
+        escaped = false
+      } else if (char === '\\') {
+        escaped = true
+      } else if (char === '"') {
+        inString = false
+      }
+      continue
+    }
+
+    if (char === '"') {
+      inString = true
+      continue
+    }
+
+    if (char === '{') {
+      depth += 1
+    } else if (char === '}') {
+      depth -= 1
+      if (depth === 0) {
+        return text.slice(startIndex, i + 1)
+      }
+    }
+  }
+
+  return null
+}
+
+function parseApiErrorFromText(text: string): { statusCode?: number; code?: string; message?: string } | null {
+  const statusMatch = text.match(/API Error:\s*(\d{3})/i)
+  if (!statusMatch) return null
+
+  const statusCode = Number(statusMatch[1])
+  const jsonStart = text.indexOf('{', statusMatch.index ?? 0)
+  if (jsonStart === -1) {
+    return { statusCode }
+  }
+
+  const jsonText = extractJsonObjectAt(text, jsonStart)
+  if (!jsonText) {
+    return { statusCode }
+  }
+
+  try {
+    const parsed = JSON.parse(jsonText) as {
+      error?: { code?: string; message?: string }
+      message?: string
+    }
+    return {
+      statusCode,
+      code: parsed.error?.code,
+      message: parsed.error?.message ?? parsed.message,
+    }
+  } catch {
+    return { statusCode }
+  }
+}
+
+function buildCompactionLocalCommandError(stderr: string): TypedError {
+  const apiError = parseApiErrorFromText(stderr)
+  const isRateLimited = apiError?.statusCode === 429
+  const code: ErrorCode = isRateLimited ? 'rate_limited' : 'provider_error'
+  const details: string[] = []
+
+  if (apiError?.statusCode) {
+    details.push(`HTTP ${apiError.statusCode}`)
+  }
+  if (apiError?.code) {
+    details.push(`上游错误码: ${apiError.code}`)
+  }
+
+  return {
+    code,
+    title: isRateLimited ? '请求频率限制' : '上下文压缩失败',
+    message: apiError?.message ?? stderr,
+    details,
+    actions: isRateLimited
+      ? [{ key: 'r', label: '重试', action: 'retry' }]
+      : [],
+    canRetry: isRateLimited,
+    retryDelayMs: isRateLimited ? 1000 : undefined,
+    originalError: stderr,
+  }
+}
+
 // ============================================================================
 // ClaudeAgentAdapter
 // ============================================================================
@@ -646,6 +748,7 @@ export class ClaudeAgentAdapter implements AgentProviderAdapter {
   ): void {
     const msg = message as {
       type: 'system'; subtype?: string; status?: string
+      content?: unknown
       task_id?: string; tool_use_id?: string; description?: string; task_type?: string
       // Agent Teams: task_progress 扩展字段
       last_tool_name?: string; usage?: { total_tokens?: number; tool_uses?: number; duration_ms?: number }
@@ -662,6 +765,14 @@ export class ClaudeAgentAdapter implements AgentProviderAdapter {
     } else if (msg.subtype === 'status') {
       if (msg.status === 'compacting') {
         events.push({ type: 'compacting' })
+      }
+    } else if (msg.subtype === 'local_command') {
+      const stderr = extractLocalCommandStderr(msg.content)
+      if (stderr?.includes('Error during compaction')) {
+        events.push({
+          type: 'typed_error',
+          error: buildCompactionLocalCommandError(stderr),
+        })
       }
     } else if (msg.subtype === 'task_started' && msg.task_id) {
       events.push({

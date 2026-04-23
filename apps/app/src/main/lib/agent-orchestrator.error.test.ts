@@ -92,6 +92,117 @@ class CompactRecoveryAdapter implements AgentProviderAdapter {
   dispose(): void {}
 }
 
+class CompactCompleteWithoutBoundaryAdapter implements AgentProviderAdapter {
+  readonly calls: Array<{
+    prompt: string
+    resumeSessionId?: string
+  }> = []
+
+  async *query(input: AgentQueryInput): AsyncIterable<AgentEvent> {
+    const captured = input as AgentQueryInput & {
+      prompt: string
+      resumeSessionId?: string
+      onSessionId?: (sessionId: string) => void
+    }
+
+    this.calls.push({
+      prompt: captured.prompt,
+      resumeSessionId: captured.resumeSessionId,
+    })
+
+    if (this.calls.length === 1) {
+      captured.onSessionId?.('sdk-context-session')
+      yield {
+        type: 'typed_error',
+        error: {
+          code: 'prompt_too_long',
+          title: '上下文过长',
+          message: '当前对话的上下文已超出模型限制，请压缩上下文或开启新会话',
+          actions: [{ key: 'c', label: '压缩上下文', action: 'compact' }],
+          canRetry: false,
+          originalError: 'API Error: The model has reached its context window limit.',
+        },
+      }
+      return
+    }
+
+    if (captured.prompt === '/compact') {
+      yield { type: 'complete' }
+      return
+    }
+
+    yield { type: 'text_delta', text: '不应重放原消息' }
+    yield { type: 'complete' }
+  }
+
+  abort(): void {}
+
+  dispose(): void {}
+}
+
+class CompactTypedErrorAdapter implements AgentProviderAdapter {
+  readonly calls: Array<{
+    prompt: string
+    resumeSessionId?: string
+  }> = []
+
+  async *query(input: AgentQueryInput): AsyncIterable<AgentEvent> {
+    const captured = input as AgentQueryInput & {
+      prompt: string
+      resumeSessionId?: string
+      onSessionId?: (sessionId: string) => void
+    }
+
+    this.calls.push({
+      prompt: captured.prompt,
+      resumeSessionId: captured.resumeSessionId,
+    })
+
+    if (this.calls.length === 1) {
+      captured.onSessionId?.('sdk-context-session')
+      yield {
+        type: 'typed_error',
+        error: {
+          code: 'prompt_too_long',
+          title: '上下文过长',
+          message: '当前对话的上下文已超出模型限制，请压缩上下文或开启新会话',
+          actions: [{ key: 'c', label: '压缩上下文', action: 'compact' }],
+          canRetry: false,
+          originalError: 'API Error: The model has reached its context window limit.',
+        },
+      }
+      return
+    }
+
+    if (captured.prompt === '/compact') {
+      yield {
+        type: 'typed_error',
+        error: {
+          code: 'rate_limited',
+          title: '请求频率限制',
+          message: '您的账户已达到速率限制，请您控制请求频率',
+          details: [
+            'HTTP 429',
+            '上游错误码: 1302',
+          ],
+          actions: [{ key: 'r', label: '重试', action: 'retry' }],
+          canRetry: true,
+          retryDelayMs: 1000,
+          originalError: 'Error during compaction: API Error: 429 {"error":{"code":"1302","message":"您的账户已达到速率限制，请您控制请求频率"}}',
+        },
+      }
+      return
+    }
+
+    yield { type: 'text_delta', text: '不应重放原消息' }
+    yield { type: 'complete' }
+  }
+
+  abort(): void {}
+
+  dispose(): void {}
+}
+
 describe('AgentOrchestrator friendly error handling', () => {
   let configDir: string
   let originalApiKey: string | undefined
@@ -318,5 +429,67 @@ describe('AgentOrchestrator friendly error handling', () => {
     expect(adapter.calls[1]?.prompt).toBe('/compact')
     expect(adapter.calls[1]?.mcpServerNames).toBeUndefined()
     expect(adapter.calls[2]?.mcpServerNames).toEqual(['cms'])
+  })
+
+  test('does not replay the original prompt when compact completes without a compact boundary', async () => {
+    const adapter = new CompactCompleteWithoutBoundaryAdapter()
+    const orchestrator = new AgentOrchestrator(adapter, new AgentEventBus())
+    const session = createAgentSession('Compact without boundary session')
+
+    await orchestrator.sendMessage(
+      {
+        sessionId: session.id,
+        userMessage: '请继续当前任务',
+        channelId: '',
+      },
+      {
+        onError: () => {},
+        onComplete: () => {},
+        onTitleUpdated: () => {},
+      },
+    )
+
+    const persistedMessages = getAgentSessionMessages(session.id)
+    const persistedAssistant = persistedMessages.findLast((message) => message.role === 'assistant')
+    const persistedStatus = persistedMessages.findLast((message) => message.role === 'status')
+
+    expect(adapter.calls).toHaveLength(2)
+    expect(adapter.calls[1]).toEqual({ prompt: '/compact', resumeSessionId: 'sdk-context-session' })
+    expect(persistedAssistant?.content).not.toBe('不应重放原消息')
+    expect(persistedStatus?.errorCode).toBe('prompt_too_long')
+    expect(persistedStatus?.content).toContain('上下文过长')
+  })
+
+  test('persists the compact failure typed error when compact returns an upstream error', async () => {
+    const adapter = new CompactTypedErrorAdapter()
+    const orchestrator = new AgentOrchestrator(adapter, new AgentEventBus())
+    const session = createAgentSession('Compact typed error session')
+
+    await orchestrator.sendMessage(
+      {
+        sessionId: session.id,
+        userMessage: '请继续当前任务',
+        channelId: '',
+      },
+      {
+        onError: () => {},
+        onComplete: () => {},
+        onTitleUpdated: () => {},
+      },
+    )
+
+    const persistedMessages = getAgentSessionMessages(session.id)
+    const persistedAssistant = persistedMessages.findLast((message) => message.role === 'assistant')
+    const persistedStatus = persistedMessages.findLast((message) => message.role === 'status')
+
+    expect(adapter.calls).toHaveLength(2)
+    expect(persistedAssistant?.content).not.toBe('不应重放原消息')
+    expect(persistedStatus?.errorCode).toBe('rate_limited')
+    expect(persistedStatus?.content).toBe('请求频率限制: 您的账户已达到速率限制，请您控制请求频率')
+    expect(persistedStatus?.errorDetails).toEqual([
+      'HTTP 429',
+      '上游错误码: 1302',
+    ])
+    expect(persistedStatus?.errorOriginal).toContain('Error during compaction')
   })
 })

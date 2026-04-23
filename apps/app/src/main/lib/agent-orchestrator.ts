@@ -1009,6 +1009,40 @@ export class AgentOrchestrator {
       appendAgentMessage(sessionId, message)
       refreshConversationMessagesSidecar()
     }
+    const persistTypedErrorStatusMessage = (
+      error: TypedError,
+      typedErrorSidecarPaths: string[],
+    ): void => {
+      const errorMsg: AgentMessage = {
+        id: randomUUID(),
+        role: 'status',
+        content: error.title
+          ? `${error.title}: ${error.message}`
+          : error.message,
+        createdAt: Date.now(),
+        errorCode: error.code,
+        errorTitle: error.title,
+        errorDetails: error.details,
+        errorOriginal: error.originalError,
+        errorCanRetry: error.canRetry,
+        errorActions: error.actions,
+      }
+      appendTurnConversationMessage(errorMsg)
+      logAgentLifecycle('error', {
+        phase: 'typed_error_persisted',
+        requestId,
+        turnId,
+        sessionId,
+        workspaceId: workspaceRuntime.workspace.id,
+        errorCode: error.code,
+        errorTitle: error.title,
+        canRetry: error.canRetry,
+        detailsCount: error.details?.length ?? 0,
+        hasOriginalError: Boolean(error.originalError),
+        typedErrorSidecarPaths,
+      })
+      console.log(`[Agent 编排] 已保存 TypedError 消息: ${error.code} - ${error.title}`)
+    }
     const requestPayloadSidecarPaths = diagnostic?.structuredRequestPayload
       ? writeTurnStructuredSidecar('request-payload', diagnostic.structuredRequestPayload)
       : []
@@ -1585,6 +1619,8 @@ export class AgentOrchestrator {
       let attemptedCompactRecovery = false
       /** 自动 compact 后跳过 retry 退避/提示 */
       let skipRetryDelayOnce = false
+      /** 自动 compact 失败时保留真实失败原因，避免用原始上下文错误覆盖 */
+      let compactRecoveryError: TypedError | undefined
 
       const attemptCompactRecovery = async (
         source: 'typed_error' | 'catch',
@@ -1592,6 +1628,7 @@ export class AgentOrchestrator {
         if (attemptedCompactRecovery) {
           return 'failed'
         }
+        compactRecoveryError = undefined
 
         const resumeSessionId = capturedSdkSessionId ?? existingSdkSessionId
         if (!resumeSessionId) {
@@ -1634,21 +1671,25 @@ export class AgentOrchestrator {
             }
 
             if (event.type === 'typed_error') {
-              if (sawCompacting && !sawCompactComplete) {
-                this.eventBus.emit(sessionId, { type: 'compact_complete' })
-              }
+              compactRecoveryError = event.error
               writeTurnStructuredSidecar('compact-typed-error', event.error)
               logTurnPhase('error', 'compact_recovery_typed_error', {
                 errorCode: event.error.code,
                 errorTitle: event.error.title,
+                hasOriginalError: Boolean(event.error.originalError),
               }, 'Agent compact recovery typed error')
               console.error(`[Agent 编排] 自动 /compact 返回 typed_error: ${event.error.code} - ${event.error.message}`)
               return 'failed'
             }
 
             if (event.type === 'error') {
-              if (sawCompacting && !sawCompactComplete) {
-                this.eventBus.emit(sessionId, { type: 'compact_complete' })
+              compactRecoveryError = {
+                code: 'unknown_error',
+                title: '上下文压缩失败',
+                message: event.message,
+                actions: [],
+                canRetry: false,
+                originalError: event.message,
               }
               writeTurnStructuredSidecar('compact-error', event)
               logTurnPhase('error', 'compact_recovery_error', {
@@ -1673,10 +1714,40 @@ export class AgentOrchestrator {
           }
 
           if (!compactCompleted) {
-            if (sawCompacting && !sawCompactComplete) {
-              this.eventBus.emit(sessionId, { type: 'compact_complete' })
+            compactRecoveryError = {
+              code: 'prompt_too_long',
+              title: '上下文过长',
+              message: '自动压缩未完成：未收到 SDK complete 事件，已停止重放原始消息。',
+              actions: [{ key: 'c', label: '压缩上下文', action: 'compact' }],
+              canRetry: false,
+              details: [
+                '自动 /compact 未收到 complete 事件。',
+                sawCompacting ? 'SDK 已进入 compacting 状态。' : 'SDK 未报告 compacting 状态。',
+              ],
             }
             console.error('[Agent 编排] 自动 /compact 未收到 complete 事件')
+            return 'failed'
+          }
+
+          if (!sawCompactComplete) {
+            compactRecoveryError = {
+              code: 'prompt_too_long',
+              title: '上下文过长',
+              message: '自动压缩未完成：未收到 SDK compact_boundary，已停止重放原始消息。',
+              actions: [{ key: 'c', label: '压缩上下文', action: 'compact' }],
+              canRetry: false,
+              details: [
+                '自动 /compact 已结束，但没有产生 compact_boundary。',
+                '为避免继续复用超大 SDK 历史，本轮不会重放原始用户消息。',
+              ],
+            }
+            logTurnPhase('error', 'compact_recovery_missing_boundary', {
+              source,
+              resumeSessionId,
+              sawCompacting,
+              compactCompleted,
+            }, 'Agent compact recovery missing compact boundary')
+            console.error('[Agent 编排] 自动 /compact 未收到 compact_boundary，判定为失败')
             return 'failed'
           }
 
@@ -1694,7 +1765,14 @@ export class AgentOrchestrator {
           console.log('[Agent 编排] 自动 /compact 成功，准备重放原始用户消息')
           return 'recovered'
         } catch (compactError) {
-          this.eventBus.emit(sessionId, { type: 'compact_complete' })
+          compactRecoveryError = {
+            code: 'unknown_error',
+            title: '上下文压缩失败',
+            message: compactError instanceof Error ? compactError.message : '自动压缩上下文时发生未知错误',
+            actions: [],
+            canRetry: false,
+            originalError: serializeDiagnosticText(compactError),
+          }
           logTurnPhase('error', 'compact_recovery_failed', {
             source,
             error: serializeDiagnosticError(compactError),
@@ -1861,6 +1939,19 @@ export class AgentOrchestrator {
                   attempt -= 1
                   break
                 }
+                if (compactRecoveryResult === 'failed' && compactRecoveryError) {
+                  const compactErrorSidecarPaths = writeTurnStructuredSidecar('typed-error', compactRecoveryError)
+                  persistTypedErrorStatusMessage(compactRecoveryError, compactErrorSidecarPaths)
+                  this.eventBus.emit(sessionId, { type: 'typed_error', error: compactRecoveryError })
+                  if (!loopAbort.signal.aborted) loopAbort.abort()
+                  await watchdogDone
+                  logTurnPhase('error', 'turn_failed', {
+                    failureSource: 'compact_recovery',
+                    errorCode: compactRecoveryError.code,
+                  }, 'Agent turn failed after compact recovery failure')
+                  callbacks.onComplete(getAgentSessionMessages(sessionId))
+                  return
+                }
               }
 
               if (isAutoRetryableTypedError(event.error) && attempt <= MAX_AUTO_RETRIES) {
@@ -1885,35 +1976,7 @@ export class AgentOrchestrator {
               // 不可重试 → 走原有终止逻辑
               persistAssistantMessageForTurn(accumulatedText, accumulatedEvents)
 
-              const errorMsg: AgentMessage = {
-                id: randomUUID(),
-                role: 'status',
-                content: event.error.title
-                  ? `${event.error.title}: ${event.error.message}`
-                  : event.error.message,
-                createdAt: Date.now(),
-                errorCode: event.error.code,
-                errorTitle: event.error.title,
-                errorDetails: event.error.details,
-                errorOriginal: event.error.originalError,
-                errorCanRetry: event.error.canRetry,
-                errorActions: event.error.actions,
-              }
-              appendTurnConversationMessage(errorMsg)
-              logAgentLifecycle('error', {
-                phase: 'typed_error_persisted',
-                requestId,
-                turnId,
-                sessionId,
-                workspaceId: workspaceRuntime.workspace.id,
-                errorCode: event.error.code,
-                errorTitle: event.error.title,
-                canRetry: event.error.canRetry,
-                detailsCount: event.error.details?.length ?? 0,
-                hasOriginalError: Boolean(event.error.originalError),
-                typedErrorSidecarPaths,
-              })
-              console.log(`[Agent 编排] 已保存 TypedError 消息: ${event.error.code} - ${event.error.title}`)
+              persistTypedErrorStatusMessage(event.error, typedErrorSidecarPaths)
 
               // 如果之前有重试记录，发送 retry_failed
               if (attempt > 1 && lastRetryableError) {
@@ -2192,6 +2255,20 @@ export class AgentOrchestrator {
               skipRetryDelayOnce = attempt > 1
               attempt -= 1
               continue
+            }
+            if (compactRecoveryResult === 'failed' && compactRecoveryError) {
+              const compactErrorSidecarPaths = writeTurnStructuredSidecar('typed-error', compactRecoveryError)
+              persistTypedErrorStatusMessage(compactRecoveryError, compactErrorSidecarPaths)
+              this.eventBus.emit(sessionId, { type: 'typed_error', error: compactRecoveryError })
+              logTurnPhase('error', 'turn_failed', {
+                failureSource: 'compact_recovery',
+                errorCode: compactRecoveryError.code,
+              }, 'Agent turn failed after compact recovery failure')
+              callbacks.onError(compactRecoveryError.title
+                ? `${compactRecoveryError.title}: ${compactRecoveryError.message}`
+                : compactRecoveryError.message)
+              callbacks.onComplete(getAgentSessionMessages(sessionId))
+              return
             }
           }
 
