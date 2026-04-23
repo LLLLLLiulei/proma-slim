@@ -5,6 +5,7 @@ import {
   createOptimisticUserMessage,
   getMessagesForSession,
   prepareAgentSendPayload,
+  resolvePreparedAgentSendPayload,
   replaceMessagesForSession,
   resolveShouldAutoSendInitialMessage,
   resolveShouldRenderAgentHeader,
@@ -204,6 +205,41 @@ describe('AgentView embedding helpers', () => {
       userMessage: '请直接开始生成页面，并参考 /skill:docs',
       mentionedSkills: ['docs', 'page-builder-guided-generation'],
       mentionedMcpServers: [],
+    })
+  })
+
+  test('allows host-controlled send preparation to override the ordinary payload', async () => {
+    await expect(resolvePreparedAgentSendPayload({
+      userMessage: '继续修改这个 CMS 区块',
+      sessionId: 'session-1',
+      workspaceId: 'workspace-1',
+      defaultMentionedSkills: ['page-builder-guided-generation'],
+      prepareSendPayload: async ({ userMessage }) => ({
+        userMessage,
+        composedUserMessage: `<page_builder_selection>{"kind":"cms-island"}</page_builder_selection>\n\n${userMessage}`,
+        mentionedSkills: ['page-builder-guided-generation', 'page-builder-cms-region-authoring-guidance'],
+        mentionedMcpServers: [],
+      }),
+    })).resolves.toEqual({
+      userMessage: '继续修改这个 CMS 区块',
+      composedUserMessage: '<page_builder_selection>{"kind":"cms-island"}</page_builder_selection>\n\n继续修改这个 CMS 区块',
+      mentionedSkills: ['page-builder-guided-generation', 'page-builder-cms-region-authoring-guidance'],
+      mentionedMcpServers: [],
+    })
+  })
+
+  test('allows host-controlled send preparation to block an unsafe send before dispatch', async () => {
+    await expect(resolvePreparedAgentSendPayload({
+      userMessage: '继续修改这个失效的 CMS 区域',
+      sessionId: 'session-1',
+      workspaceId: 'workspace-1',
+      prepareSendPayload: async () => ({
+        blocked: true,
+        errorMessage: '当前已选 CMS 区域已失效或无法确认，请重新选择该区域后再修改。',
+      }),
+    })).resolves.toEqual({
+      blocked: true,
+      errorMessage: '当前已选 CMS 区域已失效或无法确认，请重新选择该区域后再修改。',
     })
   })
 })

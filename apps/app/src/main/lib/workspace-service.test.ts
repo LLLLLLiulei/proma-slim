@@ -114,6 +114,7 @@ describe('workspace service', () => {
 
     expect(existsSync(join(configDir, 'default-skills', 'brainstorming', 'SKILL.md'))).toBe(true)
     expect(existsSync(join(configDir, 'default-skills', 'cms-binding-apply', 'SKILL.md'))).toBe(true)
+    expect(existsSync(join(configDir, 'default-skills', 'page-builder-cms-region-authoring-guidance', 'SKILL.md'))).toBe(true)
     expect(existsSync(join(configDir, 'default-skills', 'page-builder-guided-generation', 'SKILL.md'))).toBe(true)
   })
 
@@ -172,6 +173,7 @@ describe('workspace service', () => {
     expect(claudeMd).toContain('workspace-files/assets/')
     expect(claudeMd).toContain('cms-binding-apply')
     expect(claudeMd).toContain('page-builder-guided-generation')
+    expect(claudeMd).toContain('consult the canonical CMS guidance surfaced for that turn before editing it')
     expect(claudeMd).toContain('current workspace')
     expect(claudeMd).not.toContain('Do not JSON-stringify the `decision` payload')
     expect(claudeMd).not.toContain('mcp__cms__decide_cms_binding')
@@ -184,6 +186,7 @@ describe('workspace service', () => {
     const workspace = createAgentWorkspace('Builder Skill Workspace', { template: 'page-builder' })
 
     expect(existsSync(join(getWorkspaceSkillsDir(workspace.slug), 'cms-binding-apply', 'SKILL.md'))).toBe(true)
+    expect(existsSync(join(getWorkspaceSkillsDir(workspace.slug), 'page-builder-cms-region-authoring-guidance', 'SKILL.md'))).toBe(true)
     expect(existsSync(join(getWorkspaceSkillsDir(workspace.slug), 'page-builder-guided-generation', 'SKILL.md'))).toBe(true)
   })
 

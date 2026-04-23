@@ -156,6 +156,11 @@ export interface AgentViewProps {
   initialUserMessage?: string | null
   onInitialUserMessageHandled?: () => void
   messageDecorator?: AgentMessageDecorator
+  prepareSendPayload?: (input: {
+    userMessage: string
+    sessionId: string
+    workspaceId?: string
+  }) => Promise<AgentSendPayloadPreparationResult | void> | AgentSendPayloadPreparationResult | void
   composerLeadingActions?: React.ReactNode
   onMessageSent?: (userMessage: string) => void
   beforeSendMessage?: (input: {
@@ -185,9 +190,45 @@ export interface PreparedAgentSendPayload {
   mentionedMcpServers: string[]
 }
 
+export interface BlockedAgentSendPayload {
+  blocked: true
+  errorMessage: string
+}
+
+export type AgentSendPayloadPreparationResult = PreparedAgentSendPayload | BlockedAgentSendPayload
+
 interface AgentSendExecutionResult {
   ok: boolean
   errorMessage?: string
+}
+
+export async function resolvePreparedAgentSendPayload(input: {
+  userMessage: string
+  sessionId: string
+  workspaceId?: string
+  messageDecorator?: AgentMessageDecorator
+  defaultMentionedSkills?: string[]
+  prepareSendPayload?: (input: {
+    userMessage: string
+    sessionId: string
+    workspaceId?: string
+  }) => Promise<AgentSendPayloadPreparationResult | void> | AgentSendPayloadPreparationResult | void
+}): Promise<AgentSendPayloadPreparationResult> {
+  const prepared = await input.prepareSendPayload?.({
+    userMessage: input.userMessage,
+    sessionId: input.sessionId,
+    ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+  })
+
+  if (prepared) {
+    return prepared
+  }
+
+  return prepareAgentSendPayload(
+    input.userMessage,
+    input.messageDecorator,
+    input.defaultMentionedSkills ?? [],
+  )
 }
 
 export function resolveShouldRenderAgentHeader(showHeader = true): boolean {
@@ -280,6 +321,7 @@ export function AgentView({
   initialUserMessage = null,
   onInitialUserMessageHandled,
   messageDecorator,
+  prepareSendPayload,
   composerLeadingActions,
   onMessageSent,
   beforeSendMessage,
@@ -660,7 +702,19 @@ export function AgentView({
       }
     }
 
-    const payload = prepareAgentSendPayload(nextUserMessage.trim(), messageDecorator, defaultMentionedSkills)
+    const payload = await resolvePreparedAgentSendPayload({
+      userMessage: nextUserMessage.trim(),
+      sessionId,
+      ...(sessionWorkspaceId ? { workspaceId: sessionWorkspaceId } : {}),
+      messageDecorator,
+      defaultMentionedSkills,
+      prepareSendPayload,
+    })
+    if ('blocked' in payload) {
+      toast.error(payload.errorMessage)
+      return false
+    }
+
     const result = await executeSend({
       userMessage: payload.userMessage,
       ...(payload.composedUserMessage ? { composedUserMessage: payload.composedUserMessage } : {}),
@@ -680,6 +734,7 @@ export function AgentView({
     executeSend,
     messageDecorator,
     pendingAttachments,
+    prepareSendPayload,
     sessionId,
     sessionWorkspaceId,
     setInputValue,

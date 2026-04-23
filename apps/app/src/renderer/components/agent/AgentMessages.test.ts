@@ -247,7 +247,7 @@ describe('AgentMessages transient assistant rendering', () => {
     expect(markup).toContain('正在处理...')
   })
 
-  test('does not duplicate persisted assistant model info into the transient streaming header before model_resolved arrives', () => {
+  test('does not surface persisted assistant model metadata in the streaming header before model_resolved arrives', () => {
     const markup = renderToStaticMarkup(
       React.createElement(AgentMessages, {
         sessionId: 'session-streaming-model-fallback',
@@ -263,7 +263,27 @@ describe('AgentMessages transient assistant rendering', () => {
       })
     )
 
-    expect(countOccurrences(markup, 'alt="claude-sonnet-4-6"')).toBe(1)
+    expect(countOccurrences(markup, 'alt="claude-sonnet-4-6"')).toBe(0)
+    expect(markup).not.toContain('claude-sonnet-4-6')
+  })
+
+  test('keeps persisted assistant messages on the fixed Agent identity even when model metadata exists', () => {
+    const markup = renderToStaticMarkup(
+      React.createElement(AgentMessages, {
+        sessionId: 'session-persisted-fixed-identity',
+        messages: [{
+          id: 'assistant-persisted',
+          role: 'assistant',
+          content: '这是已经落盘的助手回复。',
+          createdAt: 1,
+          model: 'claude-sonnet-4-6',
+        }],
+        streaming: false,
+      })
+    )
+
+    expect(markup).not.toContain('claude-sonnet-4-6')
+    expect(markup).toContain('Agent')
   })
 
   test('does not render a fallback model identity in the transient streaming header for a brand-new session', () => {

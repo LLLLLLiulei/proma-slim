@@ -3,3 +3,9 @@
  */
 
 export { AgentView } from './AgentView'
+export {
+  prepareAgentSendPayload,
+  type AgentSendPayloadPreparationResult,
+  type BlockedAgentSendPayload,
+  type PreparedAgentSendPayload,
+} from './AgentView'

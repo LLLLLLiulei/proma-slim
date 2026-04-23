@@ -602,14 +602,13 @@ function AgentMessageItem({
 
   if (message.role === 'assistant') {
     const toolActivities = extractToolActivities(message.events)
-    const assistantModel = message.model ?? FIXED_ASSISTANT_NAME
 
     return (
       <Message from="assistant">
         <MessageHeader
-          model={assistantModel}
+          model={FIXED_ASSISTANT_NAME}
           time={formatMessageTime(message.createdAt)}
-          logo={message.model ? <AssistantLogo model={message.model} /> : <FixedAssistantIdentityLogo />}
+          logo={<FixedAssistantIdentityLogo />}
         />
         <MessageContent>
           {toolActivities.length > 0 && (
