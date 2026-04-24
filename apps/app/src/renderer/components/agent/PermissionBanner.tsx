@@ -5,19 +5,12 @@ import { Button } from '@/components/ui/button'
 import { allPendingPermissionRequestsAtom } from '@/atoms/agent-atoms'
 import { api } from '@/lib/api'
 import type { DangerLevel } from '@proma/shared'
+import { formatAgentToolLabel } from './tool-labels'
 
 const DANGER_ICON_STYLES: Record<DangerLevel, string> = {
   safe: 'text-green-500',
   normal: 'text-primary',
   dangerous: 'text-amber-500',
-}
-
-function formatToolName(toolName: string): string {
-  const parts = toolName.split('__')
-  if (parts[0] === 'mcp' && parts.length >= 3) {
-    return `${parts[1]} / ${parts.slice(2).join('__')}`
-  }
-  return toolName
 }
 
 interface PermissionBannerProps {
@@ -89,7 +82,7 @@ export function PermissionBanner({ sessionId }: PermissionBannerProps): React.Re
           <span className="text-sm font-medium">需要确认</span>
           {requests.length > 1 && <span className="text-xs text-muted-foreground">(+{requests.length - 1})</span>}
         </div>
-        <span className="text-xs font-mono text-muted-foreground">{formatToolName(request.toolName)}</span>
+        <span className="text-xs font-mono text-muted-foreground">{formatAgentToolLabel(request.toolName)}</span>
       </div>
 
       <div className="px-3 pb-2">

@@ -36,7 +36,7 @@ describe('PermissionBanner', () => {
       sessionId,
       toolName: 'Write',
       toolInput: { file_path: '/tmp/index.html' },
-      description: '写入文件',
+      description: 'desc-write',
       dangerLevel: 'normal',
     }
     const nextRequest: PermissionRequest = {
@@ -44,7 +44,7 @@ describe('PermissionBanner', () => {
       sessionId,
       toolName: 'Bash',
       toolInput: { command: 'mkdir test' },
-      description: '执行命令',
+      description: 'desc-bash',
       command: 'mkdir test',
       dangerLevel: 'normal',
     }
@@ -72,7 +72,8 @@ describe('PermissionBanner', () => {
     })
 
     const buttons = renderer.root.findAllByType('button')
-    expect(JSON.stringify(renderer.toJSON())).toContain('Write')
+    expect(JSON.stringify(renderer.toJSON())).toContain('写入文件')
+    expect(JSON.stringify(renderer.toJSON())).not.toContain('Write')
 
     await act(async () => {
       buttons[1]!.props.onClick()
@@ -86,6 +87,59 @@ describe('PermissionBanner', () => {
     })
     expect(console.error).not.toHaveBeenCalled()
     expect(store.get(allPendingPermissionRequestsAtom).get(sessionId)).toEqual([nextRequest])
-    expect(JSON.stringify(renderer.toJSON())).toContain('Bash')
+    expect(JSON.stringify(renderer.toJSON())).toContain('执行命令')
+    expect(JSON.stringify(renderer.toJSON())).not.toContain('Bash')
+  })
+
+  test('renders first-party MCP tool names in Chinese', async () => {
+    const sessionId = 'session-mcp'
+    const request: PermissionRequest = {
+      requestId: 'mcp-request',
+      sessionId,
+      toolName: 'mcp__cms__apply_cms_binding',
+      toolInput: { decisionId: 'decision-1' },
+      description: 'desc-mcp',
+      dangerLevel: 'normal',
+    }
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <Provider store={createStore()}>
+          <HydratePermissionRequests requestsBySession={new Map([[sessionId, [request]]])}>
+            <PermissionBanner sessionId={sessionId} />
+          </HydratePermissionRequests>
+        </Provider>,
+      )
+    })
+
+    const markup = JSON.stringify(renderer.toJSON())
+    expect(markup).toContain('CMS / 应用内容绑定')
+    expect(markup).not.toContain('mcp__cms__apply_cms_binding')
+  })
+
+  test('preserves unmapped permission tool names as-is', async () => {
+    const sessionId = 'session-custom'
+    const request: PermissionRequest = {
+      requestId: 'custom-request',
+      sessionId,
+      toolName: 'mcp__custom__run',
+      toolInput: { input: 'value' },
+      description: 'desc-custom',
+      dangerLevel: 'normal',
+    }
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <Provider store={createStore()}>
+          <HydratePermissionRequests requestsBySession={new Map([[sessionId, [request]]])}>
+            <PermissionBanner sessionId={sessionId} />
+          </HydratePermissionRequests>
+        </Provider>,
+      )
+    })
+
+    expect(JSON.stringify(renderer.toJSON())).toContain('mcp__custom__run')
   })
 })

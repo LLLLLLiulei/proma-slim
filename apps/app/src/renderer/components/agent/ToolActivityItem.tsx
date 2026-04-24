@@ -41,6 +41,7 @@ import {
   groupActivities,
   isActivityGroup,
 } from '@/atoms/agent-atoms'
+import { formatAgentSkillLabel, formatAgentToolLabel } from './tool-labels'
 
 // ===== 尺寸配置 =====
 
@@ -217,7 +218,7 @@ function getInputSummary(toolName: string, input: Record<string, unknown>): stri
   }
   if (toolName === 'Skill') {
     const skill = input.skill
-    if (typeof skill === 'string') return skill
+    if (typeof skill === 'string') return formatAgentSkillLabel(skill)
   }
   // Task 子代理：显示 description
   if (toolName === 'Task') {
@@ -364,6 +365,7 @@ export function ActivityRow({ activity, index = 0, animate = false, onOpenDetail
   const filePath = extractFilePath(activity.input)
   const diffStats = computeDiffStats(activity.toolName, activity.input)
   const inputSummary = getInputSummary(activity.toolName, activity.input)
+  const toolLabel = formatAgentToolLabel(activity.toolName)
   const intent = activity.intent ?? activity.displayName
 
   const delay = animate && index < SIZE.staggerLimit ? `${index * 30}ms` : '0ms'
@@ -391,12 +393,12 @@ export function ActivityRow({ activity, index = 0, animate = false, onOpenDetail
             </span>
             <Plus className={cn(SIZE.icon, 'absolute text-foreground/60 opacity-0 transition-opacity duration-150 group-hover/expand:opacity-100')} />
           </span>
-          <span className="shrink-0 text-foreground/80 group-hover/expand:text-foreground transition-colors duration-150">{activity.toolName}</span>
+          <span className="shrink-0 text-foreground/80 group-hover/expand:text-foreground transition-colors duration-150">{toolLabel}</span>
         </button>
       ) : (
         <>
           <StatusIcon status={status} toolName={activity.toolName} />
-          <span className="shrink-0 text-foreground/80">{activity.toolName}</span>
+          <span className="shrink-0 text-foreground/80">{toolLabel}</span>
         </>
       )}
 
