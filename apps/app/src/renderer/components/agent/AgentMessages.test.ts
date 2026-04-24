@@ -9,6 +9,9 @@ function countOccurrences(source: string, needle: string): number {
   return source.split(needle).length - 1
 }
 
+const TASK_CREATE_LABEL = '创建任务'
+const TASK_LIST_LABEL = '查看任务列表'
+
 function createCompletedToolStreamState(content: string): AgentStreamState {
   return {
     running: false,
@@ -225,6 +228,58 @@ describe('AgentMessages transient assistant rendering', () => {
     })).toBe(false)
   })
 
+  test('keeps transient assistant text when the earlier persisted assistant only matches the beginning of the completed reply', () => {
+    const messages: AgentMessage[] = [
+      {
+        id: 'user-1',
+        role: 'user',
+        content: '继续处理当前 CMS 绑定。',
+        createdAt: 1,
+      },
+      {
+        id: 'assistant-1',
+        role: 'assistant',
+        content: '我来处理这个 CMS 绑定申请。',
+        createdAt: 2,
+      },
+    ]
+
+    expect(shouldRenderTransientAssistantMessage({
+      messages,
+      streaming: false,
+      streamingContent: '',
+      smoothContent: '我来处理这个 CMS 绑定申请。完成了！我已成功将 CMS 内容应用到画廊网格区域。',
+      toolActivities: [],
+      retrying: undefined,
+    })).toBe(true)
+  })
+
+  test('suppresses transient assistant text when the persisted current-turn assistant already ends with the completed summary', () => {
+    const messages: AgentMessage[] = [
+      {
+        id: 'user-1',
+        role: 'user',
+        content: '现在图片都不展示了呀',
+        createdAt: 1,
+      },
+      {
+        id: 'assistant-1',
+        role: 'assistant',
+        content: '让我检查一下图片的显示问题：让我检查一下图片的显示问题：我发现问题了！HTML中使用的是 `card-image-bg` 作为背景图片容器，而不是 `<img>` 标签。但我在CSS中删除了对应的样式。让我修复这个问题：我发现问题了！HTML中使用的是 `card-image-bg` 作为背景图片容器，而不是 `<img>` 标签。但我在CSS中删除了对应的样式。让我修复这个问题：好了，我已经修复了图片显示问题。问题是HTML中使用的是 `card-image-bg` 作为背景图片容器，而我在CSS中只写了 `img` 标签的样式。现在已经改成正确的样式了，图片应该能正常显示。',
+        createdAt: 2,
+      },
+    ]
+
+    expect(shouldRenderTransientAssistantMessage({
+      messages,
+      streaming: false,
+      streamingContent: '',
+      smoothContent: '好了，我已经修复了图片显示问题。问题是HTML中使用的是 `card-image-bg` 作为背景图片容器，而我在CSS中只写了 `img` 标签的样式。现在已经改成正确的样式了，图片应该能正常显示。',
+      toolActivities: [],
+      retrying: undefined,
+    })).toBe(false)
+  })
+
   test('does not render a duplicate transient tool block after the persisted assistant message already contains the same tool events', () => {
     const markup = renderToStaticMarkup(
       React.createElement(AgentMessages, {
@@ -235,8 +290,8 @@ describe('AgentMessages transient assistant rendering', () => {
       })
     )
 
-    expect(countOccurrences(markup, 'TaskCreate')).toBe(1)
-    expect(countOccurrences(markup, 'TaskList')).toBe(1)
+    expect(countOccurrences(markup, TASK_CREATE_LABEL)).toBe(1)
+    expect(countOccurrences(markup, TASK_LIST_LABEL)).toBe(1)
   })
 
   test('keeps transient tool activities but suppresses duplicate transient text once the completed assistant reply is persisted', () => {
@@ -263,8 +318,69 @@ describe('AgentMessages transient assistant rendering', () => {
     )
 
     expect(countOccurrences(markup, '完成了！我已成功将 CMS 内容应用到画廊网格区域。')).toBe(1)
-    expect(countOccurrences(markup, 'TaskCreate')).toBe(1)
-    expect(countOccurrences(markup, 'TaskList')).toBe(1)
+    expect(countOccurrences(markup, TASK_CREATE_LABEL)).toBe(1)
+    expect(countOccurrences(markup, TASK_LIST_LABEL)).toBe(1)
+  })
+
+  test('suppresses the transient shell when the persisted assistant already contains the final concise summary as a suffix', () => {
+    const conciseSummary = '好了，我已经修复了图片显示问题。问题是HTML中使用的是 `card-image-bg` 作为背景图片容器，而我在CSS中只写了 `img` 标签的样式。现在已经改成正确的样式了，图片应该能正常显示。'
+    const terminalSentence = '图片应该能正常显示。'
+    const markup = renderToStaticMarkup(
+      React.createElement(AgentMessages, {
+        sessionId: 'session-persisted-verbose-with-transient-summary',
+        messages: [{
+          id: 'user-1',
+          role: 'user',
+          content: '现在图片都不展示了呀',
+          createdAt: 1,
+        }, {
+          id: 'assistant-1',
+          role: 'assistant',
+          content: `让我检查一下图片的显示问题：让我检查一下图片的显示问题：我发现问题了！HTML中使用的是 \`card-image-bg\` 作为背景图片容器，而不是 \`<img>\` 标签。但我在CSS中删除了对应的样式。让我修复这个问题：我发现问题了！HTML中使用的是 \`card-image-bg\` 作为背景图片容器，而不是 \`<img>\` 标签。但我在CSS中删除了对应的样式。让我修复这个问题：${conciseSummary}`,
+          createdAt: 2,
+          model: 'claude-sonnet-4-6',
+          events: [
+            {
+              type: 'tool_start',
+              toolName: 'Read',
+              toolUseId: 'tool-read-index-html',
+              input: { file_path: 'index.html' },
+            },
+            {
+              type: 'tool_result',
+              toolName: 'Read',
+              toolUseId: 'tool-read-index-html',
+              result: 'index.html',
+              isError: false,
+            },
+            {
+              type: 'tool_start',
+              toolName: 'Read',
+              toolUseId: 'tool-read-style-css',
+              input: { file_path: 'style.css' },
+            },
+            {
+              type: 'tool_result',
+              toolName: 'Read',
+              toolUseId: 'tool-read-style-css',
+              result: 'style.css',
+              isError: false,
+            },
+          ],
+        }],
+        streaming: false,
+        streamState: {
+          running: false,
+          content: conciseSummary,
+          model: 'claude-sonnet-4-6',
+          startedAt: 1,
+          teammates: [],
+          toolActivities: [],
+        },
+      })
+    )
+
+    expect(countOccurrences(markup, terminalSentence)).toBe(1)
   })
 
   test('keeps the transient tool block visible until the persisted assistant message catches up with tool events', () => {
@@ -277,8 +393,8 @@ describe('AgentMessages transient assistant rendering', () => {
       })
     )
 
-    expect(countOccurrences(markup, 'TaskCreate')).toBe(1)
-    expect(countOccurrences(markup, 'TaskList')).toBe(1)
+    expect(countOccurrences(markup, TASK_CREATE_LABEL)).toBe(1)
+    expect(countOccurrences(markup, TASK_LIST_LABEL)).toBe(1)
   })
 
   test('does not render a leftover transient tool block when an earlier persisted assistant already contains those tool events', () => {
@@ -300,8 +416,8 @@ describe('AgentMessages transient assistant rendering', () => {
       })
     )
 
-    expect(countOccurrences(markup, 'TaskCreate')).toBe(1)
-    expect(countOccurrences(markup, 'TaskList')).toBe(1)
+    expect(countOccurrences(markup, TASK_CREATE_LABEL)).toBe(1)
+    expect(countOccurrences(markup, TASK_LIST_LABEL)).toBe(1)
   })
 
   test('shows an explicit loading label while partial assistant text is still streaming', () => {

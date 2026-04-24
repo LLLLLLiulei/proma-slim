@@ -59,6 +59,16 @@ function normalizeAssistantContent(content: string): string {
   return content.trim()
 }
 
+function findLastMessageIndexByRole(messages: AgentMessage[], role: AgentMessage['role']): number {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index]?.role === role) {
+      return index
+    }
+  }
+
+  return -1
+}
+
 function normalizeToolActivitiesForComparison(activities: ToolActivity[]): string {
   return JSON.stringify(
     activities.map((activity) => ({
@@ -94,8 +104,10 @@ export function shouldRenderTransientAssistantMessage({
   if (streaming) return Boolean(streamingContent)
   if (!smoothContent) return false
 
-  const lastAssistantMessage = [...messages].reverse().find((message) => message.role === 'assistant')
-  if (!lastAssistantMessage || !smoothContent) return true
+  const lastAssistantIndex = findLastMessageIndexByRole(messages, 'assistant')
+  if (lastAssistantIndex === -1 || !smoothContent) return true
+
+  const lastAssistantMessage = messages[lastAssistantIndex]!
 
   const normalizedPersistedContent = normalizeAssistantContent(lastAssistantMessage.content)
   const normalizedSmoothContent = normalizeAssistantContent(smoothContent)
@@ -105,6 +117,20 @@ export function shouldRenderTransientAssistantMessage({
   }
 
   if (normalizedPersistedContent.startsWith(normalizedSmoothContent)) {
+    return false
+  }
+
+  const lastUserIndex = findLastMessageIndexByRole(messages, 'user')
+  if (
+    lastUserIndex !== -1
+    && lastAssistantIndex > lastUserIndex
+    // Completed streams can briefly retain an earlier preface even after the
+    // persisted reply for the same turn has already been rendered.
+    && (
+      normalizedSmoothContent.endsWith(normalizedPersistedContent)
+      || normalizedPersistedContent.endsWith(normalizedSmoothContent)
+    )
+  ) {
     return false
   }
 
