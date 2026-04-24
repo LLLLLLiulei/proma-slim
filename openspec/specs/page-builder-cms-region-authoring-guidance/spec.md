@@ -3,16 +3,22 @@
 
 ## Requirements
 
-### Requirement: Existing CMS region edits MUST use a dedicated authoring guidance capability
-系统 SHALL 为 page-builder 中“已有 `cms-catalog` / `cms-content` 区域的普通修改”提供一个独立于 `page-builder-guided-generation` 与 `cms-binding-apply` 的 guidance capability，使模型在修改已有 CMS source tag 前先进入正确的 ordinary CMS authoring 语境，而不是继续依赖普通页面 skill 或 confirmed apply skill 自行兼任全部 CMS 理解职责。
+### Requirement: Existing CMS region edits MUST use dedicated consult-only authoring guidance
+系统 SHALL 将 `page-builder-cms-region-authoring-guidance` 作为 explicit existing `cms-catalog`、`cms-content` 或 `cms-island` target edit 的专用 consult-only capability；只有当宿主已经识别当前 ordinary request 明确命中已有 CMS target 时，系统才 SHALL 为该次请求显式 surface 该 capability，并把它提供给当前 owner `page-builder-guided-generation` 参考。该 capability SHALL 由宿主通过 prompt surfacing 明确激活，而不得仅依赖 workspace 中存在对应 skill 文件；当当前页面只是包含 CMS 区域但本轮未命中具体 target 时，系统 SHALL NOT 激活该 capability；confirmed CMS apply 仍 SHALL 继续由 `cms-binding-apply` 负责。
 
-#### Scenario: 命中已有 CMS 区域时加载专用 guidance capability
+#### Scenario: 显式命中已有 CMS 区域时加载 consult-only guidance
 - **WHEN** 当前 ordinary page-builder 请求明确命中一个已存在的 `cms-catalog`、`cms-content` 或 `cms-island`
-- **THEN** 系统 SHALL 为该次请求加载专用的已有 CMS 区域 guidance capability
-- **AND** 系统 SHALL NOT 仅依赖 `page-builder-guided-generation` 的默认文案承担组件级 CMS authoring 细则
+- **THEN** 系统 SHALL 为该次请求显式 surface `page-builder-cms-region-authoring-guidance`
+- **AND** 系统 SHALL 让 `page-builder-guided-generation` 保持该次请求的唯一 owner
+- **AND** 系统 SHALL NOT 将 `page-builder-cms-region-authoring-guidance` 升级为并列 owner 或替代 owner
+
+#### Scenario: 页面仅含 CMS 但未命中 target 时不激活专用 guidance capability
+- **WHEN** 当前页面已经包含已有 CMS 区域，但本轮请求没有明确命中某个具体已有 CMS target
+- **THEN** 系统 SHALL NOT 仅因页面存在 CMS 区域就激活 `page-builder-cms-region-authoring-guidance`
+- **AND** 系统 SHALL 将该次请求留在 ordinary owner 的 advisory 边界下处理
 
 #### Scenario: 宿主显式激活专用 guidance 而不是被动等待模型发现
-- **WHEN** 系统为一次 ordinary 既有 CMS 区域修改准备该 guidance capability
+- **WHEN** 系统为一次 explicit existing CMS target edit 准备该 capability
 - **THEN** 系统 SHALL 通过宿主控制的 prompt surfacing 机制显式激活该 capability
 - **AND** 系统 SHALL NOT 将“skill 已复制到 workspace”视为本轮 guidance 已稳定可见的充分条件
 

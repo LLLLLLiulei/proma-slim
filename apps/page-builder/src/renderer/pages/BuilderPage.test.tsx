@@ -79,6 +79,15 @@ function extractPageBuilderSelectionPayload(message: string): unknown {
   return JSON.parse(match[1]!)
 }
 
+function extractPageBuilderTurnRoutingPayload(message: string): unknown {
+  const match = message.match(/<page_builder_turn_routing>\s*([\s\S]*?)\s*<\/page_builder_turn_routing>/)
+  if (!match) {
+    throw new Error('missing page_builder_turn_routing payload')
+  }
+
+  return JSON.parse(match[1]!)
+}
+
 function extractPageBuilderCmsRegionAuthoringPayload(message: string): unknown {
   const match = message.match(/<page_builder_cms_region_authoring>\s*([\s\S]*?)\s*<\/page_builder_cms_region_authoring>/)
   if (!match) {
@@ -381,7 +390,10 @@ async function loadBuilderPage(options: {
       }) => ({
         requestId: `auto-handoff:${payload.selection.targetBlock.selector}`,
         userMessage: '请根据刚确认的 CMS 选择结果，判断如何应用到当前目标。',
-        composedUserMessage: '<cms_binding_apply_input>{"version":8}</cms_binding_apply_input>',
+        composedUserMessage: [
+          '<page_builder_turn_routing>{"sceneKind":"confirmed-cms-apply","ownerSkill":"cms-binding-apply","ownerLockedForTurn":true}</page_builder_turn_routing>',
+          '<cms_binding_apply_input>{"version":8}</cms_binding_apply_input>',
+        ].join('\n\n'),
         mentionedSkills: ['cms-binding-apply'],
         bootstrappedSkills: ['cms-binding-apply'],
         mentionedMcpServers: ['cms'],
@@ -1693,7 +1705,7 @@ describe('BuilderPage', () => {
     expect(getLastAgentViewProps()).not.toHaveProperty('messageDecorator')
   })
 
-  test('keeps the selected block after sending a micro-adjustment message until preview refresh completes', async () => {
+  test('clears the visible selection after sending and does not retain an implicit follow-up target', async () => {
     const { runIntervalsOnce } = installWindowHarness()
     const workspace: AgentWorkspace = {
       id: 'workspace-1',
@@ -1760,23 +1772,24 @@ describe('BuilderPage', () => {
     })
 
     expect(getLastPreviewPaneProps()).toMatchObject({
-      selectionModeEnabled: true,
-      selectionActionState: 'selected',
+      selectionModeEnabled: false,
+      selectionActionState: 'idle',
       previewUrl: `/api/workspaces/${workspace.id}/preview/?v=rev-1`,
     })
-    expect(getPreviewSelectionActionState(getLastPreviewPaneProps())).toBe('selected')
-    expect(extractPageBuilderSelectionPayload((getLastAgentViewProps() as {
-      messageDecorator?: (message: string) => string
-    }).messageDecorator?.('帮我微调这个区块') ?? '')).toMatchObject({
-      targetSelection: createBlockTargetSelection('#hero-banner'),
-      selectionSemantics: {
-        previewSurface: 'static-block',
-        updateRule: 'replace-selected-target-in-place',
-        preserveExistingStructure: true,
-        fallbackOnIncompatibleStructure: 'ask-user-question',
-        forbidSiblingInsertion: true,
-      },
+    expect(getPreviewSelectionActionState(getLastPreviewPaneProps())).toBe('idle')
+    expect(getLastAgentViewProps()).not.toHaveProperty('messageDecorator')
+
+    const followUpPayload = await (getLastAgentViewProps() as {
+      prepareSendPayload?: (input: { userMessage: string; sessionId: string; workspaceId?: string }) => Promise<{
+        composedUserMessage?: string
+      }>
+    }).prepareSendPayload?.({
+      userMessage: '再把间距收紧一点',
+      sessionId: session.id,
+      workspaceId: workspace.id,
     })
+
+    expect(followUpPayload?.composedUserMessage).not.toContain('<page_builder_selection>')
 
     await act(async () => {
       await runIntervalsOnce()
@@ -1789,6 +1802,83 @@ describe('BuilderPage', () => {
     })
     expect(getPreviewSelectionActionState(getLastPreviewPaneProps())).toBe('idle')
     expect(getLastAgentViewProps()).not.toHaveProperty('messageDecorator')
+  })
+
+  test('uses only the current explicit selection when the user re-selects another block before sending', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const { BuilderPage, getLastAgentViewProps, getLastPreviewPaneProps } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      mockPreviewPane: true,
+      previewStates: [{
+        hasPreview: true,
+        entryUrl: `/api/workspaces/${workspace.id}/preview/`,
+        revision: 'rev-1',
+      }],
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      getPreviewSelectionToggle(getLastPreviewPaneProps())?.()
+      await Promise.resolve()
+    })
+    await act(async () => {
+      (getLastPreviewPaneProps() as {
+        onSelectionEvent?: (event: { type: string; targetSelection?: PageBuilderTargetSelection }) => void
+      }).onSelectionEvent?.({
+        type: 'selected',
+        targetSelection: createBlockTargetSelection('#hero-banner'),
+      })
+    })
+    await act(async () => {
+      getPreviewSelectionToggle(getLastPreviewPaneProps())?.()
+      await Promise.resolve()
+    })
+    await act(async () => {
+      (getLastPreviewPaneProps() as {
+        onSelectionEvent?: (event: { type: string; targetSelection?: PageBuilderTargetSelection }) => void
+      }).onSelectionEvent?.({
+        type: 'selected',
+        targetSelection: createBlockTargetSelection('#pricing'),
+      })
+    })
+
+    expect(getPreviewSelectionActionState(getLastPreviewPaneProps())).toBe('selected')
+    expect(extractPageBuilderSelectionPayload((getLastAgentViewProps() as {
+      messageDecorator?: (message: string) => string
+    }).messageDecorator?.('继续微调这个区块') ?? '')).toMatchObject({
+      targetSelection: createBlockTargetSelection('#pricing'),
+    })
+    expect(extractPageBuilderSelectionPayload((getLastAgentViewProps() as {
+      messageDecorator?: (message: string) => string
+    }).messageDecorator?.('继续微调这个区块') ?? '')).not.toMatchObject({
+      targetSelection: createBlockTargetSelection('#hero-banner'),
+    })
   })
 
   test('opens the cms browser dialog from preview block actions with the selected block context', async () => {
@@ -2030,6 +2120,7 @@ describe('BuilderPage', () => {
     const payload = await (getLastAgentViewProps() as {
       prepareSendPayload?: (input: { userMessage: string; sessionId: string; workspaceId?: string }) => Promise<{
         mentionedSkills: string[]
+        bootstrappedSkills?: string[]
         composedUserMessage?: string
       }>
     }).prepareSendPayload?.({
@@ -2040,6 +2131,12 @@ describe('BuilderPage', () => {
 
     expect(payload).toMatchObject({
       mentionedSkills: ['page-builder-guided-generation'],
+      bootstrappedSkills: ['page-builder-guided-generation'],
+    })
+    expect(extractPageBuilderTurnRoutingPayload(payload?.composedUserMessage ?? '')).toEqual({
+      sceneKind: 'ordinary-page-flow',
+      ownerSkill: 'page-builder-guided-generation',
+      ownerLockedForTurn: true,
     })
     expect(payload?.composedUserMessage).toContain('<page_builder_selection>')
     expect(payload?.composedUserMessage).not.toContain('<page_builder_cms_region_authoring>')
@@ -2097,7 +2194,13 @@ describe('BuilderPage', () => {
     })
 
     expect(payload).toMatchObject({
-      mentionedSkills: ['page-builder-guided-generation', 'page-builder-cms-region-authoring-guidance'],
+      mentionedSkills: ['page-builder-guided-generation'],
+      bootstrappedSkills: ['page-builder-guided-generation'],
+    })
+    expect(extractPageBuilderTurnRoutingPayload(payload?.composedUserMessage ?? '')).toEqual({
+      sceneKind: 'ordinary-page-flow',
+      ownerSkill: 'page-builder-guided-generation',
+      ownerLockedForTurn: true,
     })
     expect(extractPageBuilderCmsGuidanceNoticePayload(payload?.composedUserMessage ?? '')).toMatchObject({
       mode: 'page-has-existing-cms-regions',
@@ -2164,6 +2267,7 @@ describe('BuilderPage', () => {
     const payload = await (getLastAgentViewProps() as {
       prepareSendPayload?: (input: { userMessage: string; sessionId: string; workspaceId?: string }) => Promise<{
         mentionedSkills: string[]
+        bootstrappedSkills?: string[]
         composedUserMessage?: string
       }>
     }).prepareSendPayload?.({
@@ -2173,7 +2277,14 @@ describe('BuilderPage', () => {
     })
 
     expect(payload).toMatchObject({
-      mentionedSkills: ['page-builder-guided-generation', 'page-builder-cms-region-authoring-guidance'],
+      mentionedSkills: ['page-builder-guided-generation'],
+      bootstrappedSkills: ['page-builder-guided-generation', 'page-builder-cms-region-authoring-guidance'],
+    })
+    expect(extractPageBuilderTurnRoutingPayload(payload?.composedUserMessage ?? '')).toEqual({
+      sceneKind: 'existing-cms-region-ordinary-edit',
+      ownerSkill: 'page-builder-guided-generation',
+      ownerLockedForTurn: true,
+      consultSkills: ['page-builder-cms-region-authoring-guidance'],
     })
     expect(extractPageBuilderSelectionPayload(payload?.composedUserMessage ?? '')).toMatchObject({
       targetSelection: {
@@ -2194,6 +2305,191 @@ describe('BuilderPage', () => {
     expect(extractPageBuilderCmsGuidanceNoticePayload(payload?.composedUserMessage ?? '')).toMatchObject({
       mode: 'page-has-existing-cms-regions',
     })
+  })
+
+  test('clears a cms-island selection after send and does not reuse it implicitly on later messages', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const { BuilderPage, getLastAgentViewProps, getLastPreviewPaneProps } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      mockPreviewPane: true,
+      previewStates: [{
+        hasPreview: true,
+        entryUrl: `/api/workspaces/${workspace.id}/preview/`,
+        revision: 'rev-1',
+        hasCmsRendering: true,
+        requiresSameOrigin: true,
+      }],
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      (getLastPreviewPaneProps() as {
+        onSelectionEvent?: (event: { type: string; targetSelection?: PageBuilderTargetSelection }) => void
+      }).onSelectionEvent?.({
+        type: 'selected',
+        targetSelection: createCmsIslandTargetSelection(
+          'section:nth-of-type(2) > cms-content:nth-of-type(1)',
+          '[data-proma-block-id="pb_blk_news"]',
+          'cms-content',
+        ),
+      })
+    })
+    await act(async () => {
+      (getLastAgentViewProps() as {
+        onMessageSent?: (userMessage: string) => void
+      }).onMessageSent?.('继续修改这个区块')
+    })
+
+    expect(getPreviewSelectionActionState(getLastPreviewPaneProps())).toBe('idle')
+
+    const payload = await (getLastAgentViewProps() as {
+      prepareSendPayload?: (input: { userMessage: string; sessionId: string; workspaceId?: string }) => Promise<{
+        mentionedSkills: string[]
+        bootstrappedSkills?: string[]
+        composedUserMessage?: string
+      }>
+    }).prepareSendPayload?.({
+      userMessage: '再把列表间距收紧一点',
+      sessionId: session.id,
+      workspaceId: workspace.id,
+    })
+
+    expect(payload).toMatchObject({
+      mentionedSkills: ['page-builder-guided-generation'],
+      bootstrappedSkills: ['page-builder-guided-generation'],
+    })
+    expect(extractPageBuilderTurnRoutingPayload(payload?.composedUserMessage ?? '')).toEqual({
+      sceneKind: 'ordinary-page-flow',
+      ownerSkill: 'page-builder-guided-generation',
+      ownerLockedForTurn: true,
+    })
+    expect(payload?.composedUserMessage).not.toContain('<page_builder_selection>')
+    expect(payload?.composedUserMessage).not.toContain('<page_builder_cms_region_authoring>')
+    expect(extractPageBuilderCmsGuidanceNoticePayload(payload?.composedUserMessage ?? '')).toMatchObject({
+      mode: 'page-has-existing-cms-regions',
+    })
+  })
+
+  test('does not reinterpret an explicit selection based on free-form user wording', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const { BuilderPage, getLastAgentViewProps, getLastPreviewPaneProps } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      mockPreviewPane: true,
+      previewStates: [{
+        hasPreview: true,
+        entryUrl: `/api/workspaces/${workspace.id}/preview/`,
+        revision: 'rev-1',
+      }],
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      getPreviewSelectionToggle(getLastPreviewPaneProps())?.()
+      await Promise.resolve()
+    })
+    await act(async () => {
+      (getLastPreviewPaneProps() as {
+        onSelectionEvent?: (event: { type: string; targetSelection?: PageBuilderTargetSelection }) => void
+      }).onSelectionEvent?.({
+        type: 'selected',
+        targetSelection: createBlockTargetSelection('#hero-banner'),
+      })
+    })
+
+    const redoPayload = await (getLastAgentViewProps() as {
+      prepareSendPayload?: (input: { userMessage: string; sessionId: string; workspaceId?: string }) => Promise<{
+        composedUserMessage?: string
+      }>
+    }).prepareSendPayload?.({
+      userMessage: '把整个页面重做一版',
+      sessionId: session.id,
+      workspaceId: workspace.id,
+    })
+
+    expect(extractPageBuilderSelectionPayload(redoPayload?.composedUserMessage ?? '')).toMatchObject({
+      targetSelection: createBlockTargetSelection('#hero-banner'),
+    })
+    expect(extractPageBuilderTurnRoutingPayload(redoPayload?.composedUserMessage ?? '')).toEqual({
+      sceneKind: 'ordinary-page-flow',
+      ownerSkill: 'page-builder-guided-generation',
+      ownerLockedForTurn: true,
+    })
+
+    await act(async () => {
+      (getLastAgentViewProps() as {
+        onMessageSent?: (userMessage: string) => void
+      }).onMessageSent?.('把整个页面重做一版')
+    })
+
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      selectionModeEnabled: false,
+      selectionActionState: 'idle',
+    })
+    expect(getLastAgentViewProps()).not.toHaveProperty('messageDecorator')
+
+    const nextPayload = await (getLastAgentViewProps() as {
+      prepareSendPayload?: (input: { userMessage: string; sessionId: string; workspaceId?: string }) => Promise<{
+        composedUserMessage?: string
+      }>
+    }).prepareSendPayload?.({
+      userMessage: '继续微调这个区块',
+      sessionId: session.id,
+      workspaceId: workspace.id,
+    })
+
+    expect(nextPayload?.composedUserMessage).not.toContain('<page_builder_selection>')
   })
 
   test('degrades to cms guidance instead of silently falling back to ordinary flow when sourceType cannot be resolved', async () => {
@@ -2255,6 +2551,7 @@ describe('BuilderPage', () => {
     const payload = await (getLastAgentViewProps() as {
       prepareSendPayload?: (input: { userMessage: string; sessionId: string; workspaceId?: string }) => Promise<{
         mentionedSkills: string[]
+        bootstrappedSkills?: string[]
         composedUserMessage?: string
       }>
     }).prepareSendPayload?.({
@@ -2264,7 +2561,14 @@ describe('BuilderPage', () => {
     })
 
     expect(payload).toMatchObject({
-      mentionedSkills: ['page-builder-guided-generation', 'page-builder-cms-region-authoring-guidance'],
+      mentionedSkills: ['page-builder-guided-generation'],
+      bootstrappedSkills: ['page-builder-guided-generation', 'page-builder-cms-region-authoring-guidance'],
+    })
+    expect(extractPageBuilderTurnRoutingPayload(payload?.composedUserMessage ?? '')).toEqual({
+      sceneKind: 'existing-cms-region-ordinary-edit',
+      ownerSkill: 'page-builder-guided-generation',
+      ownerLockedForTurn: true,
+      consultSkills: ['page-builder-cms-region-authoring-guidance'],
     })
     expect(extractPageBuilderCmsGuidanceNoticePayload(payload?.composedUserMessage ?? '')).toMatchObject({
       mode: 'targeted-cms-region-guidance-degraded',
@@ -2360,6 +2664,7 @@ describe('BuilderPage', () => {
       requestId: 'auto-handoff-1',
       userMessage: '请根据刚确认的 CMS 选择结果，判断如何应用到当前目标。',
       composedUserMessage: [
+        '<page_builder_turn_routing>{"sceneKind":"confirmed-cms-apply","ownerSkill":"cms-binding-apply","ownerLockedForTurn":true}</page_builder_turn_routing>',
         '<cms_binding_apply_input>{"version":8,"handoffId":"auto-handoff-1","authoringRevision":"rev-1","targetSnapshot":{"targetOuterHtml":"<section id=\\"hero-banner\\" data-proma-block-id=\\"pb_blk_hero\\"><h1>Hero</h1></section>"}}</cms_binding_apply_input>',
         '优先让 cms-* 标签作为动态区域源码根节点，并把 ul、nav、section、article 等主要动态容器写进 slot。',
       ].join('\n\n'),
@@ -2469,7 +2774,8 @@ describe('BuilderPage', () => {
       open: false,
       confirming: false,
     })
-    expect(getPreviewSelectionActionState(getLastPreviewPaneProps())).toBe('selected')
+    expect(getPreviewSelectionActionState(getLastPreviewPaneProps())).toBe('idle')
+    expect(getLastAgentViewProps()).not.toHaveProperty('messageDecorator')
   })
 
   test('keeps the dialog open and reports an error when the authoring target snapshot cannot be loaded', async () => {

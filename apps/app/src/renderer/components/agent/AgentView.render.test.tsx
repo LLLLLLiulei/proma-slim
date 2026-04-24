@@ -597,6 +597,63 @@ describe('AgentView rendering extension points', () => {
     }))
   })
 
+  test('forwards bootstrapped skills from prepared payload during ordinary user sends', async () => {
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: 'Page Builder Project',
+      slug: 'page-builder-project',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const prepareSendPayload = mock(async ({ userMessage }: { userMessage: string }) => ({
+      userMessage,
+      mentionedSkills: ['page-builder-guided-generation'],
+      bootstrappedSkills: ['page-builder-guided-generation', 'page-builder-cms-region-authoring-guidance'],
+      mentionedMcpServers: [],
+    }))
+
+    const { AgentView, sendMessage, getLastRichTextInputProps } = await loadAgentView()
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <HydrateAgentViewState sessions={[session]} workspaces={[workspace]}>
+            <AgentView
+              prepareSendPayload={prepareSendPayload}
+              sessionId={session.id}
+            />
+          </HydrateAgentViewState>
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      getLastRichTextInputProps()?.onChange('继续修改这个 CMS 区块')
+    })
+    await act(async () => {
+      getLastRichTextInputProps()?.onSubmit()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(sendMessage).toHaveBeenCalledWith(session.id, expect.objectContaining({
+      userMessage: '继续修改这个 CMS 区块',
+      mentionedSkills: ['page-builder-guided-generation'],
+      bootstrappedSkills: ['page-builder-guided-generation', 'page-builder-cms-region-authoring-guidance'],
+      workspaceId: workspace.id,
+    }))
+  })
+
   test('does not append default mentioned skills to programmatic sends with explicit skill ownership', async () => {
     const workspace: AgentWorkspace = {
       id: 'workspace-1',

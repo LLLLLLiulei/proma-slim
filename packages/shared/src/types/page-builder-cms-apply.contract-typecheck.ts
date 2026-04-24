@@ -250,7 +250,7 @@ const fixedContentsApplyInput = {
 
 const readyDecision = {
   status: 'ready',
-  targetBlockKind: 'catalog-list',
+  targetBlockKind: 'nav',
   supportedRenderModes: ['replace-current'],
   renderMode: 'replace-current',
   applyStrategy: 'replace-current',

@@ -47,8 +47,11 @@ interface AgentWorkspacesIndex {
   workspaces: AgentWorkspace[]
 }
 
+type WorkspaceSkillExposureState = 'active' | 'inactive'
+
 interface WorkspaceConfig {
   attachedDirectories?: string[]
+  skillExposureOverrides?: Record<string, WorkspaceSkillExposureState>
 }
 
 interface CreateWorkspaceOptions {
@@ -56,6 +59,7 @@ interface CreateWorkspaceOptions {
 }
 
 const INDEX_VERSION = 1
+const PAGE_BUILDER_DEFAULT_INACTIVE_SKILL = 'soft-skill'
 const FILE_SEARCH_IGNORE_DIRS = new Set([
   'node_modules',
   '.git',
@@ -117,6 +121,30 @@ function readWorkspaceConfig(workspaceSlug: string): WorkspaceConfig {
 
 function writeWorkspaceConfig(workspaceSlug: string, config: WorkspaceConfig): void {
   writeFileSync(getWorkspaceConfigPath(workspaceSlug), JSON.stringify(config, null, 2), 'utf-8')
+}
+
+function readWorkspaceSkillExposureOverride(
+  workspaceSlug: string,
+  skillSlug: string,
+): WorkspaceSkillExposureState | null {
+  const override = readWorkspaceConfig(workspaceSlug).skillExposureOverrides?.[skillSlug]
+  return override === 'active' || override === 'inactive' ? override : null
+}
+
+function writeWorkspaceSkillExposureOverride(
+  workspaceSlug: string,
+  skillSlug: string,
+  state: WorkspaceSkillExposureState,
+): void {
+  const config = readWorkspaceConfig(workspaceSlug)
+  writeWorkspaceConfig(workspaceSlug, {
+    ...config,
+    attachedDirectories: config.attachedDirectories ?? [],
+    skillExposureOverrides: {
+      ...(config.skillExposureOverrides ?? {}),
+      [skillSlug]: state,
+    },
+  })
 }
 
 /**
@@ -192,7 +220,10 @@ function ensureWorkspaceStructure(workspaceSlug: string): void {
 
   const configPath = getWorkspaceConfigPath(workspaceSlug)
   if (!existsSync(configPath)) {
-    writeWorkspaceConfig(workspaceSlug, { attachedDirectories: [] })
+    writeWorkspaceConfig(workspaceSlug, {
+      attachedDirectories: [],
+      skillExposureOverrides: {},
+    })
   }
 }
 
@@ -223,12 +254,46 @@ function copyDefaultSkills(workspaceSlug: string): void {
   }
 }
 
+function ensurePageBuilderSkillExposure(workspaceSlug: string): void {
+  const activeSoftSkillDir = join(getWorkspaceSkillsDir(workspaceSlug), PAGE_BUILDER_DEFAULT_INACTIVE_SKILL)
+  const inactiveSoftSkillDir = join(getInactiveSkillsDir(workspaceSlug), PAGE_BUILDER_DEFAULT_INACTIVE_SKILL)
+  const desiredExposure = readWorkspaceSkillExposureOverride(
+    workspaceSlug,
+    PAGE_BUILDER_DEFAULT_INACTIVE_SKILL,
+  ) ?? 'inactive'
+
+  if (desiredExposure === 'active') {
+    if (existsSync(activeSoftSkillDir) && existsSync(inactiveSoftSkillDir)) {
+      rmSync(inactiveSoftSkillDir, { recursive: true, force: true })
+      return
+    }
+
+    if (!existsSync(activeSoftSkillDir) && existsSync(inactiveSoftSkillDir)) {
+      renameSync(inactiveSoftSkillDir, activeSoftSkillDir)
+    }
+    return
+  }
+
+  if (existsSync(activeSoftSkillDir) && existsSync(inactiveSoftSkillDir)) {
+    rmSync(activeSoftSkillDir, { recursive: true, force: true })
+    return
+  }
+
+  if (existsSync(activeSoftSkillDir) && !existsSync(inactiveSoftSkillDir)) {
+    renameSync(activeSoftSkillDir, inactiveSoftSkillDir)
+  }
+}
+
 function ensureWorkspaceTemplateArtifacts(workspace: AgentWorkspace): AgentWorkspace {
   if (workspace.template === 'page-builder') {
     initializePageBuilderWorkspace(workspace.slug)
   }
 
   copyDefaultSkills(workspace.slug)
+
+  if (workspace.template === 'page-builder') {
+    ensurePageBuilderSkillExposure(workspace.slug)
+  }
 
   return workspace
 }
@@ -467,6 +532,11 @@ export function toggleWorkspaceSkill(workspaceSlug: string, skillSlug: string, e
   }
 
   renameSync(source, target)
+
+  const workspace = readIndex().workspaces.find((entry) => entry.slug === workspaceSlug)
+  if (workspace?.template === 'page-builder' && skillSlug === PAGE_BUILDER_DEFAULT_INACTIVE_SKILL) {
+    writeWorkspaceSkillExposureOverride(workspaceSlug, skillSlug, enabled ? 'active' : 'inactive')
+  }
 }
 
 export function getWorkspaceCapabilities(workspaceSlug: string): WorkspaceCapabilities {
@@ -487,19 +557,27 @@ export function getWorkspaceAttachedDirectories(workspaceSlug: string): string[]
 }
 
 export function attachWorkspaceDirectory(workspaceSlug: string, directoryPath: string): string[] {
-  const existing = getWorkspaceAttachedDirectories(workspaceSlug)
+  const config = readWorkspaceConfig(workspaceSlug)
+  const existing = config.attachedDirectories ?? []
   if (existing.includes(directoryPath)) {
     return existing
   }
 
   const updated = [...existing, directoryPath]
-  writeWorkspaceConfig(workspaceSlug, { attachedDirectories: updated })
+  writeWorkspaceConfig(workspaceSlug, {
+    ...config,
+    attachedDirectories: updated,
+  })
   return updated
 }
 
 export function detachWorkspaceDirectory(workspaceSlug: string, directoryPath: string): string[] {
-  const updated = getWorkspaceAttachedDirectories(workspaceSlug).filter((entry) => entry !== directoryPath)
-  writeWorkspaceConfig(workspaceSlug, { attachedDirectories: updated })
+  const config = readWorkspaceConfig(workspaceSlug)
+  const updated = (config.attachedDirectories ?? []).filter((entry) => entry !== directoryPath)
+  writeWorkspaceConfig(workspaceSlug, {
+    ...config,
+    attachedDirectories: updated,
+  })
   return updated
 }
 

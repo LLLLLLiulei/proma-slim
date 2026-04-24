@@ -30,10 +30,24 @@ export const CMS_TOOL_NAMES = [
 ] as const
 
 const DECIDE_CMS_BINDING_TOOL_GUIDANCE =
-  '将当前 turn 在 cms-binding-apply 中得出的结构化结论物化为正式 CMS binding decision。只有 `status=ready` 且返回 `decisionId` 后，才能继续调用 `mcp__cms__apply_cms_binding`。该工具只接受当前 confirmed CMS handoff 的 `handoffId` 与结构化 decision，不直接写入页面。`decision` 应作为嵌套对象传入，不要发送 JSON 字符串；legacy string payload 只用于兼容恢复。'
+  [
+    '将当前 turn 在 cms-binding-apply 中得出的结构化结论物化为正式 CMS binding decision。',
+    '该工具只接受当前 confirmed CMS handoff 的 `handoffId` 与结构化 `decision`，不会直接写入页面。',
+    '调用顺序固定为：先 `mcp__cms__decide_cms_binding`，只有返回 `status=ready` 且拿到 `decisionId` 后，才能继续调用 `mcp__cms__apply_cms_binding`。',
+    '`decision` 必须作为嵌套对象传入，不要发送 JSON 字符串；legacy string payload 只用于兼容恢复。',
+    '最小 ready 示例：',
+    'content-list => {"status":"ready","targetBlockKind":"content-list","supportedRenderModes":["replace-current"],"renderMode":"replace-current","applyStrategy":"replace-current","mappingKind":"catalog-content-list","toolKind":"content-list","source":{"siteId":"14","catalogId":"news"}}',
+    'catalog-nav => {"status":"ready","targetBlockKind":"nav","supportedRenderModes":["replace-current"],"renderMode":"replace-current","applyStrategy":"replace-current","mappingKind":"catalog-nav","toolKind":"catalog-nav","source":{"siteId":"14","parentId":"root","take":6}}',
+  ].join(' ')
 
 const APPLY_CMS_BINDING_TOOL_GUIDANCE =
-  '消费已持久化的 `decisionId`，将 CMS 数据绑定到当前 page-builder 区块，写入 cms-catalog 或 cms-content 标记并触发统一 HTML mutation pipeline。该工具只接受 `decisionId` 与模板字段；不要尝试直接传 targetSelection、siteId、source props 或其他 raw binding identity 字段。templateBody、emptyTemplate、errorTemplate 应承载 complete dynamic region，并且只传 slot 内部内容，不要包含外层 <template v-slot:...> 包装或外层 cms-* 标签。不要根据 CMS 浏览弹框当前的分页大小推断页面绑定的 pageSize。固定内容 ids 禁止传 pageSize；如需限制栏目数量应使用 take。'
+  [
+    '消费已持久化的 `decisionId`，将 CMS 数据绑定到当前 page-builder 区块，写入 cms-catalog 或 cms-content 标记并触发统一 HTML mutation pipeline。',
+    '调用前提：必须先由 `mcp__cms__decide_cms_binding` 返回 `status=ready` 和 `decisionId`。',
+    '该工具只接受 `decisionId`、`templateBody`、`emptyTemplate`、`errorTemplate`；不要传 targetSelection、siteId、source props 或其他 raw binding identity 字段。',
+    '`templateBody`、`emptyTemplate`、`errorTemplate` 必须承载完整动态区域，但只能传 slot 内部内容，不要包含外层 `<template v-slot:...>` 包装，也不要包含外层 `cms-catalog` / `cms-content` 标签。',
+    '不要根据 CMS 浏览弹框当前的分页大小推断页面绑定的 `pageSize`。固定内容 ids 禁止传 `pageSize`；如需限制栏目数量请使用 `take`。',
+  ].join(' ')
 
 const catalogSourceSchema = z.object({
   siteId: z.string().min(1),
@@ -106,14 +120,17 @@ const decisionInputSchema = z.union([
   incompatibleDecisionSchema,
 ])
 
+const decisionLooseObjectSchema = z.object({}).passthrough()
+
 const DECIDE_CMS_BINDING_DECISION_FIELD_GUIDANCE =
-  'Pass `decision` as a nested object. Do not JSON-stringify it. Legacy JSON strings are only tolerated for compatibility recovery and should be retried as object-shaped payloads.'
+  'Pass `decision` as a nested object. Do not JSON-stringify it. If a legacy JSON string was used, parse it back into an object and retry. Minimal ready examples: content-list => {"status":"ready","targetBlockKind":"content-list","supportedRenderModes":["replace-current"],"renderMode":"replace-current","applyStrategy":"replace-current","mappingKind":"catalog-content-list","toolKind":"content-list","source":{"siteId":"14","catalogId":"news"}} ; catalog-nav => {"status":"ready","targetBlockKind":"nav","supportedRenderModes":["replace-current"],"renderMode":"replace-current","applyStrategy":"replace-current","mappingKind":"catalog-nav","toolKind":"catalog-nav","source":{"siteId":"14","parentId":"root","take":6}}.'
 
 const decideCmsBindingToolInputSchema = z.strictObject({
   handoffId: z.string().min(1),
   decision: z.union([
     decisionInputSchema,
     z.string().min(1),
+    decisionLooseObjectSchema,
   ]).describe(DECIDE_CMS_BINDING_DECISION_FIELD_GUIDANCE),
 })
 
@@ -262,8 +279,26 @@ function assertValidListContentsToolArgs(args: {
 function normalizeDecideCmsBindingDecisionInput(
   rawDecision: z.infer<typeof decideCmsBindingToolInputSchema>['decision'],
 ): PageBuilderCmsApplyDecisionResult {
+  const readyExamples = [
+    'content-list => {"status":"ready","targetBlockKind":"content-list","supportedRenderModes":["replace-current"],"renderMode":"replace-current","applyStrategy":"replace-current","mappingKind":"catalog-content-list","toolKind":"content-list","source":{"siteId":"14","catalogId":"news"}}',
+    'catalog-nav => {"status":"ready","targetBlockKind":"nav","supportedRenderModes":["replace-current"],"renderMode":"replace-current","applyStrategy":"replace-current","mappingKind":"catalog-nav","toolKind":"catalog-nav","source":{"siteId":"14","parentId":"root","take":6}}',
+  ].join(' ; ')
+
   if (typeof rawDecision !== 'string') {
-    return rawDecision
+    if (!rawDecision || typeof rawDecision !== 'object' || Array.isArray(rawDecision)) {
+      throw new Error(
+        `\`mcp__cms__decide_cms_binding\` 的 \`decision\` 必须是结构化对象。不要传字符串、数组或空值。请改为对象形态后重试。最小 ready 示例：${readyExamples}`,
+      )
+    }
+
+    const normalizedDecision = decisionInputSchema.safeParse(rawDecision)
+    if (!normalizedDecision.success) {
+      throw new Error(
+        `\`mcp__cms__decide_cms_binding\` 的 \`decision\` 不符合合约。请修正字段后以对象形态重试，不要直接改写页面。校验详情：${normalizedDecision.error.message}。最小 ready 示例：${readyExamples}`,
+      )
+    }
+
+    return normalizedDecision.data
   }
 
   let parsedDecision: unknown
@@ -271,20 +306,20 @@ function normalizeDecideCmsBindingDecisionInput(
     parsedDecision = JSON.parse(rawDecision)
   } catch {
     throw new Error(
-      '`mcp__cms__decide_cms_binding` 的 `decision` 必须是结构化对象。当前收到的是无法解析的 JSON 字符串；请先把 JSON 文本解析成对象后重试，不要直接传字符串。',
+      `\`mcp__cms__decide_cms_binding\` 的 \`decision\` 必须是结构化对象。当前收到的是无法解析的 JSON 字符串；请先把 JSON 文本解析成对象后重试，不要直接传字符串。最小 ready 示例：${readyExamples}`,
     )
   }
 
   if (!parsedDecision || typeof parsedDecision !== 'object' || Array.isArray(parsedDecision)) {
     throw new Error(
-      '`mcp__cms__decide_cms_binding` 的 `decision` 必须是结构化对象。当前 JSON 字符串解析后的值不是对象；请改为传入对象形态的 `decision` 后重试。',
+      `\`mcp__cms__decide_cms_binding\` 的 \`decision\` 必须是结构化对象。当前 JSON 字符串解析后的值不是对象；请改为传入对象形态的 \`decision\` 后重试。最小 ready 示例：${readyExamples}`,
     )
   }
 
   const normalizedDecision = decisionInputSchema.safeParse(parsedDecision)
   if (!normalizedDecision.success) {
     throw new Error(
-      `\`mcp__cms__decide_cms_binding\` 的 \`decision\` 必须是结构化对象。当前 JSON 字符串虽然可以解析，但解析结果不符合 decision 合约；请改为传入对象形态的 \`decision\` 后重试。校验详情：${normalizedDecision.error.message}`,
+      `\`mcp__cms__decide_cms_binding\` 的 \`decision\` 必须是结构化对象。当前 JSON 字符串虽然可以解析，但解析结果不符合 decision 合约；请改为传入对象形态的 \`decision\` 后重试。校验详情：${normalizedDecision.error.message}。最小 ready 示例：${readyExamples}`,
     )
   }
 

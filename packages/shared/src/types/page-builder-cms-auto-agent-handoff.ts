@@ -11,6 +11,10 @@ import {
   buildPageBuilderCmsAuthoringDigest,
   resolvePageBuilderCmsAuthoringComponent,
 } from './page-builder-cms-authoring-contract'
+import {
+  PAGE_BUILDER_CMS_BINDING_APPLY_OWNER_SKILL,
+  serializePageBuilderTurnRoutingMetadata,
+} from './page-builder-turn-routing'
 
 export const PAGE_BUILDER_CMS_AUTO_AGENT_HANDOFF_SKILL = 'cms-binding-apply'
 export const PAGE_BUILDER_CMS_AUTO_AGENT_HANDOFF_MCP_SERVER = 'cms'
@@ -108,7 +112,14 @@ export function createPageBuilderCmsAutoAgentHandoffRequest(
   return {
     requestId: options.requestId,
     userMessage: PAGE_BUILDER_CMS_AUTO_AGENT_HANDOFF_MESSAGE,
-    composedUserMessage: `<cms_binding_apply_input>${JSON.stringify(skillInput)}</cms_binding_apply_input>`,
+    composedUserMessage: [
+      serializePageBuilderTurnRoutingMetadata({
+        sceneKind: 'confirmed-cms-apply',
+        ownerSkill: PAGE_BUILDER_CMS_BINDING_APPLY_OWNER_SKILL,
+        ownerLockedForTurn: true,
+      }),
+      `<cms_binding_apply_input>${JSON.stringify(skillInput)}</cms_binding_apply_input>`,
+    ].join('\n\n'),
     mentionedSkills: [PAGE_BUILDER_CMS_AUTO_AGENT_HANDOFF_SKILL],
     bootstrappedSkills: [PAGE_BUILDER_CMS_AUTO_AGENT_HANDOFF_SKILL],
     mentionedMcpServers: [PAGE_BUILDER_CMS_AUTO_AGENT_HANDOFF_MCP_SERVER],

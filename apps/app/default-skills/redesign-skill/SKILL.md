@@ -1,9 +1,19 @@
 ---
-name: redesign-existing-projects
-description: Upgrades existing websites and apps to premium quality. Audits current design, identifies generic AI patterns, and applies high-end design standards without breaking functionality. Works with any CSS framework or vanilla CSS.
+name: redesign-skill
+description: Execute-only refinement worker for page-builder second-stage polish, upgrade, and finishing passes on an existing direction. Not a first-pass controller.
 ---
 
 # Redesign Skill
+
+## Page-builder role
+
+In `page-builder`, this skill is an execute-only refinement worker.
+
+- Use it after `page-builder-guided-generation` has already decided to preserve the current page direction and add a second-stage polish pass.
+- Use it for upgrade, refinement, or finishing work on an existing full page or existing block.
+- Do not use it as the first-pass full-page generator or the default first-pass major block redesign worker; use `taste-skill` for that stage.
+- Do not use it as the turn owner, briefing controller, or CMS decision maker.
+- Default to implementation, not presentation. Do not output long audit prose, large redesign theory dumps, or detailed code explanations to the user unless the user explicitly asks for them.
 
 ## How This Works
 

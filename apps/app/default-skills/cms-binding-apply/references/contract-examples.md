@@ -38,7 +38,7 @@ In the current runtime chain, a `ready` result is not enough to write by itself:
   },
   "targetBlock": {
     "selector": "#featured-catalogs",
-    "blockTypeHint": "catalog-list"
+    "blockTypeHint": "nav"
   },
   "selection": {
     "version": 5,
@@ -57,11 +57,11 @@ In the current runtime chain, a `ready` result is not enough to write by itself:
 ```json
 {
   "status": "ready",
-  "targetBlockKind": "catalog-list",
+  "targetBlockKind": "nav",
   "supportedRenderModes": ["replace-current"],
   "renderMode": "replace-current",
   "applyStrategy": "replace-current",
-  "mappingKind": "catalog-content-list",
+  "mappingKind": "catalog-nav",
   "toolKind": "catalog-nav",
   "source": {
     "siteId": "14",

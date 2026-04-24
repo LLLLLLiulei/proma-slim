@@ -1038,6 +1038,50 @@ describe('AgentOrchestrator workspace runtime', () => {
     expect(adapter.lastInput?.prompt).not.toContain(`- Skill: ${workspace.slug}:cms-binding-apply（请立即调用此 Skill）`)
   })
 
+  test('keeps existing cms ordinary-edit turns on the page-builder owner chain with bootstrapped consult skill context', async () => {
+    const adapter = new RecordingAdapter()
+    const orchestrator = new AgentOrchestrator(adapter, new AgentEventBus())
+    const workspace = createAgentWorkspace('Existing CMS Ordinary Edit', { template: 'page-builder' })
+    const session = createAgentSession('Existing CMS Ordinary Edit Session', undefined, workspace.id)
+    const composedUserMessage = [
+      '<page_builder_turn_routing>{"sceneKind":"existing-cms-region-ordinary-edit","ownerSkill":"page-builder-guided-generation","ownerLockedForTurn":true,"consultSkills":["page-builder-cms-region-authoring-guidance"]}</page_builder_turn_routing>',
+      '<page_builder_selection>{"targetSelection":{"kind":"cms-island","selector":"section:nth-of-type(2) > cms-content:nth-of-type(1)","sourceSelector":"section:nth-of-type(2) > cms-content:nth-of-type(1)","parentBlockSelector":"[data-proma-block-id=\\"pb_blk_news\\"]","component":"cms-content"}}</page_builder_selection>',
+      '<page_builder_cms_guidance_notice>{"mode":"page-has-existing-cms-regions","consultSkill":"page-builder-cms-region-authoring-guidance","currentPageHasExistingCmsRegions":true,"doNotInventCmsTags":true,"doNotGuessBindingProps":true,"doNotAddPageWideVueRuntime":true,"queryPropsChangeRequiresConfirmedApply":true}</page_builder_cms_guidance_notice>',
+      '<page_builder_cms_region_authoring>{"mode":"ordinary-existing-region","component":"cms-content","sourceType":"contents-by-catalog","boundary":{"editBoundary":"source-atomic","sourceFirst":true,"queryPropsChangeRequiresConfirmedApply":true}}</page_builder_cms_region_authoring>',
+      '继续修改这个区块，把卡片间距调紧一些。',
+    ].join('\n\n')
+
+    await orchestrator.sendMessage(
+      {
+        sessionId: session.id,
+        userMessage: '继续修改这个区块，把卡片间距调紧一些。',
+        composedUserMessage,
+        channelId: '',
+        mentionedSkills: ['page-builder-guided-generation'],
+        bootstrappedSkills: ['page-builder-guided-generation', 'page-builder-cms-region-authoring-guidance'],
+      },
+      {
+        onError: (message) => {
+          throw new Error(message)
+        },
+        onComplete: () => {},
+        onTitleUpdated: () => {},
+      },
+    )
+
+    expect(adapter.lastInput?.prompt).toContain('<bootstrapped_skills>')
+    expect(adapter.lastInput?.prompt).toContain('page-builder-guided-generation')
+    expect(adapter.lastInput?.prompt).toContain('page-builder-cms-region-authoring-guidance')
+    expect(adapter.lastInput?.prompt).toContain('<page_builder_turn_routing>')
+    expect(adapter.lastInput?.prompt).toContain('"sceneKind":"existing-cms-region-ordinary-edit"')
+    expect(adapter.lastInput?.prompt).toContain('<page_builder_cms_guidance_notice>')
+    expect(adapter.lastInput?.prompt).toContain('"mode":"page-has-existing-cms-regions"')
+    expect(adapter.lastInput?.prompt).toContain('<page_builder_cms_region_authoring>')
+    expect(adapter.lastInput?.prompt).toContain('"sourceType":"contents-by-catalog"')
+    expect(adapter.lastInput?.prompt).not.toContain(`- Skill: ${workspace.slug}:page-builder-guided-generation（请立即调用此 Skill）`)
+    expect(adapter.lastInput?.prompt).not.toContain(`- Skill: ${workspace.slug}:page-builder-cms-region-authoring-guidance（请立即调用此 Skill）`)
+  })
+
   test('keeps page-builder queries on the existing string prompt path even when cms env is configured', async () => {
     process.env.PROMA_CMS_BASE_URL = 'https://demo.zving.com/manager'
     process.env.PROMA_CMS_SITE_ID = '277'
@@ -1489,6 +1533,54 @@ describe('AgentOrchestrator workspace runtime', () => {
         run_in_background: false,
         subagent_type: 'general-purpose',
       },
+    })
+  })
+
+  test('blocks owner-controller switching inside a page-builder turn that already has a locked owner', async () => {
+    const adapter = new RecordingAdapter()
+    const orchestrator = new AgentOrchestrator(adapter, new AgentEventBus())
+    const workspace = createAgentWorkspace('Page Builder Hook', { template: 'page-builder' })
+    const session = createAgentSession('Hook session', undefined, workspace.id)
+
+    await orchestrator.sendMessage(
+      {
+        sessionId: session.id,
+        userMessage: '继续修改当前页面',
+        composedUserMessage: [
+          '<page_builder_turn_routing>{"sceneKind":"ordinary-page-flow","ownerSkill":"page-builder-guided-generation","ownerLockedForTurn":true}</page_builder_turn_routing>',
+          '继续修改当前页面',
+        ].join('\n\n'),
+        channelId: '',
+        bootstrappedSkills: ['page-builder-guided-generation'],
+      },
+      {
+        onError: (message) => {
+          throw new Error(message)
+        },
+        onComplete: () => {},
+        onTitleUpdated: () => {},
+      },
+    )
+
+    const preToolUseHook = adapter.lastInput?.hooks?.PreToolUse?.[0]?.hooks[0]
+    expect(preToolUseHook).toBeDefined()
+
+    const hookResult = await preToolUseHook?.(
+      {
+        hook_event_name: 'PreToolUse',
+        tool_name: `${workspace.slug}:cms-binding-apply`,
+        tool_input: {},
+        tool_use_id: 'tool-owner-switch-1',
+      },
+      'tool-owner-switch-1',
+      { signal: new AbortController().signal },
+    )
+
+    expect(hookResult?.continue).toBe(false)
+    expect(hookResult?.hookSpecificOutput).toEqual({
+      hookEventName: 'PreToolUse',
+      permissionDecision: 'deny',
+      permissionDecisionReason: '当前 turn owner 已被宿主锁定为 page-builder-guided-generation，不得在同一轮内切换到 cms-binding-apply。如需切换 owner，必须等待宿主发起新的 handoff turn。',
     })
   })
 

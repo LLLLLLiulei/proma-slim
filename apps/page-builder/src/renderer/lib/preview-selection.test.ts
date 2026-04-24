@@ -13,6 +13,15 @@ function extractSelectionPayload(message: string): unknown {
   return JSON.parse(match[1]!)
 }
 
+function extractTurnRoutingPayload(message: string): unknown {
+  const match = message.match(/<page_builder_turn_routing>\s*([\s\S]*?)\s*<\/page_builder_turn_routing>/)
+  if (!match) {
+    throw new Error('missing page_builder_turn_routing payload')
+  }
+
+  return JSON.parse(match[1]!)
+}
+
 function extractCmsRegionDigest(message: string): unknown {
   const match = message.match(/<page_builder_cms_region_authoring>\s*([\s\S]*?)\s*<\/page_builder_cms_region_authoring>/)
   if (!match) {
@@ -38,9 +47,20 @@ describe('page builder preview selection helpers', () => {
       selector: '#hero',
       parentBlockSelector: '#hero',
       editBoundary: 'block',
+    }, {
+      turnRouting: {
+        sceneKind: 'ordinary-page-flow',
+        ownerSkill: 'page-builder-guided-generation',
+        ownerLockedForTurn: true,
+      },
     })
 
     expect(decorated).toContain('把这里的文案改短一点')
+    expect(extractTurnRoutingPayload(decorated)).toEqual({
+      sceneKind: 'ordinary-page-flow',
+      ownerSkill: 'page-builder-guided-generation',
+      ownerLockedForTurn: true,
+    })
     expect(extractSelectionPayload(decorated)).toEqual({
       targetSelection: {
         kind: 'block',
@@ -66,8 +86,21 @@ describe('page builder preview selection helpers', () => {
       parentBlockSelector: '[data-proma-block-id="pb_blk_nav"]',
       component: 'cms-catalog',
       editBoundary: 'source-atomic',
+    }, {
+      turnRouting: {
+        sceneKind: 'existing-cms-region-ordinary-edit',
+        ownerSkill: 'page-builder-guided-generation',
+        ownerLockedForTurn: true,
+        consultSkills: ['page-builder-cms-region-authoring-guidance'],
+      },
     })
 
+    expect(extractTurnRoutingPayload(decorated)).toEqual({
+      sceneKind: 'existing-cms-region-ordinary-edit',
+      ownerSkill: 'page-builder-guided-generation',
+      ownerLockedForTurn: true,
+      consultSkills: ['page-builder-cms-region-authoring-guidance'],
+    })
     expect(extractSelectionPayload(decorated)).toEqual({
       targetSelection: {
         kind: 'cms-island',
@@ -135,6 +168,11 @@ describe('page builder preview selection helpers', () => {
 
   test('supports page-level cms guidance notices without requiring a selected target', () => {
     const decorated = composePageBuilderAuthoringMessage('继续微调这个页面', {
+      turnRouting: {
+        sceneKind: 'ordinary-page-flow',
+        ownerSkill: 'page-builder-guided-generation',
+        ownerLockedForTurn: true,
+      },
       cmsGuidanceNotice: {
         mode: 'page-has-existing-cms-regions',
         consultSkill: 'page-builder-cms-region-authoring-guidance',
@@ -146,6 +184,11 @@ describe('page builder preview selection helpers', () => {
       },
     })
 
+    expect(extractTurnRoutingPayload(decorated)).toEqual({
+      sceneKind: 'ordinary-page-flow',
+      ownerSkill: 'page-builder-guided-generation',
+      ownerLockedForTurn: true,
+    })
     expect(extractCmsGuidanceNotice(decorated)).toEqual({
       mode: 'page-has-existing-cms-regions',
       consultSkill: 'page-builder-cms-region-authoring-guidance',

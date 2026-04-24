@@ -23,6 +23,7 @@ import {
   getWorkspaceDirectoryContext,
   getWorkspaceSkillInvocationName,
   listAgentWorkspaces,
+  toggleWorkspaceSkill,
   updateAgentWorkspace,
 } from './workspace-service'
 
@@ -188,6 +189,44 @@ describe('workspace service', () => {
     expect(existsSync(join(getWorkspaceSkillsDir(workspace.slug), 'cms-binding-apply', 'SKILL.md'))).toBe(true)
     expect(existsSync(join(getWorkspaceSkillsDir(workspace.slug), 'page-builder-cms-region-authoring-guidance', 'SKILL.md'))).toBe(true)
     expect(existsSync(join(getWorkspaceSkillsDir(workspace.slug), 'page-builder-guided-generation', 'SKILL.md'))).toBe(true)
+    expect(existsSync(join(getWorkspaceSkillsDir(workspace.slug), 'taste-skill', 'SKILL.md'))).toBe(true)
+    expect(existsSync(join(getWorkspaceSkillsDir(workspace.slug), 'redesign-skill', 'SKILL.md'))).toBe(true)
+    expect(existsSync(join(getWorkspaceSkillsDir(workspace.slug), 'soft-skill', 'SKILL.md'))).toBe(false)
+    expect(existsSync(join(getInactiveSkillsDir(workspace.slug), 'soft-skill', 'SKILL.md'))).toBe(true)
+  })
+
+  test('keeps soft-skill inactive across repeated page-builder workspace hydration', () => {
+    ensureDefaultWorkspace()
+    const workspace = createAgentWorkspace('Builder Exposure Workspace', { template: 'page-builder' })
+    const activeSoftSkillPath = join(getWorkspaceSkillsDir(workspace.slug), 'soft-skill', 'SKILL.md')
+    const inactiveSoftSkillPath = join(getInactiveSkillsDir(workspace.slug), 'soft-skill', 'SKILL.md')
+
+    expect(existsSync(activeSoftSkillPath)).toBe(false)
+    expect(existsSync(inactiveSoftSkillPath)).toBe(true)
+
+    listAgentWorkspaces()
+    expect(existsSync(activeSoftSkillPath)).toBe(false)
+    expect(existsSync(inactiveSoftSkillPath)).toBe(true)
+
+    listAgentWorkspaces()
+    expect(existsSync(activeSoftSkillPath)).toBe(false)
+    expect(existsSync(inactiveSoftSkillPath)).toBe(true)
+  })
+
+  test('persists explicit soft-skill enabling in page-builder workspaces across hydration', () => {
+    ensureDefaultWorkspace()
+    const workspace = createAgentWorkspace('Builder Toggle Workspace', { template: 'page-builder' })
+    const activeSoftSkillPath = join(getWorkspaceSkillsDir(workspace.slug), 'soft-skill', 'SKILL.md')
+    const inactiveSoftSkillPath = join(getInactiveSkillsDir(workspace.slug), 'soft-skill', 'SKILL.md')
+
+    toggleWorkspaceSkill(workspace.slug, 'soft-skill', true)
+
+    expect(existsSync(activeSoftSkillPath)).toBe(true)
+    expect(existsSync(inactiveSoftSkillPath)).toBe(false)
+
+    listAgentWorkspaces()
+    expect(existsSync(activeSoftSkillPath)).toBe(true)
+    expect(existsSync(inactiveSoftSkillPath)).toBe(false)
   })
 
   test('creates a page-builder workspace with default MCP servers', () => {
@@ -344,6 +383,10 @@ describe('workspace service', () => {
     listAgentWorkspaces()
 
     expect(existsSync(join(legacySkillsDir, 'page-builder-guided-generation', 'SKILL.md'))).toBe(true)
+    expect(existsSync(join(legacySkillsDir, 'taste-skill', 'SKILL.md'))).toBe(true)
+    expect(existsSync(join(legacySkillsDir, 'redesign-skill', 'SKILL.md'))).toBe(true)
+    expect(existsSync(join(legacySkillsDir, 'soft-skill', 'SKILL.md'))).toBe(false)
+    expect(existsSync(join(getInactiveSkillsDir('legacy-builder-docs'), 'soft-skill', 'SKILL.md'))).toBe(true)
   })
 
   test('refreshes placeholder guided-generation skills inside existing page-builder workspaces', () => {

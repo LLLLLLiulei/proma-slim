@@ -74,6 +74,16 @@ describe('cms-binding-apply skill contract docs', () => {
     expect(examples).not.toContain('## Anti-pattern: self-managed Vue runtime or page-wide mount')
   })
 
+  test('keeps catalog-nav canonical examples aligned on targetBlockKind nav across docs and typecheck fixtures', () => {
+    const examples = readRelativeText('../../../default-skills/cms-binding-apply/references/contract-examples.md')
+    const typecheck = readRelativeText('../../../../../packages/shared/src/types/page-builder-cms-apply.contract-typecheck.ts')
+
+    expect(examples).toContain('"toolKind": "catalog-nav"')
+    expect(examples).toContain('"targetBlockKind": "nav"')
+    expect(typecheck).toContain("toolKind: 'catalog-nav'")
+    expect(typecheck).toContain("targetBlockKind: 'nav'")
+  })
+
   test('moves shared slot, html-first, and anti-pattern guidance into shared authoring rules', () => {
     const shared = readRelativeText('../../../default-skills/cms-binding-apply/references/shared-authoring-rules.md')
 

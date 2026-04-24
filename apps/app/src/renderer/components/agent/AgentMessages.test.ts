@@ -199,6 +199,32 @@ describe('AgentMessages transient assistant rendering', () => {
     })).toBe(false)
   })
 
+  test('suppresses transient assistant text after the current turn already persisted a newer assistant message', () => {
+    const messages: AgentMessage[] = [
+      {
+        id: 'user-1',
+        role: 'user',
+        content: '继续处理当前 CMS 绑定。',
+        createdAt: 1,
+      },
+      {
+        id: 'assistant-1',
+        role: 'assistant',
+        content: '完成了！我已成功将 CMS 内容应用到画廊网格区域。',
+        createdAt: 2,
+      },
+    ]
+
+    expect(shouldRenderTransientAssistantMessage({
+      messages,
+      streaming: false,
+      streamingContent: '',
+      smoothContent: '我来处理这个 CMS 绑定申请。完成了！我已成功将 CMS 内容应用到画廊网格区域。',
+      toolActivities: [],
+      retrying: undefined,
+    })).toBe(false)
+  })
+
   test('does not render a duplicate transient tool block after the persisted assistant message already contains the same tool events', () => {
     const markup = renderToStaticMarkup(
       React.createElement(AgentMessages, {
@@ -209,6 +235,34 @@ describe('AgentMessages transient assistant rendering', () => {
       })
     )
 
+    expect(countOccurrences(markup, 'TaskCreate')).toBe(1)
+    expect(countOccurrences(markup, 'TaskList')).toBe(1)
+  })
+
+  test('keeps transient tool activities but suppresses duplicate transient text once the completed assistant reply is persisted', () => {
+    const markup = renderToStaticMarkup(
+      React.createElement(AgentMessages, {
+        sessionId: 'session-completed-assistant-with-delayed-tool-events',
+        messages: [{
+          id: 'user-1',
+          role: 'user',
+          content: '继续处理当前 CMS 绑定。',
+          createdAt: 1,
+        }, {
+          id: 'assistant-1',
+          role: 'assistant',
+          content: '完成了！我已成功将 CMS 内容应用到画廊网格区域。',
+          createdAt: 2,
+          model: 'claude-sonnet-4-6',
+        }],
+        streaming: false,
+        streamState: {
+          ...createCompletedToolStreamState('我来处理这个 CMS 绑定申请。完成了！我已成功将 CMS 内容应用到画廊网格区域。'),
+        },
+      })
+    )
+
+    expect(countOccurrences(markup, '完成了！我已成功将 CMS 内容应用到画廊网格区域。')).toBe(1)
     expect(countOccurrences(markup, 'TaskCreate')).toBe(1)
     expect(countOccurrences(markup, 'TaskList')).toBe(1)
   })

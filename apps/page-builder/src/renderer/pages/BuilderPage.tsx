@@ -15,6 +15,7 @@ import type {
   PageBuilderInlineTextSaveResult,
   PageBuilderStaticExportJobCreateOptions,
   PageBuilderStaticExportJob,
+  PageBuilderTurnRoutingMetadata,
   PageBuilderTargetSelection,
 } from '@proma/shared'
 import {
@@ -116,11 +117,29 @@ function buildPageBuilderDegradedCmsRegionNotice(
   }
 }
 
-function buildGuidedMentionedSkills(baseSkills: string[], needsCmsGuidance: boolean): string[] {
-  return Array.from(new Set([
-    ...baseSkills,
-    ...(needsCmsGuidance ? [PAGE_BUILDER_CMS_REGION_AUTHORING_GUIDANCE_SKILL] : []),
-  ]))
+function buildConsultBootstrappedSkills(needsCmsGuidance: boolean): string[] | undefined {
+  return needsCmsGuidance
+    ? [PAGE_BUILDER_GUIDED_GENERATION_SKILL, PAGE_BUILDER_CMS_REGION_AUTHORING_GUIDANCE_SKILL]
+    : [PAGE_BUILDER_GUIDED_GENERATION_SKILL]
+}
+
+function buildPageBuilderTurnRouting(
+  targetSelection: PageBuilderTargetSelection | null,
+): PageBuilderTurnRoutingMetadata {
+  if (targetSelection?.kind === 'cms-island') {
+    return {
+      sceneKind: 'existing-cms-region-ordinary-edit',
+      ownerSkill: PAGE_BUILDER_GUIDED_GENERATION_SKILL,
+      ownerLockedForTurn: true,
+      consultSkills: [PAGE_BUILDER_CMS_REGION_AUTHORING_GUIDANCE_SKILL],
+    }
+  }
+
+  return {
+    sceneKind: 'ordinary-page-flow',
+    ownerSkill: PAGE_BUILDER_GUIDED_GENERATION_SKILL,
+    ownerLockedForTurn: true,
+  }
 }
 
 function shouldBlockCmsTargetSendPreparation(error: unknown): boolean {
@@ -194,12 +213,14 @@ export function BuilderPage({
   const selectionModeEnabled = selectionActionState !== 'idle'
   const isAgentStreaming = streamingState?.running === true
 
-  const clearSelection = React.useCallback(() => {
+  const clearVisibleSelection = React.useCallback(() => {
     setSelectionActionState('idle')
     setHoveredSelector(null)
     setSelectedTargetSelection(null)
     pendingImageReplacementRef.current = null
   }, [])
+
+  const clearSelection = clearVisibleSelection
 
   const applyDesktopGridSplitStyle = React.useCallback((nextRatio: number, containerWidth: number) => {
     const element = desktopGridRef.current
@@ -749,8 +770,10 @@ export function BuilderPage({
   }, [clearSelection, isAgentStreaming, selectionActionState])
 
   const handleMessageSent = React.useCallback(() => {
-    if (selectionActionState === 'idle') return
-  }, [selectionActionState])
+    if (selectionActionState !== 'idle') {
+      clearVisibleSelection()
+    }
+  }, [clearVisibleSelection, selectionActionState])
 
   const handleSplitPointerDown = React.useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return
@@ -830,12 +853,13 @@ export function BuilderPage({
     setCmsAutoHandoffRequest(null)
 
     if (result.status === 'sent') {
+      clearSelection()
       setCmsBrowserOpen(false)
       return
     }
 
     toast.error(result.errorMessage ?? 'CMS 自动交接发送失败')
-  }, [cmsAutoHandoffRequest])
+  }, [clearSelection, cmsAutoHandoffRequest])
   const messageDecorator = React.useMemo(() => {
     if (!selectedTargetSelection) return undefined
 
@@ -852,57 +876,52 @@ export function BuilderPage({
     sessionId: string
     workspaceId?: string
   }): Promise<AgentSendPayloadPreparationResult> => {
+    const targetSelectionForSend = selectedTargetSelection
     const basePayload = prepareAgentSendPayload(
       userMessage,
       messageDecorator,
       [PAGE_BUILDER_GUIDED_GENERATION_SKILL],
     )
+    const turnRouting = buildPageBuilderTurnRouting(targetSelectionForSend)
+    const ordinaryBootstrappedSkills = buildConsultBootstrappedSkills(
+      turnRouting.sceneKind === 'existing-cms-region-ordinary-edit',
+    )
     const pageHasExistingCmsRegions = previewState?.hasCmsRendering === true
     const pageLevelCmsNotice = pageHasExistingCmsRegions
       ? buildPageBuilderCmsGlobalGuidanceNotice()
       : undefined
-    const baseMentionedSkills = buildGuidedMentionedSkills(
-      basePayload.mentionedSkills,
-      pageHasExistingCmsRegions,
-    )
 
-    if (!selectedTargetSelection) {
-      if (!pageLevelCmsNotice) {
-        return basePayload
-      }
-
+    if (!targetSelectionForSend) {
       return {
         ...basePayload,
+        bootstrappedSkills: ordinaryBootstrappedSkills,
         composedUserMessage: composePageBuilderAuthoringMessage(userMessage, {
-          cmsGuidanceNotice: pageLevelCmsNotice,
+          turnRouting,
+          ...(pageLevelCmsNotice ? { cmsGuidanceNotice: pageLevelCmsNotice } : {}),
         }),
-        mentionedSkills: baseMentionedSkills,
       }
     }
 
-    if (selectedTargetSelection.kind !== 'cms-island') {
-      if (!pageLevelCmsNotice) {
-        return basePayload
-      }
-
+    if (targetSelectionForSend.kind !== 'cms-island') {
       return {
         ...basePayload,
+        bootstrappedSkills: ordinaryBootstrappedSkills,
         composedUserMessage: decoratePageBuilderSelectionMessage(userMessage, {
-          ...selectedTargetSelection,
+          ...targetSelectionForSend,
         }, {
+          turnRouting,
           cmsGuidanceNotice: pageLevelCmsNotice,
         }),
-        mentionedSkills: baseMentionedSkills,
       }
     }
 
     try {
-      const targetSnapshot = await api.getPageBuilderCmsTargetSnapshot(workspaceId, selectedTargetSelection)
+      const targetSnapshot = await api.getPageBuilderCmsTargetSnapshot(workspaceId, targetSelectionForSend)
       if (targetSnapshot.kind !== 'cms-island') {
         return buildCmsTargetSendBlockedResult(new Error(CMS_REGION_BLOCKED_ERROR_MESSAGE))
       }
 
-      const component = selectedTargetSelection.component as PageBuilderCmsAuthoringComponent
+      const component = targetSelectionForSend.component as PageBuilderCmsAuthoringComponent
       const sourceTypeResolution = tryResolvePageBuilderCmsAuthoringSourceTypeFromSourceTag(
         component,
         targetSnapshot.targetOuterHtml,
@@ -912,11 +931,12 @@ export function BuilderPage({
         return {
           ...basePayload,
           composedUserMessage: decoratePageBuilderSelectionMessage(userMessage, {
-            ...selectedTargetSelection,
+            ...targetSelectionForSend,
           }, {
+            turnRouting,
             cmsGuidanceNotice: buildPageBuilderDegradedCmsRegionNotice(component, 'source-type-unresolved'),
           }),
-          mentionedSkills: buildGuidedMentionedSkills(basePayload.mentionedSkills, true),
+          bootstrappedSkills: ordinaryBootstrappedSkills,
         }
       }
 
@@ -925,12 +945,13 @@ export function BuilderPage({
       return {
         ...basePayload,
         composedUserMessage: decoratePageBuilderSelectionMessage(userMessage, {
-          ...selectedTargetSelection,
+          ...targetSelectionForSend,
         }, {
+          turnRouting,
           ...(pageLevelCmsNotice ? { cmsGuidanceNotice: pageLevelCmsNotice } : {}),
           ordinaryCmsRegionDigest: ordinaryDigest,
         }),
-        mentionedSkills: buildGuidedMentionedSkills(basePayload.mentionedSkills, true),
+        bootstrappedSkills: ordinaryBootstrappedSkills,
       }
     } catch (error) {
       if (shouldBlockCmsTargetSendPreparation(error)) {
@@ -941,11 +962,12 @@ export function BuilderPage({
       return {
         ...basePayload,
         composedUserMessage: decoratePageBuilderSelectionMessage(userMessage, {
-          ...selectedTargetSelection,
+          ...targetSelectionForSend,
         }, {
-          cmsGuidanceNotice: buildPageBuilderDegradedCmsRegionNotice(selectedTargetSelection.component, 'target-snapshot-fetch-failed'),
+          turnRouting,
+          cmsGuidanceNotice: buildPageBuilderDegradedCmsRegionNotice(targetSelectionForSend.component, 'target-snapshot-fetch-failed'),
         }),
-        mentionedSkills: buildGuidedMentionedSkills(basePayload.mentionedSkills, true),
+        bootstrappedSkills: ordinaryBootstrappedSkills,
       }
     }
   }, [messageDecorator, previewState?.hasCmsRendering, selectedTargetSelection, workspaceId])

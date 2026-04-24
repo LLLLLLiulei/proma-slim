@@ -7,7 +7,7 @@ description: Use when an ordinary page-builder turn explicitly targets an existi
 
 ## Overview
 
-Use this skill only for ordinary edits to an existing `cms-catalog` / `cms-content` region that is already present in the page. This skill is not the confirmed CMS apply controller. Its job is to keep the model in the correct authoring mindset before it edits an existing CMS source tag.
+Use this skill only for ordinary edits to an existing `cms-catalog` / `cms-content` region that is already present in the page. This skill is consult-only guidance, not the confirmed CMS apply controller and not the ordinary turn owner. Its job is to keep the model in the correct authoring mindset before it edits an existing CMS source tag.
 
 ## When to Use
 
@@ -28,17 +28,20 @@ Do not use this skill when:
 
 Read in this order:
 
-1. if present, read the host-injected `<page_builder_selection>` payload first
-2. if present, read the host-injected `<page_builder_cms_guidance_notice>` next
-3. if present, read the host-injected `<page_builder_cms_region_authoring>` digest next
-4. if the component is `cms-catalog`, read [references/cms-catalog-existing-region.md](references/cms-catalog-existing-region.md)
-5. if the component is `cms-content`, read [references/cms-content-existing-region.md](references/cms-content-existing-region.md)
-6. read [references/shared-boundaries.md](references/shared-boundaries.md) when changing slot structure, Vue template usage, or authoring boundaries
+1. if present, read the host-injected `<page_builder_turn_routing>` payload first
+2. if present, read the host-injected `<page_builder_selection>` payload next
+3. if present, read the host-injected `<page_builder_cms_guidance_notice>` next
+4. if present, read the host-injected `<page_builder_cms_region_authoring>` digest next
+5. if the component is `cms-catalog`, read [references/cms-catalog-existing-region.md](references/cms-catalog-existing-region.md)
+6. if the component is `cms-content`, read [references/cms-content-existing-region.md](references/cms-content-existing-region.md)
+7. read [references/shared-boundaries.md](references/shared-boundaries.md) when changing slot structure, Vue template usage, or authoring boundaries
 
-The host-injected digest is the first source of truth for the current target when it is available. The guidance notice may also tell you that the current page already contains host-managed CMS regions, or that target-specific digest generation degraded and you must stay in a more conservative editing mode.
+The host-injected routing payload is the first source of truth for the current turn owner and scene. The target digest is the first source of truth for the current CMS target when it is available. The guidance notice may also tell you that the current page already contains host-managed CMS regions, or that target-specific digest generation degraded and you must stay in a more conservative editing mode.
 
 ## Core Rules
 
+- This skill supports the ordinary controller. It does not take over user-facing briefing, final confirmation, or confirmed CMS apply ownership.
+- Keep any user-facing explanation minimal. Do not dump a long CMS theory summary to the user; surface only the blocking clarification or the concrete edit decision the ordinary controller needs.
 - Treat the current `cms-catalog` / `cms-content` source tag as the authoring boundary. Edit it as one source-atomic unit instead of editing rendered child nodes one by one.
 - Ordinary edits may restyle or restructure the existing CMS region, but must not silently change binding query props such as `site-id`, `catalog-id`, `ids`, `page-size`, `parent-id`, or similar source identity fields.
 - If the user actually wants different CMS data, different query semantics, or a new binding, escalate to the confirmed CMS flow instead of hand-editing the source tag.

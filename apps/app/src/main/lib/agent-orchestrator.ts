@@ -29,7 +29,14 @@ import type {
   TypedError,
   RetryAttempt,
 } from '@proma/shared'
-import { SAFE_TOOLS } from '@proma/shared'
+import {
+  extractPageBuilderTurnRoutingMetadata,
+  PAGE_BUILDER_CMS_BINDING_APPLY_OWNER_SKILL,
+  PAGE_BUILDER_GUIDED_GENERATION_OWNER_SKILL,
+  SAFE_TOOLS,
+  type PageBuilderOwnerSkill,
+  type PageBuilderTurnRoutingMetadata,
+} from '@proma/shared'
 import type { PermissionRequest, PromaPermissionMode, AskUserRequest } from '@proma/shared'
 import type { HookCallbackMatcher, PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk'
 import type { ClaudeAgentQueryOptions } from './adapters/claude-agent-adapter'
@@ -204,6 +211,56 @@ ${bootstrappedSkills.map(({ skillSlug, bootstrap }) => [
   bootstrap.content,
 ].join('\n')).join('\n')}
 </bootstrapped_skills>`
+}
+
+const PAGE_BUILDER_OWNER_CONTROLLER_SKILLS: ReadonlySet<PageBuilderOwnerSkill> = new Set([
+  PAGE_BUILDER_GUIDED_GENERATION_OWNER_SKILL,
+  PAGE_BUILDER_CMS_BINDING_APPLY_OWNER_SKILL,
+])
+
+function resolvePageBuilderOwnerControllerFromToolName(
+  workspaceSlug: string,
+  toolName: string,
+): PageBuilderOwnerSkill | null {
+  const normalizedToolName = toolName.trim()
+  if (normalizedToolName.length === 0) {
+    return null
+  }
+
+  for (const skill of PAGE_BUILDER_OWNER_CONTROLLER_SKILLS) {
+    if (
+      normalizedToolName === skill
+      || normalizedToolName === getWorkspaceSkillInvocationName(workspaceSlug, skill)
+    ) {
+      return skill
+    }
+  }
+
+  return null
+}
+
+function resolvePageBuilderOwnerSwitchBlock(params: {
+  workspaceSlug: string
+  toolName: string
+  turnRouting: PageBuilderTurnRoutingMetadata | null
+}): { blocked: boolean; reason?: string } {
+  const turnRouting = params.turnRouting
+  if (!turnRouting || turnRouting.ownerLockedForTurn !== true) {
+    return { blocked: false }
+  }
+
+  const requestedOwner = resolvePageBuilderOwnerControllerFromToolName(
+    params.workspaceSlug,
+    params.toolName,
+  )
+  if (!requestedOwner || requestedOwner === turnRouting.ownerSkill) {
+    return { blocked: false }
+  }
+
+  return {
+    blocked: true,
+    reason: `当前 turn owner 已被宿主锁定为 ${turnRouting.ownerSkill}，不得在同一轮内切换到 ${requestedOwner}。如需切换 owner，必须等待宿主发起新的 handoff turn。`,
+  }
 }
 
 function pickMcpServersByName(
@@ -1342,6 +1399,9 @@ export class AgentOrchestrator {
       }, 'Agent dynamic context built')
 
       const runtimeUserMessage = composedUserMessage ?? userMessage
+      const pageBuilderTurnRouting = isPageBuilderWorkspace
+        ? extractPageBuilderTurnRoutingMetadata(runtimeUserMessage)
+        : null
       const availableMentionedMcpServers = (mentionedMcpServers ?? [])
         .filter((name) => Object.prototype.hasOwnProperty.call(resolvedMcpServers, name))
       const bootstrappedSkillSet = new Set((bootstrappedSkills ?? []).filter(Boolean))
@@ -1479,6 +1539,25 @@ export class AgentOrchestrator {
               hooks: [
                 async (input) => {
                   const hookInput = input as PreToolUseHookInput
+
+                  if (isPageBuilderWorkspace) {
+                    const ownerSwitchBlock = resolvePageBuilderOwnerSwitchBlock({
+                      workspaceSlug,
+                      toolName: hookInput.tool_name,
+                      turnRouting: pageBuilderTurnRouting,
+                    })
+
+                    if (ownerSwitchBlock.blocked) {
+                      return {
+                        continue: false,
+                        hookSpecificOutput: {
+                          hookEventName: 'PreToolUse' as const,
+                          permissionDecision: 'deny' as const,
+                          permissionDecisionReason: ownerSwitchBlock.reason,
+                        },
+                      }
+                    }
+                  }
 
                   if (hookInput.tool_name !== 'Agent') {
                     return { continue: true }

@@ -38,6 +38,15 @@ function extractSkillInputFromComposedMessage(composedUserMessage: string): unkn
   return JSON.parse(match[1]!)
 }
 
+function extractTurnRoutingFromComposedMessage(composedUserMessage: string): unknown {
+  const match = composedUserMessage.match(/<page_builder_turn_routing>\s*([\s\S]*?)\s*<\/page_builder_turn_routing>/)
+  if (!match) {
+    throw new Error('missing page_builder_turn_routing payload')
+  }
+
+  return JSON.parse(match[1]!)
+}
+
 describe('page-builder CMS auto handoff payloads', () => {
   test('builds the apply skill input with phase 1A defaults and without invented optional block fields', () => {
     const targetSnapshot = {
@@ -170,9 +179,14 @@ describe('page-builder CMS auto handoff payloads', () => {
       bootstrappedSkills: ['cms-binding-apply'],
       mentionedMcpServers: [PAGE_BUILDER_CMS_AUTO_AGENT_HANDOFF_MCP_SERVER],
     })
-    expect(request.composedUserMessage).toMatch(/^<cms_binding_apply_input>[\s\S]*<\/cms_binding_apply_input>$/)
+    expect(request.composedUserMessage).toMatch(/^<page_builder_turn_routing>[\s\S]*<\/page_builder_turn_routing>\s*<cms_binding_apply_input>[\s\S]*<\/cms_binding_apply_input>$/)
     expect(request.composedUserMessage).not.toContain('只有获得 `decisionId` 之后才能继续调用 `mcp__cms__apply_cms_binding`')
     expect(request.composedUserMessage).not.toContain('作者态源码事实输入')
+    expect(extractTurnRoutingFromComposedMessage(request.composedUserMessage)).toEqual({
+      sceneKind: 'confirmed-cms-apply',
+      ownerSkill: 'cms-binding-apply',
+      ownerLockedForTurn: true,
+    })
     expect(extractSkillInputFromComposedMessage(request.composedUserMessage)).toEqual({
       version: 8,
       handoffId: 'handoff-1',

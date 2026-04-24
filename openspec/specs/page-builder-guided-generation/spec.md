@@ -25,17 +25,27 @@
 - **AND** 系统 SHALL NOT 要求用户具备专业网页设计或前端开发知识
 
 ### Requirement: 引导式专题页生成必须保持主控 skill 对用户侧问答的所有权
-系统 SHALL 让 `page-builder-guided-generation` 持续掌握普通用户侧的需求收集、关键澄清、最终确认和覆盖确认，而不得把这些步骤转交给其他元流程 skill。
+系统 SHALL 让 `page-builder-guided-generation` 持续掌握 ordinary page-builder flow 与 `existing-cms-region-ordinary-edit` scene 的用户侧需求收集、关键澄清、最终确认，以及 create / iterate / repair / redo / selected-block follow-up 等控制权；这些 ordinary 场景不得转交给 `brainstorming` 或其他元流程 skill。下游 consult-only 与 execute-only skills 仅可在该主控 skill 判定后参与，而不得接管普通用户侧问答。
 
 #### Scenario: 用户侧 briefing 不转交给其他元流程 skill
 - **WHEN** 系统仍在收集需求、澄清关键歧义、请求最终确认或请求整页覆盖确认
 - **THEN** 系统 SHALL 继续由 `page-builder-guided-generation` 完成这些用户侧步骤
 - **AND** 系统 SHALL NOT 将这些步骤转交给 `brainstorming` 或其他元流程 skill
 
-#### Scenario: 下游 skill 仅在确认后参与生产执行
-- **WHEN** 页面简报已经确认完毕，系统准备开始生成或提质页面
-- **THEN** 系统 MAY 调用下游生产型 skill
-- **AND** 系统 SHALL NOT 让下游 skill 重新接管普通用户侧的需求收集与确认流程
+#### Scenario: ordinary repair 与 selected-block follow-up 仍由主控 skill 承接
+- **WHEN** 当前页面已存在结果，且用户提出“修一下这块”“继续改刚才选中的区块”“把这一屏重做一版但保持整体任务”或同类 ordinary follow-up
+- **THEN** 系统 SHALL 继续由 `page-builder-guided-generation` 承接该次用户侧控制
+- **AND** 系统 SHALL NOT 因该请求属于 repair、redo 或 follow-up 就升级为 `brainstorming`
+
+#### Scenario: 显式 existing CMS target ordinary edit 仍由主控 skill 承接
+- **WHEN** 当前 follow-up turn 已明确命中一个已有 `cms-island` 或 source CMS tag target，且任务是在该 target 内做 ordinary CMS authoring
+- **THEN** 系统 SHALL 继续由 `page-builder-guided-generation` 保持该次请求的 owner
+- **AND** 系统 SHALL 在进入编辑前 consult `page-builder-cms-region-authoring-guidance`
+
+#### Scenario: 下游 skill 仅在主控决策后参与生产执行
+- **WHEN** 页面简报已经确认完毕，或当前 ordinary iteration 已经明确需要高质量生成、改版、提质或 CMS 组件级约束理解
+- **THEN** `page-builder-guided-generation` MAY 调用下游 consult-only 或 execute-only skill
+- **AND** 系统 SHALL NOT 让下游 skill 重新接管普通用户侧的澄清与确认流程
 
 ### Requirement: 引导式专题页生成必须仅在关键歧义上做短澄清
 系统 SHALL 仅在剩余歧义会阻断稳定成稿时继续发起澄清，并 SHALL 将澄清范围限制为当前最小必要决策；其中页面目标、目标人群与主要内容块 MUST 作为优先补齐的必问项，整体感觉、设备侧重、必须保留或避免的内容以及当前页面应继续迭代还是整页重做 SHALL 只在仍未明确且会明显影响结果时作为条件必问项补齐。
@@ -77,14 +87,19 @@
 - **THEN** 系统 SHALL 保留当前预览页
 - **AND** 系统 SHALL NOT 执行整页改写
 
-### Requirement: 引导式专题页生成必须以单页专题页为默认目标并显式驱动设计 skill
-系统 SHALL 在用户确认专题页简报后，以单页专题页作为默认生成目标，并 SHALL 显式驱动现有设计 skill 来完成页面生成与必要提质。
+### Requirement: 引导式专题页生成必须按任务阶段显式驱动 canonical visual workers
+系统 SHALL 在用户确认专题页简报后，以单页专题页作为默认生成目标，并 SHALL 按任务阶段显式驱动 canonical visual worker skills 来完成页面生成与必要提质；`taste-skill` 负责首轮视觉执行，包括首版整页生成与首轮 block 级明显视觉重设计，`redesign-skill` 只负责已有结果基础上的第二阶段提质、升级或精修。
 
-#### Scenario: 确认后使用 design-taste-frontend 生成单页专题页
+#### Scenario: 确认后使用 taste-skill 生成单页专题页
 - **WHEN** 用户已确认专题页简报，且当前为空白页面或已完成覆盖确认
-- **THEN** 系统 SHALL 显式使用 `design-taste-frontend`
+- **THEN** 系统 SHALL 显式使用 `taste-skill`
 - **AND** 系统 SHALL 将输出写入 `workspace-files/index.html` 及其关联预览资源
 - **AND** 系统 SHALL 以单页专题页作为默认页面结构，而不是多页面站点
+
+#### Scenario: 首轮 block 级明显视觉重设计使用 taste-skill
+- **WHEN** 当前页面或当前已选 block 需要进入第一轮明显视觉重设计，而不是在已有设计方向上做二次提质
+- **THEN** 系统 SHALL 显式使用 `taste-skill`
+- **AND** 系统 SHALL NOT 仅因目标是局部 block 就默认切换到 `redesign-skill`
 
 #### Scenario: 强事实缺失时使用草稿占位而非编造真实信息
 - **WHEN** 页面结构需要展示时间、价格、电话、数据等强事实信息，但用户尚未提供这些内容
@@ -96,18 +111,29 @@
 - **THEN** 系统 SHALL 默认生成指向当前单页不同区块的导航结构
 - **AND** 系统 SHALL NOT 默认扩展为多页面路由跳转
 
-#### Scenario: 需要额外提质时使用 redesign-existing-projects
-- **WHEN** 系统决定在首版页面基础上追加一轮提质
-- **THEN** 系统 SHALL 显式使用 `redesign-existing-projects`
+#### Scenario: 需要第二阶段提质或升级时使用 redesign-skill
+- **WHEN** 系统决定在已有页面或已有 block 基础上追加一轮提质、升级或精修，而当前已有设计方向应被保留
+- **THEN** 系统 SHALL 显式使用 `redesign-skill`
 - **AND** 系统 SHALL 保持已确认的单页专题页目标与主要内容不变
 
 ### Requirement: 页面生成后后续请求必须进入轻量迭代模式
-系统 SHALL 在专题页已经生成后，将后续普通修改请求视为对当前预览页的轻量迭代，而不是重新发起完整的需求收集流程。
+系统 SHALL 在专题页已经生成后，将后续 ordinary 修改请求视为对当前预览页的轻量迭代，并继续由 `page-builder-guided-generation` 统一承接；其中局部修改、repair、selected-block follow-up、局部 redo 与 explicit existing CMS region ordinary edit MUST 继续停留在该 owner 的迭代路径中。只有明确整页重做、confirmed CMS apply，或宿主明确发起新的 owner handoff 时，系统才 SHALL 离开该当前 owner 路径。
 
 #### Scenario: 已有页面时对局部修改直接迭代
 - **WHEN** 当前预览页已存在生成结果，且用户提出颜色、内容顺序、区块增减或风格微调等后续修改
 - **THEN** 系统 SHALL 直接基于当前预览页继续修改
 - **AND** 系统 SHALL NOT 重新发起完整需求收集流程
+
+#### Scenario: 已有页面的 repair 或局部 redo 继续留在 ordinary iteration
+- **WHEN** 当前预览页已存在生成结果，且用户提出修复布局、替换当前区块样式、重做某个已选 block 或同类局部 redo
+- **THEN** 系统 SHALL 继续由 `page-builder-guided-generation` 在当前页面上迭代
+- **AND** 系统 SHALL NOT 重新发起完整需求收集流程
+
+#### Scenario: 显式 existing CMS target ordinary edit 继续由当前 owner 承接
+- **WHEN** 当前 follow-up turn 已明确命中一个已有 `cms-island` 或 source CMS tag target，且任务是在该 target 内做 ordinary CMS authoring
+- **THEN** 系统 SHALL 继续由 `page-builder-guided-generation` 承接该次请求
+- **AND** 系统 SHALL 先 consult `page-builder-cms-region-authoring-guidance`
+- **AND** 系统 SHALL NOT 将 owner 切换到 `page-builder-cms-region-authoring-guidance`
 
 #### Scenario: 明确要求重做时回到覆盖确认与引导生成链路
 - **WHEN** 当前预览页已存在生成结果，且用户明确要求整页重做
@@ -185,18 +211,23 @@
 - **THEN** 系统 SHALL 优先通过普通 HTML/CSS/JS 结构、草稿内容或受控 CMS flow 满足该诉求
 - **AND** 系统 SHALL NOT 在非 CMS 区块上写入 `v-for`、`v-if`、`@click` 或 `{{ ... }}` 来模拟整页 Vue 行为
 
-### Requirement: `page-builder-guided-generation` MUST delegate existing CMS region literacy to dedicated guidance
-系统 SHALL 让 `page-builder-guided-generation` 在 ordinary page-builder flow 中继续承担用户侧控制权和高层 CMS 边界，但在命中已有 `cms-catalog` / `cms-content` 区域时，系统 MUST 让它把组件级 CMS literacy 委托给专用的已有 CMS 区域 guidance，而不是继续由该主控 skill 内部重复持有完整的 props、字段和 contract 细则。
+### Requirement: `page-builder-guided-generation` MUST consult existing CMS region guidance while retaining owner control
+系统 SHALL 让 `page-builder-guided-generation` 在 ordinary page-builder flow 中保留高层 CMS 边界与 current turn owner 权限；当宿主已经识别出明确的 existing `cms-catalog`、`cms-content` 或 `cms-island` target 且任务仍属于 ordinary authoring 时，系统 MUST 向该 owner 提供专用的 `page-builder-cms-region-authoring-guidance` 与 target digest 作为 consult-only guidance，而不是继续由主控边读边猜。若用户实际想改变 binding identity，`page-builder-guided-generation` MUST 请求宿主升级回 confirmed CMS browser / handoff / decision / apply 流程，而不是直接修改已有 `cms-*` 的 query props。
 
-#### Scenario: ordinary controller 保持用户侧控制但不独占组件级 CMS guidance
-- **WHEN** 用户在 ordinary page-builder flow 中要求修改一个已存在的 CMS 区域
-- **THEN** 系统 SHALL 继续由 `page-builder-guided-generation` 保持用户侧交互、普通迭代和高层边界控制
-- **AND** 系统 SHALL 让组件级 CMS authoring 细节由专用的已有 CMS 区域 guidance 与当前目标 digest 负责
+#### Scenario: 页面含 CMS 但本轮未命中具体 target 时仅保留高层边界
+- **WHEN** 当前页面已经包含 `cms-catalog` 或 `cms-content`，但本轮 ordinary 请求未明确命中某个具体已有 CMS target
+- **THEN** 系统 SHALL 继续由 `page-builder-guided-generation` 承接该 ordinary 请求
+- **AND** 系统 SHALL 只向其提供高层 CMS 边界，而不是额外赋予组件级 guidance digest
 
-#### Scenario: 主控 skill 在已有 CMS 区域场景中先要求 consult guidance 再修改
-- **WHEN** `page-builder-guided-generation` 处理的 ordinary 请求明确命中已有 CMS 区域，或宿主已经表明当前页面包含已有 CMS 区域并注入了 page-level CMS guidance notice
-- **THEN** 该主控 skill SHALL 明确要求模型先 consult 当前目标的 canonical guidance
-- **AND** 该主控 skill SHALL NOT 把已有 CMS 区域当作普通 HTML/Vue 片段直接凭经验改写
+#### Scenario: 显式 existing CMS target turn 先 consult 再执行
+- **WHEN** 宿主已识别当前 ordinary 请求明确命中一个已有 `cms-island` 或 source CMS tag target
+- **THEN** 系统 SHALL 继续让 `page-builder-guided-generation` 作为该次请求的唯一 owner
+- **AND** 系统 SHALL 提供 `page-builder-cms-region-authoring-guidance` 与当前目标 digest 供其先 consult 再执行
+
+#### Scenario: binding identity 变更升级回 confirmed CMS apply
+- **WHEN** 用户提出更换栏目、重新选择 CMS 内容、改变 `site-id`、`catalog-id`、`ids`、`page-size`、`take` 或等价 binding identity 的请求
+- **THEN** `page-builder-guided-generation` SHALL 请求宿主升级回 confirmed CMS browser / handoff / decision / apply 流程
+- **AND** 系统 SHALL NOT 继续由 ordinary owner 或 consult-only guidance 直接修改已有 `cms-*` 的 query props
 
 ### Requirement: `page-builder-guided-generation` MUST keep its ordinary CMS section boundary-level and lightweight
 系统 SHALL 让 `page-builder-guided-generation` 中与 CMS 相关的主文案只保留 ordinary flow 需要长期稳定生效的高层边界，而不得继续在该 skill 内堆叠完整的组件级字段表、confirmed apply checklist 或大段 component-specific 示例。

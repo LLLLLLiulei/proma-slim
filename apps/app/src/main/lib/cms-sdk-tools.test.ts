@@ -472,6 +472,29 @@ describe('cms sdk runtime tools', () => {
     })
   })
 
+  test('keeps decide_cms_binding public schema structured instead of degrading decision to unknown', () => {
+    const workspace = createAgentWorkspace('CMS Tool Decision Schema Shape', { template: 'page-builder' })
+    prepareWorkspaceHtml(
+      workspace.slug,
+      '<!doctype html><html><body><section id="latest-news" data-proma-block-id="pb_blk_news"><div>placeholder</div></section></body></html>',
+    )
+    const bundle = buildCmsRuntimeToolBundle(createGateway() as never, {
+      workspace,
+      sessionId: 'session-1',
+    } as never)
+    const tools = getRegisteredTools(bundle) as Record<string, RegisteredTool & {
+      inputSchema: {
+        shape: {
+          decision?: {
+            constructor?: { name?: string }
+          }
+        }
+      }
+    }>
+
+    expect(tools.decide_cms_binding?.inputSchema.shape.decision?.constructor?.name).not.toBe('ZodUnknown')
+  })
+
   test('accepts a legacy JSON-string decision payload and normalizes it before persisting the decision', async () => {
     const workspace = createAgentWorkspace('CMS Tool Legacy Decision String', { template: 'page-builder' })
     prepareWorkspaceHtml(
@@ -521,6 +544,47 @@ describe('cms sdk runtime tools', () => {
       handoffId,
       decision: '{"status":"ready"',
     }, '`decision` 必须是结构化对象')
+    await expectToolRejects(tools.decide_cms_binding!, {
+      handoffId,
+      decision: '{"status":"ready"',
+    }, '最小 ready 示例')
+  })
+
+  test('returns a retry-oriented error when decision is an object but does not match the decision contract', async () => {
+    const workspace = createAgentWorkspace('CMS Tool Invalid Decision Object', { template: 'page-builder' })
+    prepareWorkspaceHtml(
+      workspace.slug,
+      '<!doctype html><html><body><section id="latest-news" data-proma-block-id="pb_blk_news"><div>placeholder</div></section></body></html>',
+    )
+    const handoffId = registerContentHandoff(workspace, 'session-1')
+    const bundle = buildCmsRuntimeToolBundle(createGateway() as never, {
+      workspace,
+      sessionId: 'session-1',
+    } as never)
+    const tools = getRegisteredTools(bundle)
+
+    await expectToolRejects(tools.decide_cms_binding!, {
+      handoffId,
+      decision: {
+        status: 'ready',
+        toolKind: 'catalog-nav',
+        source: {
+          siteId: '14',
+          catalogId: 'news',
+        },
+      },
+    }, '`decision` 不符合合约')
+    await expectToolRejects(tools.decide_cms_binding!, {
+      handoffId,
+      decision: {
+        status: 'ready',
+        toolKind: 'catalog-nav',
+        source: {
+          siteId: '14',
+          catalogId: 'news',
+        },
+      },
+    }, '最小 ready 示例')
   })
 
   test('forwards explicit siteId through the sdk list tools', async () => {

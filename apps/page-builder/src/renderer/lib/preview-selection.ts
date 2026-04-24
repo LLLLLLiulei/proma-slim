@@ -1,7 +1,9 @@
 import type {
   PageBuilderCmsOrdinaryAuthoringDigest,
+  PageBuilderTurnRoutingMetadata,
   PageBuilderTargetSelection,
 } from '@proma/shared'
+import { serializePageBuilderTurnRoutingMetadata } from '@proma/shared'
 
 export type PageBuilderSelectedTarget = PageBuilderTargetSelection
 
@@ -25,6 +27,7 @@ export interface PageBuilderCmsGuidanceNotice {
 }
 
 interface ComposePageBuilderAuthoringMessageOptions {
+  turnRouting?: PageBuilderTurnRoutingMetadata
   targetSelection?: PageBuilderSelectedTarget
   cmsGuidanceNotice?: PageBuilderCmsGuidanceNotice
   ordinaryCmsRegionDigest?: PageBuilderCmsOrdinaryAuthoringDigest
@@ -57,6 +60,10 @@ export function composePageBuilderAuthoringMessage(
 ): string {
   const payloadBlocks: string[] = []
 
+  if (options.turnRouting) {
+    payloadBlocks.push(serializePageBuilderTurnRoutingMetadata(options.turnRouting))
+  }
+
   if (options.targetSelection) {
     payloadBlocks.push(`<page_builder_selection>${JSON.stringify({
       targetSelection: options.targetSelection,
@@ -80,6 +87,7 @@ export function composePageBuilderAuthoringMessage(
 }
 
 interface DecoratePageBuilderSelectionMessageOptions {
+  turnRouting?: PageBuilderTurnRoutingMetadata
   cmsGuidanceNotice?: PageBuilderCmsGuidanceNotice
   ordinaryCmsRegionDigest?: PageBuilderCmsOrdinaryAuthoringDigest
 }
@@ -90,6 +98,7 @@ export function decoratePageBuilderSelectionMessage(
   options: DecoratePageBuilderSelectionMessageOptions = {},
 ): string {
   return composePageBuilderAuthoringMessage(userMessage, {
+    ...(options.turnRouting ? { turnRouting: options.turnRouting } : {}),
     targetSelection,
     ...(options.cmsGuidanceNotice ? { cmsGuidanceNotice: options.cmsGuidanceNotice } : {}),
     ...(options.ordinaryCmsRegionDigest ? { ordinaryCmsRegionDigest: options.ordinaryCmsRegionDigest } : {}),

@@ -1,8 +1,4 @@
-## Purpose
-
-定义 `page-builder` 工作区根级 `CLAUDE.md`、普通页面生成主控 skill 与确认后 CMS apply skill 的职责分层与默认路由。
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: page-builder 根级 `CLAUDE.md` 必须收敛为全局约束与角色路由层
 系统 SHALL 将 page-builder 工作区根级 `CLAUDE.md` 维持为共享的全局约束与角色路由层，只承载工作区输出规则、普通用户交互硬边界、scene routing、owner / consult / discussion / execute 的角色分层，以及 CMS 全局边界；该文件 SHALL NOT 重复 skill 内部的提问 contract、确认细则或详细 CMS authoring 示例。
@@ -40,55 +36,6 @@
 - **THEN** 系统 SHALL 注入 `cms-binding-apply` 作为该次 turn 的唯一 owner
 - **AND** 系统 SHALL NOT 让普通 page-builder owner 或 consult-only guidance 替代 confirmed apply controller
 
-### Requirement: CMS 相关请求必须按“预选择”与“已确认 apply”两个场景分流
-系统 SHALL 将 page-builder 中与 CMS 相关的请求明确分流为“用户尚未完成 CMS 选择的预选择场景”和“已拥有确认选择结果的 apply 场景”；普通引导 flow MUST NOT 越过 CMS 选择阶段直接新建或重绑 `cms-*` 标签，而 confirmed CMS selection MUST 进入 `cms-binding-apply`、机器可读 decision 与正式 apply 链路。
-
-#### Scenario: 尚未确认 CMS 选择时不直接新建或重绑 `cms-*`
-- **WHEN** 用户表达某个区块需要接 CMS 数据，但当前并不存在已确认的 CMS 选择结果与目标上下文
-- **THEN** 系统 SHALL 将该请求视为 CMS 预选择场景
-- **AND** 系统 SHALL NOT 直接新建或重绑 `cms-catalog` / `cms-content`
-- **AND** 系统 SHALL 要求先进入正式 CMS 选择流程
-
-#### Scenario: 已确认 CMS 选择后进入 decision-backed confirmed apply flow
-- **WHEN** 系统已经拥有一次确认完成的 CMS 选择结果、目标选择上下文和 Phase 1A apply 边界
-- **THEN** 系统 SHALL 将后续决策路由到 `cms-binding-apply`
-- **AND** 系统 SHALL 要求 confirmed CMS apply 先物化机器可读 decision，再继续正式 `mcp__cms__apply_cms_binding`
-- **AND** 系统 SHALL NOT 继续让 `page-builder-guided-generation` 持有该次确认后的 CMS apply 执行权
-
-### Requirement: Selected `cms-island` sends must rely on explicit current target instead of continuation text guessing
-系统 SHALL 在用户显式选中一个已存在的 `cms-island` 后，把该次发送视为 `existing-cms-region-ordinary-edit` scene，并由 `page-builder-guided-generation` 作为唯一 owner 承接，同时 consult `page-builder-cms-region-authoring-guidance`。任何会改变 binding identity 的请求 MUST 回到 CMS browser confirm 与 decision/apply chain，而不能继续停留在 ordinary flow 或 existing-region ordinary edit。宿主 SHALL 只依据当前显式 target 与 workflow 边界元数据决定是否进入该 scene，SHALL NOT 通过“继续”“再改一下”之类的自由文本去延续、重建或清空旧的 CMS target。
-
-#### Scenario: Style-only follow-up on a selected CMS island keeps guided-generation owner
-- **WHEN** 用户选中一个 `cms-island`，并提出布局、样式、图片比例、slot 内结构或等价的视觉调整请求
-- **THEN** 系统 SHALL 将该消息路由到 `existing-cms-region-ordinary-edit` scene
-- **AND** 系统 SHALL 保持 `page-builder-guided-generation` 作为唯一 owner
-- **AND** 系统 SHALL 提供 `page-builder-cms-region-authoring-guidance` 供其 consult
-
-#### Scenario: 没有显式 CMS target 的后续消息不会被宿主自动恢复到 CMS-island route
-- **WHEN** 用户此前编辑过某个 `cms-island`，但当前发送已经没有新的显式 CMS target，也没有 confirmed CMS workflow state
-- **THEN** 系统 SHALL NOT 仅凭 continuation 文本把该请求恢复为 `existing-cms-region-ordinary-edit` scene
-- **AND** 系统 SHALL 让当前 owner 按 ordinary flow 处理该条消息，必要时再由 owner 自己澄清用户意图
-
-#### Scenario: Binding-identity changes on a selected CMS island return to the controlled CMS flow
-- **WHEN** 用户选中一个 `cms-island`，并提出更换栏目、重新选择 CMS 内容、改变 `site-id`、`catalog-id`、`ids`、`page-size`、`take` 或等价 binding identity 的请求
-- **THEN** 系统 SHALL 将该请求重新路由回 CMS browser confirm 与 decision-backed confirmed apply flow
-- **AND** 系统 SHALL NOT 仅通过 ordinary owner 或 consult-only guidance 直接修改已有 `cms-*` 的 query props
-
-### Requirement: page-builder 根级 `CLAUDE.md` 必须声明 CMS islands 的 HTML-first 作者态模型
-系统 SHALL 在 page-builder 工作区根级 `CLAUDE.md` 中明确声明作者态页面是 HTML-first 的：`cms-catalog` / `cms-content` 是宿主管理的 CMS source tags，Vue template 语法只属于这些 CMS source tags 的 slot authoring，而普通页面区域 MUST 保持普通 HTML/CSS/JS。
-
-#### Scenario: 初始化根级模板时写入 CMS islands 作者态模型
-- **WHEN** 系统为新的或已有的 page-builder 工作区初始化、回填或刷新根级 `CLAUDE.md`
-- **THEN** 该文件 SHALL 明确说明 `cms-catalog` / `cms-content` 是宿主管理的 CMS islands source tags
-- **AND** 该文件 SHALL 明确说明 Vue template 语法只应出现在这些 CMS source tags 的 slot authoring 中
-- **AND** 该文件 SHALL 明确说明 `cms-*` 之外的页面区域保持普通 HTML/CSS/JS
-
-#### Scenario: 根级模板禁止作者自管 Vue runtime 与整页 mount
-- **WHEN** 根级 `CLAUDE.md` 描述 page-builder 的 CMS 全局边界
-- **THEN** 该文件 SHALL 明确禁止 Agent 为 CMS 渲染自行引入 Vue runtime、Vue CDN、Vue importmap 或自定义 bootstrap
-- **AND** 该文件 SHALL 明确禁止 Agent 通过 page-wide `createApp` / `mount` 把整页改造成单一 Vue app
-- **AND** 该文件 SHALL 将新的 CMS source tag authoring 继续路由到受控 CMS flow，而不是 generic Vue authoring
-
 ### Requirement: page-builder prompt layering MUST separate page-level CMS notice from target-scoped consult guidance
 系统 SHALL 在 page-builder 的 prompt layering 中把 `page-level CMS notice`、turn-level routing metadata 与 `target-scoped existing-CMS guidance` 明确分层：当当前页面包含已有 CMS 区域但本轮未显式命中具体 target 时，系统 SHALL 只注入轻量 advisory notice；只有当本轮通过宿主结构化 target 上下文明确命中已有 CMS region target，且任务仍属于 ordinary authoring 时，系统 SHALL 在保持 `page-builder-guided-generation` owner 不变的前提下，显式 surface `page-builder-cms-region-authoring-guidance` 与当前目标的最小 digest；confirmed CMS apply 仍 SHALL 继续由 `cms-binding-apply` 独占。系统 SHALL NOT 再用纯文本 pattern 或正则，把一个已经由宿主结构化上下文确定的 scene 重新分流到别的 owner。
 
@@ -113,6 +60,27 @@
 - **WHEN** explicit existing CMS target turn 需要新的已有 CMS 区域 guidance capability
 - **THEN** 系统 SHALL 通过宿主控制的 skill surfacing 机制显式提供该 capability，例如 `mentionedSkills`、`bootstrappedSkills` 或等价运行时注入
 - **AND** 系统 SHALL NOT 仅依赖 skill 文件存在于 workspace 或模型自行发现 skill 来完成该次 guidance 激活
+
+### Requirement: Selected `cms-island` sends must rely on explicit current target instead of continuation text guessing
+系统 SHALL 在用户显式选中一个已存在的 `cms-island` 后，把该次发送视为 `existing-cms-region-ordinary-edit` scene，并由 `page-builder-guided-generation` 作为唯一 owner 承接，同时 consult `page-builder-cms-region-authoring-guidance`。任何会改变 binding identity 的请求 MUST 回到 CMS browser confirm 与 decision/apply chain，而不能继续停留在 ordinary flow 或 existing-region ordinary edit。宿主 SHALL 只依据当前显式 target 与 workflow 边界元数据决定是否进入该 scene，SHALL NOT 通过“继续”“再改一下”之类的自由文本去延续、重建或清空旧的 CMS target。
+
+#### Scenario: Style-only follow-up on a selected CMS island keeps guided-generation owner
+- **WHEN** 用户选中一个 `cms-island`，并提出布局、样式、图片比例、slot 内结构或等价的视觉调整请求
+- **THEN** 系统 SHALL 将该消息路由到 `existing-cms-region-ordinary-edit` scene
+- **AND** 系统 SHALL 保持 `page-builder-guided-generation` 作为唯一 owner
+- **AND** 系统 SHALL 提供 `page-builder-cms-region-authoring-guidance` 供其 consult
+
+#### Scenario: 没有显式 CMS target 的后续消息不会被宿主自动恢复到 CMS-island route
+- **WHEN** 用户此前编辑过某个 `cms-island`，但当前发送已经没有新的显式 CMS target，也没有 confirmed CMS workflow state
+- **THEN** 系统 SHALL NOT 仅凭 continuation 文本把该请求恢复为 `existing-cms-region-ordinary-edit` scene
+- **AND** 系统 SHALL 让当前 owner 按 ordinary flow 处理该条消息，必要时再由 owner 自己澄清用户意图
+
+#### Scenario: Binding-identity changes on a selected CMS island return to the controlled CMS flow
+- **WHEN** 用户选中一个 `cms-island`，并提出更换栏目、重新选择 CMS 内容、改变 `site-id`、`catalog-id`、`ids`、`page-size`、`take` 或等价 binding identity 的请求
+- **THEN** 系统 SHALL 将该请求重新路由回 CMS browser confirm 与 decision-backed confirmed apply flow
+- **AND** 系统 SHALL NOT 仅通过 ordinary owner 或 consult-only guidance 直接修改已有 `cms-*` 的 query props
+
+## ADDED Requirements
 
 ### Requirement: page-builder 默认 turn-level skill surfacing MUST 以当前 owner 为中心并限制竞争面
 系统 SHALL 让 page-builder 工作区在默认 turn-level prompt surfacing 中只主动提升当前路由批准的 owner-controller 与当前 scene 可用的 secondary skills，以减少 owner 竞争和命名漂移。ordinary turn 的 bootstrapped owner MUST 为 `page-builder-guided-generation`；confirmed apply turn 的 bootstrapped owner MUST 为 `cms-binding-apply`；`page-builder-cms-region-authoring-guidance` 只 MAY 在 explicit existing CMS target ordinary edit 时按需 surfacing；`taste-skill` 与 `redesign-skill` MAY 作为 canonical visual workers 被当前 owner 调度。系统 SHALL NOT 在 page-builder 默认 turn-level surfacing 中继续并列提升 `brainstorming`、`soft-skill` 或其他会与 owner 争抢主控权的 meta-planning / creativity skills。

@@ -1,9 +1,20 @@
 ---
-name: design-taste-frontend
-description: Senior UI/UX Engineer. Architect digital interfaces overriding default LLM biases. Enforces metric-based rules, strict component architecture, CSS hardware acceleration, and balanced design engineering.
+name: taste-skill
+description: Execute-only visual worker for page-builder first-pass page creation and first-pass major block redesign. Not a briefing or routing controller.
 ---
 
 # High-Agency Frontend Skill
+
+## Page-builder role
+
+In `page-builder`, this skill is an execute-only visual worker.
+
+- Use it after `page-builder-guided-generation` has already finished the needed user-facing clarification or confirmation.
+- Use it for the first full-page visual pass.
+- Use it for the first-pass major redesign of a selected block or section when the task is not merely polish.
+- Do not use it as the turn owner, briefing controller, CMS decision maker, or ordinary conversation router.
+- Do not use it for second-stage polish of an already accepted direction; use `redesign-skill` for that stage.
+- Default to implementation, not presentation. Do not output long design essays, large audit summaries, or code walkthroughs to the user unless the user explicitly asks for them.
 
 ## 1. ACTIVE BASELINE CONFIGURATION
 * DESIGN_VARIANCE: 8 (1=Perfect Symmetry, 10=Artsy Chaos)

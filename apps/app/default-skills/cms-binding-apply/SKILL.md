@@ -84,6 +84,9 @@ When the result is `ready`, continue in the same turn instead of stopping at an 
 - Only when `mcp__cms__decide_cms_binding` returns `status = ready` plus a `decisionId`, call `mcp__cms__apply_cms_binding` in the same turn.
 - If `mcp__cms__decide_cms_binding` fails, stop, correct the payload, and retry the tool call. Do not edit `workspace-files/index.html`, and do not handwrite `cms-catalog` / `cms-content` as a fallback bypass.
 - Pass only `decisionId`, `templateBody`, `emptyTemplate`, and `errorTemplate` into `mcp__cms__apply_cms_binding`. Do not try to resend `targetSelection`, `siteId`, `source`, or other raw binding identity fields.
+- Keep these two minimal `ready` shapes in mind when preparing the tool call:
+  `content-list`: `{"status":"ready","targetBlockKind":"content-list","supportedRenderModes":["replace-current"],"renderMode":"replace-current","applyStrategy":"replace-current","mappingKind":"catalog-content-list","toolKind":"content-list","source":{"siteId":"14","catalogId":"news"}}`
+  `catalog-nav`: `{"status":"ready","targetBlockKind":"nav","supportedRenderModes":["replace-current"],"renderMode":"replace-current","applyStrategy":"replace-current","mappingKind":"catalog-nav","toolKind":"catalog-nav","source":{"siteId":"14","parentId":"root","take":6}}`
 - Do not reply that the skill is only a template, and do not edit workspace files directly.
 - Keep page-builder authoring HTML-first. `cms-catalog` / `cms-content` are host-managed source tags; this flow should author the selected source tag plus its slot templates, not a page-wide Vue app.
 - Inspect the current target block in the workspace source. Preserve the existing outer shell, classes, and major layout structure whenever they are still compatible with the selected CMS data.

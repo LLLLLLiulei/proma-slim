@@ -9,6 +9,8 @@ description: Use when a page-builder conversation needs ordinary-user briefing, 
 
 Use this skill as the default controller for ordinary `page-builder` conversations. Guide 普通用户 with clear language, collect only the information needed to produce a strong result, confirm the brief, then generate or iterate on the current preview page.
 
+If the host injects `<page_builder_turn_routing>`, treat that payload as the authoritative scene and owner metadata for the current turn.
+
 ## When to Use
 
 Use this skill when all of the following are true:
@@ -28,6 +30,8 @@ Do not use this skill when:
 
 Decide the current mode from the current preview files, the ongoing conversation, and the user's latest request.
 
+Read the host-injected `<page_builder_turn_routing>` first when it is present. Do not try to override the host-selected owner or scene inside the same turn.
+
 - **Create mode**: start from a vague idea or a blank page.
 - **Iterate mode**: refine an existing generated page.
 - **Redo mode**: replace a non-empty page after the user clearly asks to restart or change direction completely.
@@ -42,7 +46,7 @@ This skill owns the user-facing briefing flow end to end.
 
 - Keep requirement collection, clarification, final brief confirmation, and overwrite confirmation inside this skill.
 - Do not hand off user-facing briefing or confirmation to `brainstorming` or any other meta-planning or orchestration skill.
-- Use downstream skills only after the brief is confirmed, and only for production work such as page generation or polish.
+- Use downstream skills only after the brief is confirmed, and only for consult or production work such as page generation, polish, or existing CMS guidance.
 
 ### AskUserQuestion first
 
@@ -109,6 +113,12 @@ The summary should usually cover:
 - device priority
 - must-have or must-avoid constraints
 
+Keep this confirmation summary short and user-facing:
+
+- use plain language instead of implementation jargon
+- keep it to the current brief only, not tool/skill/process narration
+- avoid code, file paths, component trees, or large technical explanations unless the user explicitly asks
+
 If `workspace-files/index.html` already contains non-trivial content and the user clearly wants a full redo:
 
 1. ask for overwrite confirmation through `AskUserQuestion`
@@ -124,8 +134,9 @@ After confirmation:
 1. Treat the default target as a **single-page special webpage**.
 2. Write the preview entry to `workspace-files/index.html`.
 3. Write any supporting assets under `workspace-files/`, typically `workspace-files/assets/`.
-4. Explicitly use `design-taste-frontend` to generate the first full page.
-5. Use `redesign-existing-projects` only if the first result still needs a meaningful polish pass.
+4. Explicitly use `taste-skill` to generate the first full page.
+5. Use `taste-skill` again when a selected block needs its first-pass major visual redesign rather than a minor tune-up.
+6. Use `redesign-skill` only after a first-pass direction already exists and the task is now a second-stage polish, upgrade, or refinement pass.
 
 Default navigation should point to sections within the same page instead of introducing multi-page routing.
 
@@ -146,7 +157,7 @@ Keep page-builder authoring HTML-first. Existing or newly applied `cms-catalog` 
 
 If the page already contains CMS tags, ordinary iteration may adjust slot templates, internal structure, and styles inside the existing CMS region, but it must not silently change query props such as `site-id`, `catalog-id`, `ids`, or `page-size`.
 
-When the host surfaces a CMS guidance notice or the selected target is already a CMS-driven region, consult that canonical CMS guidance first. Treat the existing `cms-catalog` / `cms-content` source tag as source-atomic, then edit the source CMS region as one unit instead of editing rendered child nodes one by one.
+When the host surfaces a CMS guidance notice or the selected target is already a CMS-driven region, consult that canonical CMS guidance first. Treat `page-builder-cms-region-authoring-guidance` as consult-only specialist guidance. Keep ordinary turn ownership here, but treat the existing `cms-catalog` / `cms-content` source tag as source-atomic and edit the source CMS region as one unit instead of editing rendered child nodes one by one.
 
 Keep Vue template syntax inside the current CMS source tag's slot templates only. Keep non-CMS regions in plain HTML/CSS/JS instead of adding `v-*`, `@*`, `:` bindings, or `{{ ... }}`.
 
@@ -163,12 +174,17 @@ Once a page has already been generated, default to lightweight iteration mode.
 - Modify the current preview page directly.
 - Ask new `AskUserQuestion` prompts only when a critical ambiguity blocks the requested change.
 - Do not restart the full briefing flow for small refinements such as color, ordering, section emphasis, or tone adjustments.
+- Keep `taste-skill` as the canonical execute-only worker for first-pass major redesign work, even when the target is a single existing block.
+- Keep `redesign-skill` for later polish when the current direction should be preserved.
 
 If the user clearly asks to redo everything, switch back to redo mode and use overwrite confirmation.
 
 ## Output Discipline
 
 - Keep the process conversational but controlled.
+- When asking a question with `AskUserQuestion`, keep the visible lead-in to one short sentence at most.
+- Do not narrate internal routing, owner/consult skill selection, or MCP/tool choreography to the user unless a failure or retry actually needs to be explained.
+- After generation or iteration, give a short plain-language result summary and the most relevant next step. Do not dump large technical changelogs, code explanations, or design theory by default.
 - Do not explain internal workflow machinery unless needed.
 - Do not ask the user to choose between `taste-skill` and `redesign-skill`.
 - Do not present yourself as a template-only skill.

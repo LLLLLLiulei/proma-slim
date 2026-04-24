@@ -719,6 +719,7 @@ export function AgentView({
       userMessage: payload.userMessage,
       ...(payload.composedUserMessage ? { composedUserMessage: payload.composedUserMessage } : {}),
       mentionedSkills: payload.mentionedSkills,
+      bootstrappedSkills: payload.bootstrappedSkills ?? [],
       mentionedMcpServers: payload.mentionedMcpServers,
       optimisticAttachments: pendingAttachments,
       attachmentFiles: pendingAttachments.map((attachment) => attachment.file),

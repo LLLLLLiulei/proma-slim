@@ -4,14 +4,22 @@
 
 ## 文档目的
 
-本文用于沉淀本轮关于 page-builder 提示词注入、skill 路由、CMS authoring guidance、CMS MCP tool 分层方式的进一步分析结果。重点不是继续堆叠更多提示词，而是明确：
+本文用于沉淀本轮关于 page-builder 提示词注入、skill 路由、CMS authoring guidance、视觉设计 skill 分层、以及 CMS MCP tool 分层方式的进一步分析结果。
 
-- 普通页面流应该由谁主控
-- 已有 CMS 区域编辑应该如何分流
-- 已确认 CMS 内容应用应该如何进入受控链路
-- 宿主如何表达“当前这一轮到底应该听谁的”
+这次更新不再只停留在“理想结构”，而是加入了：
 
-## 本轮分析所基于的输入
+- 当前代码实现的实际状态
+- 最近真实运行日志里的行为证据
+- 现阶段仍然需要调整的功能项与优先级
+
+重点不是继续堆叠更多提示词，而是明确：
+
+- 普通页面流到底由谁主控
+- 页面里“存在 CMS”与“当前正在编辑 CMS”如何严格区分
+- skill 的“暴露、被提及、被实际调用”三层分别出了什么问题
+- 视觉设计类 skill 和 CMS 类 skill 应该如何稳定地成为下游能力，而不是继续抢主控
+
+## 本轮分析基于哪些输入
 
 本次结论主要来自以下几类输入：
 
@@ -21,374 +29,567 @@
    - `page-builder-guided-generation`
    - `page-builder-cms-region-authoring-guidance`
    - `cms-binding-apply`
-3. 对最近一次错误路由案例的复盘，即普通 footer 改版 turn 被错误带入 `brainstorming`，没有进入预期的 page-builder 主控 skill。
-4. 对当前 CMS 两段式 tool 契约的复查：
-   - `mcp__cms__decide_cms_binding`
-   - `mcp__cms__apply_cms_binding`
-5. 对当前宿主 prompt 注入结构的复查，包括页面级 CMS notice、target 级 CMS guidance，以及 confirmed handoff payload。
+   - `taste-skill`
+   - `redesign-skill`
+   - `soft-skill`
+3. 对当前宿主 prompt 注入结构的复查，包括：
+   - `defaultMentionedSkills`
+   - `mentionedSkills`
+   - `<page_builder_selection>`
+   - `<page_builder_cms_guidance_notice>`
+   - `<page_builder_cms_region_authoring>`
+   - confirmed CMS handoff payload
+4. 对 page-builder 工作区模板和 skill 文档的一致性复查，包括：
+   - `apps/app/resources/templates/page-builder-workspace-claude.md`
+   - `apps/app/default-skills/page-builder-guided-generation/SKILL.md`
+5. 对真实运行日志的复盘，重点观察：
+   - 某个 skill 是否“被暴露”
+   - 某个 skill 是否“被 prompt 强提示”
+   - 某个 skill 是否“真的被模型调用”
+   - 续接回合是否仍然带着当前 selection 继续工作
 
-## 分析过程
+## 先校准 3 个概念
 
-本轮重点重新思考了 4 个问题。
+当前很多讨论容易把 “skill 可见” 和 “skill 会触发” 混在一起。为了减少误判，先明确 3 个不同层级。
 
-### 1. `brainstorming` 是否还适合继续参与 page-builder 默认路由
+### 1. 暴露层
 
-结论：**不适合作为 page-builder 内的默认竞争 skill。**
+指 skill 是否出现在最终 prompt 的 `Skills:` 列表里。
 
-`brainstorming` 当前的描述过宽、语气过强。它实际上是在告诉模型“凡是有创意性质的事，都要先走我这套流程”。这会导致它在 skill 发现阶段就开始和 page-builder 专用 skill 抢控制权。
+这一层当前基本是正常的：
 
-而 page-builder 里大量请求其实并不是开放式产品设计，而是：
+- workspace 初始化时会把默认 skills 复制到工作区
+- prompt builder 会把这些 skills 全量列进 `Skills:`
 
-- 改一个已有区块的布局
-- 调整一个 section 的视觉风格
-- 对当前页面做轻量迭代
+结论：
 
-这些请求通常已经有明确目标，应该直接进入受控的页面编辑流程，而不是默认升级成设计评审或 spec 讨论。
+- `redesign-skill`、`taste-skill`、`soft-skill` 当前并不是“没有暴露”
+- 它们是暴露了，但暴露并不等于会被调用
 
-### 2. `page-builder-guided-generation` 是否应该吸收一部分 `brainstorming` 的能力
+### 2. 提及层
 
-结论：**应该吸收，但只吸收 page-builder 场景里真正有价值的轻量部分。**
+指宿主是否通过 `defaultMentionedSkills` / `mentionedSkills` / 明确文案把某个 skill 提升为当前 turn 的候选甚至“请立即调用”。
 
-建议吸收的能力：
+这一层当前存在明显问题：
 
-- 先理解当前页面或当前选中块
-- 在确实有关键歧义时补 1 个必要问题
-- 做简短方向确认
-- 然后直接生成或直接改页面
+- 普通页面 turn 本应只由 `page-builder-guided-generation` 主控
+- 但当前页面只要存在 CMS 区域，普通 turn 里仍会附带 `page-builder-cms-region-authoring-guidance`
+- 某些 turn 最终 prompt 中同时出现两个“请立即调用此 Skill”
 
-不应吸收的重流程：
+也就是说，宿主虽然已经开始表达主控意图，但当前表达仍然不够纯净，竞争者仍然太多。
 
-- 多轮开放式脑暴
-- 写 spec
-- spec review loop
-- 再转 implementation plan 作为固定下一步
+### 3. 执行层
 
-也就是说，page-builder 需要的是“轻量澄清能力”，不是“完整产品设计工作流”。
+指模型在真实对话里到底调用了哪个 skill / tool。
 
-### 3. CMS 相关 skill 是否应该全部合并
+这层才是真正的“行为结果”。
 
-结论：**不应该全部合并。**
+本轮从真实日志里看到：
 
-CMS 相关场景天然分成两类：
+- 某些 turn 明明显式要求调用 `page-builder-guided-generation`
+- 但模型实际调用的只有 `brainstorming`
+- 后续进入实现时，又直接 `Read` / `Edit`
+- `redesign-skill`、`taste-skill`、`soft-skill` 并没有真正被调用
 
-- 编辑页面里已经存在的 CMS 区域
-- 将新确认的 CMS 数据选择结果应用到页面
+结论：
 
-这两类事情有关联，但不是一回事。
+- 当前问题不是“完全没有知识”
+- 而是“主控表达仍然不够硬，竞争 skill 太多，技能命名也不完全一致，导致执行层选错或跳过”
 
-如果把它们合进一个大 skill，会带来几个问题：
+## 当前实现状态快照
 
-- skill 体积进一步变重
-- authoring boundary 更模糊
-- 模型更容易把“改已有 CMS 区域的结构/样式”与“改数据来源/改绑定语义/新建绑定”混在一起
+这部分用于明确：哪些方向已经对了，哪些地方还没有真正收口。
 
-所以更合适的方式不是“合并成一个大全 skill”，而是保留两个 CMS 专用分支。
+### 已经对齐的部分
 
-### 4. 当前问题是不是主要因为提示词还不够多
+#### 1. page-builder 普通流已经开始以 `page-builder-guided-generation` 为默认 skill
 
-结论：**不是。**
+当前 `AgentView` 侧默认提及的是 `page-builder-guided-generation`，说明整体方向已经转向“普通页面流由 page-builder 专用 controller 主控”。
 
-当前真正的问题更偏向“控制权表达不清”和“路由不稳定”，而不是“完全没有知识”。
+这是正确方向。
 
-系统里已经有不少 CMS 相关知识和约束，模型不稳定更多是因为：
+#### 2. confirmed CMS apply 已经保留了独立控制链
 
-- 同一轮里出现了过多提示来源
-- 同时暴露了多个 skill，却没有一个明确 owner
-- 普通页面流、已有 CMS 区域编辑流、confirmed apply 流没有被宿主明确表达成三个不同的 controller 状态
+`cms-binding-apply` 仍然作为 CMS 浏览确认后的专用 controller 存在，且和 `decide -> apply` 两段式 tool 契约保持一致。
 
-## 当前存在的核心问题
+这也是正确方向。
 
-### 问题 1：`brainstorming` 对 page-builder 来说过强
+#### 3. workspace skill 的真实调用名已经统一走 helper
 
-像下面这些普通请求：
+当前运行时实际调用名已经明确为：
 
-- 重新设计一下这块布局
-- 这一段改得更简洁一些
-- 把这个页面做得更高级一点
+`<workspace-slug>:<skill-slug>`
 
-本质上都应该留在 page-builder 的受控生成/编辑流程里，而不应该默认走成设计 spec 流。
+这一点本身是正确的，也已经有 helper 统一生成。
 
-只要 `brainstorming` 继续作为 page-builder 工作空间中的默认可见 skill 存在，它就有机会在更早的 skill 发现阶段把普通页面流抢走。
+### 仍未真正收口的部分
 
-### 问题 2：每个 turn 的 skill owner 不够明确
+#### 1. 页面级 CMS notice 仍然在普通 turn 中带入 CMS guidance skill 候选
 
-当前宿主注入方式仍然容易在同一个 turn 中暴露多个 guidance 层和多个 skill。即便宿主“本意上”想让某个 skill 优先，prompt 形状本身依然可能让模型选错。
+当前实现里，只要页面存在 CMS 区域，普通 turn 就会：
 
-这在以下场景里尤其不稳定：
+- 注入页面级 CMS notice
+- 同时把 `page-builder-cms-region-authoring-guidance` 也加进 `mentionedSkills`
 
-- 当前页面里有 CMS，但这次选中的只是普通静态块
-- 页面级 CMS notice 和 CMS guidance skill 同时暴露在一个普通编辑 turn 中
-- 一个泛化 meta skill 和一个 page-builder 专用 skill 同时可见
+这与“页面里有 CMS，不代表本轮正在编辑 CMS 区域”这一原则仍然不完全一致。
 
-### 问题 3：CMS guidance 是必要的，但不应主导不相关 turn
+#### 2. `brainstorming` 仍然在 page-builder 工作区中暴露，并且文案极强
 
-如果当前页面某处存在 CMS 区域，模型当然应该被提醒：
+它的描述是：
+
+- 在任何 creative work 之前都必须使用
+
+这个语气对于 page-builder 是明显过强的，因为 page-builder 中大量请求本来就是：
+
+- 改一个区块
+- 重做一个 section
+- 调整现有页面
+
+这些都应该由 page-builder 普通流直接处理，而不是默认升级成脑暴工作流。
+
+#### 3. skill 文档内部仍然存在命名漂移
+
+当前运行时可调用名已经是：
+
+- `taste-skill`
+- `redesign-skill`
+- `soft-skill`
+
+但 `page-builder-guided-generation` 文档里仍然写着旧名字：
+
+- `design-taste-frontend`
+- `redesign-existing-projects`
+
+并且同一个 skill 文档内部又出现了新旧命名混用的情况。
+
+这会直接降低模型“真的去调用下游 skill”的稳定性。
+
+#### 4. 续接回合并不总是持续携带当前 selection
+
+在真实日志中可以看到：
+
+- 首轮“重新设计这块布局”带了 `<page_builder_selection>`
+- 后续 `ok / 继续 / 好好好` 这些回合，不一定继续带 selection
+
+这意味着后续实现阶段更依赖模型记忆，而不是宿主持续锚定当前编辑目标。
+
+对于稳定编辑来说，这不是理想状态。
+
+## 真实运行日志确认了什么
+
+本轮复盘重点看了一个真实 page-builder 工作空间中的最近对话。
+
+### 关键观察 1：默认 skills 确实暴露了
+
+真实最终 prompt 中，可以看到以下技能都已出现在 `Skills:` 列表中：
+
+- `page-builder-guided-generation`
+- `page-builder-cms-region-authoring-guidance`
+- `cms-binding-apply`
+- `brainstorming`
+- `taste-skill`
+- `redesign-skill`
+- `soft-skill`
+
+所以：
+
+- `redesign-skill` 当前不是“没暴露”
+- 它是“暴露了但没有被实际选中调用”
+
+### 关键观察 2：普通设计 turn 里仍然同时出现多个强候选
+
+在真实 turn 中可以看到：
+
+- `page-builder-guided-generation` 被标成“请立即调用”
+- `page-builder-cms-region-authoring-guidance` 也被标成“请立即调用”
+- 页面级 CMS notice 同时存在
+
+这说明当前普通页面 turn 的主控表达仍然不够干净。
+
+### 关键观察 3：真实执行层里，模型调用的是 `brainstorming`
+
+在“重新设计 footer 布局”“彻底重新设计轮播区”等 turn 中，真实日志显示：
+
+- 实际启动的 skill 是 `brainstorming`
+- 不是 `page-builder-guided-generation`
+- 也不是 `redesign-skill`
+
+这说明：
+
+- 仅仅把某个 skill 放进 `defaultMentionedSkills` 还不够
+- 如果同时暴露一个更强势、更泛化、又带 MUST 语气的 meta skill，模型仍然可能被抢走
+
+### 关键观察 4：进入实现后，模型往往直接 `Read` / `Edit`
+
+在后续实现 turn 中，真实日志表现为：
+
+- 直接 `Read`
+- 直接 `Edit`
+- 失败后继续 `Read` / `Edit`
+
+而没有先进入 `redesign-skill` 或 `taste-skill`
+
+这进一步说明：
+
+- 视觉下游 skill 当前并没有形成稳定的“被 page-builder controller 调起”的链路
+- 它们更多只是“看得见”，但不一定真的进入执行链
+
+## 核心判断
+
+### 判断 1：当前主问题不是“知识不足”，而是“控制权表达不够硬”
+
+系统里已经有很多 CMS 边界知识，也有普通页面流 skill、CMS skill、visual skill。
+
+问题不在于“没有知识”，而在于：
+
+- 同一轮里候选太多
+- 主控表达不够单一
+- page 级提醒和 target 级 specialist 还没有彻底分开
+- skill 命名不一致，进一步削弱了调用稳定性
+
+### 判断 2：`page-builder-guided-generation` 的方向是对的，但还没有真正成为普通流唯一主控
+
+它现在已经是默认 page-builder controller 的正确候选。
+
+但从运行结果看，它还没有真正做到：
+
+- 被稳定优先选中
+- 独占普通 turn 控制权
+- 稳定拉起下游 visual skill
+
+### 判断 3：CMS 页面级提醒仍然是必要的，但应该彻底降级为 advisory
+
+只要页面里存在 CMS 区域，模型就应该被提醒：
 
 - 不要发明新的 CMS 标签
 - 不要猜 binding props
-- 不要把整页改造成 Vue runtime
+- 不要把整页改成 Vue runtime
 
-但这并不意味着“只要页面上有 CMS，就应该把当前 turn 交给 CMS skill”。
+但这一层只应该是“全局边界提醒”，不应继续携带“像 owner 一样的 skill 候选语义”。
 
-“页面里有 CMS”与“这一轮正在编辑 CMS 区域”必须明确区分。
+### 判断 4：visual skill 当前更适合作为下游 worker，而不是继续作为用户可感知的平行入口
 
-### 问题 4：tool 安全方向是对的，但错误引导仍然重要
+对于普通用户来说，不应该让其感知到：
 
-当前坚持 `decide -> apply` 两段式是正确方向。
+- `taste-skill`
+- `redesign-skill`
+- `soft-skill`
 
-`apply_cms_binding` 不应在没有有效 decision 状态的前提下直接写入页面。
+这几个技能之间的选择。
 
-但同时，错误调用时仍应做到：
+更合理的方式是：
 
-- 可以兼容安全的 JSON string 归一化
-- 返回明确错误，告诉模型缺少什么字段
-- 明确指出当前是不是“调用过早”
-- 明确提示下一步应该调用哪个 tool
+- `page-builder-guided-generation` 负责用户对话和主控
+- 它内部根据场景去调用对应视觉 worker
 
-这不属于“自动恢复”，而是“带可执行指导的安全拒绝”。
+## 当前最需要调整的功能项
 
-## 备选方案对比
+以下部分按优先级拆分。
 
-### 方案 A：将 `brainstorming` 与 `page-builder-guided-generation` 完全合并
+## P0：必须优先收口的调整
 
-也就是让 page-builder 只有一个大 skill，统一承载 ideation、briefing、设计、生成。
+### 1. 普通 page-builder turn 只能有一个 owner skill
 
-看上去的优点：
+当前最核心的调整，不是再加文案，而是让宿主真的做到：
 
-- 可见 skill 更少
-- 普通页面流似乎只有一个入口
+- 普通页面 turn：只由 `page-builder-guided-generation` 主控
+- 选中的是已有 CMS 区域：才切到 `page-builder-cms-region-authoring-guidance`
+- 已确认 CMS 内容应用：才切到 `cms-binding-apply`
 
-问题在于：
+对应地：
 
-- 容易把重设计流程带入普通页面迭代
-- 无法自然解决 CMS 已有区域编辑和 confirmed apply 的分层问题
-- 如果写得过强，很容易变成新的路由垄断者，再去压 CMS 专用链路
+- 普通页面 turn 中不应再显式提及 `page-builder-cms-region-authoring-guidance`
+- 页面级 CMS notice 继续保留，但只做 advisory
 
-结论：**不是最优方案。**
+### 2. 让“页面里有 CMS”和“当前正在改 CMS”彻底分开
 
-### 方案 B：维持现状，只加强提示词文案
+当前普通 block turn 里，如果页面只是“某处存在 CMS”，仍然会把 CMS guidance skill 加进候选。
 
-也就是 skill 基本不动，只靠多加文字说明去纠正模型行为。
+这层需要收紧为：
 
-优点：
+- page 级：只有轻量 notice
+- target 级：只有当前 target 真的是 CMS source region 时，才引入 specialist guidance
 
-- 改动成本低
-- 无需明显的结构调整
+否则模型仍会把普通设计流误判为 CMS editing flow。
 
-问题在于：
+### 3. 收窄 `brainstorming` 在 page-builder 中的可见性或优先级
 
-- owner 仍然模糊
-- 模型依然可能选错 skill
-- 提示词会继续累积，注意力继续被稀释
+当前它之所以容易抢控制权，不是因为能力强，而是因为：
 
-结论：**不够。**
+- 语义过泛
+- MUST 语气过强
+- 刚好覆盖了“重新设计”“重新布局”这类普通 page-builder 请求
 
-### 方案 C：一个普通页面主控 + 两个 CMS 专用分支
+最优方向不是继续让它参与 page-builder 默认竞争，而是：
 
-也就是：
+- 不在 page-builder 工作区里默认暴露它
+- 或至少不让 page-builder 普通 turn 看到它作为同级候选
 
-- 普通 page-builder turn 走一个主控
-- 已有 CMS 区域编辑走 CMS region guidance
-- confirmed CMS apply 走 CMS apply 控制器
+这一步非常关键。
 
-优点：
+### 4. 修复 visual skill 的命名漂移
 
-- 路由更清晰
-- 每个 skill 更小、更容易理解
-- CMS 安全边界更明确
-- 宿主可以做到“每轮只注入一个 owner skill”
+当前至少需要做到以下之一：
 
-结论：**这是最合适的方案。**
+#### 方案 A：统一 skill slug 与 frontmatter `name`
 
-## 推荐的最终结构
+例如统一成：
 
-推荐的最终结构如下。
+- `taste-skill`
+- `redesign-skill`
+- `soft-skill`
 
-### 1. 普通页面流主控
+然后所有 skill 文档、模板、引用都用这套名字。
 
-由 `page-builder-guided-generation` 作为普通 page-builder flow 的唯一主控。
+#### 方案 B：如果前台名称必须保留旧别名
 
-它负责：
+那就必须在 prompt 暴露层同时显示：
 
-- 新建页面
-- 普通页面迭代
-- 静态 block 改版
-- 轻量澄清与确认
-- 确认后直接生成页面或直接修改当前页面
+- 实际调用名
+- 可读别名
 
-它应吸收过去被 `brainstorming` 抢走的那部分轻量澄清能力，但本质上仍然是一个生产型 controller，而不是设计 spec controller。
+避免模型在文档里看到旧名字、在运行时又只能调用新 slug。
 
-### 2. 已有 CMS 区域编辑 guidance
+当前更推荐方案 A，因为它更简单、更稳。
 
-保留 `page-builder-cms-region-authoring-guidance`，作为独立的 CMS 区域编辑 specialist skill。
+### 5. 让 `page-builder-guided-generation` 真正承担“主控 + 下游调度”
 
-它只在以下情况下使用：
+当前它已经写了很多主控职责，但还不够落到真实调用链上。
 
-- 当前选中的目标已经是 `cms-catalog` 或 `cms-content`
-- 当前任务是在这个已有 CMS 区域上改 slot、结构、外壳或表现层
+下一步应进一步明确：
 
-它不应成为“页面上只要有 CMS 就默认出现的主控 skill”。
+- 普通页面首轮生成时，何时调起 `taste-skill`
+- 何时把已有页面改版交给 `redesign-skill`
+- `soft-skill` 是否还有必要默认暴露
 
-### 3. confirmed CMS apply controller
+重点不是让用户来选 skill，而是让 `page-builder-guided-generation` 自己决定。
 
-保留 `cms-binding-apply`，作为独立的 confirmed apply controller。
+## P1：重要但可在 P0 之后推进的调整
 
-它只在以下情况下使用：
+### 6. 让续接回合更稳定地保留当前编辑目标
 
-- 用户已经完成 CMS 浏览与确认
-- 宿主已经准备好了结构化 handoff
-- 当前下一步是受控的 decide + apply
+真实日志表明，首轮带了 `<page_builder_selection>`，但后续 `ok / 继续` 回合不总是带。
 
-这里仍然是模型组织以下 tool 调用的正确位置：
+这会带来几个风险：
 
-- `mcp__cms__decide_cms_binding`
-- `mcp__cms__apply_cms_binding`
+- 模型更依赖记忆，而不是结构化上下文
+- 后续实现时更容易跑偏
+- 目标 block 越复杂，风险越高
 
-## 宿主注入层的推荐改法
+建议方向：
 
-最重要的宿主侧调整是：
+- 当一个任务已经以“当前选中 block”为起点进入 ordinary flow 时
+- 在用户尚未切换 selection、也没有明确退出当前任务前
+- 宿主应持续保留该 selection 作为当前 turn 的结构化上下文
 
-**每个 turn 只表达一个明确的 owner skill。**
+这不属于“程序自动恢复”，而是“宿主持续保留当前编辑范围”。
 
-不要在同一个 turn 里同时放多个“请立即调用此 skill”的候选。
+### 7. 收紧页面级 CMS notice 的字段语义
 
-### 推荐的 turn 状态表达
+当前页面级 notice 中仍然带有类似 `consultSkill` 的信息，这容易让 notice 从“提醒”变成“弱路由提示”。
 
-宿主可以将 page-builder turn 明确分成三类：
+建议：
 
-1. `ordinary-page-builder-turn`
-2. `existing-cms-region-edit-turn`
-3. `confirmed-cms-apply-turn`
+- page 级 notice 只保留边界提醒
+- target 级 digest / targeted guidance 才携带更明确的 specialist 语义
 
-每一类只映射一个 owner skill：
+这样更符合“page 级是 advisory，target 级才是 authoring guidance”的边界。
 
-- `ordinary-page-builder-turn` -> `page-builder-guided-generation`
-- `existing-cms-region-edit-turn` -> `page-builder-cms-region-authoring-guidance`
-- `confirmed-cms-apply-turn` -> `cms-binding-apply`
+### 8. 重新评估 `soft-skill` 是否还需要默认暴露
 
-其他 guidance 只作为 advisory 信息注入，而不是作为竞争 owner skill 暴露。
+当前 visual 相关 skill 中：
 
-## 提示词注入的推荐分层
+- `taste-skill`
+- `redesign-skill`
+- `soft-skill`
 
-建议将 prompt 注入统一收敛成三层。
+存在明显重叠。
 
-### 第 1 层：页面级 CMS notice
+在当前主问题还没解决之前，继续默认暴露三个视觉 skill 只会增加发现噪音。
 
-只要页面任意位置存在 CMS 区域，就可以注入一个轻量提醒。
+建议优先级：
 
-它的作用是告诉模型：
+1. 先保证 `page-builder-guided-generation -> taste/redesign` 的稳定调用链
+2. 再判断 `soft-skill` 是否值得继续默认暴露
 
-- 不要 invent CMS tags
-- 不要猜 binding props
-- 不要加 page-wide Vue runtime
-- 如果要改 CMS source tag 且不确定，先去读 CMS guidance
+如果没有明确场景，默认不暴露会更稳。
 
-这一层本身不转移 skill owner。
+### 9. 让模板、skill、宿主注入、测试保持同一套话术
 
-### 第 2 层：target 级 CMS region digest
+当前至少存在以下不完全对齐的风险：
 
-仅当当前选中目标本身就是 CMS 区域时注入。
+- `page-builder-workspace-claude.md` 的原则
+- `page-builder-guided-generation` 的 skill 文案
+- `BuilderPage` 的实际 `mentionedSkills` 注入逻辑
+- prompt 中最终显示给模型的实际名字
 
-它的作用是告诉模型：
+后续应把它们当成同一个系统来维护，而不是分别修。
 
-- 当前目标是已有 CMS source region
-- 当前 authoring boundary 是源标签本身，而不是渲染后的子节点
-- 当前编辑能力是否降级、受限或完整支持
+### 10. 保持 `decide -> apply` 硬门禁，同时继续提升 tool 错误可执行性
 
-这一层是 `page-builder-cms-region-authoring-guidance` 的上下文补充。
+当前 CMS tool 层的大方向仍然是正确的：
 
-### 第 3 层：confirmed CMS handoff payload
+- `decide_cms_binding` 负责产生可执行 decision / apply plan
+- `apply_cms_binding` 保持“无 decision 不写入”
 
-仅在 CMS 浏览选择完成并确认之后注入。
+这条硬边界不应被放松。
 
-它的作用是：
+但当前仍建议继续增强两类能力：
 
-- 携带结构化 apply 输入
-- 明确这一轮是受控 apply turn
-- 将控制权交给 `cms-binding-apply`
+#### 安全兼容
 
-宿主自动 handoff 就应该发生在这一层。
+当输入本质正确，只是被包装成 JSON string 时，可以做安全归一化后再校验。
 
-## tool 契约的推荐方向
+这不属于“程序自动恢复业务语义”，只是对常见封装形式做兼容。
 
-当前 tool 契约方向应继续保持：
+#### 明确拒绝
 
-- 保留 `decisionId` / apply plan 作为硬中间态
-- 保留 `apply_cms_binding` 的“无 decision 不写入”
-
-同时建议补充以下能力。
-
-### 安全兼容
-
-- 当输入本质正确，只是被包装成 JSON string 时，可以安全归一化后继续解析
-
-### 明确拒绝
-
-当调用无效时，tool 应给出足够清晰的报错，例如：
+当调用无效时，tool 需要返回更可执行的错误信息，例如：
 
 - 缺少哪个字段
 - 当前是不是调用过早
-- 下一步应该先调哪个 tool
+- 当前缺的是 decision 还是 target / selection / apply plan
+- 下一步应该先调用哪个 tool
 
-这样模型才有机会稳定修正并重试，而不会继续乱试。
+这样模型才有机会稳定修正并重试，而不是继续乱试或退回到直接改 HTML。
 
-## 不建议做的事情
+## P2：中长期可考虑的增强项
 
-以下几个方向不建议继续推进。
+### 11. 将 “owner skill” 从概念升级为一等运行时字段
 
-### 1. 不要再让 `brainstorming` 参与 page-builder 默认路由
+当前系统本质上仍然是通过：
 
-这会把已经暴露过的问题重新带回来。
+- `defaultMentionedSkills`
+- `mentionedSkills`
+- prompt 文案
 
-### 2. 不要把 `page-builder-guided-generation` 改成新的全局垄断 skill
+来“模拟 owner skill”。
 
-它应该是 page-builder ordinary flow 的 controller，而不是新的通用 “You MUST use this”。
+如果后续还想进一步提升稳定性，可以考虑增加明确的运行时字段，例如：
 
-### 3. 不要把 CMS 区域编辑和 confirmed apply 合并成一个大 skill
+- `ownerSkill`
 
-这两个场景边界不同，应该分开。
+让宿主直接表达：
 
-### 4. 不要继续依赖自然语言正则式分流
+- 这轮应该由谁主控
+- 其他 skills 只是可选辅助，不是并列竞争者
 
-路由应来自显式宿主状态，而不是猜用户表达。
+这不是当前必须马上做的改动，但从长期稳定性看，这会比继续依赖 `mentionedSkills` 更稳。
 
-应优先使用的状态包括：
+### 12. 增加面向路由的专项测试
 
-- 当前 selection kind
-- 当前 target 是否为 CMS region
-- 是否已经存在 confirmed CMS handoff
+建议后续增加以下测试：
 
-### 5. 不要试图靠继续堆提示词来修复稳定性
+- 普通 block turn on CMS page：只应主控 `page-builder-guided-generation`
+- 当前选中 CMS 区域：才应出现 `page-builder-cms-region-authoring-guidance`
+- confirmed CMS apply turn：只应进入 `cms-binding-apply`
+- “重新设计这块布局”类 turn：不应再被 `brainstorming` 抢走
+- 首轮带 selection 的 ordinary flow，后续确认回合仍应保持目标一致性
 
-当前更大的问题是 owner 表达和路由控制，而不是文字不够多。
+## 当前推荐的目标结构
 
-## 为什么这是当前最合适的方案
+```text
+                  ┌──────────────────────────────┐
+                  │ ordinary page-builder turn   │
+                  └──────────────┬───────────────┘
+                                 │
+                                 ▼
+              page-builder-guided-generation
+                                 │
+                  ┌──────────────┴───────────────┐
+                  │                              │
+                  ▼                              ▼
+             taste-skill                  redesign-skill
+        (首轮生成 / 定调)              (已有页面改版 / 精修)
 
-这套方案最符合目前已经讨论过的几个关键约束：
 
-- 它能降低 skill 误路由，但不会再引入一个更大的总控
-- 它保留了 CMS authoring 边界的清晰性
-- 它不会明显增加程序端自动恢复复杂度
-- 它让 prompt 注入结构更可预测
-- 它让普通页面编辑更高效
-- 它也让模型更容易判断：当前是直接改页面、先读 CMS guidance，还是进入 confirmed apply
+        page has CMS?  ───────────────►  只注入 advisory notice
+        current target is CMS? ───────►  切到 cms region specialist
+        CMS selection confirmed? ─────►  切到 cms-binding-apply
 
-## 建议的后续实施顺序
 
-如果后续将这份建议落实为新的变更，推荐实施顺序如下：
+existing CMS region edit turn
+    └── page-builder-cms-region-authoring-guidance
 
-1. 收窄或移除 page-builder 工作空间中的 `brainstorming` 暴露。
-2. 调整 `page-builder-guided-generation`，让它完整接管 ordinary page-builder flow，包括轻量澄清。
-3. 保留并收紧 `page-builder-cms-region-authoring-guidance`，明确它只服务于已有 CMS 区域编辑。
-4. 保留并收紧 `cms-binding-apply`，明确它只服务于 confirmed apply。
-5. 调整宿主注入逻辑，使每个 turn 只携带一个显式 owner skill。
-6. 保持页面级 CMS notice 轻量且 advisory。
-7. 保持 `decide -> apply` 的硬契约，并继续提升错误信息的可执行性。
+confirmed CMS apply turn
+    └── cms-binding-apply
+          └── decide_cms_binding
+                └── apply_cms_binding
+```
+
+这套结构里最关键的不是 skill 数量多少，而是：
+
+- 普通流有且仅有一个 controller
+- CMS specialist 只在确实需要时出现
+- 视觉 skill 作为下游 worker，而不是并列主控
+
+## 不建议继续做的事情
+
+### 1. 不要让 `brainstorming` 继续参与 page-builder 默认竞争
+
+这会把已经暴露出来的问题重新带回来。
+
+### 2. 不要把 CMS 区域编辑和 confirmed apply 合并成一个大 skill
+
+这两个场景边界不同，合并后只会让模型更容易混淆：
+
+- 改表现层
+- 改数据来源
+- 新建绑定
+
+### 3. 不要继续依赖自然语言正则来猜分流
+
+分流应该来自结构化宿主状态，而不是“猜用户是不是在说 CMS”。
+
+### 4. 不要试图靠继续堆提示词来修复稳定性
+
+当前更大的问题是：
+
+- owner 不够单一
+- guidance 层级不够纯净
+- 执行链不够明确
+
+不是“字还不够多”。
+
+### 5. 不要让普通用户感知 visual skill 的内部选择
+
+用户只是在说：
+
+- 帮我重新设计
+- 这块不好看
+- 改高级一点
+
+不应该被迫理解：
+
+- `taste-skill`
+- `redesign-skill`
+- `soft-skill`
+
+这些都应该是系统内部的下游能力选择。
+
+## 建议的实施顺序
+
+如果后续将这份建议落实为新的变更，推荐顺序如下：
+
+1. 收紧 ordinary turn 的 owner skill，只保留 `page-builder-guided-generation`。
+2. 将页面级 CMS notice 彻底降为 advisory，不再让其顺带提起 CMS region skill 候选。
+3. 将 `page-builder-cms-region-authoring-guidance` 收紧到“仅当前 target 为已有 CMS source region 时才出现”。
+4. 将 `brainstorming` 从 page-builder 默认竞争中移除或显著降权。
+5. 修复 visual skill 命名漂移，统一运行时名字与文档名字。
+6. 明确 `page-builder-guided-generation` 到 `taste-skill` / `redesign-skill` 的内部调度规则。
+7. 评估 `soft-skill` 是否仍需要默认暴露。
+8. 改进 ordinary flow 的 selection 持续性，让后续确认回合不丢失当前编辑目标。
+9. 增加专项测试，验证“暴露、提及、执行”三层都符合预期。
 
 ## 最终建议
 
-当前最合适的调整方向是：
+当前最需要调整的，不是继续增加 prompt 内容，而是继续把 page-builder 的运行时控制面收紧成下面这套规则：
 
-**将 `brainstorming` 从 page-builder 普通路由中移出，让 `page-builder-guided-generation` 成为 ordinary flow 的唯一主控，同时保留两个独立的 CMS 专用分支，并让宿主在每个 turn 里只表达一个 owner skill；tool 层继续坚持以硬 decision 状态约束最终写入。**
+- 普通页面流只有一个主控：`page-builder-guided-generation`
+- 页面级 CMS 提醒只做边界提醒，不再作为竞争 owner 的弱信号
+- 只有当前 target 真的是已有 CMS 区域时，才切到 `page-builder-cms-region-authoring-guidance`
+- 只有 CMS 浏览确认完成后，才进入 `cms-binding-apply`
+- `brainstorming` 不再参与 page-builder 默认竞争
+- visual skill 变成 `page-builder-guided-generation` 的下游 worker，并统一真实调用名
 
-相比“继续加提示词”或“把所有逻辑揉成一个大 skill”，这套结构更简单、更安全，也更稳定。
+相比“继续加提示词”或者“把所有逻辑揉成一个大 skill”，这套结构更简单、更安全，也更符合当前代码和真实日志暴露出来的问题本质。
