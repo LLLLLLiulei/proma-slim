@@ -105,10 +105,10 @@ export function HomePage(): React.ReactElement {
             <div className="page-builder-home-copy max-w-[760px] text-center">
               <p className="text-sm font-medium uppercase tracking-[0.28em] text-muted-foreground">Intelligent Page Builder</p>
               <h1 className="mt-5 text-4xl font-semibold tracking-[-0.05em] text-foreground sm:text-5xl">
-                几分钟内创建您的网站
+                几分钟内创建您的网页
               </h1>
               <p className="mx-auto mt-4 max-w-[52ch] text-base leading-7 text-muted-foreground">
-                输入你想要的网页效果，回车后即可创建项目并进入构建页继续完善。
+                输入你想要的内容和效果，回车后即可创建项目并进入构建页继续完善。
               </p>
             </div>
 
