@@ -28,13 +28,18 @@
 - **AND** 系统 SHALL NOT 让已有 CMS 区域 guidance capability 替代 `cms-binding-apply` 的正式 apply 职责
 
 ### Requirement: Existing CMS region guidance MUST define a canonical reading order before editing
-系统 SHALL 要求模型在修改已有 CMS 区域前按统一顺序理解当前 authoring contract：先读取全局稳定边界，再读取当前目标对应的最小 digest，再按需读取已有 CMS 区域 guidance；只有在场景升级为 confirmed apply 时，系统才 SHALL 让模型继续进入 `cms-binding-apply` 与 MCP tool protocol。
+系统 SHALL 要求模型在修改已有 CMS 区域前按统一顺序理解当前 authoring contract：先读取全局稳定边界，再读取当前目标对应的最小 digest，再按需读取已有 CMS 区域 guidance；只有在场景升级为 confirmed apply 时，系统才 SHALL 让模型继续进入 `cms-binding-apply` 与 MCP tool protocol。该阅读顺序 MUST 适配当前“主控 skill + consult guidance”的分层，而不得假设一定存在可靠的嵌套 skill 调用栈。
 
 #### Scenario: 普通已有 CMS 区域修改先读最小 digest 再读 guidance
 - **WHEN** 模型准备修改一个 ordinary flow 下命中的已有 CMS 区域
 - **THEN** 系统 SHALL 先向该次请求提供当前目标的最小 component-aware digest
 - **AND** 系统 SHALL 要求模型优先依据该 digest 理解当前组件、边界和可用 authoring surface
 - **AND** 当 digest 仍不足以支持安全修改时，系统 SHALL 再让模型读取已有 CMS 区域 guidance capability
+
+#### Scenario: 当前分层不依赖可靠嵌套 skill 调用栈
+- **WHEN** 宿主为 ordinary existing CMS region edit 准备 guidance
+- **THEN** 系统 SHALL 让该 guidance 可以通过显式 surfacing 或 bootstrap 被直接消费
+- **AND** 系统 SHALL NOT 要求当前实现必须依赖一个可靠的“skill A 稳定再调 skill B”的嵌套调用栈才能生效
 
 #### Scenario: confirmed apply 场景的工具协议不作为 ordinary CMS 编辑的默认第一入口
 - **WHEN** 当前请求仍属于已有 CMS 区域的 ordinary 修改，而不是 confirmed CMS selection 之后的 apply
