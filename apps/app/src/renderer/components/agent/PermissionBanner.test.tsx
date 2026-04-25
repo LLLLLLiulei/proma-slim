@@ -118,6 +118,33 @@ describe('PermissionBanner', () => {
     expect(markup).not.toContain('mcp__cms__apply_cms_binding')
   })
 
+  test('renders Playwright MCP tool names in Chinese', async () => {
+    const sessionId = 'session-playwright'
+    const request: PermissionRequest = {
+      requestId: 'playwright-request',
+      sessionId,
+      toolName: 'mcp__playwright__browser_click',
+      toolInput: { element: '提交按钮' },
+      description: 'desc-playwright',
+      dangerLevel: 'normal',
+    }
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <Provider store={createStore()}>
+          <HydratePermissionRequests requestsBySession={new Map([[sessionId, [request]]])}>
+            <PermissionBanner sessionId={sessionId} />
+          </HydratePermissionRequests>
+        </Provider>,
+      )
+    })
+
+    const markup = JSON.stringify(renderer.toJSON())
+    expect(markup).toContain('浏览器自动化 / 点击元素')
+    expect(markup).not.toContain('mcp__playwright__browser_click')
+  })
+
   test('preserves unmapped permission tool names as-is', async () => {
     const sessionId = 'session-custom'
     const request: PermissionRequest = {

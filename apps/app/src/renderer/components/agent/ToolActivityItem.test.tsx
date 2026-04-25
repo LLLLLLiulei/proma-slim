@@ -39,6 +39,16 @@ describe('ToolActivityItem', () => {
     expect(markup).not.toContain('mcp__cms__apply_cms_binding')
   })
 
+  test('renders Playwright MCP tool names in Chinese', () => {
+    const markup = renderActivity(createActivity({
+      toolName: 'mcp__playwright__browser_navigate',
+      input: { url: 'https://example.com' },
+    }))
+
+    expect(markup).toContain('浏览器自动化 / 打开页面')
+    expect(markup).not.toContain('mcp__playwright__browser_navigate')
+  })
+
   test('renders known skill invocations in Chinese after workspace prefix normalization', () => {
     const markup = renderActivity(createActivity({
       toolName: 'Skill',
@@ -68,4 +78,3 @@ describe('ToolActivityItem', () => {
     expect(markup).toContain('CustomTool')
   })
 })
-
