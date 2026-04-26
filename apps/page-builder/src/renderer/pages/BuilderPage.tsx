@@ -100,6 +100,9 @@ function buildPageBuilderCmsGlobalGuidanceNotice(): PageBuilderCmsGuidanceNotice
     doNotGuessBindingProps: true,
     doNotAddPageWideVueRuntime: true,
     queryPropsChangeRequiresConfirmedApply: true,
+    sourceHtmlIsAuthoringSourceOnly: true,
+    hostInjectsPreviewRuntime: true,
+    inspectPreviewBeforeDiagnosingRuntime: true,
   }
 }
 

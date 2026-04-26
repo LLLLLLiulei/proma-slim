@@ -46,6 +46,7 @@ const APPLY_CMS_BINDING_TOOL_GUIDANCE =
     '调用前提：必须先由 `mcp__cms__decide_cms_binding` 返回 `status=ready` 和 `decisionId`。',
     '该工具只接受 `decisionId`、`templateBody`、`emptyTemplate`、`errorTemplate`；不要传 targetSelection、siteId、source props 或其他 raw binding identity 字段。',
     '`templateBody`、`emptyTemplate`、`errorTemplate` 必须承载完整动态区域，但只能传 slot 内部内容，不要包含外层 `<template v-slot:...>` 包装，也不要包含外层 `cms-catalog` / `cms-content` 标签。',
+    '工具会自动在生成出来的 cms-catalog / cms-content 源码前加入宿主管理注释；保留这段注释，不要再为该区域额外引入整页 Vue runtime。',
     '不要根据 CMS 浏览弹框当前的分页大小推断页面绑定的 `pageSize`。固定内容 ids 禁止传 `pageSize`；如需限制栏目数量请使用 `take`。',
   ].join(' ')
 

@@ -15,6 +15,17 @@ In `page-builder`, this skill is an execute-only refinement worker.
 - Do not use it as the turn owner, briefing controller, or CMS decision maker.
 - Default to implementation, not presentation. Do not output long audit prose, large redesign theory dumps, or detailed code explanations to the user unless the user explicitly asks for them.
 
+## Page-builder execution override
+
+When this skill is used inside `page-builder`, the following rules override the generic frontend guidance below.
+
+- Treat the current target as the existing preview under `workspace-files/`, usually `workspace-files/index.html` plus assets under `workspace-files/assets/`.
+- Default to plain HTML/CSS/JS authoring and refine the existing preview files directly.
+- Do not assume `package.json`, React, Next.js, Tailwind, npm, or any package manager exists unless the current page-builder target already provides that stack.
+- Do not start with dependency checks, install commands, framework migration advice, or component-library assumptions in a plain page-builder workspace.
+- Keep page-builder authoring HTML-first. Existing `cms-catalog` / `cms-content` regions are host-managed CMS islands, not permission to convert the page into a framework app.
+- Keep Vue template syntax only inside the current CMS source tag's slot templates, and do not add page-wide Vue runtime, CDN/importmap bootstrap, or `createApp` / `mount`.
+
 ## How This Works
 
 When applied to an existing project, follow this sequence:

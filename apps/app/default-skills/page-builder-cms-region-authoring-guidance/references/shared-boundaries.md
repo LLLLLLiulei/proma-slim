@@ -7,6 +7,8 @@ Use these rules for ordinary edits to an existing CMS region after the host alre
 ## Stable Boundaries
 
 - The existing `cms-catalog` / `cms-content` source tag is the source of truth for that region.
+- `workspace-files/index.html` is the authoring source for that region, but preview/export runtime is host-managed and may append CMS runtime behavior outside the saved source HTML.
+- The absence of page-wide Vue bootstrap code in `workspace-files/index.html` is not evidence that the existing CMS region cannot render.
 - Keep Vue syntax inside the current CMS source tag only. Surrounding non-CMS page regions stay plain HTML/CSS/JS.
 - Do not write or preserve runtime-only attrs such as `data-proma-cms-source-id` or `data-proma-cms-island-*`.
 - Do not nest a second `cms-catalog` / `cms-content` inside the current CMS slot content.

@@ -20,6 +20,9 @@ export interface PageBuilderCmsGuidanceNotice {
   doNotGuessBindingProps: true
   doNotAddPageWideVueRuntime: true
   queryPropsChangeRequiresConfirmedApply: true
+  sourceHtmlIsAuthoringSourceOnly: true
+  hostInjectsPreviewRuntime: true
+  inspectPreviewBeforeDiagnosingRuntime: true
   currentTargetIsExistingCmsRegion?: true
   component?: 'cms-catalog' | 'cms-content'
   allowOnlyNonBindingEdits?: true

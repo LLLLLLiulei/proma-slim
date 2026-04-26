@@ -282,7 +282,8 @@ describe('AgentOrchestrator workspace runtime', () => {
     ]))
     expect(readFileSync(join(turnDir, 'request-payload.part-001.txt'), 'utf-8')).toContain('Inspect this workspace')
     expect(readFileSync(join(turnDir, 'final-prompt.part-001.txt'), 'utf-8')).toContain('Inspect this workspace')
-    expect(readFileSync(join(turnDir, 'system-prompt.part-001.txt'), 'utf-8')).toContain(session.id)
+    expect(readFileSync(join(turnDir, 'system-prompt.part-001.txt'), 'utf-8')).toContain('## Assistant Identity')
+    expect(readFileSync(join(turnDir, 'system-prompt.part-001.txt'), 'utf-8')).toContain('## Global Runtime Rules')
   })
 
   test('records only current-turn messages in the conversation sidecar instead of the full session history', async () => {
@@ -1046,7 +1047,7 @@ describe('AgentOrchestrator workspace runtime', () => {
     const composedUserMessage = [
       '<page_builder_turn_routing>{"sceneKind":"existing-cms-region-ordinary-edit","ownerSkill":"page-builder-guided-generation","ownerLockedForTurn":true,"consultSkills":["page-builder-cms-region-authoring-guidance"]}</page_builder_turn_routing>',
       '<page_builder_selection>{"targetSelection":{"kind":"cms-island","selector":"section:nth-of-type(2) > cms-content:nth-of-type(1)","sourceSelector":"section:nth-of-type(2) > cms-content:nth-of-type(1)","parentBlockSelector":"[data-proma-block-id=\\"pb_blk_news\\"]","component":"cms-content"}}</page_builder_selection>',
-      '<page_builder_cms_guidance_notice>{"mode":"page-has-existing-cms-regions","consultSkill":"page-builder-cms-region-authoring-guidance","currentPageHasExistingCmsRegions":true,"doNotInventCmsTags":true,"doNotGuessBindingProps":true,"doNotAddPageWideVueRuntime":true,"queryPropsChangeRequiresConfirmedApply":true}</page_builder_cms_guidance_notice>',
+      '<page_builder_cms_guidance_notice>{"mode":"page-has-existing-cms-regions","consultSkill":"page-builder-cms-region-authoring-guidance","currentPageHasExistingCmsRegions":true,"doNotInventCmsTags":true,"doNotGuessBindingProps":true,"doNotAddPageWideVueRuntime":true,"queryPropsChangeRequiresConfirmedApply":true,"sourceHtmlIsAuthoringSourceOnly":true,"hostInjectsPreviewRuntime":true,"inspectPreviewBeforeDiagnosingRuntime":true}</page_builder_cms_guidance_notice>',
       '<page_builder_cms_region_authoring>{"mode":"ordinary-existing-region","component":"cms-content","sourceType":"contents-by-catalog","boundary":{"editBoundary":"source-atomic","sourceFirst":true,"queryPropsChangeRequiresConfirmedApply":true}}</page_builder_cms_region_authoring>',
       '继续修改这个区块，把卡片间距调紧一些。',
     ].join('\n\n')
@@ -1186,13 +1187,20 @@ describe('AgentOrchestrator workspace runtime', () => {
     expect(adapter.lastInput?.prompt).toContain('<workspace_runtime_mode>scratch</workspace_runtime_mode>')
     expect(adapter.lastInput?.prompt).toContain('宿主管理的 workspace session scratch 目录')
     expect(adapter.lastInput?.prompt).not.toContain('Proma 管理的 workspace session scratch 目录')
-    expect(adapter.lastInput?.prompt).toContain('纯研究、搜索、总结、规划类 subagent 默认不要请求 worktree isolation')
+    expect(adapter.lastInput?.prompt).toContain('<workspace_state>')
+    expect(adapter.lastInput?.prompt).toContain('仅用于发现可用 Skill 和 MCP')
+    expect(adapter.lastInput?.prompt).toContain('owner / consult contract 仍以宿主显式注入为准')
+    expect(adapter.lastInput?.prompt).not.toContain('Workspace Root:')
+    expect(adapter.lastInput?.prompt).not.toContain('Workspace Files:')
+    expect(adapter.lastInput?.prompt).not.toContain('纯研究、搜索、总结、规划类 subagent 默认不要请求 worktree isolation')
     expect(adapter.lastInput?.systemPrompt?.append).toContain('你是当前工作台内置的 AI 助手')
     expect(adapter.lastInput?.systemPrompt?.append).toContain('当用户问“你是谁”“你是什么”时')
-    expect(adapter.lastInput?.systemPrompt?.append).toContain('任何时候都不要把自己描述为某个具体产品、模型、CLI、SDK、厂商服务或内部代号')
+    expect(adapter.lastInput?.systemPrompt?.append).toContain('不要把自己描述为某个具体产品、模型、CLI、SDK、厂商服务或内部代号')
+    expect(adapter.lastInput?.systemPrompt?.append).toContain('纯研究、搜索、总结、规划类 subagent 默认使用普通 sidechain / teammate 语义')
     expect(adapter.lastInput?.systemPrompt?.append).not.toContain('## Proma Agent')
     expect(adapter.lastInput?.systemPrompt?.append).not.toContain('你是专题网页开发助手')
     expect(adapter.lastInput?.systemPrompt?.append).not.toContain('Proma scratch 目录')
+    expect(adapter.lastInput?.systemPrompt?.append).not.toContain('当前工作区名称')
   })
 
   test('injects structured attachments into the runtime prompt while keeping persisted user content clean', async () => {

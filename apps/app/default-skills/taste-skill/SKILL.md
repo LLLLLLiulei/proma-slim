@@ -16,6 +16,17 @@ In `page-builder`, this skill is an execute-only visual worker.
 - Do not use it for second-stage polish of an already accepted direction; use `redesign-skill` for that stage.
 - Default to implementation, not presentation. Do not output long design essays, large audit summaries, or code walkthroughs to the user unless the user explicitly asks for them.
 
+## Page-builder execution override
+
+When this skill is used inside `page-builder`, the following rules override the generic frontend guidance below.
+
+- Treat the current target as the existing preview under `workspace-files/`, usually `workspace-files/index.html` plus assets under `workspace-files/assets/`.
+- Default to plain HTML/CSS/JS authoring and edit the existing preview files directly.
+- Do not assume `package.json`, React, Next.js, Tailwind, npm, or any package manager exists unless the current page-builder target already provides that stack.
+- Do not start with dependency checks, install commands, framework migration advice, or component-library assumptions in a plain page-builder workspace.
+- Keep page-builder authoring HTML-first. Existing `cms-catalog` / `cms-content` regions are host-managed CMS islands, not permission to convert the page into a framework app.
+- Keep Vue template syntax only inside the current CMS source tag's slot templates, and do not add page-wide Vue runtime, CDN/importmap bootstrap, or `createApp` / `mount`.
+
 ## 1. ACTIVE BASELINE CONFIGURATION
 * DESIGN_VARIANCE: 8 (1=Perfect Symmetry, 10=Artsy Chaos)
 * MOTION_INTENSITY: 6 (1=Static/No movement, 10=Cinematic/Magic Physics)

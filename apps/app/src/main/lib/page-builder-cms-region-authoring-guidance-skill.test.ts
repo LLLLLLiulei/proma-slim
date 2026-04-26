@@ -20,6 +20,8 @@ describe('page-builder cms region authoring guidance skill docs', () => {
     expect(skill).toContain('<page_builder_cms_region_authoring>')
     expect(skill).toContain('It does not take over user-facing briefing')
     expect(skill).toContain('Do not invent new `cms-*` tags')
+    expect(skill).toContain('authoring source, not the final preview/export runtime response')
+    expect(skill).toContain('Do not infer a missing runtime')
     expect(skill).toContain('escalate to the confirmed CMS flow')
     expect(skill).not.toContain('decisionId')
     expect(skill).not.toContain('mcp__cms__apply_cms_binding')
@@ -32,6 +34,8 @@ describe('page-builder cms region authoring guidance skill docs', () => {
 
     expect(shared).toContain('Keep Vue syntax inside the current CMS source tag only')
     expect(shared).toContain('Do not write or preserve runtime-only attrs')
+    expect(shared).toContain('preview/export runtime is host-managed')
+    expect(shared).toContain('absence of page-wide Vue bootstrap code in `workspace-files/index.html`')
     expect(catalog).toContain('Use `item.path` for catalog links')
     expect(catalog).toContain('Do not guess aliases such as `item.url` or `item.link`')
     expect(content).toContain('Use `item.publishUrl` for links')

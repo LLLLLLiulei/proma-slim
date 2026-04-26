@@ -19,7 +19,7 @@
         "-y",
         "@modelcontextprotocol/server-sequential-thinking@latest"
       ],
-      "enabled": true,
+      "enabled": false,
       "timeout": 30
     }
   }

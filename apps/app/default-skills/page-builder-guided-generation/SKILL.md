@@ -104,15 +104,6 @@ If only non-critical details remain, stop asking more questions and move to conf
 
 Before writing the page, provide a short summary of your current understanding, then ask for confirmation with `AskUserQuestion`.
 
-The summary should usually cover:
-
-- page goal
-- target audience
-- major content blocks
-- tone or style direction
-- device priority
-- must-have or must-avoid constraints
-
 Keep this confirmation summary short and user-facing:
 
 - use plain language instead of implementation jargon
@@ -138,6 +129,8 @@ After confirmation:
 5. Use `taste-skill` again when a selected block needs its first-pass major visual redesign rather than a minor tune-up.
 6. Use `redesign-skill` only after a first-pass direction already exists and the task is now a second-stage polish, upgrade, or refinement pass.
 
+When dispatching those workers in `page-builder`, keep the target on the current `workspace-files/` preview and default to plain HTML/CSS/JS authoring unless the current page clearly provides another stack.
+
 Default navigation should point to sections within the same page instead of introducing multi-page routing.
 
 For factual content:
@@ -149,23 +142,17 @@ For factual content:
 
 ## CMS Boundaries In Ordinary Flow
 
-Ordinary page generation and ordinary iteration are not allowed to invent new `cms-catalog` / `cms-content` tags. New CMS source tags, or rebinding an existing CMS source tag to different query props, must go through the controlled CMS browser selection flow plus `cms-binding-apply`, `mcp__cms__decide_cms_binding`, and `mcp__cms__apply_cms_binding`.
+Keep this section boundary-level. Do not turn the ordinary owner prompt into a detailed CMS authoring manual.
 
-If that controlled CMS chain fails, stop and retry the CMS flow with corrected tool payloads. Do not fall back to directly editing `workspace-files/index.html` to simulate a successful CMS binding.
-
-Keep page-builder authoring HTML-first. Existing or newly applied `cms-catalog` / `cms-content` tags are host-managed CMS islands, not a signal to convert the whole page into a Vue app.
-
-If the page already contains CMS tags, ordinary iteration may adjust slot templates, internal structure, and styles inside the existing CMS region, but it must not silently change query props such as `site-id`, `catalog-id`, `ids`, or `page-size`.
-
-When the host surfaces a CMS guidance notice or the selected target is already a CMS-driven region, consult that canonical CMS guidance first. Treat `page-builder-cms-region-authoring-guidance` as consult-only specialist guidance. Keep ordinary turn ownership here, but treat the existing `cms-catalog` / `cms-content` source tag as source-atomic and edit the source CMS region as one unit instead of editing rendered child nodes one by one.
-
-Keep Vue template syntax inside the current CMS source tag's slot templates only. Keep non-CMS regions in plain HTML/CSS/JS instead of adding `v-*`, `@*`, `:` bindings, or `{{ ... }}`.
-
-Do not self-manage Vue runtime or bootstrap for CMS rendering, and do not use `createApp`, `Vue.createApp`, or page-wide `mount`.
-
-If the guidance for the current target still does not provide enough stable authoring information, use one short clarification or stop the CMS rewrite path instead of guessing.
-
-If the user wants a non-CMS section to feel more dynamic, solve that with plain HTML/CSS/JS or route the request into the controlled CMS flow. Do not simulate a page-wide Vue solution in ordinary flow.
+- New CMS source tags, or binding-identity changes on an existing CMS source tag, must go back to the host-controlled CMS selection and confirmed apply flow.
+- Do not bypass that confirmed CMS apply flow by directly editing `workspace-files/index.html` or handwriting `cms-*` tags after a failed tool call.
+- Keep page-builder authoring HTML-first. Existing or newly applied `cms-catalog` / `cms-content` tags are host-managed CMS islands, not permission to convert the whole page into a Vue app.
+- Ordinary iteration may refine an existing CMS region only while its current data source and binding identity stay unchanged.
+- When the host surfaces a CMS guidance notice or the current target is already a CMS-driven region, consult `page-builder-cms-region-authoring-guidance` first and treat the current source CMS tag as a source-atomic boundary.
+- Keep Vue template syntax only inside the current CMS source tag's slot templates. Keep non-CMS regions in plain HTML/CSS/JS.
+- Do not self-manage Vue runtime or page-wide mount for CMS rendering.
+- If the controlled CMS flow or the current CMS guidance still does not provide enough stable authoring information, ask one short clarification or stop instead of guessing.
+- If a non-CMS section should feel more dynamic, solve that with plain HTML/CSS/JS or route the request back into the controlled CMS flow. Do not simulate a page-wide Vue solution in ordinary flow.
 
 ## Iteration Rules
 

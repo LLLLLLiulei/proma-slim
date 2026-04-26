@@ -2206,6 +2206,9 @@ describe('BuilderPage', () => {
       mode: 'page-has-existing-cms-regions',
       consultSkill: 'page-builder-cms-region-authoring-guidance',
       currentPageHasExistingCmsRegions: true,
+      sourceHtmlIsAuthoringSourceOnly: true,
+      hostInjectsPreviewRuntime: true,
+      inspectPreviewBeforeDiagnosingRuntime: true,
     })
     expect(payload?.composedUserMessage).not.toContain('<page_builder_cms_region_authoring>')
   })
@@ -2304,6 +2307,9 @@ describe('BuilderPage', () => {
     })
     expect(extractPageBuilderCmsGuidanceNoticePayload(payload?.composedUserMessage ?? '')).toMatchObject({
       mode: 'page-has-existing-cms-regions',
+      sourceHtmlIsAuthoringSourceOnly: true,
+      hostInjectsPreviewRuntime: true,
+      inspectPreviewBeforeDiagnosingRuntime: true,
     })
   })
 
@@ -2575,6 +2581,9 @@ describe('BuilderPage', () => {
       component: 'cms-content',
       reason: 'source-type-unresolved',
       allowOnlyNonBindingEdits: true,
+      sourceHtmlIsAuthoringSourceOnly: true,
+      hostInjectsPreviewRuntime: true,
+      inspectPreviewBeforeDiagnosingRuntime: true,
     })
     expect(payload?.composedUserMessage).not.toContain('<page_builder_cms_region_authoring>')
   })

@@ -947,7 +947,9 @@ function generateCmsBindingHtml(
   const rootProps = buildProps(propEntries)
 
   const lines = [
+    ...buildGeneratedCmsRegionComment(componentName),
     `<${componentName}${rootProps ? ` ${rootProps}` : ''}>`,
+    ...buildGeneratedCmsRegionInnerComment(),
     `  <template v-slot:default="${slotScopeExpression}">`,
     ...indentTemplate(input.templateBody, 4),
     '  </template>',
@@ -967,6 +969,20 @@ function generateCmsBindingHtml(
 
   lines.push(`</${componentName}>`)
   return lines.join('\n')
+}
+
+function buildGeneratedCmsRegionComment(
+  componentName: 'cms-catalog' | 'cms-content',
+): string[] {
+  return [
+    `<!-- PROMA CMS REGION: 该 ${componentName} 是宿主管理的 CMS binding source tag；不要为这个区域再次引入整页 Vue runtime；不要添加 Vue CDN、importmap、createApp、Vue.createApp 或 app.mount(...)；Vue 模板语法只允许出现在这个 CMS 标签内部的 slot templates 中；如需更换 CMS 数据来源或 binding props，请重新走已确认的 CMS apply 流程，不要直接手写改绑。 -->`,
+  ]
+}
+
+function buildGeneratedCmsRegionInnerComment(): string[] {
+  return [
+    '  <!-- PROMA CMS SLOT AUTHORING: 宿主管理该 CMS 标签运行时；不要在这里补整页 Vue runtime；只在下方 slot templates 中编写 Vue 模板和字段渲染。 -->',
+  ]
 }
 
 function buildCatalogNavPropEntries(

@@ -9,7 +9,7 @@ const TOOL_LABELS: Record<string, string> = {
   WebSearch: '网页搜索',
   WebFetch: '抓取网页',
   NotebookEdit: '编辑笔记本',
-  Skill: '调用技能',
+  Skill: '使用技能',
   TodoWrite: '更新待办事项',
   TodoRead: '查看待办事项',
   Task: '委派子任务',

@@ -43,11 +43,13 @@ The host-injected routing payload is the first source of truth for the current t
 - This skill supports the ordinary controller. It does not take over user-facing briefing, final confirmation, or confirmed CMS apply ownership.
 - Keep any user-facing explanation minimal. Do not dump a long CMS theory summary to the user; surface only the blocking clarification or the concrete edit decision the ordinary controller needs.
 - Treat the current `cms-catalog` / `cms-content` source tag as the authoring boundary. Edit it as one source-atomic unit instead of editing rendered child nodes one by one.
+- Treat `workspace-files/index.html` as the authoring source, not the final preview/export runtime response for an existing CMS region.
 - Ordinary edits may restyle or restructure the existing CMS region, but must not silently change binding query props such as `site-id`, `catalog-id`, `ids`, `page-size`, `parent-id`, or similar source identity fields.
 - If the user actually wants different CMS data, different query semantics, or a new binding, escalate to the confirmed CMS flow instead of hand-editing the source tag.
 - Do not invent new `cms-*` tags, do not guess props, and do not guess slot scope, field aliases, or runtime-only attrs.
 - Keep page-builder authoring HTML-first. Vue template syntax belongs only inside the current CMS source tag's slot templates.
 - Do not self-manage Vue runtime. Do not add Vue CDN/importmap/bootstrap assets, and do not use page-wide `createApp`, `Vue.createApp`, or `mount`.
+- The preview/export runtime for existing CMS regions is host-managed. Do not infer a missing runtime just because the authoring HTML lacks page-wide Vue bootstrap code.
 - If the current digest and the component reference still do not provide enough stable information, ask one minimal clarification or stop the CMS rewrite path instead of guessing.
 - If the host says the target-specific CMS guidance degraded, allow only non-binding edits to the current region and do not change query props or data-source semantics.
 
