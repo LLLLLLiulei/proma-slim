@@ -11,6 +11,7 @@ interface ProtocolSelectionRuntime {
   refreshResolvedTarget(target: ResolvedTarget | null): ResolvedTarget | null
   resolveTargetRect(target: ResolvedTarget | null): { top: number; left: number; right: number; bottom: number; width: number; height: number } | null
   resolveReplaceImageCapabilityForTarget(target: ResolvedTarget | null): ReplaceImageCapability | null
+  resolveTargetLabel(target: ResolvedTarget | null): string
 }
 
 interface ProtocolOptions {
@@ -100,6 +101,7 @@ export function createProtocolRuntime({
       type: 'selected',
       selector: resolveTargetSelector(refreshedTarget.targetSelection),
       targetSelection: refreshedTarget.targetSelection,
+      displayLabel: selection.resolveTargetLabel(refreshedTarget),
       rect,
       ...(capabilities ? { capabilities } : {}),
     })

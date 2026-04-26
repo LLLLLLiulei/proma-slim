@@ -8,8 +8,8 @@ import { serializePageBuilderTurnRoutingMetadata } from '@proma/shared'
 export type PageBuilderSelectedTarget = PageBuilderTargetSelection
 
 export type PageBuilderPreviewSelectionEvent =
-  | { type: 'hover'; selector?: string | null; targetSelection: PageBuilderTargetSelection | null }
-  | { type: 'selected'; selector?: string; targetSelection: PageBuilderTargetSelection }
+  | { type: 'hover'; selector?: string | null; targetSelection: PageBuilderTargetSelection | null; displayLabel?: string }
+  | { type: 'selected'; selector?: string; targetSelection: PageBuilderTargetSelection; displayLabel?: string }
   | { type: 'reset' }
 
 export interface PageBuilderCmsGuidanceNotice {

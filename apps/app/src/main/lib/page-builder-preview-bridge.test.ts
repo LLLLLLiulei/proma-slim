@@ -509,10 +509,12 @@ test('page-builder preview bridge retargets nested block selections before inlin
     && (message as { type?: string }).type === 'selected'
   ) as Array<{
     selector: string
+    displayLabel?: string
   }>
 
   expect(selectedMessages.at(-1)).toMatchObject({
     selector: '#inner',
+    displayLabel: 'Inner',
   })
 })
 
@@ -710,6 +712,7 @@ test('page-builder preview bridge promotes cms-island descendants into one sourc
   ) as Array<{
     type: 'selected'
     selector: string
+    displayLabel?: string
     targetSelection: {
       kind: string
       htmlPath?: string
@@ -730,6 +733,7 @@ test('page-builder preview bridge promotes cms-island descendants into one sourc
 
   expect(selectedMessages.at(-1)).toMatchObject({
     selector: 'body > section:nth-of-type(1) > ul:nth-of-type(1) > cms-catalog:nth-of-type(1)',
+    displayLabel: 'cms-catalog',
     targetSelection: {
       kind: 'cms-island',
       htmlPath: 'index.html',
@@ -1134,6 +1138,7 @@ test('page-builder preview bridge selects cms islands by default while passive o
 
   expect(selectedMessages.at(-1)).toMatchObject({
     selector: 'body > section:nth-of-type(1) > ul:nth-of-type(1) > cms-catalog:nth-of-type(1)',
+    displayLabel: 'cms-catalog',
     targetSelection: {
       kind: 'cms-island',
       htmlPath: 'index.html',

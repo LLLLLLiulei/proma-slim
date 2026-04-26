@@ -459,6 +459,112 @@ function flattenElementText(node: React.ReactNode): string {
   }).join('')
 }
 
+function findElementProp(node: React.ReactNode, propName: string): unknown {
+  if (
+    node === null
+    || node === undefined
+    || typeof node === 'string'
+    || typeof node === 'number'
+    || typeof node === 'boolean'
+  ) {
+    return undefined
+  }
+
+  if (React.isValidElement(node)) {
+    const props = node.props as { children?: React.ReactNode } & Record<string, unknown>
+    if (propName in props) {
+      return props[propName]
+    }
+
+    return findElementProp(props.children, propName)
+  }
+
+  for (const child of React.Children.toArray(node)) {
+    const value = findElementProp(child, propName)
+    if (value !== undefined) {
+      return value
+    }
+  }
+
+  return undefined
+}
+
+function findElementPropsByAriaLabel(
+  node: React.ReactNode,
+  ariaLabel: string,
+): Record<string, unknown> | null {
+  if (
+    node === null
+    || node === undefined
+    || typeof node === 'string'
+    || typeof node === 'number'
+    || typeof node === 'boolean'
+  ) {
+    return null
+  }
+
+  if (React.isValidElement(node)) {
+    const props = node.props as { children?: React.ReactNode } & Record<string, unknown>
+    if (props['aria-label'] === ariaLabel) {
+      return props
+    }
+
+    return findElementPropsByAriaLabel(props.children, ariaLabel)
+  }
+
+  for (const child of React.Children.toArray(node)) {
+    const props = findElementPropsByAriaLabel(child, ariaLabel)
+    if (props) {
+      return props
+    }
+  }
+
+  return null
+}
+
+function getComposerNoticeText(agentViewProps: Record<string, unknown> | null): string | null {
+  const composerNotice = agentViewProps?.composerNotice as React.ReactNode | undefined
+  if (composerNotice === undefined) {
+    return null
+  }
+
+  const text = flattenElementText(composerNotice).trim()
+  return text.length > 0 ? text : null
+}
+
+function getComposerNoticeTitle(agentViewProps: Record<string, unknown> | null): string | null {
+  const composerNotice = agentViewProps?.composerNotice as React.ReactNode | undefined
+  if (composerNotice === undefined) {
+    return null
+  }
+
+  const title = findElementProp(composerNotice, 'title')
+  return typeof title === 'string' && title.length > 0 ? title : null
+}
+
+function getComposerNoticeRootProps(agentViewProps: Record<string, unknown> | null): Record<string, unknown> | null {
+  const composerNotice = agentViewProps?.composerNotice as React.ReactNode | undefined
+  if (composerNotice === undefined || !React.isValidElement(composerNotice)) {
+    return null
+  }
+
+  return composerNotice.props as Record<string, unknown>
+}
+
+function clickComposerNoticeAction(agentViewProps: Record<string, unknown> | null, ariaLabel: string): void {
+  const composerNotice = agentViewProps?.composerNotice as React.ReactNode | undefined
+  if (composerNotice === undefined) {
+    throw new Error('missing composerNotice')
+  }
+
+  const props = findElementPropsByAriaLabel(composerNotice, ariaLabel)
+  if (!props || typeof props.onClick !== 'function') {
+    throw new Error(`missing composerNotice action: ${ariaLabel}`)
+  }
+
+  ;(props.onClick as () => void)()
+}
+
 function getPreviewSelectionActionState(previewPaneProps: Record<string, unknown> | null): string | null {
   return typeof previewPaneProps?.selectionActionState === 'string'
     ? previewPaneProps.selectionActionState
@@ -1409,10 +1515,11 @@ describe('BuilderPage', () => {
 
     await act(async () => {
       (getLastPreviewPaneProps() as {
-        onSelectionEvent?: (event: { type: string; targetSelection?: PageBuilderTargetSelection }) => void
+        onSelectionEvent?: (event: { type: string; targetSelection?: PageBuilderTargetSelection; displayLabel?: string }) => void
       }).onSelectionEvent?.({
         type: 'selected',
         targetSelection: createBlockTargetSelection('#hero'),
+        displayLabel: 'Header1',
       })
     })
 
@@ -1421,6 +1528,23 @@ describe('BuilderPage', () => {
       selectionActionState: 'selected',
     })
     expect(getPreviewSelectionActionState(getLastPreviewPaneProps())).toBe('selected')
+    expect(getComposerNoticeText(getLastAgentViewProps())).toBe('当前选中：Header1')
+    expect(getComposerNoticeText(getLastAgentViewProps())).not.toContain('#hero')
+    expect(getComposerNoticeTitle(getLastAgentViewProps())).toBe('Header1')
+    expect((getComposerNoticeRootProps(getLastAgentViewProps())?.className as string | undefined) ?? '').toContain('inline-flex')
+    expect((getComposerNoticeRootProps(getLastAgentViewProps())?.className as string | undefined) ?? '').toContain('py-1')
+    expect((findElementPropsByAriaLabel(
+      (getLastAgentViewProps()?.composerNotice as React.ReactNode | undefined) ?? null,
+      '取消选中',
+    )?.className as string | undefined) ?? '').toContain('size-[18px]')
+    expect((findElementPropsByAriaLabel(
+      (getLastAgentViewProps()?.composerNotice as React.ReactNode | undefined) ?? null,
+      '取消选中',
+    )?.className as string | undefined) ?? '').toContain('opacity-0')
+    expect((findElementPropsByAriaLabel(
+      (getLastAgentViewProps()?.composerNotice as React.ReactNode | undefined) ?? null,
+      '取消选中',
+    )?.className as string | undefined) ?? '').toContain('group-hover:opacity-100')
 
     const decorated = (getLastAgentViewProps() as {
       messageDecorator?: (message: string) => string
@@ -1432,7 +1556,7 @@ describe('BuilderPage', () => {
     })
 
     await act(async () => {
-      getPreviewSelectionToggle(getLastPreviewPaneProps())?.()
+      clickComposerNoticeAction(getLastAgentViewProps(), '取消选中')
     })
 
     expect(getLastPreviewPaneProps()).toMatchObject({
@@ -1440,7 +1564,112 @@ describe('BuilderPage', () => {
       selectionActionState: 'idle',
     })
     expect(getPreviewSelectionActionState(getLastPreviewPaneProps())).toBe('idle')
+    expect(getLastAgentViewProps()).not.toHaveProperty('composerNotice')
     expect(getLastAgentViewProps()).not.toHaveProperty('messageDecorator')
+  })
+
+  test('shows the preview label for the current selected target and clears it from the composer notice action', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const { BuilderPage, getLastAgentViewProps, getLastPreviewPaneProps } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      mockPreviewPane: true,
+      previewStates: [{
+        hasPreview: true,
+        entryUrl: `/api/workspaces/${workspace.id}/preview/`,
+        revision: 'rev-1',
+        hasCmsRendering: true,
+        requiresSameOrigin: true,
+      }],
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      getPreviewSelectionToggle(getLastPreviewPaneProps())?.()
+    })
+
+    await act(async () => {
+      (getLastPreviewPaneProps() as {
+        onSelectionEvent?: (event: { type: 'selected'; targetSelection: PageBuilderTargetSelection; displayLabel?: string }) => void
+      }).onSelectionEvent?.({
+        type: 'selected',
+        targetSelection: createBlockTargetSelection('#hero-banner'),
+        displayLabel: 'HeroBanner',
+      })
+    })
+
+    expect(getComposerNoticeText(getLastAgentViewProps())).toBe('当前选中：HeroBanner')
+    expect(getComposerNoticeText(getLastAgentViewProps())).not.toContain('#hero-banner')
+    expect(getComposerNoticeTitle(getLastAgentViewProps())).toBe('HeroBanner')
+
+    await act(async () => {
+      (getLastPreviewPaneProps() as {
+        onSelectionEvent?: (event: { type: 'selected'; targetSelection: PageBuilderTargetSelection; displayLabel?: string }) => void
+      }).onSelectionEvent?.({
+        type: 'selected',
+        targetSelection: createCmsIslandTargetSelection(
+          'section:nth-of-type(2) > cms-content:nth-of-type(1)',
+          '[data-proma-block-id="pb_blk_news"]',
+          'cms-content',
+        ),
+        displayLabel: 'cms-content',
+      })
+    })
+
+    expect(getComposerNoticeText(getLastAgentViewProps())).toBe('当前选中：cms-content')
+    expect(getComposerNoticeText(getLastAgentViewProps())).not.toContain('section:nth-of-type(2) > cms-content:nth-of-type(1)')
+    expect(getComposerNoticeText(getLastAgentViewProps())).not.toContain('[data-proma-block-id="pb_blk_news"]')
+    expect(getComposerNoticeTitle(getLastAgentViewProps())).toBe('cms-content')
+
+    await act(async () => {
+      (getLastPreviewPaneProps() as {
+        onSelectionEvent?: (event: { type: 'selected'; targetSelection: PageBuilderTargetSelection; displayLabel?: string }) => void
+      }).onSelectionEvent?.({
+        type: 'selected',
+        targetSelection: createBlockTargetSelection('#pricing'),
+        displayLabel: 'Pricing',
+      })
+    })
+
+    expect(getComposerNoticeText(getLastAgentViewProps())).toBe('当前选中：Pricing')
+    expect(getComposerNoticeText(getLastAgentViewProps())).not.toContain('#pricing')
+    expect(getComposerNoticeText(getLastAgentViewProps())).not.toContain('cms-content')
+    expect(getComposerNoticeTitle(getLastAgentViewProps())).toBe('Pricing')
+
+    await act(async () => {
+      clickComposerNoticeAction(getLastAgentViewProps(), '取消选中')
+    })
+
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      selectionModeEnabled: false,
+      selectionActionState: 'idle',
+    })
+    expect(getLastAgentViewProps()).not.toHaveProperty('composerNotice')
   })
 
   test('passes the guided generation skill as the default mentioned skill for builder conversations', async () => {
@@ -2015,7 +2244,7 @@ describe('BuilderPage', () => {
 
     await act(async () => {
       (getLastPreviewPaneProps() as {
-        onSelectionEvent?: (event: { type: string; targetSelection?: PageBuilderTargetSelection }) => void
+        onSelectionEvent?: (event: { type: string; targetSelection?: PageBuilderTargetSelection; displayLabel?: string }) => void
       }).onSelectionEvent?.({
         type: 'selected',
         targetSelection: createCmsIslandTargetSelection(
@@ -2023,6 +2252,7 @@ describe('BuilderPage', () => {
           '[data-proma-block-id="pb_blk_news"]',
           'cms-content',
         ),
+        displayLabel: 'cms-content',
       })
     })
 
@@ -2256,7 +2486,7 @@ describe('BuilderPage', () => {
 
     await act(async () => {
       (getLastPreviewPaneProps() as {
-        onSelectionEvent?: (event: { type: string; targetSelection?: PageBuilderTargetSelection }) => void
+        onSelectionEvent?: (event: { type: string; targetSelection?: PageBuilderTargetSelection; displayLabel?: string }) => void
       }).onSelectionEvent?.({
         type: 'selected',
         targetSelection: createCmsIslandTargetSelection(
@@ -2264,6 +2494,7 @@ describe('BuilderPage', () => {
           '[data-proma-block-id="pb_blk_news"]',
           'cms-content',
         ),
+        displayLabel: 'cms-content',
       })
     })
 
@@ -2356,7 +2587,7 @@ describe('BuilderPage', () => {
 
     await act(async () => {
       (getLastPreviewPaneProps() as {
-        onSelectionEvent?: (event: { type: string; targetSelection?: PageBuilderTargetSelection }) => void
+        onSelectionEvent?: (event: { type: string; targetSelection?: PageBuilderTargetSelection; displayLabel?: string }) => void
       }).onSelectionEvent?.({
         type: 'selected',
         targetSelection: createCmsIslandTargetSelection(
@@ -2364,6 +2595,7 @@ describe('BuilderPage', () => {
           '[data-proma-block-id="pb_blk_news"]',
           'cms-content',
         ),
+        displayLabel: 'cms-content',
       })
     })
     await act(async () => {
@@ -2483,6 +2715,7 @@ describe('BuilderPage', () => {
       selectionModeEnabled: false,
       selectionActionState: 'idle',
     })
+    expect(getLastAgentViewProps()).not.toHaveProperty('composerNotice')
     expect(getLastAgentViewProps()).not.toHaveProperty('messageDecorator')
 
     const nextPayload = await (getLastAgentViewProps() as {
@@ -2543,7 +2776,7 @@ describe('BuilderPage', () => {
 
     await act(async () => {
       (getLastPreviewPaneProps() as {
-        onSelectionEvent?: (event: { type: string; targetSelection?: PageBuilderTargetSelection }) => void
+        onSelectionEvent?: (event: { type: string; targetSelection?: PageBuilderTargetSelection; displayLabel?: string }) => void
       }).onSelectionEvent?.({
         type: 'selected',
         targetSelection: createCmsIslandTargetSelection(
@@ -2551,6 +2784,7 @@ describe('BuilderPage', () => {
           '[data-proma-block-id="pb_blk_news"]',
           'cms-content',
         ),
+        displayLabel: 'cms-content',
       })
     })
 
@@ -2627,7 +2861,7 @@ describe('BuilderPage', () => {
 
     await act(async () => {
       (getLastPreviewPaneProps() as {
-        onSelectionEvent?: (event: { type: string; targetSelection?: PageBuilderTargetSelection }) => void
+        onSelectionEvent?: (event: { type: string; targetSelection?: PageBuilderTargetSelection; displayLabel?: string }) => void
       }).onSelectionEvent?.({
         type: 'selected',
         targetSelection: createCmsIslandTargetSelection(
@@ -2635,6 +2869,7 @@ describe('BuilderPage', () => {
           '[data-proma-block-id="pb_blk_news"]',
           'cms-content',
         ),
+        displayLabel: 'cms-content',
       })
     })
 
@@ -2650,6 +2885,8 @@ describe('BuilderPage', () => {
       blocked: true,
       errorMessage: '当前已选 CMS 区域已失效或无法确认，请重新选择该区域后再修改。 未找到当前 CMS 源标签',
     })
+    expect(getComposerNoticeText(getLastAgentViewProps())).toBe('当前选中：cms-content')
+    expect(getComposerNoticeTitle(getLastAgentViewProps())).toBe('cms-content')
   })
 
   test('creates a programmatic CMS handoff request and closes the dialog only after send settles successfully', async () => {

@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { useAtomValue, useSetAtom } from 'jotai'
-import { AlertTriangle, LoaderCircle } from 'lucide-react'
+import { AlertTriangle, LoaderCircle, X } from 'lucide-react'
 import { toast } from 'sonner'
 import type {
   PageBuilderBlockDeletionPayload,
@@ -203,6 +203,7 @@ export function BuilderPage({
   const [selectionActionState, setSelectionActionState] = React.useState<SelectionActionState>('idle')
   const [hoveredSelector, setHoveredSelector] = React.useState<string | null>(null)
   const [selectedTargetSelection, setSelectedTargetSelection] = React.useState<PageBuilderTargetSelection | null>(null)
+  const [selectedTargetDisplayLabel, setSelectedTargetDisplayLabel] = React.useState<string | null>(null)
   const [pendingDeleteSelector, setPendingDeleteSelector] = React.useState<string | null>(null)
   const [cmsBrowserOpen, setCmsBrowserOpen] = React.useState(false)
   const [cmsSelectionEntryPoint, setCmsSelectionEntryPoint] = React.useState<PageBuilderCmsSelectionEntryPoint>('block-toolbar')
@@ -220,6 +221,7 @@ export function BuilderPage({
     setSelectionActionState('idle')
     setHoveredSelector(null)
     setSelectedTargetSelection(null)
+    setSelectedTargetDisplayLabel(null)
     pendingImageReplacementRef.current = null
   }, [])
 
@@ -746,10 +748,14 @@ export function BuilderPage({
     }
 
     if (event.type === 'selected') {
-      setSelectedTargetSelection(
-        event.targetSelection
-        ?? (event.selector ? createPageBuilderBlockTargetSelection(event.selector) : null),
-      )
+      const nextTargetSelection = event.targetSelection
+        ?? (event.selector ? createPageBuilderBlockTargetSelection(event.selector) : null)
+      const nextDisplayLabel = typeof event.displayLabel === 'string'
+        ? event.displayLabel.trim()
+        : ''
+
+      setSelectedTargetSelection(nextTargetSelection)
+      setSelectedTargetDisplayLabel(nextDisplayLabel.length > 0 ? nextDisplayLabel : null)
       setSelectionActionState('selected')
       return
     }
@@ -770,6 +776,7 @@ export function BuilderPage({
     setSelectionActionState('armed')
     setHoveredSelector(null)
     setSelectedTargetSelection(null)
+    setSelectedTargetDisplayLabel(null)
   }, [clearSelection, isAgentStreaming, selectionActionState])
 
   const handleMessageSent = React.useCallback(() => {
@@ -870,6 +877,41 @@ export function BuilderPage({
       ...selectedTargetSelection,
     })
   }, [selectedTargetSelection])
+  const composerNotice = React.useMemo(() => {
+    if (!selectedTargetDisplayLabel) {
+      return undefined
+    }
+
+    return (
+      <div
+        className="group inline-flex max-w-full items-center gap-1 self-start rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-2 py-1 ring-1 ring-emerald-500/15"
+        title={selectedTargetDisplayLabel}
+      >
+        <span
+          aria-hidden="true"
+          className="relative flex size-1.5 shrink-0 items-center justify-center"
+        >
+          <span className="absolute inset-0 rounded-full bg-emerald-400/25 motion-safe:animate-ping" />
+          <span className="relative size-1 rounded-full bg-emerald-500" />
+        </span>
+        <span className="shrink-0 text-[11px] font-medium text-emerald-800 dark:text-emerald-200">
+          当前选中：
+        </span>
+        <span className="min-w-0 truncate text-[11px] font-medium text-emerald-950 dark:text-emerald-50">
+          {selectedTargetDisplayLabel}
+        </span>
+        <button
+          aria-label="取消选中"
+          className="inline-flex size-[18px] shrink-0 items-center justify-center rounded-full text-emerald-700 opacity-0 transition-all duration-150 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto hover:bg-emerald-500/12 hover:text-emerald-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40 focus-visible:opacity-100 focus-visible:pointer-events-auto dark:text-emerald-200 dark:hover:bg-emerald-400/14 dark:hover:text-emerald-50"
+          title="取消选中"
+          type="button"
+          onClick={clearSelection}
+        >
+          <X aria-hidden="true" className="size-3" />
+        </button>
+      </div>
+    )
+  }, [clearSelection, selectedTargetDisplayLabel])
   const prepareSendPayload = React.useCallback(async ({
     userMessage,
     sessionId: _sessionId,
@@ -1065,6 +1107,7 @@ export function BuilderPage({
               sessionId={sessionId}
               showComposerMeta={false}
               showHeader={false}
+              {...(composerNotice ? { composerNotice } : {})}
               {...(messageDecorator ? { messageDecorator } : {})}
             />
           </div>

@@ -197,6 +197,7 @@ export function PreviewPane({
             ? resolveTargetSelectionSelector(targetSelection)
             : event.data.selector,
           targetSelection,
+          displayLabel: event.data.displayLabel,
         })
         return
       }
@@ -224,6 +225,7 @@ export function PreviewPane({
           type: 'selected',
           selector: resolveTargetSelectionSelector(targetSelection),
           targetSelection,
+          displayLabel: event.data.displayLabel,
         })
         return
       }
@@ -340,7 +342,7 @@ export function PreviewPane({
     ? 'border border-primary/70 bg-primary text-primary-foreground hover:bg-primary'
     : selectionActionState === 'armed'
       ? 'border border-primary/35 bg-primary/10 text-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.35)] ring-1 ring-primary/15 hover:border-primary/45 hover:bg-primary/14 hover:text-primary'
-      : 'border border-transparent text-muted-foreground hover:bg-muted/70 hover:text-foreground'
+      : 'border border-transparent text-foreground hover:bg-muted/70 hover:text-foreground'
 
   return (
     <section className="page-builder-pane flex min-h-[560px] min-w-0 flex-col overflow-hidden rounded-2xl lg:h-full lg:min-h-0">

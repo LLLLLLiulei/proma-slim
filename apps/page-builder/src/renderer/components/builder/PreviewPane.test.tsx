@@ -22,7 +22,7 @@ function createCmsIslandTargetSelection(
 ) {
   return {
     kind: 'cms-island' as const,
-    selector,
+    sourceSelector: selector,
     parentBlockSelector,
     component,
     editBoundary: 'source-atomic' as const,
@@ -119,10 +119,24 @@ describe('PreviewPane', () => {
       <PreviewPane
         onToggleSelectionMode={onToggleSelectionMode}
         previewUrl="https://example.com/preview"
-        selectionActionState="armed"
-        selectionModeEnabled={true}
       />,
     )
+
+    let idleSelectionButton = findButton(renderer, '选择区块')
+    expect(idleSelectionButton.props['aria-pressed']).toBe(false)
+    expect(idleSelectionButton.props.className).toContain('text-foreground')
+    expect(idleSelectionButton.props.className).not.toContain('text-muted-foreground')
+
+    await act(async () => {
+      renderer.update(
+        <PreviewPane
+          onToggleSelectionMode={onToggleSelectionMode}
+          previewUrl="https://example.com/preview"
+          selectionActionState="armed"
+          selectionModeEnabled={true}
+        />,
+      )
+    })
 
     let selectionButton = findButton(renderer, '选择区块')
     expect(selectionButton.props['aria-pressed']).toBe(true)
@@ -646,6 +660,7 @@ describe('PreviewPane', () => {
           source: PAGE_BUILDER_PREVIEW_BRIDGE_SOURCE,
           type: 'selected',
           selector: '#hero',
+          displayLabel: 'Hero',
           targetSelection: createBlockTargetSelection('#hero'),
           rect: {
             top: 120,
@@ -662,6 +677,7 @@ describe('PreviewPane', () => {
     expect(onSelectionEvent).toHaveBeenCalledWith({
       type: 'selected',
       selector: '#hero',
+      displayLabel: 'Hero',
       targetSelection: createBlockTargetSelection('#hero'),
     })
 
@@ -766,6 +782,7 @@ describe('PreviewPane', () => {
           source: PAGE_BUILDER_PREVIEW_BRIDGE_SOURCE,
           type: 'selected',
           selector: '#hero-image',
+          displayLabel: 'HeroImage',
           targetSelection: createBlockTargetSelection('#hero-image'),
           rect: {
             top: 160,
@@ -887,6 +904,7 @@ describe('PreviewPane', () => {
           source: PAGE_BUILDER_PREVIEW_BRIDGE_SOURCE,
           type: 'selected',
           selector: '#hero-image',
+          displayLabel: 'HeroImage',
           targetSelection: createBlockTargetSelection('#hero-image'),
           rect: {
             top: 160,
@@ -963,6 +981,7 @@ describe('PreviewPane', () => {
           source: PAGE_BUILDER_PREVIEW_BRIDGE_SOURCE,
           type: 'selected',
           selector: '#pricing',
+          displayLabel: 'Pricing',
           targetSelection: createBlockTargetSelection('#pricing'),
           rect: {
             top: 220,
@@ -979,11 +998,13 @@ describe('PreviewPane', () => {
     expect(onSelectionEvent).toHaveBeenCalledWith({
       type: 'selected',
       selector: '#hero-image',
+      displayLabel: 'HeroImage',
       targetSelection: createBlockTargetSelection('#hero-image'),
     })
     expect(onSelectionEvent).not.toHaveBeenCalledWith({
       type: 'selected',
       selector: '#pricing',
+      displayLabel: 'Pricing',
       targetSelection: createBlockTargetSelection('#pricing'),
     })
   })
@@ -1063,7 +1084,8 @@ describe('PreviewPane', () => {
         data: {
           source: PAGE_BUILDER_PREVIEW_BRIDGE_SOURCE,
           type: 'selected',
-          selector: targetSelection.selector,
+          selector: targetSelection.sourceSelector,
+          displayLabel: 'cms-catalog',
           targetSelection,
           rect: {
             top: 140,
@@ -1079,7 +1101,8 @@ describe('PreviewPane', () => {
 
     expect(onSelectionEvent).toHaveBeenCalledWith({
       type: 'selected',
-      selector: targetSelection.selector,
+      selector: targetSelection.sourceSelector,
+      displayLabel: 'cms-catalog',
       targetSelection,
     })
     expect(renderer.root.findAll((node) =>

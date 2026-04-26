@@ -161,6 +161,7 @@ export interface AgentViewProps {
     sessionId: string
     workspaceId?: string
   }) => Promise<AgentSendPayloadPreparationResult | void> | AgentSendPayloadPreparationResult | void
+  composerNotice?: React.ReactNode
   composerLeadingActions?: React.ReactNode
   onMessageSent?: (userMessage: string) => void
   beforeSendMessage?: (input: {
@@ -322,6 +323,7 @@ export function AgentView({
   onInitialUserMessageHandled,
   messageDecorator,
   prepareSendPayload,
+  composerNotice,
   composerLeadingActions,
   onMessageSent,
   beforeSendMessage,
@@ -1027,6 +1029,11 @@ export function AgentView({
               attachments={pendingAttachments}
               onRemove={handleRemoveAttachment}
             />
+          )}
+          {composerNotice && (
+            <div className="px-3 pb-2">
+              {composerNotice}
+            </div>
           )}
           <RichTextInput
             value={inputValue}

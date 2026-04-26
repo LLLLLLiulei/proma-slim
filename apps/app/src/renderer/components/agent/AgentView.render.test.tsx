@@ -309,6 +309,50 @@ describe('AgentView rendering extension points', () => {
     expect(json).toContain('Enter 发送，Shift+Enter 换行。')
   })
 
+  test('renders a custom composer notice above the input area', async () => {
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: 'Page Builder Project',
+      slug: 'page-builder-project',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const { AgentView } = await loadAgentView()
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <Provider store={createStore()}>
+          <HydrateAgentViewState sessions={[session]} workspaces={[workspace]}>
+            <AgentView
+              sessionId={session.id}
+              composerNotice={(
+                <div title="#hero-banner">
+                  #hero-banner
+                </div>
+              )}
+            />
+          </HydrateAgentViewState>
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    const json = JSON.stringify(renderer.toJSON())
+    expect(json).toContain('#hero-banner')
+    expect(json.indexOf('#hero-banner')).toBeLessThan(json.indexOf('Enter 发送，Shift+Enter 换行。'))
+  })
+
   test('calls onMessageSent only after a decorated message is sent successfully', async () => {
     const workspace: AgentWorkspace = {
       id: 'workspace-1',

@@ -48,12 +48,14 @@ export type PageBuilderPreviewBridgeMessage =
     type: 'hover'
     selector: string | null
     targetSelection: PageBuilderTargetSelection | null
+    displayLabel?: string
   }
   | {
     source: typeof PAGE_BUILDER_PREVIEW_BRIDGE_SOURCE
     type: 'selected'
     selector: string
     targetSelection: PageBuilderTargetSelection
+    displayLabel?: string
     rect: PageBuilderPreviewAnchorRect
     capabilities?: PageBuilderSelectedBlockCapabilities
   }
