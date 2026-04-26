@@ -114,6 +114,14 @@ async function readSendRequestBody(
   }
 }
 
+function resolveRequestOrigin(request: Request): string | undefined {
+  try {
+    return new URL(request.url).origin
+  } catch {
+    return undefined
+  }
+}
+
 sessionRoutes.get('/', (c) => {
   return c.json(listAgentSessions())
 })
@@ -263,6 +271,7 @@ sessionRoutes.post('/:sessionId/send', async (c) => {
       requestTrace,
       turnTrace,
       structuredRequestPayload,
+      appOrigin: resolveRequestOrigin(c.req.raw),
     })
     if (!response.ok && attachments.length > 0) {
       deleteAgentSessionAttachments({

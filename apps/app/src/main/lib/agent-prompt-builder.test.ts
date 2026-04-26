@@ -58,4 +58,20 @@ describe('agent prompt builder', () => {
     expect(prompt).not.toContain('Workspace Root:')
     expect(prompt).not.toContain('Workspace Files:')
   })
+
+  test('injects a stable browser preview url and lightweight playwright runtime instructions when available', () => {
+    const prompt = buildDynamicContext({
+      workspaceSlug: 'page-builder-workspace',
+      pageBuilderRuntimePlaywrightMode: 'available',
+      pageBuilderBrowserPreviewUrl: 'http://localhost:5174/api/workspaces/ws-1/preview/',
+    })
+
+    expect(prompt).toContain('<page_builder_browser_preview_url>http://localhost:5174/api/workspaces/ws-1/preview/</page_builder_browser_preview_url>')
+    expect(prompt).toContain('直接使用上面的绝对预览地址')
+    expect(prompt).toContain('不要自行拼接、猜测或改写 preview URL')
+    expect(prompt).toContain('<page_builder_runtime_playwright>available</page_builder_runtime_playwright>')
+    expect(prompt).toContain('当前 query 已提供可用的 playwright MCP')
+    expect(prompt).toContain('不要自行安装浏览器运行时')
+    expect(prompt).not.toContain('<page_builder_internal_preview_url>')
+  })
 })

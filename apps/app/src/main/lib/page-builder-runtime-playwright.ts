@@ -11,6 +11,21 @@ function normalizeOrigin(value: string): string {
   return value.trim().replace(/\/+$/, '')
 }
 
+function resolveAbsolutePreviewUrl(
+  previewPath: string | null,
+  origin: string | null,
+): string | null {
+  if (!previewPath || !origin) {
+    return null
+  }
+
+  try {
+    return new URL(previewPath, `${origin}/`).toString()
+  } catch {
+    return null
+  }
+}
+
 function canonicalizeEntry(entry: McpServerEntry | null | undefined): string | null {
   if (!entry) return null
 
@@ -56,16 +71,17 @@ export function resolvePageBuilderInternalPreviewUrl(
   previewPath: string | null,
   env: EnvSource = process.env,
 ): string | null {
-  if (!previewPath) return null
+  return resolveAbsolutePreviewUrl(previewPath, resolvePageBuilderInternalAppOrigin(env))
+}
 
-  const origin = resolvePageBuilderInternalAppOrigin(env)
-  if (!origin) return null
-
-  try {
-    return new URL(previewPath, `${origin}/`).toString()
-  } catch {
-    return null
-  }
+export function resolvePageBuilderBrowserPreviewUrl(
+  previewPath: string | null,
+  appOrigin: string | null | undefined,
+): string | null {
+  const origin = typeof appOrigin === 'string' && appOrigin.trim().length > 0
+    ? normalizeOrigin(appOrigin)
+    : null
+  return resolveAbsolutePreviewUrl(previewPath, origin)
 }
 
 export function isDefaultPageBuilderPlaywrightEntry(entry: McpServerEntry): boolean {

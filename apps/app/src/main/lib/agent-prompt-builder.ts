@@ -66,8 +66,8 @@ interface DynamicContext {
   accessibleDirectories?: string[]
   memoryFilePath?: string
   workspaceMcpStateLines?: string[]
-  pageBuilderRuntimePlaywrightActive?: boolean
-  pageBuilderInternalPreviewUrl?: string
+  pageBuilderRuntimePlaywrightMode?: 'docker-http' | 'available'
+  pageBuilderBrowserPreviewUrl?: string
 }
 
 export function buildDynamicContext(ctx: DynamicContext): string {
@@ -170,22 +170,31 @@ ${workspaceStateLines.join('\n')}
 </workspace_state>`)
   }
 
-  if (ctx.pageBuilderInternalPreviewUrl) {
-    sections.push(`<page_builder_internal_preview_url>${ctx.pageBuilderInternalPreviewUrl}</page_builder_internal_preview_url>`)
-    sections.push(`<page_builder_internal_preview_instructions>
-当你需要使用浏览器 MCP 访问当前 page-builder 工作区预览时，优先使用上面的内部绝对地址。
-- 这个地址面向部署内部网络中的浏览器自动化运行时。
-- 不要把它改写回浏览器侧的相对 preview path。
-</page_builder_internal_preview_instructions>`)
+  if (ctx.pageBuilderBrowserPreviewUrl) {
+    sections.push(`<page_builder_browser_preview_url>${ctx.pageBuilderBrowserPreviewUrl}</page_builder_browser_preview_url>`)
+    sections.push(`<page_builder_browser_preview_instructions>
+当你需要使用浏览器 MCP 访问当前 page-builder 工作区预览时，直接使用上面的绝对预览地址。
+- 不要自行拼接、猜测或改写 preview URL。
+- 没有这个地址时，不要猜测 localhost 端口、协议或宿主地址。
+</page_builder_browser_preview_instructions>`)
   }
 
-  if (ctx.pageBuilderRuntimePlaywrightActive) {
-    sections.push(`<page_builder_runtime_playwright>docker-http</page_builder_runtime_playwright>`)
+  if (ctx.pageBuilderRuntimePlaywrightMode) {
+    sections.push(`<page_builder_runtime_playwright>${ctx.pageBuilderRuntimePlaywrightMode}</page_builder_runtime_playwright>`)
+    const runtimeInstructions = ctx.pageBuilderRuntimePlaywrightMode === 'docker-http'
+      ? [
+          '当前 query 的 playwright MCP 由 Docker 内部 HTTP sidecar 提供。',
+          '- 不要尝试在当前工作目录或当前容器里安装 Chrome、Chromium，或运行 npx playwright install。',
+          '- 这个浏览器运行时不共享当前工作目录的本地文件系统；不要对 workspace 文件使用 file:// URL。',
+          '- 若需要访问当前 page-builder 页面，优先使用上面的绝对预览地址；没有该地址时，也不要猜测 URL 或退回到 file:// 工作区文件。',
+        ]
+      : [
+          '当前 query 已提供可用的 playwright MCP。',
+          '- 若需要访问当前 page-builder 页面，优先使用上面的绝对预览地址；没有该地址时不要猜测 URL。',
+          '- 不要自行安装浏览器运行时，也不要退回到 file:// 工作区文件路径。',
+        ]
     sections.push(`<page_builder_runtime_playwright_instructions>
-当前 query 的 playwright MCP 由 Docker 内部 HTTP sidecar 提供。
-- 不要尝试在当前工作目录或当前容器里安装 Chrome、Chromium，或运行 npx playwright install。
-- 这个浏览器运行时不共享当前工作目录的本地文件系统；不要对 workspace 文件使用 file:// URL。
-- 若需要访问当前 page-builder 页面，优先使用内部预览地址；没有内部预览地址时，也不要退回到 file:// 工作区文件。
+${runtimeInstructions.join('\n')}
 </page_builder_runtime_playwright_instructions>`)
   }
 

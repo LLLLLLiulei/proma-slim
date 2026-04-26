@@ -74,6 +74,7 @@ export interface AgentSendDiagnosticContext {
   requestTrace?: RequestTraceContext
   turnTrace?: TurnTraceContext
   structuredRequestPayload?: StructuredRequestPayload
+  appOrigin?: string
 }
 
 export interface DiagnosticLogger {

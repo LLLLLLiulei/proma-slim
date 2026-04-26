@@ -120,4 +120,17 @@ describe('page-builder-guided-generation skill docs', () => {
     expect(skill).not.toContain('`mcp__cms__decide_cms_binding`')
     expect(skill).not.toContain('`site-id`, `catalog-id`, `ids`, or `page-size`')
   })
+
+  test('documents static-first playwright escalation and close-after-use rules', () => {
+    const skill = readRelativeText('../../../default-skills/page-builder-guided-generation/SKILL.md')
+
+    expect(skill).toContain('ordinary repair, ordinary follow-up, and selected-block follow-up')
+    expect(skill).toContain('Start with static analysis of the current preview source')
+    expect(skill).toContain('If the issue is still not stably explained after static analysis')
+    expect(skill).toContain('use the available Playwright MCP to inspect the real preview result')
+    expect(skill).toContain('use that exact preview URL directly')
+    expect(skill).toContain('Do not guess preview URLs')
+    expect(skill).toContain('do not fall back to `file://` workspace paths')
+    expect(skill).toContain('After collecting the evidence you need, actively close the current Playwright page, tab, or browser session')
+  })
 })

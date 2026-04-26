@@ -166,6 +166,16 @@ Once a page has already been generated, default to lightweight iteration mode.
 
 If the user clearly asks to redo everything, switch back to redo mode and use overwrite confirmation.
 
+## Page Issue Escalation
+
+For ordinary repair, ordinary follow-up, and selected-block follow-up:
+
+- Start with static analysis of the current preview source, current selection context, and current turn context.
+- If the page issue can already be stably explained from those static signals, fix it directly without escalating to browser diagnosis.
+- If the issue is still not stably explained after static analysis, or the user reports that the page is still broken after a prior fix, use the available Playwright MCP to inspect the real preview result before making more speculative edits.
+- When the current turn provides a stable browser preview URL, use that exact preview URL directly. Do not guess preview URLs, do not reconstruct them by hand, and do not fall back to `file://` workspace paths.
+- Treat this browser step as short-lived diagnosis only. After collecting the evidence you need, actively close the current Playwright page, tab, or browser session before continuing the fix or ending the turn.
+
 ## Output Discipline
 
 - Keep the process conversational but controlled.

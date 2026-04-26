@@ -81,6 +81,7 @@ import {
 import {
   isPageBuilderDockerRuntime,
   isDefaultPageBuilderPlaywrightEntry,
+  resolvePageBuilderBrowserPreviewUrl,
   resolvePageBuilderInternalPreviewUrl,
   resolvePageBuilderPlaywrightMcpUrl,
 } from './page-builder-runtime-playwright'
@@ -1361,20 +1362,35 @@ export class AgentOrchestrator {
           ? candidate.url
           : null
       })()
-      const hasRuntimePageBuilderPlaywright = Boolean(
-        configuredRuntimePlaywrightUrl
-        && runtimePlaywrightUrl === configuredRuntimePlaywrightUrl,
-      )
+      const runtimePlaywrightMode = (() => {
+        if (!runtimePlaywright || typeof runtimePlaywright !== 'object') {
+          return null
+        }
+
+        if (
+          configuredRuntimePlaywrightUrl
+          && runtimePlaywrightUrl === configuredRuntimePlaywrightUrl
+        ) {
+          return 'docker-http' as const
+        }
+
+        return 'available' as const
+      })()
 
       const runtimePlaywrightPreviewUrl = (() => {
         if (!isPageBuilderWorkspace) return undefined
 
-        if (!hasRuntimePageBuilderPlaywright) {
+        if (!runtimePlaywrightMode) {
           return undefined
         }
 
         const previewState = getWorkspacePreviewState(workspaceRuntime.workspace)
-        return resolvePageBuilderInternalPreviewUrl(previewState.entryUrl)
+        if (runtimePlaywrightMode === 'docker-http') {
+          return resolvePageBuilderInternalPreviewUrl(previewState.entryUrl)
+            ?? undefined
+        }
+
+        return resolvePageBuilderBrowserPreviewUrl(previewState.entryUrl, diagnostic?.appOrigin)
           ?? undefined
       })()
 
@@ -1387,14 +1403,15 @@ export class AgentOrchestrator {
         accessibleDirectories: resolvedAdditionalDirectories,
         memoryFilePath: getWorkspaceMemoryFilePath(workspaceSlug),
         workspaceMcpStateLines: buildWorkspaceMcpStateLines(resolvedMcpServers),
-        pageBuilderRuntimePlaywrightActive: hasRuntimePageBuilderPlaywright,
-        pageBuilderInternalPreviewUrl: runtimePlaywrightPreviewUrl,
+        pageBuilderRuntimePlaywrightMode: runtimePlaywrightMode ?? undefined,
+        pageBuilderBrowserPreviewUrl: runtimePlaywrightPreviewUrl,
       })
       logTurnPhase('info', 'dynamic_context_built', {
         dynamicContextLength: dynamicCtx.length,
         additionalDirectoryCount: resolvedAdditionalDirectories.length,
         mcpServerNames: Object.keys(resolvedMcpServers),
-        hasRuntimePageBuilderPlaywright,
+        hasRuntimePageBuilderPlaywright: Boolean(runtimePlaywrightMode),
+        runtimePlaywrightMode: runtimePlaywrightMode ?? null,
         runtimePlaywrightPreviewUrl: runtimePlaywrightPreviewUrl ?? null,
       }, 'Agent dynamic context built')
 

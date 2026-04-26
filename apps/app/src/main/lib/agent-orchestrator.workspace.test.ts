@@ -539,11 +539,8 @@ describe('AgentOrchestrator workspace runtime', () => {
         type: 'stdio',
         command: 'npx',
       },
-      'server-sequential-thinking': {
-        type: 'stdio',
-        command: 'npx',
-      },
     })
+    expect(adapter.inputs[1]?.mcpServers).not.toHaveProperty('server-sequential-thinking')
   })
 
   test('allows an explicitly mentioned MCP server on the first page-builder turn when runtime playwright is not configured', async () => {
@@ -627,11 +624,12 @@ describe('AgentOrchestrator workspace runtime', () => {
 
     expect(adapter.inputs).toHaveLength(2)
     expect(adapter.inputs[1]?.mcpServers).toMatchObject({
-      'server-sequential-thinking': {
-        type: 'stdio',
-        command: 'npx',
+      image_search: {
+        type: 'sdk',
+        name: 'image_search',
       },
     })
+    expect(adapter.inputs[1]?.mcpServers).not.toHaveProperty('server-sequential-thinking')
     expect(adapter.inputs[1]?.mcpServers).not.toHaveProperty('playwright')
     expect(adapter.inputs[1]?.prompt).not.toContain('<mentioned_tools>')
   })
@@ -678,7 +676,7 @@ describe('AgentOrchestrator workspace runtime', () => {
       },
     })
     expect(adapter.lastInput?.prompt).toContain('<page_builder_runtime_playwright>docker-http</page_builder_runtime_playwright>')
-    expect(adapter.lastInput?.prompt).not.toContain('<page_builder_internal_preview_url>')
+    expect(adapter.lastInput?.prompt).not.toContain('<page_builder_browser_preview_url>')
   })
 
   test('resolves the default page-builder playwright MCP to the docker runtime endpoint when configured', async () => {
@@ -801,15 +799,16 @@ describe('AgentOrchestrator workspace runtime', () => {
       },
     )
 
-    expect(adapter.lastInput?.prompt).toContain('<page_builder_internal_preview_url>')
+    expect(adapter.lastInput?.prompt).toContain('<page_builder_browser_preview_url>')
     expect(adapter.lastInput?.prompt).toContain(`http://server:8888/api/workspaces/${workspace.id}/preview/`)
     expect(adapter.lastInput?.prompt).toContain('<page_builder_runtime_playwright>docker-http</page_builder_runtime_playwright>')
     expect(adapter.lastInput?.prompt).toContain('不要对 workspace 文件使用 file:// URL')
+    expect(adapter.lastInput?.prompt).toContain('不要自行拼接、猜测或改写 preview URL')
     expect(adapter.lastInput?.prompt).toContain('- playwright (http, 已启用): http://playwright:8931/mcp')
     expect(adapter.lastInput?.prompt).not.toContain('- playwright (stdio, 已启用): npx @playwright/mcp@latest --headless --browser chrome')
   })
 
-  test('does not inject an internal preview url when no preview is available', async () => {
+  test('does not inject a browser preview url when no preview is available', async () => {
     process.env.AI_PAGE_BUILDER_PLAYWRIGHT_MCP_URL = 'http://playwright:8931/mcp'
     process.env.AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN = 'http://server:8888'
 
@@ -834,10 +833,50 @@ describe('AgentOrchestrator workspace runtime', () => {
       },
     )
 
-    expect(adapter.lastInput?.prompt).not.toContain('<page_builder_internal_preview_url>')
+    expect(adapter.lastInput?.prompt).not.toContain('<page_builder_browser_preview_url>')
     expect(adapter.lastInput?.prompt).not.toContain(`http://server:8888/api/workspaces/${workspace.id}/preview/`)
     expect(adapter.lastInput?.prompt).toContain('<page_builder_runtime_playwright>docker-http</page_builder_runtime_playwright>')
     expect(adapter.lastInput?.prompt).toContain('不要对 workspace 文件使用 file:// URL')
+  })
+
+  test('injects a browser-accessible preview url for local playwright turns and carries close-after-use guidance through the owner skill prompt', async () => {
+    const adapter = new RecordingAdapter()
+    const orchestrator = new AgentOrchestrator(adapter, new AgentEventBus())
+    const workspace = createAgentWorkspace('Page Builder Local Preview', { template: 'page-builder' })
+    const session = createAgentSession('Local preview session', undefined, workspace.id)
+    const workspaceFilesDir = getWorkspaceFilesDir(workspace.slug)
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(join(workspaceFilesDir, 'index.html'), '<!doctype html><html><body><section id=\"hero\">Preview</section></body></html>', 'utf-8')
+
+    await orchestrator.sendMessage(
+      {
+        sessionId: session.id,
+        userMessage: '这个页面样式还是不对，请用浏览器排查',
+        channelId: '',
+        mentionedMcpServers: ['playwright'],
+        mentionedSkills: ['page-builder-guided-generation'],
+        bootstrappedSkills: ['page-builder-guided-generation'],
+      },
+      {
+        onError: (message) => {
+          throw new Error(message)
+        },
+        onComplete: () => {},
+        onTitleUpdated: () => {},
+      },
+      {
+        appOrigin: 'http://localhost:5174',
+      },
+    )
+
+    expect(adapter.lastInput?.prompt).toContain('<page_builder_browser_preview_url>')
+    expect(adapter.lastInput?.prompt).toContain(`http://localhost:5174/api/workspaces/${workspace.id}/preview/`)
+    expect(adapter.lastInput?.prompt).toContain('<page_builder_runtime_playwright>available</page_builder_runtime_playwright>')
+    expect(adapter.lastInput?.prompt).toContain('当前 query 已提供可用的 playwright MCP')
+    expect(adapter.lastInput?.prompt).toContain('Do not guess preview URLs')
+    expect(adapter.lastInput?.prompt).toContain('actively close the current Playwright page, tab, or browser session')
+    expect(adapter.lastInput?.prompt).toContain('<bootstrapped_skills>')
   })
 
   test('auto-injects runtime cms sdk tools into page-builder queries when cms env is configured', async () => {
