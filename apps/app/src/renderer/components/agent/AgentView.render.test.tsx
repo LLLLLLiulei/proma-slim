@@ -70,6 +70,8 @@ async function loadAgentView(options?: {
   getSessionMessages?: () => Promise<unknown[]>
   getSessionActivity?: (sessionId: string) => Promise<{ active: boolean }>
   toastError?: ReturnType<typeof mock>
+  trackAgentMessagesRenders?: ReturnType<typeof mock>
+  memoizeMockedAgentMessages?: boolean
 }) {
   let lastRichTextInputProps: RichTextInputProps | null = null
   let lastPendingAttachments: unknown[] = []
@@ -86,11 +88,18 @@ async function loadAgentView(options?: {
       return React.createElement('div', { 'data-testid': 'agent-header' })
     },
   }))
-  mock.module('./AgentMessages', () => ({
-    AgentMessages() {
+  mock.module('./AgentMessages', () => {
+    function MockAgentMessages(props: { sessionId: string; messages: unknown[]; streaming: boolean; streamState?: unknown }) {
+      options?.trackAgentMessagesRenders?.(props)
       return React.createElement('div', { 'data-testid': 'agent-messages' })
-    },
-  }))
+    }
+
+    return {
+      AgentMessages: options?.memoizeMockedAgentMessages
+        ? React.memo(MockAgentMessages)
+        : MockAgentMessages,
+    }
+  })
   mock.module('./PermissionBanner', () => ({
     PermissionBanner() {
       return React.createElement('div', { 'data-testid': 'permission-banner' })
@@ -407,6 +416,58 @@ describe('AgentView rendering extension points', () => {
     }
   })
 
+  test('keeps transcript props stable while editing the current draft', async () => {
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: 'Page Builder Project',
+      slug: 'page-builder-project',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const trackAgentMessagesRenders = mock((_props: unknown) => {})
+    const { AgentView, getLastRichTextInputProps } = await loadAgentView({
+      trackAgentMessagesRenders,
+      memoizeMockedAgentMessages: true,
+      getSessionMessages: async () => [{
+        id: 'assistant-1',
+        role: 'assistant',
+        content: '这是已经展示的历史助手消息。',
+        createdAt: 1,
+      }],
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <HydrateAgentViewState sessions={[session]} workspaces={[workspace]}>
+            <AgentView sessionId={session.id} />
+          </HydrateAgentViewState>
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    const initialRenderCount = trackAgentMessagesRenders.mock.calls.length
+    expect(initialRenderCount).toBeGreaterThan(0)
+
+    await act(async () => {
+      getLastRichTextInputProps()?.onChange('继续修改草稿')
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(trackAgentMessagesRenders.mock.calls.length).toBe(initialRenderCount)
+  })
+
   test('programmatic send keeps current draft and attachments while forwarding hidden payload and mentioned skills', async () => {
     const workspace: AgentWorkspace = {
       id: 'workspace-1',
@@ -593,6 +654,52 @@ describe('AgentView rendering extension points', () => {
     expect(sendMessage).toHaveBeenCalledWith(session.id, expect.objectContaining({
       userMessage: '把页面做得更年轻一些',
       mentionedSkills: ['page-builder-guided-generation'],
+      workspaceId: workspace.id,
+    }))
+  })
+
+  test('submits the latest visible draft even when input change and submit happen back-to-back', async () => {
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: 'Page Builder Project',
+      slug: 'page-builder-project',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const { AgentView, sendMessage, getLastRichTextInputProps } = await loadAgentView()
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <HydrateAgentViewState sessions={[session]} workspaces={[workspace]}>
+            <AgentView sessionId={session.id} />
+          </HydrateAgentViewState>
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    const inputProps = getLastRichTextInputProps()
+
+    await act(async () => {
+      inputProps?.onChange('最后几个字')
+      inputProps?.onSubmit()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(sendMessage).toHaveBeenCalledWith(session.id, expect.objectContaining({
+      userMessage: '最后几个字',
       workspaceId: workspace.id,
     }))
   })

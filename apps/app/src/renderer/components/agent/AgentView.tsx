@@ -357,6 +357,8 @@ export function AgentView({
   )
 
   const inputValue = draftsMap.get(sessionId) ?? ''
+  const latestDraftValueRef = React.useRef(inputValue)
+  latestDraftValueRef.current = inputValue
   const streaming = streamingState?.running ?? false
   const session = sessions.find((item) => item.id === sessionId) ?? null
   const sessionWorkspaceId = session?.workspaceId ?? null
@@ -375,6 +377,7 @@ export function AgentView({
   )
 
   const setInputValue = React.useCallback((value: string) => {
+    latestDraftValueRef.current = value
     setDraftsMap((prev) => {
       const map = new Map(prev)
       if (value.trim() === '') {
@@ -742,8 +745,8 @@ export function AgentView({
   ])
 
   const handleSend = React.useCallback(async (): Promise<void> => {
-    await sendDraftMessage(inputValue)
-  }, [inputValue, sendDraftMessage])
+    await sendDraftMessage(latestDraftValueRef.current)
+  }, [sendDraftMessage])
 
   const handleAddFiles = React.useCallback((files: File[]): void => {
     if (!allowAttachments || files.length === 0) return

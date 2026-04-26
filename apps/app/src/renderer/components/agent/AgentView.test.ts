@@ -52,6 +52,23 @@ describe('AgentView session-scoped message state', () => {
     expect(getMessagesForSession(state, 'session-b').map((message) => message.content)).toEqual(['B persisted'])
   })
 
+  test('appending a new message preserves existing history item identities for memoized rendering', () => {
+    const firstMessage = createMessage('a-1', 'user', 'A')
+    const secondMessage = createMessage('a-2', 'assistant', 'B')
+    const nextMessage = createMessage('a-3', 'user', 'C')
+
+    let state = new Map<string, AgentMessage[]>()
+    state = replaceMessagesForSession(state, 'session-a', [firstMessage, secondMessage])
+
+    const nextState = appendMessageForSession(state, 'session-a', nextMessage)
+    const nextMessages = getMessagesForSession(nextState, 'session-a')
+
+    expect(nextMessages).toHaveLength(3)
+    expect(nextMessages[0]).toBe(firstMessage)
+    expect(nextMessages[1]).toBe(secondMessage)
+    expect(nextMessages[2]).toBe(nextMessage)
+  })
+
   test('creates an optimistic user message that keeps pending attachments visible during streaming', () => {
     const attachmentFile = new File(['image-bytes'], 'reference.png', { type: 'image/png' })
 

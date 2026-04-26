@@ -578,7 +578,7 @@ interface AgentMessageItemProps {
   onCompact?: () => void
 }
 
-function AgentMessageItem({
+export const AgentMessageItem = React.memo(function AgentMessageItem({
   sessionId,
   message,
   onRetry,
@@ -680,9 +680,19 @@ function AgentMessageItem({
   }
 
   return null
-}
+})
 
-export function AgentMessages({ sessionId, messages, streaming, streamState, onRetry, onRetryInNewSession, onCompact }: AgentMessagesProps): React.ReactElement {
+AgentMessageItem.displayName = 'AgentMessageItem'
+
+export const AgentMessages = React.memo(function AgentMessages({
+  sessionId,
+  messages,
+  streaming,
+  streamState,
+  onRetry,
+  onRetryInNewSession,
+  onCompact,
+}: AgentMessagesProps): React.ReactElement {
   const userProfile = useAtomValue(userProfileAtom)
 
   // 从 streamState 属性中计算派生值
@@ -785,4 +795,6 @@ export function AgentMessages({ sessionId, messages, streaming, streamState, onR
       <ConversationScrollButton />
     </Conversation>
   )
-}
+})
+
+AgentMessages.displayName = 'AgentMessages'
