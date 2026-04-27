@@ -181,6 +181,9 @@ describe('page builder preview selection helpers', () => {
         doNotGuessBindingProps: true,
         doNotAddPageWideVueRuntime: true,
         queryPropsChangeRequiresConfirmedApply: true,
+        sourceHtmlIsAuthoringSourceOnly: true,
+        hostInjectsPreviewRuntime: true,
+        inspectPreviewBeforeDiagnosingRuntime: true,
       },
     })
 
@@ -197,6 +200,9 @@ describe('page builder preview selection helpers', () => {
       doNotGuessBindingProps: true,
       doNotAddPageWideVueRuntime: true,
       queryPropsChangeRequiresConfirmedApply: true,
+      sourceHtmlIsAuthoringSourceOnly: true,
+      hostInjectsPreviewRuntime: true,
+      inspectPreviewBeforeDiagnosingRuntime: true,
     })
     expect(decorated).not.toContain('<page_builder_selection>')
   })

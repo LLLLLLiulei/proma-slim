@@ -1,7 +1,6 @@
 import * as React from 'react'
 import { AlertTriangle, ArrowUp, LoaderCircle } from 'lucide-react'
 import { toast } from 'sonner'
-import { RichTextInput } from '@/components/ai-elements/rich-text-input'
 import { Button } from '@/components/ui/button'
 import { api } from '@/lib/api'
 import { buildBuilderPath } from '@page-builder/lib/routes'
@@ -91,6 +90,46 @@ export function HomePage(): React.ReactElement {
     }
   }, [persistBootstrap, recoverable, starting])
 
+  const handlePromptChange = React.useCallback((event: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setPrompt(event.target.value)
+  }, [])
+
+  const handlePromptPaste = React.useCallback((event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const plainText = event.clipboardData.getData('text/plain')
+    if (!plainText) {
+      return
+    }
+
+    event.preventDefault()
+
+    const textarea = event.currentTarget
+    const selectionStart = textarea.selectionStart ?? textarea.value.length
+    const selectionEnd = textarea.selectionEnd ?? selectionStart
+    const nextPrompt = `${textarea.value.slice(0, selectionStart)}${plainText}${textarea.value.slice(selectionEnd)}`
+
+    setPrompt(nextPrompt)
+
+    const nextCursorPosition = selectionStart + plainText.length
+    const scheduleSelectionRestore = typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function'
+      ? window.requestAnimationFrame.bind(window)
+      : (callback: FrameRequestCallback) => globalThis.setTimeout(() => callback(0), 0)
+
+    scheduleSelectionRestore(() => {
+      if (typeof textarea.setSelectionRange === 'function') {
+        textarea.setSelectionRange(nextCursorPosition, nextCursorPosition)
+      }
+    })
+  }, [])
+
+  const handlePromptKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) {
+      return
+    }
+
+    event.preventDefault()
+    void handleStart()
+  }, [handleStart])
+
   return (
     <div className="page-builder-home-shell h-[100dvh] overflow-x-hidden overflow-y-auto">
       <div aria-hidden className="page-builder-home-ambient page-builder-home-ambient-animated">
@@ -114,13 +153,17 @@ export function HomePage(): React.ReactElement {
 
             <div className="page-builder-home-panel w-full max-w-[960px] p-4 sm:p-5">
               <div className="page-builder-home-surface page-builder-home-panel-surface page-builder-home-panel-flat page-builder-home-panel-focus rounded-[24px] border border-border/55 bg-background/90 p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)] backdrop-blur-xl">
-                <RichTextInput
-                  value={prompt}
-                  onChange={setPrompt}
-                  onSubmit={() => { void handleStart() }}
+                <textarea
+                  aria-label="页面需求输入框"
+                  className="page-builder-home-textarea min-h-[210px] w-full resize-none bg-transparent px-4 py-4 text-[15px] leading-7 text-foreground outline-none placeholder:text-muted-foreground/80"
                   disabled={starting}
+                  onChange={handlePromptChange}
+                  onKeyDown={handlePromptKeyDown}
+                  onPaste={handlePromptPaste}
+                  value={prompt}
                   placeholder="例如：为一家 AI 咨询公司生成官网，科技感、极简、带案例展示与联系表单。"
-                  className="min-h-[210px]"
+                  rows={7}
+                  spellCheck={false}
                 />
 
                 <div className="flex justify-end px-2 pb-2 pt-1">

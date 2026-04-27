@@ -85,21 +85,6 @@ async function loadHomePage(options: {
     }
   }
 
-  mock.module('@/components/ai-elements/rich-text-input', () => ({
-    RichTextInput({
-      onChange,
-      value,
-    }: {
-      onChange: (value: string) => void
-      value: string
-    }) {
-      return React.createElement('textarea', {
-        onChange: (event: { target: { value: string } }) => onChange(event.target.value),
-        value,
-      })
-    },
-  }))
-
   mock.module('sonner', () => ({
     toast: {
       error: toastError,
@@ -236,8 +221,41 @@ describe('HomePage', () => {
     const json = JSON.stringify(renderer.toJSON())
     expect(json).toContain('Intelligent Page Builder')
     expect(json).not.toContain('Proma Page Builder')
-    expect(json).toContain('输入你想要的网页效果，回车后即可创建项目并进入构建页继续完善。')
+    expect(json).toContain('输入你想要的内容和效果，回车后即可创建项目并进入构建页继续完善。')
     expect(json).not.toContain('提交后会创建“未命名项目”工作区与首个对话，并自动开始生成。')
+  })
+
+  test('renders a native textarea for plain-text-only input on the home prompt composer', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const { HomePage } = await loadHomePage({
+      createPageBuilderProjectImpl: async () => ({ workspace, session }),
+      retryPageBuilderSessionImpl: async () => session,
+    })
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(React.createElement(HomePage))
+    })
+
+    const textarea = renderer.root.findByType('textarea')
+    expect(textarea.props['aria-label']).toBe('页面需求输入框')
+    expect(textarea.props.rows).toBe(7)
+    expect(textarea.props.spellCheck).toBe(false)
   })
 
   test('attaches focus highlight styling to the visible input surface', async () => {
@@ -363,6 +381,112 @@ describe('HomePage', () => {
       workspaceId: workspace.id,
       initialPrompt: '生成一个 AI 咨询公司官网',
     })
+  })
+
+  test('inserts pasted content as plain text only', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const { HomePage } = await loadHomePage({
+      createPageBuilderProjectImpl: async () => ({ workspace, session }),
+      retryPageBuilderSessionImpl: async () => session,
+    })
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(React.createElement(HomePage))
+    })
+
+    let textarea = renderer.root.findByType('textarea')
+    await act(async () => {
+      textarea.props.onChange({ target: { value: '生成一个' } })
+    })
+
+    const preventDefault = mock(() => {})
+    await act(async () => {
+      textarea.props.onPaste({
+        preventDefault,
+        clipboardData: {
+          getData: (type: string) => {
+            if (type === 'text/plain') return 'AI 咨询公司官网'
+            if (type === 'text/html') return '<strong>AI 咨询公司官网</strong>'
+            return ''
+          },
+        },
+        currentTarget: {
+          value: '生成一个',
+          selectionStart: 4,
+          selectionEnd: 4,
+          setSelectionRange: () => {},
+        },
+      })
+    })
+
+    textarea = renderer.root.findByType('textarea')
+    expect(preventDefault).toHaveBeenCalledTimes(1)
+    expect(textarea.props.value).toBe('生成一个AI 咨询公司官网')
+  })
+
+  test('submits the plain-text textarea on Enter without requiring the submit button', async () => {
+    const { location, sessionStorage } = installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const createPageBuilderProject = mock(async () => ({ workspace, session }))
+
+    const { HomePage } = await loadHomePage({
+      createPageBuilderProjectImpl: createPageBuilderProject,
+      retryPageBuilderSessionImpl: async () => session,
+    })
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(React.createElement(HomePage))
+    })
+
+    const textarea = renderer.root.findByType('textarea')
+    await act(async () => {
+      textarea.props.onChange({ target: { value: '生成一个 AI 咨询公司官网' } })
+    })
+
+    const preventDefault = mock(() => {})
+    await act(async () => {
+      textarea.props.onKeyDown({
+        key: 'Enter',
+        shiftKey: false,
+        nativeEvent: { isComposing: false },
+        preventDefault,
+      })
+    })
+
+    expect(preventDefault).toHaveBeenCalledTimes(1)
+    expect(createPageBuilderProject).toHaveBeenCalledTimes(1)
+    expect(location.pathname).toBe(buildBuilderPath(workspace.id, session.id))
+    expect(readBootstrapPayload(sessionStorage, session.id)?.initialPrompt).toBe('生成一个 AI 咨询公司官网')
   })
 
   test('retries only session creation after a recoverable startup failure', async () => {
