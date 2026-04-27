@@ -65,6 +65,8 @@ describe('cms-binding-apply skill contract docs', () => {
     expect(examples).toContain('## Missing blockTypeHint fallback')
     expect(examples).toContain('## Incompatible example')
     expect(examples).toContain('## Malformed payload example')
+    expect(examples).toMatch(/"selection":\s*\{\s*"version": 6,/)
+    expect(examples).not.toContain('"version": 5')
     expect(examples).toContain('"sourceType": "contents-by-ids"')
     expect(examples).toContain('"reasonCode": "malformed-payload"')
     expect(examples).toContain('"scope": "target-selection-only"')
@@ -164,6 +166,32 @@ describe('cms-binding-apply skill contract docs', () => {
     expect(skill).toContain('omit `source.pageSize` unless the user explicitly requested a count')
     expect(skill).toContain('For `contents-by-ids`, never pass `source.pageSize`')
     expect(skill).toContain('For `catalog-nav`, never pass `source.pageSize`; use `source.take` instead')
+  })
+
+  test('documents authoritative source precedence for contents-by-catalog and does not treat zero-content catalogs as malformed', () => {
+    const skill = readRelativeText('../../../default-skills/cms-binding-apply/SKILL.md')
+    const content = readRelativeText('../../../default-skills/cms-binding-apply/references/cms-content-authoring.md')
+    const downstream = readRelativeText('../../../default-skills/cms-binding-apply/references/downstream-integration.md')
+
+    expect(skill).toContain('authoritative source context')
+    expect(skill).toContain('Do not treat `selection.snapshot.catalog.total` as authoritative content availability')
+    expect(skill).toContain('A zero-result contents probe is still a valid `contents-by-catalog` source')
+    expect(content).toContain('current empty state does not invalidate the binding source')
+    expect(downstream).toContain('authoritative source context')
+  })
+
+  test('documents structure-only compatibility and forbids semantic content-fit gating', () => {
+    const skill = readRelativeText('../../../default-skills/cms-binding-apply/SKILL.md')
+    const shared = readRelativeText('../../../default-skills/cms-binding-apply/references/shared-authoring-rules.md')
+    const examples = readRelativeText('../../../default-skills/cms-binding-apply/references/contract-examples.md')
+
+    expect(skill).toContain('Judge compatibility by structure, supported fields, and runtime boundaries only')
+    expect(skill).toContain('Do not judge whether the selected content topic, industry, tone, or literal copy matches the current module')
+    expect(skill).toContain('Do not return `needs-clarification` or `incompatible` only because the current placeholder copy and the selected CMS content talk about different subjects')
+    expect(shared).toContain('content-topic mismatch alone is not a structural incompatibility')
+    expect(examples).toContain('## Structure-first compatibility example')
+    expect(examples).toContain('A topic mismatch alone does not require `needs-clarification` or `incompatible`')
+    expect(examples).toContain('"status": "ready"')
   })
 
   test('documents in-place replacement and preserving the selected target shell during cms apply', () => {

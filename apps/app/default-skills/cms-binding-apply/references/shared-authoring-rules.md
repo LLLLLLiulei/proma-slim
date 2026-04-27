@@ -49,6 +49,7 @@ Prefer:
 ## Preserve the current target shell when compatible
 
 If the selected block already has a strong visual structure, keep that shell and only replace its data source.
+Treat this as a structural compatibility decision. A content-topic mismatch alone is not a structural incompatibility.
 
 ```html
 <cms-content site-id="14" catalog-id="news" ids="n-101">

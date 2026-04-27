@@ -41,7 +41,7 @@ In the current runtime chain, a `ready` result is not enough to write by itself:
     "blockTypeHint": "nav"
   },
   "selection": {
-    "version": 5,
+    "version": 6,
     "siteId": "14",
     "selectionKind": "catalogs",
     "sourceType": "catalogs-by-ids",
@@ -97,7 +97,7 @@ In the current runtime chain, a `ready` result is not enough to write by itself:
     "blockTypeHint": "content-list"
   },
   "selection": {
-    "version": 5,
+    "version": 6,
     "siteId": "14",
     "selectionKind": "contents",
     "sourceType": "contents-by-ids",
@@ -124,6 +124,27 @@ In the current runtime chain, a `ready` result is not enough to write by itself:
     "siteId": "14",
     "catalogId": "news",
     "ids": ["n-101", "n-102", "n-103"]
+  }
+}
+```
+
+## Structure-first compatibility example
+
+A topic mismatch alone does not require `needs-clarification` or `incompatible`.
+If the current block shell can still be driven by the available CMS fields and supported slot structure, the decision should remain structure-first and may still be `ready`.
+
+```json
+{
+  "status": "ready",
+  "targetBlockKind": "content-list",
+  "supportedRenderModes": ["replace-current"],
+  "renderMode": "replace-current",
+  "applyStrategy": "replace-current",
+  "mappingKind": "catalog-content-list",
+  "toolKind": "content-list",
+  "source": {
+    "siteId": "14",
+    "catalogId": "news"
   }
 }
 ```

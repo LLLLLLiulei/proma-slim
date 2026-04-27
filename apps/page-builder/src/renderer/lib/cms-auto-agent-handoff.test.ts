@@ -269,4 +269,114 @@ describe('page-builder CMS auto handoff payloads', () => {
       authoringRevision: 'rev-1',
     })).toThrow('CMS 选择结果缺少 siteId')
   })
+
+  test('preserves the original selection while serializing authoritative source context for contents-by-catalog', () => {
+    const targetSnapshot = {
+      kind: 'block' as const,
+      selector: '#latest-news',
+      parentBlockSelector: '#latest-news',
+      targetOuterHtml: '<section id="latest-news"><div>placeholder</div></section>',
+    }
+    const selection: PageBuilderCmsSelectionResult = {
+      version: 6,
+      siteId: '14',
+      targetSelection: {
+        kind: 'block',
+        selector: '#latest-news',
+        parentBlockSelector: '#latest-news',
+        editBoundary: 'block',
+      },
+      targetBlock: {
+        selector: '#latest-news',
+      },
+      selectionKind: 'contents',
+      sourceType: 'contents-by-catalog',
+      selectionMode: 'by-catalog',
+      catalogId: 'catalog-1',
+      snapshot: {
+        catalog: {
+          id: 'catalog-1',
+          name: '树节点栏目',
+          parentId: null,
+          path: '',
+          contentType: '',
+          contentTypeName: '',
+          hasChild: false,
+          total: 0,
+          children: [],
+        },
+      },
+    }
+
+    const authoritativeSource = {
+      catalog: {
+        id: 'catalog-1',
+        name: '权威栏目',
+        parentId: null,
+        path: '/news',
+        contentType: 'Article',
+        contentTypeName: '文章',
+        hasChild: false,
+        total: 21,
+        children: [],
+      },
+      contentsProbe: {
+        total: 21,
+        items: [{
+          id: 'content-1',
+          catalogId: 'catalog-1',
+          title: '最新动态',
+          summary: '摘要',
+          publishUrl: 'https://example.com/news/1',
+        }],
+      },
+    }
+
+    const request = createPageBuilderCmsAutoAgentHandoffRequest(selection, {
+      requestId: 'handoff-contents-by-catalog',
+      targetSnapshot,
+      authoringRevision: 'rev-1',
+      authoritativeSource,
+    })
+
+    const skillInput = extractSkillInputFromComposedMessage(request.composedUserMessage) as {
+      selection: PageBuilderCmsSelectionResult
+      authoritativeSource?: {
+        catalog: {
+          name: string
+          total: number
+          path: string
+        }
+        contentsProbe: {
+          total: number
+          items: Array<{ id: string }>
+        }
+      }
+    }
+
+    expect(skillInput.selection.snapshot).toEqual({
+      catalog: {
+        id: 'catalog-1',
+        name: '树节点栏目',
+        parentId: null,
+        path: '',
+        contentType: '',
+        contentTypeName: '',
+        hasChild: false,
+        total: 0,
+        children: [],
+      },
+    })
+    expect(skillInput.authoritativeSource).toEqual({
+      catalog: {
+        name: '权威栏目',
+        total: 21,
+        path: '/news',
+      },
+      contentsProbe: {
+        total: 21,
+        items: [{ id: 'content-1' }],
+      },
+    })
+  })
 })

@@ -495,10 +495,34 @@ describe('cms sdk runtime tools', () => {
     )
     const originalHtml = readFileSync(entryPath, 'utf-8')
     const selection = createContentSelection()
-    const handoff = createPageBuilderCmsAutoAgentHandoff(workspace, {
+    const handoff = await createPageBuilderCmsAutoAgentHandoff(workspace, {
       sessionId: 'session-1',
       selection,
       uiEntryPoint: 'block-toolbar',
+    }, {
+      cmsGateway: {
+        listCatalogs: async () => ({
+          items: [{
+            id: 'news',
+            name: '新闻',
+            parentId: null,
+            path: '/news',
+            contentType: 'article',
+            contentTypeName: '文章',
+            hasChild: false,
+            total: 12,
+            children: [],
+          }],
+          tree: [],
+        }),
+        listContents: async () => ({
+          pageIndex: 0,
+          pageSize: 1,
+          total: 0,
+          totalPages: 0,
+          items: [],
+        }),
+      },
     })
     const bundle = buildCmsRuntimeToolBundle(createGateway() as never, {
       workspace,

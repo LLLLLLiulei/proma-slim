@@ -73,7 +73,14 @@ If `blockTypeHint` is missing, do not fail immediately. Use a conservative fallb
    - `needs-clarification`: one critical ambiguity remains and can be resolved with one short structured question
    - `incompatible`: unsupported block kind, mismatched selection, page reflow, unsupported runtime, malformed payload, or unsupported strategy
 
+Judge compatibility by structure, supported fields, and runtime boundaries only.
+Do not judge whether the selected content topic, industry, tone, or literal copy matches the current module.
+Do not return `needs-clarification` or `incompatible` only because the current placeholder copy and the selected CMS content talk about different subjects.
+
 When `sourceType = contents-by-ids`, treat it as a single-catalog fixed content set and preserve both `selection.catalogId` and ordered `selection.contentIds`.
+When the payload includes authoritative source context for `contents-by-catalog`, prefer that context over the tree snapshot when deciding whether the source is still usable.
+Do not treat `selection.snapshot.catalog.total` as authoritative content availability.
+A zero-result contents probe is still a valid `contents-by-catalog` source.
 
 ## Ready Checklist
 
@@ -90,6 +97,7 @@ When the result is `ready`, continue in the same turn instead of stopping at an 
 - Do not reply that the skill is only a template, and do not edit workspace files directly.
 - Keep page-builder authoring HTML-first. `cms-catalog` / `cms-content` are host-managed source tags; this flow should author the selected source tag plus its slot templates, not a page-wide Vue app.
 - Inspect the current target block in the workspace source. Preserve the existing outer shell, classes, and major layout structure whenever they are still compatible with the selected CMS data.
+- Treat compatibility as a structural question: can the current shell be driven by the available CMS fields and supported slot structure. Do not reject a binding only because the selected content topic differs from the current static demo copy.
 - Treat the task as an in-place replacement of the selected target. Do not append a sibling `cms-catalog` / `cms-content` beside the current block.
 - If preserving the current structure is not safely compatible with the selected CMS data, return `needs-clarification` and ask one short `AskUserQuestion` instead of inventing a generic list, card grid, or navigation shell.
 - If `targetSelection.kind === cms-island`, preserve its runtime locator exactly as provided. `targetSelection.htmlPath + sourceSelector + parentBlockSelector + component` is the formal source target identity; keep that tuple unchanged and treat the target as `source-atomic`.
@@ -112,6 +120,7 @@ When the result is `ready`, continue in the same turn instead of stopping at an 
 
 - Use one short structured clarification only.
 - Ask only when one critical ambiguity blocks a safe decision.
+- Do not ask for clarification merely because the selected CMS content theme does not resemble the current placeholder text or industry.
 - Do not re-run CMS browsing through `AskUserQuestion`.
 - Do not ask broad creative questions once the CMS selection is already fixed.
 

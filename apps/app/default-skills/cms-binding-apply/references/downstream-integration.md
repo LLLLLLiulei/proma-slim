@@ -7,6 +7,7 @@ Use this file for host-side handoff and write-pipeline notes, not for the main s
 
 The later auto handoff module must inject `cms-binding-apply` explicitly. Hidden prompt decoration alone is not enough if runtime skill extraction only reads the visible `userMessage`.
 That same host-managed handoff must also pre-register the structured CMS context behind the current `handoffId`, so the downstream decision tool can reload it without trusting the model to restate raw apply inputs.
+For `contents-by-catalog`, that structured context should include authoritative source context refreshed from the CMS authority surface instead of trusting the earlier tree snapshot alone.
 
 ## Authoring snapshot prerequisite
 

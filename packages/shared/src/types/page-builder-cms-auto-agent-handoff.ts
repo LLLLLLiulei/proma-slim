@@ -1,5 +1,6 @@
 import {
   PAGE_BUILDER_CMS_APPLY_SKILL_CONTRACT_VERSION,
+  type PageBuilderCmsApplyAuthoritativeSource,
   type PageBuilderCmsApplySkillInput,
   type PageBuilderCmsApplyTargetSnapshot,
 } from './page-builder-cms-apply'
@@ -35,6 +36,36 @@ export interface PageBuilderCmsAutoAgentHandoffSettledResult {
   errorMessage?: string
 }
 
+function normalizeAuthoritativeSource(
+  authoritativeSource: PageBuilderCmsApplyAuthoritativeSource | undefined,
+): PageBuilderCmsApplyAuthoritativeSource | undefined {
+  if (!authoritativeSource) {
+    return undefined
+  }
+
+  return {
+    ...(authoritativeSource.catalog
+      ? {
+          catalog: {
+            name: authoritativeSource.catalog.name,
+            path: authoritativeSource.catalog.path,
+            total: authoritativeSource.catalog.total,
+          },
+        }
+      : {}),
+    ...(authoritativeSource.contentsProbe
+      ? {
+          contentsProbe: {
+            total: authoritativeSource.contentsProbe.total,
+            items: authoritativeSource.contentsProbe.items.map((item) => ({
+              id: item.id,
+            })),
+          },
+        }
+      : {}),
+  }
+}
+
 function requireSelectionSiteId(selection: PageBuilderCmsSelectionResult): string {
   const siteId = typeof selection.siteId === 'string' ? selection.siteId.trim() : ''
   if (!siteId) {
@@ -50,6 +81,7 @@ export function buildPageBuilderCmsApplySkillInput(
     handoffId: string
     targetSnapshot: PageBuilderCmsApplyTargetSnapshot
     authoringRevision: string
+    authoritativeSource?: PageBuilderCmsApplyAuthoritativeSource
     uiEntryPoint?: PageBuilderCmsSelectionEntryPoint
   },
 ): PageBuilderCmsApplySkillInput {
@@ -62,6 +94,7 @@ export function buildPageBuilderCmsApplySkillInput(
   }
 
   const component = resolvePageBuilderCmsAuthoringComponent(selection)
+  const authoritativeSource = normalizeAuthoritativeSource(options.authoritativeSource)
   const notes = options?.uiEntryPoint
     ? [`opened-from:${options.uiEntryPoint}`]
     : undefined
@@ -86,6 +119,9 @@ export function buildPageBuilderCmsApplySkillInput(
       selector: selection.targetBlock.selector,
     },
     selection,
+    ...(authoritativeSource
+      ? { authoritativeSource }
+      : {}),
     authoringContext: buildPageBuilderCmsAuthoringDigest(component, selection.sourceType),
     targetSnapshot: options.targetSnapshot,
     authoringRevision,
@@ -99,6 +135,7 @@ export function createPageBuilderCmsAutoAgentHandoffRequest(
     requestId: string
     targetSnapshot: PageBuilderCmsApplyTargetSnapshot
     authoringRevision: string
+    authoritativeSource?: PageBuilderCmsApplyAuthoritativeSource
     uiEntryPoint?: PageBuilderCmsSelectionEntryPoint
   },
 ): PageBuilderCmsAutoAgentHandoffRequest {
@@ -106,6 +143,7 @@ export function createPageBuilderCmsAutoAgentHandoffRequest(
     handoffId: options.requestId,
     targetSnapshot: options.targetSnapshot,
     authoringRevision: options.authoringRevision,
+    authoritativeSource: options.authoritativeSource,
     uiEntryPoint: options?.uiEntryPoint,
   })
 

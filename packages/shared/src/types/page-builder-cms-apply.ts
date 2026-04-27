@@ -62,6 +62,18 @@ export interface PageBuilderCmsApplyAuthoringContext extends PageBuilderCmsAutho
   component: PageBuilderCmsAuthoringComponent
 }
 
+export interface PageBuilderCmsApplyAuthoritativeSource {
+  catalog?: {
+    name: string
+    path: string
+    total: number
+  }
+  contentsProbe?: {
+    total: number
+    items: Array<Pick<PageBuilderCmsContentSummary, 'id'>>
+  }
+}
+
 interface PageBuilderCmsApplyTargetSnapshotBase {
   kind: PageBuilderTargetSelection['kind']
   parentBlockSelector: string
@@ -94,6 +106,7 @@ export interface PageBuilderCmsApplySkillInput {
   targetSelection: PageBuilderTargetSelection
   targetBlock: PageBuilderCmsApplyTargetBlock
   selection: PageBuilderCmsSelectionResult
+  authoritativeSource?: PageBuilderCmsApplyAuthoritativeSource
   authoringContext: PageBuilderCmsApplyAuthoringContext
   targetSnapshot: PageBuilderCmsApplyTargetSnapshot
   authoringRevision: string

@@ -161,7 +161,7 @@ workspaceRoutes.post('/:workspaceId/page-builder/cms-auto-handoff', async (c) =>
   const uiEntryPoint = readPageBuilderCmsSelectionEntryPoint(body.uiEntryPoint)
 
   try {
-    return json(createPageBuilderCmsAutoAgentHandoff(c.var.workspace, {
+    return json(await createPageBuilderCmsAutoAgentHandoff(c.var.workspace, {
       sessionId,
       selection,
       ...(uiEntryPoint ? { uiEntryPoint } : {}),
@@ -177,8 +177,22 @@ workspaceRoutes.post('/:workspaceId/page-builder/cms-auto-handoff', async (c) =>
       }
     }
 
-    if (error instanceof PageBuilderCmsAutoAgentHandoffServiceError && error.code === 'authoring-revision-missing') {
-      throw new HttpError(409, error.message)
+    if (error instanceof PageBuilderCmsAutoAgentHandoffServiceError) {
+      if (error.code === 'authoring-revision-missing' || error.code === 'source-refresh-failed') {
+        throw new HttpError(409, error.message)
+      }
+
+      if (error.code === 'source-refresh-invalid-request') {
+        throw new HttpError(400, error.message)
+      }
+
+      if (error.code === 'source-refresh-upstream') {
+        throw new HttpError(502, error.message)
+      }
+
+      if (error.code === 'cms-unavailable') {
+        throw new HttpError(503, error.message)
+      }
     }
 
     throw error

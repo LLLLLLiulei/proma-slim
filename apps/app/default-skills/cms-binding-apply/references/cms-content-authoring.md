@@ -24,6 +24,7 @@ Source modes:
 - `contents-by-catalog`
   - required props: `site-id`, `catalog-id`
   - use when the CMS browser confirmed one catalog as the source
+  - if authoritative source context is present, treat it as the freshness check for the selected catalog; the current empty state does not invalidate the binding source
 - `contents-by-ids`
   - required props: `site-id`, `catalog-id`, `ids`
   - use when the CMS browser confirmed a fixed ordered content set
