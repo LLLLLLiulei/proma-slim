@@ -367,7 +367,7 @@ describe('useAgentSSE helpers', () => {
     expect(harness.store.get(agentMessageRefreshAtom).get('session-1')).toBeUndefined()
   })
 
-  test('reconcileSessionStreaming clears a stale local stream after the backend reports the session is idle', async () => {
+  test('reconcileSessionStreaming keeps a locally pending send alive before the stream connects', async () => {
     const pendingResponse = createDeferred<Response>()
     const sendMessageMock = mock((_sessionId: string, _payload: unknown, init?: Pick<RequestInit, 'signal'>) => {
       init?.signal?.addEventListener('abort', () => {
@@ -384,8 +384,38 @@ describe('useAgentSSE helpers', () => {
 
     expect(harness.store.get(agentStreamingStatesAtom).get('session-1')?.running).toBe(true)
 
-    await expect(harness.controls.reconcileSessionStreaming('session-1')).resolves.toBe(false)
+    await expect(harness.controls.reconcileSessionStreaming('session-1', {
+      passive: true,
+      reason: 'mount',
+      source: 'agent-view',
+    })).resolves.toBe(true)
+
+    expect(getSessionActivityMock).toHaveBeenCalledWith('session-1')
+    expect(harness.store.get(agentStreamingStatesAtom).get('session-1')?.running).toBe(true)
+    expect(harness.store.get(agentStreamErrorsAtom).get('session-1')).toBeUndefined()
+    expect(harness.store.get(agentMessageRefreshAtom).get('session-1')).toBeUndefined()
+
+    harness.unmount()
     await sendPromise
+  })
+
+  test('reconcileSessionStreaming clears a stale local stream after the backend reports the session is idle', async () => {
+    const getSessionActivityMock = mock(async (_sessionId: string) => ({ active: false }))
+    api.getSessionActivity = getSessionActivityMock
+
+    const harness = createHookHarness()
+    harness.store.set(agentStreamingStatesAtom, new Map([
+      ['session-1', {
+        running: true,
+        content: 'partial answer',
+        toolActivities: [],
+        teammates: [],
+        startedAt: 1,
+        lastActivityAt: 1,
+      }],
+    ]))
+
+    await expect(harness.controls.reconcileSessionStreaming('session-1')).resolves.toBe(false)
 
     expect(getSessionActivityMock).toHaveBeenCalledWith('session-1')
     expect(harness.store.get(agentStreamingStatesAtom).get('session-1')?.running).toBe(false)

@@ -252,6 +252,7 @@ export function finalizeStream(store: JotaiStore, sessionId: string, options?: F
 export function useAgentSSE() {
   const store = useStore()
   const controllersRef = useRef(new Map<string, AbortController>())
+  const pendingConnectStartedAtRef = useRef(new Map<string, number>())
   const detachedSessionsRef = useRef(new Set<string>())
   const stoppingSessionsRef = useRef(new Set<string>())
   const stopSucceededSessionsRef = useRef(new Set<string>())
@@ -265,6 +266,7 @@ export function useAgentSSE() {
         controller.abort()
       }
       controllersRef.current.clear()
+      pendingConnectStartedAtRef.current.clear()
     }
   }, [])
 
@@ -436,6 +438,22 @@ export function useAgentSSE() {
         }
 
         if (localRunning) {
+          const pendingConnectStartedAt = pendingConnectStartedAtRef.current.get(sessionId)
+          if (pendingConnectStartedAt !== undefined) {
+            if (passive) {
+              passiveReconcileCooldownRef.current.set(sessionId, Date.now())
+            }
+            logStreamLifecycle('info', {
+              phase: 'reconcile_skip_pending_connect',
+              sessionId,
+              workspaceId: options?.workspaceId ?? null,
+              passive,
+              reason: options?.reason ?? 'unspecified',
+              source: options?.source ?? 'unknown',
+              pendingForMs: Math.max(Date.now() - pendingConnectStartedAt, 0),
+            })
+            return true
+          }
           finalizeStaleStream(sessionId, options)
         } else {
           logStreamLifecycle('info', {
@@ -488,9 +506,11 @@ export function useAgentSSE() {
 
     const controller = new AbortController()
     controllersRef.current.set(sessionId, controller)
+    pendingConnectStartedAtRef.current.set(sessionId, Date.now())
 
     const cleanupSessionRefs = () => {
       controllersRef.current.delete(sessionId)
+      pendingConnectStartedAtRef.current.delete(sessionId)
       detachedSessionsRef.current.delete(sessionId)
       stoppingSessionsRef.current.delete(sessionId)
       stopSucceededSessionsRef.current.delete(sessionId)
@@ -540,6 +560,7 @@ export function useAgentSSE() {
     let response: Response
     try {
       response = await api.sendMessage(sessionId, payload, { signal: controller.signal })
+      pendingConnectStartedAtRef.current.delete(sessionId)
       logStreamLifecycle('info', {
         phase: 'send_stream_connected',
         sessionId,
