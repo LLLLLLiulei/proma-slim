@@ -17,8 +17,8 @@ services:
       AI_PAGE_BUILDER_CMS_BASE_URL: ${AI_PAGE_BUILDER_CMS_BASE_URL:-}
       AI_PAGE_BUILDER_CMS_USERNAME: ${AI_PAGE_BUILDER_CMS_USERNAME:-}
       AI_PAGE_BUILDER_CMS_PASSWORD: ${AI_PAGE_BUILDER_CMS_PASSWORD:-}
-      AI_PAGE_BUILDER_PLAYWRIGHT_MCP_URL: ${AI_PAGE_BUILDER_PLAYWRIGHT_MCP_URL:-}
-      AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN: ${AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN:-}
+      AI_PAGE_BUILDER_PLAYWRIGHT_MCP_URL: ${AI_PAGE_BUILDER_PLAYWRIGHT_MCP_URL:-http://playwright:8931/mcp}
+      AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN: ${AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN:-http://server:8888}
     volumes:
       - type: bind
         source: ${HOME:?Set HOME in your shell}/.ai-page-builder
@@ -29,8 +29,6 @@ services:
   playwright:
     container_name: playwright
     image: mcr.microsoft.com/playwright:v1.57.0-jammy
-    profiles:
-      - playwright
     init: true
     ipc: host
     volumes:
