@@ -99,7 +99,7 @@ When the result is `ready`, continue in the same turn instead of stopping at an 
 - For `contents-by-catalog`, omit `source.pageSize` unless the user explicitly requested a count or the current target already has a `page-size` that must be preserved.
 - For `contents-by-ids`, never pass `source.pageSize`.
 - For `catalog-nav`, never pass `source.pageSize`; use `source.take` instead when an explicit catalog count is needed.
-- `templateBody`, `emptyTemplate`, and `errorTemplate` must contain slot inner content only, not an outer `<template v-slot:...>` wrapper or an outer `cms-*` tag.
+- Prefer passing slot inner content directly in `templateBody`, `emptyTemplate`, and `errorTemplate`. A single outer `<template v-slot:...>` or `<template #...>` wrapper is tolerated and will be unwrapped automatically when it matches the receiving field, but an outer `cms-*` tag is still forbidden.
 - Prefer `cms-catalog` / `cms-content` as the source root of the dynamic region, and keep major HTML containers inside the slot.
 - Treat `templateBody`, `emptyTemplate`, and `errorTemplate` as the place for the complete dynamic region structure of each state.
 - The generated CMS component exposes the unified slot scope `{ items, loading, error, empty }`; declare the slot scope explicitly as a subset of that shape.

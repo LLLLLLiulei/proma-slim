@@ -796,8 +796,65 @@ describe('page-builder cms rendering apply tool', () => {
     expect(readFileSync(join(workspaceFilesDir, 'index.html'), 'utf-8')).not.toContain('<cms-catalog level="children" parent-id="7">\n<cms-catalog')
   })
 
-  test('rejects template fields that include outer slot template wrappers instead of slot inner content', () => {
+  test('accepts outer slot template wrappers in template fields and unwraps them before generating cms binding html', () => {
     const workspace = createAgentWorkspace('CMS Apply Nested Slot Template', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+    const entryPath = join(workspaceFilesDir, 'index.html')
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(
+      entryPath,
+      '<!doctype html><html><body><section id="latest-news" data-proma-block-id="pb_blk_news"></section></body></html>',
+      'utf-8',
+    )
+
+    const tools = createPageBuilderCmsRenderingTools()
+
+    const result = tools.applyCmsBinding(workspace, {
+      targetBlock: {
+        selector: '#latest-news',
+      },
+      kind: 'content-list',
+      source: {
+        siteId: '14',
+        catalogId: 'news',
+        pageSize: 3,
+      },
+      templateBody: [
+        '<template v-slot:default="{ items, loading, error, empty }">',
+        '  <section class="news-list">',
+        '    <article v-for="item in items" :key="item.id">{{ item.title }}</article>',
+        '  </section>',
+        '</template>',
+      ].join('\n'),
+      emptyTemplate: [
+        '<template #empty="{ items, loading, error, empty }">',
+        '  <p class="empty">暂无内容</p>',
+        '</template>',
+      ].join('\n'),
+      errorTemplate: [
+        '<template #error="{ items, loading, error, empty }">',
+        '  <p class="error">{{ error.message }}</p>',
+        '</template>',
+      ].join('\n'),
+    })
+
+    expect(result.generatedHtml).toContain('<cms-content ')
+    expect(result.generatedHtml).toContain('<template v-slot:default="{ items, loading, error, empty }">')
+    expect(result.generatedHtml).toContain('<template v-slot:empty="{ items, loading, error, empty }">')
+    expect(result.generatedHtml).toContain('<template v-slot:error="{ items, loading, error, empty }">')
+    expect(result.generatedHtml).toContain('<section class="news-list">')
+    expect(result.generatedHtml).toContain('<p class="empty">暂无内容</p>')
+    expect(result.generatedHtml).toContain('<p class="error">{{ error.message }}</p>')
+    expect(result.generatedHtml).not.toContain('<template #default')
+    expect(result.generatedHtml).not.toContain('<template #empty')
+    expect(result.generatedHtml).not.toContain('<template #error')
+    expect(result.generatedHtml).not.toContain('<template v-slot:default="{ items, loading, error, empty }">\n    <template')
+    expect(readFileSync(entryPath, 'utf-8')).toContain('<cms-content')
+  })
+
+  test('rejects outer slot template wrappers whose slot name does not match the receiving template field', () => {
+    const workspace = createAgentWorkspace('CMS Apply Slot Wrapper Mismatch', { template: 'page-builder' })
     const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
     const entryPath = join(workspaceFilesDir, 'index.html')
 
@@ -818,16 +875,13 @@ describe('page-builder cms rendering apply tool', () => {
       source: {
         siteId: '14',
         catalogId: 'news',
-        pageSize: 3,
       },
       templateBody: [
-        '<template #default="{ items, loading, error, empty }">',
-        '  <section class="news-list">',
-        '    <article v-for="item in items" :key="item.id">{{ item.title }}</article>',
-        '  </section>',
+        '<template #error="{ error }">',
+        '  <p class="wrong">{{ error.message }}</p>',
         '</template>',
       ].join('\n'),
-    })).toThrow('templateBody 只能传入 slot 内部内容')
+    })).toThrow('templateBody 的外层 slot wrapper 必须与字段语义匹配')
 
     expect(readFileSync(entryPath, 'utf-8')).not.toContain('<cms-content')
   })

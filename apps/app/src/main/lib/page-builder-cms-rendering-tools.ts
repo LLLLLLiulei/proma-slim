@@ -26,7 +26,7 @@ import { z } from 'zod'
 export const PAGE_BUILDER_CMS_APPLY_TOOL_ID = 'apply_cms_binding'
 export const PAGE_BUILDER_CMS_APPLY_TOOL_NAME = 'mcp__cms__apply_cms_binding'
 export const PAGE_BUILDER_CMS_TEMPLATE_FIELD_GUIDANCE =
-  'Each template field should contain only the slot inner content for that state, not an outer <template v-slot:...> wrapper or outer cms-* tag. The content should still represent the complete dynamic region structure. Prefer the cms-* tag as the source root and keep major HTML containers inside the slot.'
+  'Each template field should contain the complete dynamic region structure for that state. Prefer passing slot inner content only. A single outer <template v-slot:...> or <template #...> wrapper is tolerated and will be unwrapped automatically, but outer cms-* tags are still forbidden. Prefer the cms-* tag as the source root and keep major HTML containers inside the slot.'
 export const PAGE_BUILDER_CMS_TEMPLATE_BODY_DESCRIPTION =
   `${PAGE_BUILDER_CMS_TEMPLATE_FIELD_GUIDANCE} Use templateBody for the default-state region.`
 export const PAGE_BUILDER_CMS_EMPTY_TEMPLATE_DESCRIPTION =
@@ -115,6 +115,8 @@ export interface ApplyPageBuilderCmsBindingInput {
   errorTemplate?: string
   structureGuardrails?: PageBuilderCmsBindingStructureGuardrails
 }
+
+type CmsTemplateFieldName = 'templateBody' | 'emptyTemplate' | 'errorTemplate'
 
 interface NormalizedCatalogNavBindingInput extends Omit<ApplyPageBuilderCmsBindingInput, 'kind' | 'source' | 'targetSelection'> {
   kind: 'catalog-nav'
@@ -321,12 +323,12 @@ function normalizeApplyCmsBindingInput(
   input: ApplyPageBuilderCmsBindingInput,
 ): NormalizedApplyPageBuilderCmsBindingInput {
   const parsedBase = parseSchema(pageBuilderCmsBindingBaseSchema, input)
-  const templateBody = parsedBase.templateBody.trim()
+  const templateBody = normalizeRequiredTemplateField('templateBody', parsedBase.templateBody)
   if (!templateBody) {
     throw new PageBuilderCmsBindingApplyError('invalid-input', 'templateBody 不能为空')
   }
-  const emptyTemplate = normalizeOptionalTemplate(parsedBase.emptyTemplate)
-  const errorTemplate = normalizeOptionalTemplate(parsedBase.errorTemplate)
+  const emptyTemplate = normalizeOptionalTemplate('emptyTemplate', parsedBase.emptyTemplate)
+  const errorTemplate = normalizeOptionalTemplate('errorTemplate', parsedBase.errorTemplate)
   const structureGuardrails = parsedBase.structureGuardrails
   assertTemplateFieldHasNoDangerousTags('templateBody', templateBody)
   assertTemplateFieldHasNoNestedCmsIslands('templateBody', templateBody)
@@ -602,13 +604,28 @@ function assertCmsBindingAuthoringPreflight(
   )
 }
 
-function normalizeOptionalTemplate(value: string | undefined): string | undefined {
+function normalizeRequiredTemplateField(fieldName: CmsTemplateFieldName, value: string): string {
+  return normalizeTemplateField(fieldName, value)
+}
+
+function normalizeOptionalTemplate(fieldName: CmsTemplateFieldName, value: string | undefined): string | undefined {
   if (typeof value !== 'string') {
     return undefined
   }
 
-  const normalized = value.trim()
+  const normalized = normalizeTemplateField(fieldName, value)
   return normalized ? normalized : undefined
+}
+
+function normalizeTemplateField(fieldName: CmsTemplateFieldName, value: string): string {
+  const normalized = value.trim()
+  if (!normalized) {
+    return normalized
+  }
+
+  const unwrapped = unwrapOuterSlotTemplateWrapper(fieldName, normalized)
+  assertTemplateFieldHasNoSlotTemplateWrapper(fieldName, unwrapped)
+  return unwrapped
 }
 
 function assertTemplateFieldHasNoNestedCmsIslands(fieldName: string, template: string): void {
@@ -629,7 +646,7 @@ function assertTemplateFieldHasNoNestedCmsIslands(fieldName: string, template: s
   )
 }
 
-function assertTemplateFieldHasNoSlotTemplateWrapper(fieldName: string, template: string): void {
+function assertTemplateFieldHasNoSlotTemplateWrapper(fieldName: CmsTemplateFieldName, template: string): void {
   const normalizedTemplate = template.trim()
   if (!normalizedTemplate) {
     return
@@ -651,7 +668,7 @@ function assertTemplateFieldHasNoSlotTemplateWrapper(fieldName: string, template
 
   throw new PageBuilderCmsBindingApplyError(
     'invalid-input',
-    `${fieldName} 只能传入 slot 内部内容，不要包含外层 <template v-slot:...> 或 <template #...> 包装`,
+    `${fieldName} 只允许传入 slot 内部内容；如需兼容外层 wrapper，仅支持单层最外层 <template v-slot:...> 或 <template #...> 自动解包，不支持嵌套 slot template`,
   )
 }
 
@@ -746,6 +763,81 @@ function isSlotTemplateAttributeName(name: string): boolean {
   return name === 'v-slot'
     || name.startsWith('v-slot:')
     || name.startsWith('#')
+}
+
+function unwrapOuterSlotTemplateWrapper(fieldName: CmsTemplateFieldName, template: string): string {
+  const { document } = parseHTML(`<!doctype html><html><body><div data-proma-template-root>${template}</div></body></html>`)
+  const root = document.querySelector('[data-proma-template-root]')
+  const firstElement = root?.firstElementChild
+  if (
+    !root
+    || !firstElement
+    || root.children.length !== 1
+    || firstElement.localName.toLowerCase() !== 'template'
+  ) {
+    return template
+  }
+
+  const slotNames = Array.from(firstElement.attributes)
+    .map((attribute) => resolveSlotTemplateName(attribute.name))
+    .filter((slotName): slotName is NonNullable<typeof slotName> => Boolean(slotName))
+  if (slotNames.length === 0) {
+    return template
+  }
+
+  const expectedSlotName = getExpectedTemplateFieldSlotName(fieldName)
+  const hasMismatchedSlotName = slotNames.some((slotName) => slotName !== expectedSlotName)
+  if (hasMismatchedSlotName) {
+    throw new PageBuilderCmsBindingApplyError(
+      'invalid-input',
+      `${fieldName} 的外层 slot wrapper 必须与字段语义匹配：${fieldName} 只能接收 ${formatExpectedSlotLabel(expectedSlotName)} wrapper`,
+    )
+  }
+
+  return firstElement.innerHTML.trim()
+}
+
+function getExpectedTemplateFieldSlotName(fieldName: CmsTemplateFieldName): 'default' | 'empty' | 'error' {
+  switch (fieldName) {
+    case 'templateBody':
+      return 'default'
+    case 'emptyTemplate':
+      return 'empty'
+    case 'errorTemplate':
+      return 'error'
+  }
+}
+
+function formatExpectedSlotLabel(slotName: 'default' | 'empty' | 'error'): string {
+  if (slotName === 'default') {
+    return '`<template v-slot>` / `<template v-slot:default>` / `<template #default>`'
+  }
+
+  return `\`<template v-slot:${slotName}>\` / \`<template #${slotName}>\``
+}
+
+function resolveSlotTemplateName(name: string): 'default' | 'empty' | 'error' | null {
+  if (name === 'v-slot') {
+    return 'default'
+  }
+
+  if (name.startsWith('v-slot:')) {
+    return normalizeKnownSlotName(name.slice('v-slot:'.length))
+  }
+
+  if (name.startsWith('#')) {
+    return normalizeKnownSlotName(name.slice(1))
+  }
+
+  return null
+}
+
+function normalizeKnownSlotName(slotName: string): 'default' | 'empty' | 'error' | null {
+  if (slotName === 'default' || slotName === 'empty' || slotName === 'error') {
+    return slotName
+  }
+
+  return null
 }
 
 function resolveEffectiveTargetSelection(

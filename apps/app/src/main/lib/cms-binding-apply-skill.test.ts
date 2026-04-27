@@ -87,7 +87,8 @@ describe('cms-binding-apply skill contract docs', () => {
   test('moves shared slot, html-first, and anti-pattern guidance into shared authoring rules', () => {
     const shared = readRelativeText('../../../default-skills/cms-binding-apply/references/shared-authoring-rules.md')
 
-    expect(shared).toContain('slot inner content only')
+    expect(shared).toContain('Prefer slot inner content directly')
+    expect(shared).toContain('single outer `<template v-slot:...>` or `<template #...>` wrapper is tolerated')
     expect(shared).toContain('major HTML containers inside the slot')
     expect(shared).toContain('`{ items, loading, error, empty }`')
     expect(shared).toContain('Do not nest a second `cms-catalog` / `cms-content` inside CMS slot content')
@@ -197,6 +198,7 @@ describe('cms-binding-apply skill contract docs', () => {
 
     expect(skill).toContain('Call `mcp__cms__decide_cms_binding` in the same turn with the current `handoffId`')
     expect(skill).toContain('Pass only `decisionId`, `templateBody`, `emptyTemplate`, and `errorTemplate`')
+    expect(skill).toContain('single outer `<template v-slot:...>` or `<template #...>` wrapper is tolerated and will be unwrapped automatically')
     expect(downstream).toContain('must first materialize a persisted decision through `mcp__cms__decide_cms_binding`')
     expect(downstream).toContain('`mcp__cms__apply_cms_binding` must now consume `decisionId` plus template fields only')
     expect(downstream).toContain('fail closed on missing, stale, conflicting, replayed, or non-unique decisions')

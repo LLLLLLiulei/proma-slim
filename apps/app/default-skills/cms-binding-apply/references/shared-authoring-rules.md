@@ -4,8 +4,9 @@ Use this file for the boundaries that apply to both `cms-catalog` and `cms-conte
 
 ## Shared slot contract
 
-- `templateBody`, `emptyTemplate`, and `errorTemplate` must contain slot inner content only.
-- Do not pass an outer `<template v-slot:...>` wrapper or an outer `cms-*` tag inside those fields.
+- Prefer slot inner content directly in `templateBody`, `emptyTemplate`, and `errorTemplate`.
+- A single outer `<template v-slot:...>` or `<template #...>` wrapper is tolerated and will be unwrapped automatically when it matches the receiving field.
+- Do not pass an outer `cms-*` tag inside those fields.
 - The generated CMS component exposes the unified slot scope `{ items, loading, error, empty }`; declare the slot scope explicitly as a subset of that shape.
 - Keep major HTML containers inside the slot so the dynamic region has one coherent root structure per state.
 - Keep Vue authoring inside the current `cms-*` source tag only.
@@ -40,7 +41,7 @@ Prefer:
 
 - Treat the operation as an in-place replacement of the selected target.
 - Do not append a sibling `cms-catalog` / `cms-content` beside the selected target.
-- `templateBody`, `emptyTemplate`, and `errorTemplate` should hold the full dynamic region content for their state, but not the outer slot wrapper.
+- `templateBody`, `emptyTemplate`, and `errorTemplate` should hold the full dynamic region content for their state; when a single matching outer slot wrapper is present, the runtime unwraps it automatically.
 - If `targetSelection.kind === cms-island`, preserve the runtime locator tuple `htmlPath + sourceSelector + parentBlockSelector + component`.
 - Only the confirmed CMS browser selection flow may create a new `cms-catalog` / `cms-content` or rebind an existing one.
 - Ordinary page generation or ordinary page iteration must not invent new `cms-*` tags on their own.
