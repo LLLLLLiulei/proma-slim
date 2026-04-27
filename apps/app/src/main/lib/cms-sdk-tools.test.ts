@@ -8,6 +8,7 @@ import {
   buildPageBuilderCmsApplySkillInput,
   createPageBuilderBlockTargetSelection,
 } from '@proma/shared'
+import { CmsGatewayError } from './cms-gateway'
 import { CMS_TOOL_NAMES, buildCmsRuntimeToolBundle } from './cms-sdk-tools'
 import { createPageBuilderCmsAutoAgentHandoff } from './page-builder-cms-auto-agent-handoff-service'
 import { pageBuilderCmsBindingDecisionStore } from './page-builder-cms-binding-decision-store'
@@ -39,6 +40,35 @@ function getRegisteredTools(bundle: ReturnType<typeof buildCmsRuntimeToolBundle>
   }).instance._registeredTools
 }
 
+function getSdkToolCallHandler(bundle: ReturnType<typeof buildCmsRuntimeToolBundle>) {
+  const requestHandlers = (bundle.mcpServer as {
+    instance: {
+      server: {
+        _requestHandlers: Map<string, (
+          request: {
+            method: 'tools/call'
+            params: {
+              name: string
+              arguments?: unknown
+            }
+          },
+          extra: unknown,
+        ) => Promise<{
+          content?: Array<{ text?: string }>
+          isError?: boolean
+        }>>
+      }
+    }
+  }).instance.server._requestHandlers
+
+  const handler = requestHandlers.get('tools/call')
+  if (!handler) {
+    throw new Error('missing sdk tools/call handler in test fixture')
+  }
+
+  return handler
+}
+
 async function invokeTool<T>(tool: RegisteredTool, input: unknown): Promise<T> {
   const parsed = tool.inputSchema.parse(input)
   const result = await tool.handler(parsed, undefined) as {
@@ -47,17 +77,49 @@ async function invokeTool<T>(tool: RegisteredTool, input: unknown): Promise<T> {
   return JSON.parse(result.content[0]!.text) as T
 }
 
-async function expectToolRejects(tool: RegisteredTool, input: unknown, message: string): Promise<void> {
+async function invokeSdkToolCall(
+  bundle: ReturnType<typeof buildCmsRuntimeToolBundle>,
+  toolName: string,
+  input: unknown,
+) {
+  const handler = getSdkToolCallHandler(bundle)
+  return handler({
+    method: 'tools/call',
+    params: {
+      name: toolName,
+      arguments: input,
+    },
+  }, undefined)
+}
+
+async function getToolErrorMessage(tool: RegisteredTool, input: unknown): Promise<string> {
   try {
     const parsed = tool.inputSchema.parse(input)
     await tool.handler(parsed, undefined)
   } catch (error) {
     expect(error).toBeInstanceOf(Error)
-    expect((error as Error).message).toContain(message)
-    return
+    return (error as Error).message
   }
 
-  throw new Error(`expected tool to reject with ${message}`)
+  throw new Error('expected tool to reject')
+}
+
+async function getSdkToolCallErrorMessage(
+  bundle: ReturnType<typeof buildCmsRuntimeToolBundle>,
+  toolName: string,
+  input: unknown,
+): Promise<string> {
+  const result = await invokeSdkToolCall(bundle, toolName, input)
+  expect(result.isError).toBe(true)
+  return result.content?.[0]?.text ?? ''
+}
+
+async function expectToolRejects(tool: RegisteredTool, input: unknown, message: string | string[]): Promise<void> {
+  const errorMessage = await getToolErrorMessage(tool, input)
+  const expectedMessages = Array.isArray(message) ? message : [message]
+  for (const expectedMessage of expectedMessages) {
+    expect(errorMessage).toContain(expectedMessage)
+  }
 }
 
 function expectToolInputSchemaRejects(tool: RegisteredTool, input: unknown): void {
@@ -227,7 +289,11 @@ describe('cms sdk runtime tools', () => {
     await expectToolRejects(tools.apply_cms_binding!, {
       decisionId: decision.decisionId,
       templateBody: '<section class="news-list"></section>',
-    }, '已经成功使用')
+    }, [
+      '该 CMS binding decision 已经成功使用',
+      '重新执行 `mcp__cms__decide_cms_binding`',
+      '不要重复使用当前 decisionId',
+    ])
   })
 
   test('rejects decision and apply access from a different session than the confirmed handoff', async () => {
@@ -246,7 +312,11 @@ describe('cms sdk runtime tools', () => {
     await expectToolRejects(foreignTools.decide_cms_binding!, {
       handoffId,
       decision: createReadyContentDecision(),
-    }, '当前会话')
+    }, [
+      '当前会话与该 CMS handoff 不匹配',
+      '重新创建 handoff',
+      '不要直接调用 `mcp__cms__apply_cms_binding`',
+    ])
 
     const ownerBundle = buildCmsRuntimeToolBundle(createGateway() as never, {
       workspace,
@@ -261,7 +331,11 @@ describe('cms sdk runtime tools', () => {
     await expectToolRejects(foreignTools.apply_cms_binding!, {
       decisionId: decision.decisionId,
       templateBody: '<section class="news-list"></section>',
-    }, '当前会话')
+    }, [
+      '当前会话与该 CMS binding decision 不匹配',
+      '重新执行 `mcp__cms__decide_cms_binding`',
+      '不要重复使用当前 decisionId',
+    ])
   })
 
   test('rejects apply requests that do not have a persisted decision', async () => {
@@ -279,7 +353,11 @@ describe('cms sdk runtime tools', () => {
     await expectToolRejects(tools.apply_cms_binding!, {
       decisionId: 'missing-decision',
       templateBody: '<section class="news-list"></section>',
-    }, '未找到可用的 CMS binding decision')
+    }, [
+      '未找到可用的 CMS binding decision',
+      '重新执行 `mcp__cms__decide_cms_binding`',
+      '不要重复使用当前 decisionId',
+    ])
   })
 
   test('rejects stale decisions after the page revision changes', async () => {
@@ -321,7 +399,11 @@ describe('cms sdk runtime tools', () => {
     await expectToolRejects(tools.apply_cms_binding!, {
       decisionId: decision.decisionId,
       templateBody: '<section class="news-list"></section>',
-    }, '当前页面已变化')
+    }, [
+      '当前页面已变化，原 decision 已失效',
+      '重新执行 `mcp__cms__decide_cms_binding`',
+      '不要重复使用当前 decisionId',
+    ])
   })
 
   test('keeps the decision reusable when apply fails before a successful write', async () => {
@@ -357,7 +439,11 @@ describe('cms sdk runtime tools', () => {
     await expectToolRejects(tools.apply_cms_binding!, {
       decisionId: decision.decisionId,
       templateBody: '<script>alert(1)</script>',
-    }, '不能包含 <script> 或 <style>')
+    }, [
+      'templateBody 不能包含 <script> 或 <style>',
+      '修正模板字段或工具参数后重试',
+      '不要跳过校验直接写页面',
+    ])
 
     const applyResult = await invokeTool<{ applied: true }>(tools.apply_cms_binding!, {
       decisionId: decision.decisionId,
@@ -394,7 +480,11 @@ describe('cms sdk runtime tools', () => {
     await expectToolRejects(tools.apply_cms_binding!, {
       decisionId: decision.decisionId,
       templateBody: '<section class="news-grid"><article v-for="item in items" :key="item.id">{{ item.title }}</article></section>',
-    }, 'templateBody 与当前保留外层壳层的结构计划冲突')
+    }, [
+      'templateBody 与当前保留外层壳层的结构计划冲突',
+      '修正模板字段或工具参数后重试',
+      '不要跳过校验直接写页面',
+    ])
   })
 
   test('keeps non-ready decisions on the decision stage without mutating html', async () => {
@@ -547,10 +637,13 @@ describe('cms sdk runtime tools', () => {
       handoffId,
       decision: '{"status":"ready"',
     }, '`decision` 必须是结构化对象')
-    await expectToolRejects(tools.decide_cms_binding!, {
+    const errorMessage = await getToolErrorMessage(tools.decide_cms_binding!, {
       handoffId,
       decision: '{"status":"ready"',
-    }, '最小 ready 示例')
+    })
+    expect(errorMessage).toContain('按工具文档中的 ready 示例修正')
+    expect(errorMessage).not.toContain('最小 ready 示例')
+    expect(errorMessage).not.toContain('"targetBlockKind":"content-list"')
   })
 
   test('returns a retry-oriented error when decision is an object but does not match the decision contract', async () => {
@@ -577,7 +670,7 @@ describe('cms sdk runtime tools', () => {
         },
       },
     }, '`decision` 不符合合约')
-    await expectToolRejects(tools.decide_cms_binding!, {
+    const errorMessage = await getToolErrorMessage(tools.decide_cms_binding!, {
       handoffId,
       decision: {
         status: 'ready',
@@ -587,7 +680,11 @@ describe('cms sdk runtime tools', () => {
           catalogId: 'news',
         },
       },
-    }, '最小 ready 示例')
+    })
+    expect(errorMessage).toContain('校验摘要')
+    expect(errorMessage).toContain('按工具文档中的 ready 示例修正')
+    expect(errorMessage).not.toContain('最小 ready 示例')
+    expect(errorMessage).not.toContain('"targetBlockKind":"content-list"')
   })
 
   test('forwards explicit siteId through the sdk list tools', async () => {
@@ -695,6 +792,280 @@ describe('cms sdk runtime tools', () => {
     await expectToolRejects(tools.list_contents!, {
       siteId: '14',
       ids: ['502', '501'],
-    }, '固定内容 ids 查询必须同时提供 catalogId')
+    }, [
+      '固定内容 ids 查询必须同时提供 catalogId',
+      '修正 tool 参数后重试',
+      '不要在不改动参数的情况下重复提交同一次调用',
+    ])
+  })
+
+  test('rewrites sdk schema validation failures for list tools into guided cms errors', async () => {
+    const workspace = createAgentWorkspace('CMS Tool SDK Validation Guidance', { template: 'page-builder' })
+    const bundle = buildCmsRuntimeToolBundle(createGateway() as never, {
+      workspace,
+      sessionId: 'session-1',
+    })
+
+    const errorMessage = await getSdkToolCallErrorMessage(bundle, 'list_contents', {
+      siteId: '14',
+      ids: '501',
+    })
+
+    expect(errorMessage).toContain('CMS tool 输入不合法')
+    expect(errorMessage).toContain('修正 tool 参数后重试')
+    expect(errorMessage).toContain('不要在不改动参数的情况下重复提交同一次调用')
+    expect(errorMessage).not.toContain('MCP error -32602')
+    expect(errorMessage).not.toContain('Input validation error')
+    expect(errorMessage).not.toContain('"expected"')
+    expect(errorMessage).not.toContain('"path"')
+  })
+
+  test('rewrites sdk schema validation failures for apply tools into guided cms errors', async () => {
+    const workspace = createAgentWorkspace('CMS Tool SDK Apply Validation Guidance', { template: 'page-builder' })
+    const bundle = buildCmsRuntimeToolBundle(createGateway() as never, {
+      workspace,
+      sessionId: 'session-1',
+    })
+
+    const errorMessage = await getSdkToolCallErrorMessage(bundle, 'apply_cms_binding', {
+      decisionId: 123,
+      templateBody: 456,
+    })
+
+    expect(errorMessage).toContain('CMS apply 输入不合法')
+    expect(errorMessage).toContain('修正模板字段或工具参数后重试')
+    expect(errorMessage).toContain('不要跳过校验直接写页面')
+    expect(errorMessage).not.toContain('MCP error -32602')
+    expect(errorMessage).not.toContain('Input validation error')
+    expect(errorMessage).not.toContain('"expected"')
+    expect(errorMessage).not.toContain('"path"')
+  })
+
+  test('returns upstream auth guidance for list tools without leaking secrets', async () => {
+    const workspace = createAgentWorkspace('CMS Tool Auth Guidance', { template: 'page-builder' })
+    const gateway = {
+      async listCatalogs() {
+        throw new CmsGatewayError(
+          'auth',
+          '401 Unauthorized: Authorization Bearer raw-secret-token username=test-user password=test-pass',
+        )
+      },
+      async listContents() {
+        return { pageIndex: 0, pageSize: 20, total: 0, totalPages: 0, items: [] }
+      },
+    }
+
+    const bundle = buildCmsRuntimeToolBundle(gateway as never, {
+      workspace,
+      sessionId: 'session-1',
+    })
+    const tools = getRegisteredTools(bundle)
+
+    const errorMessage = await getToolErrorMessage(tools.list_catalogs!, { siteId: '14' })
+    expect(errorMessage).toContain('CMS 上游鉴权或权限检查失败')
+    expect(errorMessage).toContain('检查 CMS 配置或权限')
+    expect(errorMessage).toContain('不要伪造栏目、内容、`handoffId`、`decisionId`')
+    expect(errorMessage).not.toContain('raw-secret-token')
+    expect(errorMessage).not.toContain('password=test-pass')
+    expect(errorMessage).not.toContain('username=test-user')
+  })
+
+  test('returns upstream retry guidance for list tools on transient gateway failures', async () => {
+    const workspace = createAgentWorkspace('CMS Tool Upstream Guidance', { template: 'page-builder' })
+    const gateway = {
+      async listCatalogs() {
+        throw new CmsGatewayError('upstream', 'CMS 资源请求失败（HTTP 502）')
+      },
+      async listContents() {
+        return { pageIndex: 0, pageSize: 20, total: 0, totalPages: 0, items: [] }
+      },
+    }
+
+    const bundle = buildCmsRuntimeToolBundle(gateway as never, {
+      workspace,
+      sessionId: 'session-1',
+    })
+    const tools = getRegisteredTools(bundle)
+
+    await expectToolRejects(tools.list_catalogs!, { siteId: '14' }, [
+      'CMS 上游请求失败',
+      '仅在确认上游 CMS 已恢复后稍后重试',
+      '不要伪造栏目、内容、`handoffId`、`decisionId`',
+    ])
+  })
+
+  test('returns handoff recovery guidance when decide_cms_binding cannot find the handoff context', async () => {
+    const workspace = createAgentWorkspace('CMS Tool Missing Handoff Guidance', { template: 'page-builder' })
+    prepareWorkspaceHtml(
+      workspace.slug,
+      '<!doctype html><html><body><section id="latest-news" data-proma-block-id="pb_blk_news"><div>placeholder</div></section></body></html>',
+    )
+    const bundle = buildCmsRuntimeToolBundle(createGateway() as never, {
+      workspace,
+      sessionId: 'session-1',
+    })
+    const tools = getRegisteredTools(bundle)
+
+    await expectToolRejects(tools.decide_cms_binding!, {
+      handoffId: 'missing-handoff',
+      decision: createReadyContentDecision(),
+    }, [
+      '未找到可用的 CMS handoff 上下文',
+      '重新发起 CMS handoff',
+      '不要猜测 `handoffId`',
+    ])
+  })
+
+  test('returns handoff refresh guidance when decide_cms_binding sees a stale handoff', async () => {
+    const workspace = createAgentWorkspace('CMS Tool Stale Handoff Guidance', { template: 'page-builder' })
+    const entryPath = prepareWorkspaceHtml(
+      workspace.slug,
+      '<!doctype html><html><body><section id="latest-news" data-proma-block-id="pb_blk_news"><div>placeholder</div></section></body></html>',
+    )
+    const handoffId = registerContentHandoff(workspace, 'session-1')
+    writeFileSync(
+      entryPath,
+      '<!doctype html><html><body><section id="latest-news" data-proma-block-id="pb_blk_news"><p>page changed</p></section></body></html>',
+      'utf-8',
+    )
+    const bundle = buildCmsRuntimeToolBundle(createGateway() as never, {
+      workspace,
+      sessionId: 'session-1',
+    })
+    const tools = getRegisteredTools(bundle)
+
+    await expectToolRejects(tools.decide_cms_binding!, {
+      handoffId,
+      decision: createReadyContentDecision(),
+    }, [
+      '当前页面已发生变化',
+      '重新发起 CMS handoff',
+      '不要猜测 `handoffId`',
+    ])
+  })
+
+  test('returns authoring revision guidance when apply_cms_binding cannot read the current revision', async () => {
+    const workspace = createAgentWorkspace('CMS Tool Missing Revision Guidance', { template: 'page-builder' })
+    const bundle = buildCmsRuntimeToolBundle(createGateway() as never, {
+      workspace,
+      sessionId: 'session-1',
+    })
+    const tools = getRegisteredTools(bundle)
+
+    await expectToolRejects(tools.apply_cms_binding!, {
+      decisionId: 'decision-1',
+      templateBody: '<section class="news-list"></section>',
+    }, [
+      '无法读取当前页面 revision',
+      '重新获取最新作者态上下文',
+      '不要猜测 revision',
+    ])
+  })
+
+  test('falls back to a guarded default message for unexpected apply errors', async () => {
+    const workspace = createAgentWorkspace('CMS Tool Default Apply Guidance', { template: 'page-builder' })
+    prepareWorkspaceHtml(
+      workspace.slug,
+      '<!doctype html><html><body><section id="latest-news" data-proma-block-id="pb_blk_news"><div>placeholder</div></section></body></html>',
+    )
+    const bundle = buildCmsRuntimeToolBundle(createGateway() as never, {
+      workspace,
+      sessionId: 'session-1',
+    })
+    const tools = getRegisteredTools(bundle)
+    const originalReadDecisionForApply = pageBuilderCmsBindingDecisionStore.readDecisionForApply
+
+    pageBuilderCmsBindingDecisionStore.readDecisionForApply = (() => {
+      throw new Error('unexpected apply failure at /Users/liu/Documents/work/learning/Proma/apps/app/src/main/lib/cms-sdk-tools.ts password=test-pass Authorization Bearer raw-secret-token')
+    }) as typeof pageBuilderCmsBindingDecisionStore.readDecisionForApply
+
+    try {
+      const errorMessage = await getToolErrorMessage(tools.apply_cms_binding!, {
+        decisionId: 'decision-1',
+        templateBody: '<section class="news-list"></section>',
+      })
+      expect(errorMessage).toContain('CMS 工具执行失败')
+      expect(errorMessage).toContain('停止当前 CMS 调用链并交由宿主侧进一步排查')
+      expect(errorMessage).toContain('不要伪造缺失上下文')
+      expect(errorMessage).not.toContain('/Users/liu/Documents/work/learning/Proma')
+      expect(errorMessage).not.toContain('/Users/liu')
+      expect(errorMessage).not.toContain('raw-secret-token')
+      expect(errorMessage).not.toContain('password=test-pass')
+    } finally {
+      pageBuilderCmsBindingDecisionStore.readDecisionForApply = originalReadDecisionForApply
+    }
+  })
+
+  test('truncates verbose cms tool errors and omits fenced code blocks from the returned guidance', async () => {
+    const workspace = createAgentWorkspace('CMS Tool Verbose Error Guidance', { template: 'page-builder' })
+    prepareWorkspaceHtml(
+      workspace.slug,
+      '<!doctype html><html><body><section id="latest-news" data-proma-block-id="pb_blk_news"><div>placeholder</div></section></body></html>',
+    )
+    const bundle = buildCmsRuntimeToolBundle(createGateway() as never, {
+      workspace,
+      sessionId: 'session-1',
+    })
+    const tools = getRegisteredTools(bundle)
+    const originalReadDecisionForApply = pageBuilderCmsBindingDecisionStore.readDecisionForApply
+
+    pageBuilderCmsBindingDecisionStore.readDecisionForApply = (() => {
+      throw new Error([
+        'unexpected apply failure',
+        '```html',
+        '<section class="very-long-debug-snippet"><article data-debug="1">debug</article></section>',
+        '</html>',
+        '```',
+        '<div class="another-very-long-debug-snippet">'.repeat(20),
+      ].join('\n'))
+    }) as typeof pageBuilderCmsBindingDecisionStore.readDecisionForApply
+
+    try {
+      const errorMessage = await getToolErrorMessage(tools.apply_cms_binding!, {
+        decisionId: 'decision-1',
+        templateBody: '<section class="news-list"></section>',
+      })
+      expect(errorMessage).toContain('[代码片段已省略]')
+      expect(errorMessage).not.toContain('very-long-debug-snippet')
+      expect(errorMessage.length).toBeLessThan(360)
+    } finally {
+      pageBuilderCmsBindingDecisionStore.readDecisionForApply = originalReadDecisionForApply
+    }
+  })
+
+  test('compresses verbose slot template wrappers from cms tool errors before returning guidance', async () => {
+    const workspace = createAgentWorkspace('CMS Tool Template Wrapper Error Guidance', { template: 'page-builder' })
+    prepareWorkspaceHtml(
+      workspace.slug,
+      '<!doctype html><html><body><section id="latest-news" data-proma-block-id="pb_blk_news"><div>placeholder</div></section></body></html>',
+    )
+    const bundle = buildCmsRuntimeToolBundle(createGateway() as never, {
+      workspace,
+      sessionId: 'session-1',
+    })
+    const tools = getRegisteredTools(bundle)
+    const originalReadDecisionForApply = pageBuilderCmsBindingDecisionStore.readDecisionForApply
+
+    pageBuilderCmsBindingDecisionStore.readDecisionForApply = (() => {
+      throw new Error([
+        'unexpected apply failure',
+        '<template v-slot:default="{ items, loading, error, empty }">',
+        '<section class="slot-debug-snippet"><article v-for="item in items" :key="item.id">{{ item.title }}</article></section>'.repeat(8),
+        '</template>',
+      ].join('\n'))
+    }) as typeof pageBuilderCmsBindingDecisionStore.readDecisionForApply
+
+    try {
+      const errorMessage = await getToolErrorMessage(tools.apply_cms_binding!, {
+        decisionId: 'decision-1',
+        templateBody: '<section class="news-list"></section>',
+      })
+      expect(errorMessage).toContain('[模板片段已省略]')
+      expect(errorMessage).not.toContain('slot-debug-snippet')
+      expect(errorMessage).not.toContain('v-slot:default')
+      expect(errorMessage.length).toBeLessThan(360)
+    } finally {
+      pageBuilderCmsBindingDecisionStore.readDecisionForApply = originalReadDecisionForApply
+    }
   })
 })
