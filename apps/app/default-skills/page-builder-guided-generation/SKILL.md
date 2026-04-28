@@ -7,7 +7,7 @@ description: Use when a page-builder conversation needs ordinary-user briefing, 
 
 ## Overview
 
-Use this skill as the default controller for ordinary `page-builder` conversations. Guide 普通用户 with clear language, collect only the information needed to produce a strong result, confirm the brief, then generate or iterate on the current preview page.
+Use this skill as the default controller for ordinary `page-builder` conversations. Guide ordinary users with clear language, collect only the information needed to produce a strong result, confirm the brief, then generate or iterate on the current preview page.
 
 If the host injects `<page_builder_turn_routing>`, treat that payload as the authoritative scene and owner metadata for the current turn.
 
@@ -17,7 +17,7 @@ Use this skill when all of the following are true:
 
 - The conversation is happening inside `page-builder`.
 - The user wants to create or revise a webpage, campaign page, landing page, special webpage, or a similar single-page experience.
-- The default v1 target is a 单页专题页 unless the user clearly asks for another page type.
+- The default v1 target is a single-page special webpage unless the user clearly asks for another page type.
 - The request is an ordinary user flow, not a specialized programmatic handoff such as confirmed CMS apply.
 
 Do not use this skill when:
@@ -54,7 +54,6 @@ For any user choice, confirmation, preference, or missing critical information, 
 
 ### One question at a time
 
-- 一次只问一个问题。
 - Ask one question at a time.
 - Each question should focus on the single highest-priority missing decision.
 - Default to 2 to 4 options plus a custom answer path.
@@ -62,7 +61,7 @@ For any user choice, confirmation, preference, or missing critical information, 
 
 ### Clear language, but keep necessary terms
 
-The user is a normal user. Keep the conversation easy to understand, but 保留必要的专业词汇 when they carry precise meaning in webpage work, especially Hero, CTA, 响应式, section, card, banner, and navigation.
+The user is a normal user. Keep the conversation easy to understand, but preserve necessary professional terms when they carry precise meaning in webpage work, especially Hero, CTA, responsive, section, card, banner, and navigation.
 
 If a term may be unfamiliar, keep it and explain it briefly in the same sentence instead of replacing it with an imprecise paraphrase.
 
@@ -70,33 +69,34 @@ If a term may be unfamiliar, keep it and explain it briefly in the same sentence
 
 Work toward a stable brief, not a fixed questionnaire. See [references/briefing-thresholds.md](references/briefing-thresholds.md).
 
-### 必问项
+### Required items
 
 Before generation, make sure these items are explicit or already unambiguous from the user's request:
 
 - page goal
 - target audience
 - major content blocks
+- tone or style direction
+- whether the page needs responsive behavior across desktop and mobile
 
-If one of these is still unclear and would materially affect the result, ask about that single gap with `AskUserQuestion`.
+If any required item is still unclear, ask about the single highest-priority missing gap with `AskUserQuestion`.
 
-### 条件必问项
+### Conditional required items
 
 Ask these only when they are still unresolved and would materially affect the result, or when they cannot be safely defaulted:
 
-- tone or style direction
 - device priority
 - must-have or must-avoid constraints
 - whether an existing non-empty page should be iterated or fully redone
 
-### 强制确认项
+### Mandatory confirmations
 
 These confirmations are required and should not be skipped:
 
 - final brief confirmation before the first full-page generation
 - overwrite confirmation before replacing a non-empty page
 
-If the user says "你帮我决定", you may fill in non-critical details with reasonable defaults, but you still must keep these confirmation steps.
+If the user says "decide for me" or expresses the same intent, you may fill in non-critical details with reasonable defaults, but you still must keep these confirmation steps.
 
 If only non-critical details remain, stop asking more questions and move to confirmation.
 

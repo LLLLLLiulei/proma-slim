@@ -1,55 +1,57 @@
 # Guided Briefing Thresholds
 
-## 必问项
+## Required Items
 
-提问方式不是固定问卷，但要先补齐这些最小成稿信息：
+The briefing flow is not a fixed questionnaire, but these minimum drafting inputs must be explicit before generation:
 
-- 页面目标
-- 面向人群
-- 主要内容块
+- page goal
+- target audience
+- major content blocks
+- tone or style direction
+- whether the page needs responsive behavior across desktop and mobile
 
-如果缺少其中任一项，一次只补最高优先级的那一个问题。
+If any required item is missing, ask only the highest-priority missing question first.
 
-## 条件必问项
+## Conditional Required Items
 
-以下内容只有在仍会明显影响结果、且不能安全使用合理默认值时才继续追问：
+Ask about these only when they would still materially affect the result and cannot be safely defaulted:
 
-- 风格方向
-- 设备重点
-- 必保留 / 必避免项
-- 当前页面是继续迭代还是整页重做
+- device priority
+- must-have / must-avoid constraints
+- whether the current page should be iterated or fully redone
 
-## 进入最终确认的条件
+## When To Move To Final Confirmation
 
-当以下条件成立时，停止继续追问并进入生成前确认：
+Stop asking follow-up questions and move to pre-generation confirmation when:
 
-- 必问项已经明确
-- 条件必问项已经明确，或已经可以安全使用合理默认值
+- required items are explicit
+- conditional required items are explicit or can safely use reasonable defaults
 
-## 最终确认
+## Final Confirmation
 
-进入生成前，先用简短摘要复述你的理解，再通过 `AskUserQuestion` 做最终确认。
+Before generation, restate the current understanding in a short summary, then confirm it with `AskUserQuestion`.
 
-确认摘要通常应包含：
+The confirmation summary should usually include:
 
-- 页面目标
-- 面向人群
-- 主要内容块
-- 风格方向
-- 设备重点
-- 必保留 / 必避免项
+- page goal
+- target audience
+- major content blocks
+- tone or style direction
+- responsive requirement
+- device priority
+- must-have / must-avoid constraints
 
-## “你帮我决定”
+## "Decide For Me"
 
-如果用户明确说“你帮我决定”或同等含义：
+If the user explicitly says "decide for me" or expresses the same intent:
 
-- 仍然不要跳过最终确认
-- 只对非关键细节使用合理默认值
-- 不要替用户编造强事实信息
+- still do not skip final confirmation
+- use reasonable defaults only for non-critical details
+- do not invent hard factual information for the user
 
-## 非空页面整页覆盖
+## Full Overwrite Of A Non-Empty Page
 
-如果当前页面已经存在非平凡内容，而用户想整页重做：
+If the current page already contains non-trivial content and the user wants a full redo:
 
-- 先做整页覆盖确认
-- 未确认前不要直接整页重写
+- ask for full overwrite confirmation first
+- do not rewrite the whole page before confirmation

@@ -139,7 +139,7 @@ describe('workspace service', () => {
     const refreshedSkill = readFileSync(join(placeholderSkillDir, 'SKILL.md'), 'utf-8')
 
     expect(refreshedSkill).toContain('AskUserQuestion')
-    expect(refreshedSkill).toContain('普通用户')
+    expect(refreshedSkill).toContain('ordinary users')
     expect(refreshedSkill).not.toContain('[TODO:')
   })
 
@@ -253,7 +253,7 @@ describe('workspace service', () => {
       type: 'stdio',
       command: 'npx',
       args: ['-y', '@modelcontextprotocol/server-sequential-thinking@latest'],
-      enabled: true,
+      enabled: false,
       timeout: 30,
     })
   })
@@ -346,7 +346,7 @@ describe('workspace service', () => {
       type: 'stdio',
       command: 'npx',
       args: ['-y', '@modelcontextprotocol/server-sequential-thinking@latest'],
-      enabled: true,
+      enabled: false,
       timeout: 30,
     })
   })
@@ -433,7 +433,7 @@ describe('workspace service', () => {
 
     const refreshedSkill = readFileSync(join(placeholderSkillDir, 'SKILL.md'), 'utf-8')
     expect(refreshedSkill).toContain('AskUserQuestion')
-    expect(refreshedSkill).toContain('普通用户')
+    expect(refreshedSkill).toContain('ordinary users')
     expect(refreshedSkill).not.toContain('[TODO:')
   })
 

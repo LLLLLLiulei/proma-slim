@@ -1,5 +1,5 @@
 const TOOL_LABELS: Record<string, string> = {
-  AskUserQuestion: '向用户提问',
+  AskUserQuestion: '问题澄清',
   Bash: '执行命令',
   Read: '读取文件',
   Write: '写入文件',
