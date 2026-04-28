@@ -117,7 +117,7 @@ async function requestJson<TResult>(options: {
   errorLabel: string
   fetchFn: typeof fetch
 }): Promise<TResult> {
-  const response = await options.fetchFn(options.url)
+  const response = await options.fetchFn(options.url, { cache: 'no-store' })
 
   if (!response.ok) {
     throw new Error(`${options.errorLabel} with HTTP ${response.status}`)

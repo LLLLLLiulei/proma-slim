@@ -418,8 +418,9 @@ describe('renderer api wrappers', () => {
   })
 
   test('listPageBuilderCmsCatalogs requests the page-builder cms catalogs endpoint with query params', async () => {
-    const fetchMock = mock(async (input: RequestInfo | URL) => {
+    const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
       expect(String(input)).toBe('/api/page-builder/cms/catalogs?siteId=14&contentType=Image&searchKeyword=%E9%A6%96%E9%A1%B5')
+      expect(init?.cache).toBe('no-store')
       return jsonResponse({
         items: [],
         tree: [],
@@ -460,8 +461,9 @@ describe('renderer api wrappers', () => {
   })
 
   test('listPageBuilderCmsSites requests the page-builder cms sites endpoint', async () => {
-    const fetchMock = mock(async (input: RequestInfo | URL) => {
+    const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
       expect(String(input)).toBe('/api/page-builder/cms/sites')
+      expect(init?.cache).toBe('no-store')
       return jsonResponse([
         {
           id: '1',
@@ -489,8 +491,9 @@ describe('renderer api wrappers', () => {
   })
 
   test('listPageBuilderCmsContents requests the page-builder cms contents endpoint with query params', async () => {
-    const fetchMock = mock(async (input: RequestInfo | URL) => {
+    const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
       expect(String(input)).toBe('/api/page-builder/cms/contents?siteId=14&catalogId=101&pageIndex=1&pageSize=10&keyword=banner')
+      expect(init?.cache).toBe('no-store')
       return jsonResponse({
         pageIndex: 1,
         pageSize: 10,
@@ -543,8 +546,9 @@ describe('renderer api wrappers', () => {
   })
 
   test('getPageBuilderCmsCatalogDetail requests the page-builder cms catalog detail endpoint', async () => {
-    const fetchMock = mock(async (input: RequestInfo | URL) => {
+    const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
       expect(String(input)).toBe('/api/page-builder/cms/catalogs/17765?siteId=14')
+      expect(init?.cache).toBe('no-store')
       return jsonResponse({
         id: '17765',
         innerCode: '002676000004',

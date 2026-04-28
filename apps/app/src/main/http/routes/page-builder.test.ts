@@ -159,6 +159,7 @@ describe('page-builder routes', () => {
     const response = await app.fetch(new Request('http://localhost/api/page-builder/cms/catalogs?siteId=14&contentType=Image&searchKeyword=%E9%A6%96%E9%A1%B5'))
 
     expect(response.status).toBe(200)
+    expect(response.headers.get('cache-control')).toBe('no-store')
     expect(await response.json()).toEqual({
       items: [
         {
@@ -391,6 +392,7 @@ describe('page-builder routes', () => {
     const response = await app.fetch(new Request('http://localhost/api/page-builder/cms/contents?siteId=14&catalogId=101&pageIndex=1&pageSize=10'))
 
     expect(response.status).toBe(200)
+    expect(response.headers.get('cache-control')).toBe('no-store')
     expect(await response.json()).toEqual({
       pageIndex: 1,
       pageSize: 10,
@@ -533,6 +535,7 @@ describe('page-builder routes', () => {
     const response = await app.fetch(new Request('http://localhost/api/page-builder/cms/catalogs/17765?siteId=14'))
 
     expect(response.status).toBe(200)
+    expect(response.headers.get('cache-control')).toBe('no-store')
     expect(await response.json()).toEqual({
       id: '17765',
       innerCode: '002676000004',
@@ -591,6 +594,7 @@ describe('page-builder routes', () => {
     const response = await app.fetch(new Request('http://localhost/api/page-builder/cms/sites'))
 
     expect(response.status).toBe(200)
+    expect(response.headers.get('cache-control')).toBe('no-store')
     expect(await response.json()).toEqual([
       {
         id: '1',

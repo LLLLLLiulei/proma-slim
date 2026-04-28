@@ -6,13 +6,14 @@ afterEach(() => {
 })
 
 describe('createBrowserCmsClient', () => {
-  test('serializes catalog queries against the default proxy base', async () => {
-    const fetchMock = mock(async (input: RequestInfo | URL) => {
+  test('serializes catalog queries against the default proxy base without using browser cache', async () => {
+    const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input), 'https://example.com')
 
       expect(url.pathname).toBe('/api/page-builder/cms/catalogs')
       expect(url.searchParams.get('contentType')).toBe('Article')
       expect(url.searchParams.get('searchKeyword')).toBe('首页')
+      expect(init?.cache).toBe('no-store')
 
       return new Response(JSON.stringify({ items: [], tree: [] }), {
         status: 200,
@@ -57,8 +58,8 @@ describe('createBrowserCmsClient', () => {
     })).resolves.toEqual({ items: [], tree: [] })
   })
 
-  test('preserves pageIndex=0 when serializing content queries', async () => {
-    const fetchMock = mock(async (input: RequestInfo | URL) => {
+  test('preserves pageIndex=0 when serializing content queries without using browser cache', async () => {
+    const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input), 'https://example.com')
 
       expect(url.pathname).toBe('/api/page-builder/cms/contents')
@@ -66,6 +67,7 @@ describe('createBrowserCmsClient', () => {
       expect(url.searchParams.get('pageIndex')).toBe('0')
       expect(url.searchParams.get('pageSize')).toBe('5')
       expect(url.searchParams.get('keyword')).toBe('business')
+      expect(init?.cache).toBe('no-store')
 
       return new Response(JSON.stringify({
         pageIndex: 0,

@@ -11,6 +11,7 @@ import type {
   PageBuilderCmsSelectionRequestContext,
   PageBuilderCmsSelectionResult,
 } from '@proma/shared'
+import { PAGE_BUILDER_CMS_SELECTION_RESULT_VERSION } from '@proma/shared'
 
 const CATALOGS: PageBuilderCmsCatalogList = {
   items: [
@@ -462,6 +463,84 @@ describe('CmsBrowserDialog', () => {
       catalogId: '100',
     }))
     expect(JSON.stringify(renderer.toJSON())).toContain('首页轮播图')
+  })
+
+  test('reloads content data when returning to the content tab instead of reusing a cached page', async () => {
+    let requestCount = 0
+    const listContents = mock(async () => {
+      requestCount += 1
+      return createContentsPayload(`实时内容 ${requestCount}`)
+    })
+    const { CmsBrowserDialog } = await loadCmsBrowserDialog({ listContents })
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <CmsBrowserDialog open onOpenChange={() => {}} />,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    const findTab = (label: string) => renderer.root.findAllByType('button')
+      .find((button) => flattenText(button.props.children).trim() === label)
+
+    await act(async () => {
+      findTab('内容')?.props.onClick()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(listContents).toHaveBeenCalledTimes(1)
+    expect(JSON.stringify(renderer.toJSON())).toContain('实时内容 1')
+
+    await act(async () => {
+      findTab('栏目')?.props.onClick()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      findTab('内容')?.props.onClick()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(listContents).toHaveBeenCalledTimes(2)
+    expect(JSON.stringify(renderer.toJSON())).toContain('实时内容 2')
+  })
+
+  test('reloads catalog data when returning to the catalog tab', async () => {
+    const listCatalogs = mock(async () => CATALOGS)
+    const { CmsBrowserDialog } = await loadCmsBrowserDialog({ listCatalogs })
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <CmsBrowserDialog open onOpenChange={() => {}} />,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    const findTab = (label: string) => renderer.root.findAllByType('button')
+      .find((button) => flattenText(button.props.children).trim() === label)
+
+    expect(listCatalogs).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      findTab('内容')?.props.onClick()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      findTab('栏目')?.props.onClick()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(listCatalogs).toHaveBeenCalledTimes(2)
   })
 
   test('keeps catalog checkbox selection independent from the content tab single checked catalog', async () => {
@@ -936,7 +1015,7 @@ describe('CmsBrowserDialog', () => {
 
     const [[selection]] = onConfirmSelection.mock.calls as unknown as [[PageBuilderCmsSelectionResult]]
     expect(selection).toMatchObject({
-      version: 5,
+      version: PAGE_BUILDER_CMS_SELECTION_RESULT_VERSION,
       siteId: '1',
       targetSelection: {
         kind: 'block',
@@ -999,7 +1078,7 @@ describe('CmsBrowserDialog', () => {
 
     const [[selection]] = onConfirmSelection.mock.calls as unknown as [[PageBuilderCmsSelectionResult]]
     expect(selection).toMatchObject({
-      version: 5,
+      version: PAGE_BUILDER_CMS_SELECTION_RESULT_VERSION,
       siteId: '1',
       targetSelection: {
         kind: 'block',
@@ -1107,7 +1186,7 @@ describe('CmsBrowserDialog', () => {
 
     const [[selection]] = onConfirmSelection.mock.calls as unknown as [[PageBuilderCmsSelectionResult]]
     expect(selection).toMatchObject({
-      version: 5,
+      version: PAGE_BUILDER_CMS_SELECTION_RESULT_VERSION,
       siteId: '1',
       targetSelection: {
         kind: 'block',
@@ -1206,7 +1285,7 @@ describe('CmsBrowserDialog', () => {
 
     const [[selection]] = onConfirmSelection.mock.calls as unknown as [[PageBuilderCmsSelectionResult]]
     expect(selection).toMatchObject({
-      version: 5,
+      version: PAGE_BUILDER_CMS_SELECTION_RESULT_VERSION,
       siteId: '1',
       targetSelection: {
         kind: 'block',

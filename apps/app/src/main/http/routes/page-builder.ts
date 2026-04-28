@@ -59,7 +59,7 @@ pageBuilderRoutes.delete('/projects/:workspaceId', (c) => {
 pageBuilderRoutes.get('/cms/sites', async (c) => {
   try {
     const gateway = createCmsGateway()
-    return c.json(await gateway.listSites())
+    return noStoreJson(c.json(await gateway.listSites()))
   } catch (error) {
     throw mapCmsGatewayError(error)
   }
@@ -76,12 +76,12 @@ pageBuilderRoutes.get('/cms/catalogs', async (c) => {
 
   try {
     const gateway = createCmsGateway()
-    return c.json(await gateway.listCatalogs({
+    return noStoreJson(c.json(await gateway.listCatalogs({
       siteId: readOptionalSiteIdQuery(c.req.query('siteId')),
       ids,
       contentType,
       searchKeyword,
-    }))
+    })))
   } catch (error) {
     throw mapCmsGatewayError(error)
   }
@@ -95,10 +95,10 @@ pageBuilderRoutes.get('/cms/catalogs/:catalogId', async (c) => {
 
   try {
     const gateway = createCmsGateway()
-    return c.json(await gateway.getCatalogDetail(
+    return noStoreJson(c.json(await gateway.getCatalogDetail(
       catalogId,
       readOptionalSiteIdQuery(c.req.query('siteId')),
-    ))
+    )))
   } catch (error) {
     throw mapCmsGatewayError(error)
   }
@@ -118,7 +118,7 @@ pageBuilderRoutes.get('/cms/contents', async (c) => {
 
   try {
     const gateway = createCmsGateway()
-    return c.json(await gateway.listContents({
+    return noStoreJson(c.json(await gateway.listContents({
       siteId: readOptionalSiteIdQuery(c.req.query('siteId')),
       ids,
       catalogId,
@@ -131,7 +131,7 @@ pageBuilderRoutes.get('/cms/contents', async (c) => {
         min: 1,
         label: 'pageSize',
       }),
-    }))
+    })))
   } catch (error) {
     throw mapCmsGatewayError(error)
   }
@@ -170,6 +170,11 @@ function createCmsGateway(): CmsGateway {
   }
 
   return new CmsGateway({ config })
+}
+
+function noStoreJson(response: Response): Response {
+  response.headers.set('cache-control', 'no-store')
+  return response
 }
 
 function mapCmsGatewayError(error: unknown): Error {

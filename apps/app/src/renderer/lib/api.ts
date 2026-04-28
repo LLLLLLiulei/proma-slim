@@ -56,6 +56,10 @@ interface PageBuilderImageReplacementRequest extends PageBuilderImageReplacement
   file: File
 }
 
+const CMS_REALTIME_REQUEST_OPTIONS = {
+  cache: 'no-store' as const,
+}
+
 export class ApiError extends Error {
   status: number
 
@@ -262,11 +266,11 @@ export const api = {
       ? `/api/page-builder/cms/catalogs?${params.toString()}`
       : '/api/page-builder/cms/catalogs'
 
-    return request<PageBuilderCmsCatalogList>(url)
+    return request<PageBuilderCmsCatalogList>(url, CMS_REALTIME_REQUEST_OPTIONS)
   },
 
   listPageBuilderCmsSites(): Promise<PageBuilderCmsSiteSummary[]> {
-    return request<PageBuilderCmsSiteSummary[]>('/api/page-builder/cms/sites')
+    return request<PageBuilderCmsSiteSummary[]>('/api/page-builder/cms/sites', CMS_REALTIME_REQUEST_OPTIONS)
   },
 
   getPageBuilderCmsCatalogDetail(catalogId: string, siteId?: string): Promise<PageBuilderCmsCatalogDetail> {
@@ -279,7 +283,7 @@ export const api = {
       ? `/api/page-builder/cms/catalogs/${encodeURIComponent(catalogId)}?${params.toString()}`
       : `/api/page-builder/cms/catalogs/${encodeURIComponent(catalogId)}`
 
-    return request<PageBuilderCmsCatalogDetail>(url)
+    return request<PageBuilderCmsCatalogDetail>(url, CMS_REALTIME_REQUEST_OPTIONS)
   },
 
   listPageBuilderCmsContents(query: PageBuilderCmsContentQuery): Promise<PageBuilderCmsContentList> {
@@ -303,7 +307,7 @@ export const api = {
       params.set('keyword', query.keyword)
     }
 
-    return request<PageBuilderCmsContentList>(`/api/page-builder/cms/contents?${params.toString()}`)
+    return request<PageBuilderCmsContentList>(`/api/page-builder/cms/contents?${params.toString()}`, CMS_REALTIME_REQUEST_OPTIONS)
   },
 
   getWorkspaceCapabilities(workspaceId: string): Promise<WorkspaceCapabilities> {

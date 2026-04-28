@@ -98,27 +98,15 @@ export function useCmsBrowserState(options: UseCmsBrowserStateOptions): UseCmsBr
   const [contentsPageIndex, setContentsPageIndex] = React.useState(0)
   const [contentsPageSize, setContentsPageSize] = React.useState(DEFAULT_CONTENTS_PAGE_SIZE)
   const [expandedKeys, setExpandedKeys] = React.useState<string[]>([])
-  const catalogDetailCacheRef = React.useRef(new Map<string, PageBuilderCmsCatalogDetail>())
-  const contentCacheRef = React.useRef(new Map<string, PageBuilderCmsContentList>())
   const sitesRequestVersionRef = React.useRef(0)
   const catalogsRequestVersionRef = React.useRef(0)
   const catalogDetailRequestVersionRef = React.useRef(0)
   const contentsRequestVersionRef = React.useRef(0)
 
-  const getContentCacheKey = React.useCallback((siteId: string, catalogId: string, pageIndex: number, pageSize: number) => (
-    `${siteId}:${catalogId}:${pageIndex}:${pageSize}`
-  ), [])
-
-  const getCatalogDetailCacheKey = React.useCallback((siteId: string, catalogId: string) => (
-    `${siteId}:${catalogId}`
-  ), [])
-
   const resetSiteScopedState = React.useCallback(() => {
     catalogsRequestVersionRef.current += 1
     catalogDetailRequestVersionRef.current += 1
     contentsRequestVersionRef.current += 1
-    catalogDetailCacheRef.current.clear()
-    contentCacheRef.current.clear()
     setCatalogsState(createIdleState())
     setCatalogDetailState(createIdleState())
     setContentsState(createIdleState())
@@ -221,23 +209,9 @@ export function useCmsBrowserState(options: UseCmsBrowserStateOptions): UseCmsBr
     catalogId: string,
     pageIndex: number,
     pageSize: number,
-    force = false,
+    _force = false,
   ) => {
     if (!open) return
-
-    const cacheKey = getContentCacheKey(siteId, catalogId, pageIndex, pageSize)
-
-    if (!force) {
-      const cached = contentCacheRef.current.get(cacheKey)
-      if (cached) {
-        setContentsState({
-          status: 'ready',
-          data: cached,
-          errorMessage: null,
-        })
-        return
-      }
-    }
 
     setContentsState({
       status: 'loading',
@@ -251,7 +225,6 @@ export function useCmsBrowserState(options: UseCmsBrowserStateOptions): UseCmsBr
       if (requestVersion !== contentsRequestVersionRef.current) {
         return
       }
-      contentCacheRef.current.set(cacheKey, result)
       setContentsState({
         status: 'ready',
         data: result,
@@ -267,24 +240,10 @@ export function useCmsBrowserState(options: UseCmsBrowserStateOptions): UseCmsBr
         errorMessage: toErrorMessage(error, '加载 CMS 内容失败'),
       })
     }
-  }, [getContentCacheKey, open])
+  }, [open])
 
-  const ensureCatalogDetailLoaded = React.useCallback(async (siteId: string, catalogId: string, force = false) => {
+  const ensureCatalogDetailLoaded = React.useCallback(async (siteId: string, catalogId: string, _force = false) => {
     if (!open) return
-
-    const cacheKey = getCatalogDetailCacheKey(siteId, catalogId)
-
-    if (!force) {
-      const cached = catalogDetailCacheRef.current.get(cacheKey)
-      if (cached) {
-        setCatalogDetailState({
-          status: 'ready',
-          data: cached,
-          errorMessage: null,
-        })
-        return
-      }
-    }
 
     setCatalogDetailState({
       status: 'loading',
@@ -298,7 +257,6 @@ export function useCmsBrowserState(options: UseCmsBrowserStateOptions): UseCmsBr
       if (requestVersion !== catalogDetailRequestVersionRef.current) {
         return
       }
-      catalogDetailCacheRef.current.set(cacheKey, result)
       setCatalogDetailState({
         status: 'ready',
         data: result,
@@ -314,7 +272,7 @@ export function useCmsBrowserState(options: UseCmsBrowserStateOptions): UseCmsBr
         errorMessage: toErrorMessage(error, '加载 CMS 栏目详情失败'),
       })
     }
-  }, [getCatalogDetailCacheKey, open])
+  }, [open])
 
   React.useEffect(() => {
     if (!open) {
@@ -366,12 +324,15 @@ export function useCmsBrowserState(options: UseCmsBrowserStateOptions): UseCmsBr
   const setActiveTab = React.useCallback((value: CmsBrowserTab) => {
     setActiveTabState(value)
 
-    if (value !== 'contents') {
+    if (value === 'catalogs') {
+      if (selectedSiteId) {
+        void ensureCatalogsLoaded(selectedSiteId, true)
+      }
       return
     }
 
     setSelectedCatalogIdState((previous) => previous ?? findFirstCatalogId(catalogsState.data?.tree ?? []))
-  }, [catalogsState.data])
+  }, [catalogsState.data, ensureCatalogsLoaded, selectedSiteId])
 
   const setSelectedSiteId = React.useCallback((siteId: string) => {
     if (selectedSiteId === siteId) {
@@ -403,24 +364,16 @@ export function useCmsBrowserState(options: UseCmsBrowserStateOptions): UseCmsBr
 
   const retryCatalogDetail = React.useCallback(() => {
     if (!selectedCatalogId || !selectedSiteId) return
-    catalogDetailCacheRef.current.delete(getCatalogDetailCacheKey(selectedSiteId, selectedCatalogId))
     void ensureCatalogDetailLoaded(selectedSiteId, selectedCatalogId, true)
-  }, [ensureCatalogDetailLoaded, getCatalogDetailCacheKey, selectedCatalogId, selectedSiteId])
+  }, [ensureCatalogDetailLoaded, selectedCatalogId, selectedSiteId])
 
   const retryContents = React.useCallback(() => {
     if (!selectedCatalogId || !selectedSiteId) return
-    contentCacheRef.current.delete(getContentCacheKey(
-      selectedSiteId,
-      selectedCatalogId,
-      contentsPageIndex,
-      contentsPageSize,
-    ))
     void ensureContentsLoaded(selectedSiteId, selectedCatalogId, contentsPageIndex, contentsPageSize, true)
   }, [
     contentsPageIndex,
     contentsPageSize,
     ensureContentsLoaded,
-    getContentCacheKey,
     selectedSiteId,
     selectedCatalogId,
   ])
