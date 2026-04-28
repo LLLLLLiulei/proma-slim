@@ -923,6 +923,36 @@ describe('CmsGateway', () => {
     expect(tokenProvider.getAuthorizationHeader).not.toHaveBeenCalled()
   })
 
+  test('fetches absolute http assets from other origins through the cms asset proxy', async () => {
+    const { CmsGateway } = await import('./cms-gateway')
+    const { resolvePageBuilderCmsConfig } = await import('./page-builder-cms-config')
+    const tokenProvider = {
+      getAuthorizationHeader: mock(async () => 'Bearer slim-token'),
+    }
+    const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe('https://cdn.example.com/images/banner.png')
+      expect(init?.method).toBe('GET')
+      expect(init?.headers).toBeUndefined()
+
+      return new Response('external-asset', {
+        status: 200,
+        headers: { 'content-type': 'image/png' },
+      })
+    })
+
+    const gateway = new CmsGateway({
+      config: resolvePageBuilderCmsConfig(TEST_ENV)!,
+      fetchFn: fetchMock as unknown as typeof fetch,
+      tokenProvider,
+    })
+
+    const response = await gateway.fetchAsset('https://cdn.example.com/images/banner.png')
+
+    expect(response.status).toBe(200)
+    expect(await response.text()).toBe('external-asset')
+    expect(tokenProvider.getAuthorizationHeader).not.toHaveBeenCalled()
+  })
+
   test('maps fetchAsset network failures to CmsGatewayError upstream errors', async () => {
     const { CmsGateway, CmsGatewayError } = await import('./cms-gateway')
     const { resolvePageBuilderCmsConfig } = await import('./page-builder-cms-config')

@@ -21,7 +21,6 @@ import { resolvePageBuilderCmsConfig } from './page-builder-cms-config'
 import {
   PAGE_BUILDER_HTML_SRCSET_ATTRIBUTES,
   PAGE_BUILDER_HTML_URL_ATTRIBUTES,
-  isAllowedCmsAssetUrl,
   resolveCmsAssetUrl,
   rewriteCssUrlFunctions,
   rewriteSrcsetValue,
@@ -140,7 +139,7 @@ function buildCmsAssetProxyUrl(assetUrl: string): string {
 
 function rewriteCmsAssetUrl(baseUrl: string, rawValue: string): string {
   const resolved = resolveCmsAssetUrl(baseUrl, rawValue)
-  if (!resolved || !isAllowedCmsAssetUrl(baseUrl, resolved)) {
+  if (!resolved) {
     return rawValue
   }
 

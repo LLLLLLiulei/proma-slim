@@ -126,7 +126,7 @@ export class CmsGateway {
 
   async fetchAsset(assetUrl: string): Promise<Response> {
     const resolvedAssetUrl = resolveCmsAssetUrl(this.config.baseUrl, assetUrl)
-    if (!resolvedAssetUrl || !isCmsAssetUrlAllowed(this.config.baseUrl, resolvedAssetUrl)) {
+    if (!resolvedAssetUrl) {
       throw new CmsGatewayError('config', 'CMS 资源地址不合法')
     }
 
