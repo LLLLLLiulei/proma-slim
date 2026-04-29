@@ -27,6 +27,28 @@ function createApp() {
   })
 }
 
+async function acquirePageBuilderEditLockHeaders(
+  app: ReturnType<typeof createApp>,
+  workspaceId: string,
+  holderId = 'test-holder',
+): Promise<Record<string, string>> {
+  const response = await app.fetch(new Request(`http://localhost/api/page-builder/projects/${workspaceId}/edit-lock`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({ holderId }),
+  }))
+
+  expect(response.status).toBe(201)
+  const lease = await response.json() as { lockId: string; holderId: string }
+
+  return {
+    'x-proma-page-builder-edit-lock': lease.lockId,
+    'x-proma-page-builder-edit-holder': lease.holderId,
+  }
+}
+
 async function waitForCompletedStaticExportJob(
   app: ReturnType<typeof createApp>,
   workspaceId: string,
@@ -385,11 +407,13 @@ describe('createHttpApp', () => {
       '<!doctype html><html><body><section id="hero"><h1>旧标题</h1><p>旧描述</p></section></body></html>',
       'utf-8',
     )
+    const editLockHeaders = await acquirePageBuilderEditLockHeaders(app, workspace.id)
 
     const response = await app.fetch(new Request(`http://localhost/api/workspaces/${workspace.id}/page-builder/inline-text`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json; charset=utf-8',
+        ...editLockHeaders,
       },
       body: JSON.stringify({
         selector: '#hero',
@@ -416,6 +440,78 @@ describe('createHttpApp', () => {
     expect(payload.revision?.length).toBeGreaterThan(0)
   })
 
+  test('workspace routes reject page-builder write requests without an edit lock', async () => {
+    const app = createApp()
+    const workspace = createAgentWorkspace('Builder Missing Lock', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(
+      join(workspaceFilesDir, 'index.html'),
+      '<!doctype html><html><body><section id="hero"><h1>旧标题</h1></section></body></html>',
+      'utf-8',
+    )
+
+    const response = await app.fetch(new Request(`http://localhost/api/workspaces/${workspace.id}/page-builder/inline-text`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json; charset=utf-8',
+      },
+      body: JSON.stringify({
+        selector: '#hero',
+        textTargetDescriptor: {
+          version: 1,
+          tagName: 'h1',
+          childPath: [0],
+        },
+        nextText: '新标题',
+      }),
+    }))
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({
+      error: '编辑锁已失效，请从首页重新进入编辑',
+    })
+    expect(readFileSync(join(workspaceFilesDir, 'index.html'), 'utf-8')).toContain('<h1>旧标题</h1>')
+  })
+
+  test('workspace title updates require edit locks only for page-builder workspaces', async () => {
+    const app = createApp()
+    const pageBuilderWorkspace = createAgentWorkspace('Builder Rename Locked', { template: 'page-builder' })
+    const regularWorkspace = createAgentWorkspace('Regular Rename')
+
+    const pageBuilderResponse = await app.fetch(new Request(`http://localhost/api/workspaces/${pageBuilderWorkspace.id}`, {
+      method: 'PATCH',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        name: 'Should Not Rename',
+      }),
+    }))
+
+    expect(pageBuilderResponse.status).toBe(409)
+    expect(await pageBuilderResponse.json()).toEqual({
+      error: '编辑锁已失效，请从首页重新进入编辑',
+    })
+
+    const regularResponse = await app.fetch(new Request(`http://localhost/api/workspaces/${regularWorkspace.id}`, {
+      method: 'PATCH',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        name: 'Regular Renamed',
+      }),
+    }))
+
+    expect(regularResponse.status).toBe(200)
+    expect(await regularResponse.json()).toEqual(expect.objectContaining({
+      id: regularWorkspace.id,
+      name: 'Regular Renamed',
+    }))
+  })
+
   test('workspace routes accept page-builder image replacement uploads and rewrite the targeted img src', async () => {
     const app = createApp()
     const workspace = createAgentWorkspace('Builder Image Replacement', { template: 'page-builder' })
@@ -428,6 +524,7 @@ describe('createHttpApp', () => {
       'utf-8',
     )
     writeFileSync(join(workspaceFilesDir, 'assets', 'original.png'), 'old-image', 'utf-8')
+    const editLockHeaders = await acquirePageBuilderEditLockHeaders(app, workspace.id)
 
     const formData = new FormData()
     formData.set('payload', JSON.stringify({
@@ -442,6 +539,7 @@ describe('createHttpApp', () => {
 
     const response = await app.fetch(new Request(`http://localhost/api/workspaces/${workspace.id}/page-builder/image`, {
       method: 'POST',
+      headers: editLockHeaders,
       body: formData,
     }))
 
@@ -475,11 +573,13 @@ describe('createHttpApp', () => {
       '<!doctype html><html><body><section id="hero"><h1>旧标题</h1></section><section id="features"><p>保留内容</p></section></body></html>',
       'utf-8',
     )
+    const editLockHeaders = await acquirePageBuilderEditLockHeaders(app, workspace.id)
 
     const response = await app.fetch(new Request(`http://localhost/api/workspaces/${workspace.id}/page-builder/block-delete`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json; charset=utf-8',
+        ...editLockHeaders,
       },
       body: JSON.stringify({
         selector: '#hero',
@@ -517,9 +617,11 @@ describe('createHttpApp', () => {
     )
     writeFileSync(join(workspaceFilesDir, 'assets', 'site.css'), 'body { color: red; }', 'utf-8')
     writeFileSync(join(workspaceFilesDir, 'assets', 'hero.png'), 'hero-image', 'utf-8')
+    const editLockHeaders = await acquirePageBuilderEditLockHeaders(app, workspace.id)
 
     const createResponse = await app.fetch(new Request(`http://localhost/api/workspaces/${workspace.id}/page-builder/export-static-jobs`, {
       method: 'POST',
+      headers: editLockHeaders,
     }))
 
     expect(createResponse.status).toBe(202)
@@ -584,10 +686,12 @@ describe('createHttpApp', () => {
     }) as typeof pageBuilderStaticExportService.createJob
 
     try {
+      const editLockHeaders = await acquirePageBuilderEditLockHeaders(app, workspace.id)
       const response = await app.fetch(new Request(`http://localhost/api/workspaces/${workspace.id}/page-builder/export-static-jobs`, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
+          ...editLockHeaders,
         },
         body: JSON.stringify({
           downloadCmsRemoteAssets: false,
@@ -609,11 +713,13 @@ describe('createHttpApp', () => {
   test('workspace routes reject invalid static export option payloads', async () => {
     const app = createApp()
     const workspace = createAgentWorkspace('Builder Export Invalid Option', { template: 'page-builder' })
+    const editLockHeaders = await acquirePageBuilderEditLockHeaders(app, workspace.id)
 
     const response = await app.fetch(new Request(`http://localhost/api/workspaces/${workspace.id}/page-builder/export-static-jobs`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
+        ...editLockHeaders,
       },
       body: JSON.stringify({
         downloadCmsRemoteAssets: 'no',
@@ -629,9 +735,11 @@ describe('createHttpApp', () => {
   test('workspace routes reject static export creation when workspace-files/index.html is missing', async () => {
     const app = createApp()
     const workspace = createAgentWorkspace('Builder Export Missing Entry', { template: 'page-builder' })
+    const editLockHeaders = await acquirePageBuilderEditLockHeaders(app, workspace.id)
 
     const response = await app.fetch(new Request(`http://localhost/api/workspaces/${workspace.id}/page-builder/export-static-jobs`, {
       method: 'POST',
+      headers: editLockHeaders,
     }))
 
     expect(response.status).toBe(404)
@@ -770,6 +878,28 @@ describe('createHttpApp', () => {
 
     expect(response.status).toBe(400)
     expect(await response.json()).toEqual({ error: '消息内容不能为空' })
+  })
+
+  test('send route rejects page-builder sessions without an edit lock', async () => {
+    const app = createApp()
+    const workspace = createAgentWorkspace('Builder Send Missing Lock', { template: 'page-builder' })
+    const session = createAgentSession('Builder Send', undefined, workspace.id)
+
+    const response = await app.fetch(new Request(`http://localhost/api/sessions/${session.id}/send`, {
+      method: 'POST',
+      body: JSON.stringify({
+        userMessage: '更新页面',
+        workspaceId: workspace.id,
+      }),
+      headers: {
+        'content-type': 'application/json',
+      },
+    }))
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({
+      error: '编辑锁已失效，请从首页重新进入编辑',
+    })
   })
 
   test('send route accepts multipart payloads for attachment-backed Builder messages', async () => {

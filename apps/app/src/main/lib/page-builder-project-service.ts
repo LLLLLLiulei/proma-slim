@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import type { AgentSessionMeta, AgentWorkspace, PageBuilderProjectSummary } from '@proma/shared'
 import { listAgentSessions, deleteAgentSession } from './agent-session-manager'
 import { getAgentWorkspacesDir } from './config-paths'
+import { pageBuilderEditLockService } from './page-builder-edit-lock-service'
 import { getWorkspacePreviewState } from './workspace-preview-service'
 import { deleteAgentWorkspace, getAgentWorkspace, listAgentWorkspaces } from './workspace-service'
 
@@ -34,6 +35,7 @@ function toProjectSummary(
     latestSessionId: latestSession?.id ?? null,
     lastActiveAt: latestSession?.updatedAt ?? workspace.updatedAt ?? workspace.createdAt,
     previewUrl: previewState.hasPreview ? previewState.entryUrl : null,
+    editState: pageBuilderEditLockService.getEditState(workspace.id),
   }
 }
 
@@ -55,6 +57,8 @@ export function deletePageBuilderProject(workspaceId: string): void {
   if (!workspace || workspace.template !== 'page-builder') {
     throw new Error(`page-builder 项目不存在: ${workspaceId}`)
   }
+
+  pageBuilderEditLockService.assertProjectAvailable(workspaceId)
 
   const workspaceSessions = listAgentSessions().filter((session) => session.workspaceId === workspaceId)
   for (const session of workspaceSessions) {

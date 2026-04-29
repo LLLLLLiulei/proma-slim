@@ -6,9 +6,14 @@ import {
 } from '../../lib/page-builder-cms-rendering-preview'
 import { deletePageBuilderProject, listPageBuilderProjects } from '../../lib/page-builder-project-service'
 import { resolvePageBuilderCmsConfig } from '../../lib/page-builder-cms-config'
+import {
+  PageBuilderEditLockConflictError,
+  pageBuilderEditLockService,
+} from '../../lib/page-builder-edit-lock-service'
 import { readPageBuilderPreviewBridgeScript } from '../../lib/page-builder-preview-bridge'
+import { getAgentWorkspace } from '../../lib/workspace-service'
 import { HttpError } from '../errors'
-import { noContent } from '../responses'
+import { json, noContent } from '../responses'
 
 export const pageBuilderRoutes = new Hono()
 
@@ -50,9 +55,68 @@ pageBuilderRoutes.delete('/projects/:workspaceId', (c) => {
     if (error instanceof Error && error.message.startsWith('page-builder 项目不存在:')) {
       throw new HttpError(404, error.message)
     }
+    if (error instanceof PageBuilderEditLockConflictError) {
+      throw new HttpError(409, error.message)
+    }
     throw error
   }
 
+  return noContent()
+})
+
+pageBuilderRoutes.post('/projects/:workspaceId/edit-lock', async (c) => {
+  const workspace = getPageBuilderWorkspaceOrThrow(c.req.param('workspaceId'))
+  const body = await readOptionalJsonBody<{
+    sessionId?: unknown
+    holderId?: unknown
+  }>(c.req.raw)
+
+  try {
+    return json(pageBuilderEditLockService.acquire(workspace.id, {
+      sessionId: readOptionalBodyString(body.sessionId),
+      holderId: readOptionalBodyString(body.holderId),
+    }), 201)
+  } catch (error) {
+    if (error instanceof PageBuilderEditLockConflictError) {
+      return json({
+        error: error.message,
+        editState: error.editState,
+      }, 409)
+    }
+    throw error
+  }
+})
+
+pageBuilderRoutes.post('/projects/:workspaceId/edit-lock/:lockId/renew', async (c) => {
+  const workspace = getPageBuilderWorkspaceOrThrow(c.req.param('workspaceId'))
+  const body = await readOptionalJsonBody<{ holderId?: unknown }>(c.req.raw)
+  const holderId = readOptionalBodyString(body.holderId)
+  if (!holderId) {
+    throw new HttpError(400, 'holderId 不能为空')
+  }
+
+  const lease = pageBuilderEditLockService.renew(workspace.id, c.req.param('lockId'), { holderId })
+  if (!lease) {
+    throw new HttpError(409, '编辑锁已失效，请从首页重新进入编辑')
+  }
+
+  return json(lease)
+})
+
+pageBuilderRoutes.get('/projects/:workspaceId/edit-lock/:lockId', (c) => {
+  const workspace = getPageBuilderWorkspaceOrThrow(c.req.param('workspaceId'))
+  return json(pageBuilderEditLockService.getStatus(workspace.id, c.req.param('lockId')))
+})
+
+pageBuilderRoutes.post('/projects/:workspaceId/edit-lock/:lockId/release', async (c) => {
+  const workspace = getPageBuilderWorkspaceOrThrow(c.req.param('workspaceId'))
+  const body = await readOptionalJsonBody<{ holderId?: unknown }>(c.req.raw)
+  const holderId = readOptionalBodyString(body.holderId)
+  if (!holderId) {
+    throw new HttpError(400, 'holderId 不能为空')
+  }
+
+  pageBuilderEditLockService.release(workspace.id, c.req.param('lockId'), { holderId })
   return noContent()
 })
 
@@ -170,6 +234,35 @@ function createCmsGateway(): CmsGateway {
   }
 
   return new CmsGateway({ config })
+}
+
+function getPageBuilderWorkspaceOrThrow(workspaceId: string) {
+  const workspace = getAgentWorkspace(decodeURIComponent(workspaceId))
+  if (!workspace || workspace.template !== 'page-builder') {
+    throw new HttpError(404, `page-builder 项目不存在: ${workspaceId}`)
+  }
+  return workspace
+}
+
+async function readOptionalJsonBody<T extends Record<string, unknown>>(request: Request): Promise<T> {
+  if (request.headers.get('content-length') === '0') {
+    return {} as T
+  }
+
+  try {
+    const body = await request.json()
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      throw new Error('invalid body')
+    }
+    return body as T
+  } catch {
+    return {} as T
+  }
+}
+
+function readOptionalBodyString(value: unknown): string | undefined {
+  const normalized = typeof value === 'string' ? value.trim() : ''
+  return normalized || undefined
 }
 
 function noStoreJson(response: Response): Response {

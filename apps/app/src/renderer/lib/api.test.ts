@@ -390,6 +390,7 @@ describe('renderer api wrappers', () => {
       lastActiveAt: 2,
       latestSessionId: 'session-1',
       previewUrl: '/api/workspaces/workspace-1/preview/',
+      editState: { status: 'available' },
     }
     const fetchMock = mock(async (input: RequestInfo | URL) => {
       expect(String(input)).toBe('/api/page-builder/projects')
@@ -415,6 +416,69 @@ describe('renderer api wrappers', () => {
     await api.deletePageBuilderProject('workspace-1')
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  test('page-builder edit lock wrappers call acquire, renew, validate, and release endpoints', async () => {
+    const lease = {
+      workspaceId: 'workspace-1',
+      lockId: 'lock-1',
+      holderId: 'holder-1',
+      expiresAt: 60_000,
+      heartbeatIntervalMs: 15_000,
+    }
+    const calls: string[] = []
+    const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push(`${init?.method ?? 'GET'} ${String(input)}`)
+
+      if (String(input) === '/api/page-builder/projects/workspace-1/edit-lock' && init?.method === 'POST') {
+        expect(JSON.parse(String(init.body))).toEqual({
+          sessionId: 'session-1',
+          holderId: 'holder-1',
+        })
+        return jsonResponse(lease, { status: 201 })
+      }
+
+      if (String(input) === '/api/page-builder/projects/workspace-1/edit-lock/lock-1/renew' && init?.method === 'POST') {
+        expect(JSON.parse(String(init.body))).toEqual({ holderId: 'holder-1' })
+        return jsonResponse({ ...lease, expiresAt: 75_000 })
+      }
+
+      if (String(input) === '/api/page-builder/projects/workspace-1/edit-lock/lock-1' && init?.method === undefined) {
+        return jsonResponse({ valid: true, lease })
+      }
+
+      if (String(input) === '/api/page-builder/projects/workspace-1/edit-lock/lock-1/release' && init?.method === 'POST') {
+        expect(init.keepalive).toBe(true)
+        expect(JSON.parse(String(init.body))).toEqual({ holderId: 'holder-1' })
+        return new Response(null, { status: 204 })
+      }
+
+      throw new Error(`unexpected request: ${init?.method ?? 'GET'} ${String(input)}`)
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const { api } = await import('./api')
+    const acquired = await api.acquirePageBuilderEditLock('workspace-1', {
+      sessionId: 'session-1',
+      holderId: 'holder-1',
+    })
+    const renewed = await api.renewPageBuilderEditLock('workspace-1', 'lock-1', {
+      holderId: 'holder-1',
+    })
+    const validation = await api.getPageBuilderEditLockStatus('workspace-1', 'lock-1')
+    await api.releasePageBuilderEditLock('workspace-1', 'lock-1', {
+      holderId: 'holder-1',
+    })
+
+    expect(acquired).toEqual(lease)
+    expect(renewed.expiresAt).toBe(75_000)
+    expect(validation.valid).toBe(true)
+    expect(calls).toEqual([
+      'POST /api/page-builder/projects/workspace-1/edit-lock',
+      'POST /api/page-builder/projects/workspace-1/edit-lock/lock-1/renew',
+      'GET /api/page-builder/projects/workspace-1/edit-lock/lock-1',
+      'POST /api/page-builder/projects/workspace-1/edit-lock/lock-1/release',
+    ])
   })
 
   test('listPageBuilderCmsCatalogs requests the page-builder cms catalogs endpoint with query params', async () => {
@@ -725,6 +789,63 @@ describe('renderer api wrappers', () => {
       hasCmsRendering: false,
       requiresSameOrigin: false,
     })
+  })
+
+  test('page-builder editing requests forward edit lock headers when provided', async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.close()
+      },
+    })
+    const expectedHeaders = {
+      lockId: 'lock-1',
+      holderId: 'holder-1',
+    }
+    const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const headers = new Headers(init?.headers)
+      expect(headers.get('x-proma-page-builder-edit-lock')).toBe(expectedHeaders.lockId)
+      expect(headers.get('x-proma-page-builder-edit-holder')).toBe(expectedHeaders.holderId)
+
+      if (String(input) === '/api/sessions/session-1/send') {
+        return new Response(stream, {
+          headers: { 'content-type': 'text/event-stream; charset=utf-8' },
+        })
+      }
+
+      if (String(input) === '/api/workspaces/workspace-1/page-builder/inline-text') {
+        return jsonResponse({
+          hasPreview: true,
+          entryUrl: '/api/workspaces/workspace-1/preview/',
+          revision: 'rev-2',
+          hasCmsRendering: false,
+          requiresSameOrigin: false,
+        })
+      }
+
+      throw new Error(`unexpected request: ${String(input)}`)
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const { api } = await import('./api')
+    await api.sendMessage('session-1', {
+      userMessage: 'Update page',
+      workspaceId: 'workspace-1',
+    }, {
+      editLock: expectedHeaders,
+    })
+    await api.savePageBuilderInlineText('workspace-1', {
+      selector: '#hero',
+      textTargetDescriptor: {
+        version: 1,
+        tagName: 'h1',
+        childPath: [0],
+      },
+      nextText: '新标题',
+    }, {
+      editLock: expectedHeaders,
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
   test('deletePageBuilderBlock posts the selected block selector to the workspace page-builder endpoint', async () => {

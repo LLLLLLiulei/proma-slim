@@ -33,6 +33,7 @@ import type {
   AgentMessage,
   PageBuilderCmsAutoAgentHandoffRequest,
   PageBuilderCmsAutoAgentHandoffSettledResult,
+  PageBuilderEditLockCredentials,
 } from '@proma/shared'
 
 interface SyncSessionMessagesDeps {
@@ -60,8 +61,10 @@ function resolveErrorStatus(error: unknown): number | null {
 }
 
 function isActiveSessionConflictError(error: unknown): boolean {
-  return resolveErrorStatus(error) === 409
-    || (error instanceof Error && error.message.includes(ACTIVE_SESSION_CONFLICT_MESSAGE))
+  const status = resolveErrorStatus(error)
+  return error instanceof Error
+    && error.message.includes(ACTIVE_SESSION_CONFLICT_MESSAGE)
+    && (status === null || status === 409)
 }
 
 export function getMessagesForSession(
@@ -179,6 +182,10 @@ export interface AgentViewProps {
   } | void
   programmaticSendRequest?: PageBuilderCmsAutoAgentHandoffRequest | null
   onProgrammaticSendSettled?: (result: PageBuilderCmsAutoAgentHandoffSettledResult) => void
+  onSendError?: (error: unknown) => void
+  sendMessageOptions?: {
+    editLock?: PageBuilderEditLockCredentials
+  }
 }
 
 export type AgentMessageDecorator = (userMessage: string) => string
@@ -329,6 +336,8 @@ export function AgentView({
   beforeSendMessage,
   programmaticSendRequest = null,
   onProgrammaticSendSettled,
+  onSendError,
+  sendMessageOptions,
 }: AgentViewProps): React.ReactElement {
   const [messagesBySession, setMessagesBySession] = React.useState<Map<string, AgentMessage[]>>(() => new Map())
   const [status, setStatus] = React.useState<AppStatus | null>(null)
@@ -564,7 +573,7 @@ export function AgentView({
         mentionedMcpServers,
       })
 
-      await sendMessage(sessionId, {
+      const sendPayload = {
         userMessage: trimmedUserMessage,
         ...(composedUserMessage ? { composedUserMessage } : {}),
         ...(attachmentFiles.length > 0 ? { attachmentFiles } : {}),
@@ -573,7 +582,13 @@ export function AgentView({
         ...(mentionedSkills.length > 0 && { mentionedSkills }),
         ...(bootstrappedSkills.length > 0 && { bootstrappedSkills }),
         ...(mentionedMcpServers.length > 0 && { mentionedMcpServers }),
-      })
+      }
+
+      if (sendMessageOptions) {
+        await sendMessage(sessionId, sendPayload, sendMessageOptions)
+      } else {
+        await sendMessage(sessionId, sendPayload)
+      }
 
       if (clearComposerOnSuccess) {
         setInputValue('')
@@ -642,6 +657,7 @@ export function AgentView({
       })
       const errorMessage = error instanceof Error ? error.message : '发送消息失败'
       toast.error(errorMessage)
+      onSendError?.(error)
       const nextMessages = await api.getSessionMessages(sessionId)
       setMessagesBySession((prev) => replaceMessagesForSession(prev, sessionId, nextMessages))
       return {
@@ -652,8 +668,10 @@ export function AgentView({
   }, [
     attachedDirectories,
     onMessageSent,
+    onSendError,
     reconcileSessionStreaming,
     sendMessage,
+    sendMessageOptions,
     session,
     sessionId,
     sessionWorkspaceId,
@@ -888,6 +906,10 @@ export function AgentView({
 
     const lastMessage = messages.at(-1)
     if (lastMessage?.role !== 'user') {
+      return
+    }
+
+    if (lastMessage.id.startsWith('local-')) {
       return
     }
 

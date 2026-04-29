@@ -10,6 +10,8 @@ import type {
   PageBuilderCmsSelectionEntryPoint,
   PageBuilderCmsSelectionRequestContext,
   PageBuilderCmsSelectionResult,
+  PageBuilderEditLockCredentials,
+  PageBuilderEditLockLease,
   PageBuilderImageReplacementPayload,
   PageBuilderInlineTextSaveRequest,
   PageBuilderInlineTextSaveResult,
@@ -49,6 +51,15 @@ import { Button } from '@/components/ui/button'
 import { ApiError, api } from '@/lib/api'
 import { clearBootstrapPayload, readBootstrapPayload } from '@page-builder/lib/bootstrap-cache'
 import { resolveBuilderContext } from '@page-builder/lib/builder-context'
+import {
+  clearPageBuilderEditLockFragment,
+  clearStoredPageBuilderEditLock,
+  createPageBuilderEditLockHolderId,
+  readPageBuilderEditLockFragment,
+  readStoredPageBuilderEditLock,
+  writeStoredPageBuilderEditLock,
+} from '@page-builder/lib/edit-lock-context'
+import { isPageBuilderEditLockRejected } from '@page-builder/lib/edit-lock-errors'
 import {
   BUILDER_SPLIT_GAP,
   BUILDER_SPLIT_RAIL_WIDTH,
@@ -90,6 +101,87 @@ type SelectionActionState = 'idle' | 'armed' | 'selected'
 const PAGE_BUILDER_GUIDED_GENERATION_SKILL = 'page-builder-guided-generation'
 const PAGE_BUILDER_CMS_REGION_AUTHORING_GUIDANCE_SKILL = 'page-builder-cms-region-authoring-guidance'
 const CMS_REGION_BLOCKED_ERROR_MESSAGE = '当前已选 CMS 区域已失效或无法确认，请重新选择该区域后再修改。'
+const EDIT_LOCK_LOST_MESSAGE = '编辑锁已失效，请从首页重新进入编辑'
+const pendingInitialEditLockResolutions = new Map<string, Promise<PageBuilderEditLockLease>>()
+
+function toEditLockCredentials(lease: PageBuilderEditLockLease | null): PageBuilderEditLockCredentials | null {
+  return lease
+    ? {
+        lockId: lease.lockId,
+        holderId: lease.holderId,
+      }
+    : null
+}
+
+async function resolveInitialPageBuilderEditLock(
+  workspaceId: string,
+  sessionId: string,
+): Promise<PageBuilderEditLockLease> {
+  const resolutionKey = `${workspaceId}:${sessionId}`
+  const pendingResolution = pendingInitialEditLockResolutions.get(resolutionKey)
+  if (pendingResolution) {
+    return await pendingResolution
+  }
+
+  const resolution = resolveInitialPageBuilderEditLockUncached(workspaceId, sessionId)
+    .finally(() => {
+      pendingInitialEditLockResolutions.delete(resolutionKey)
+    })
+  pendingInitialEditLockResolutions.set(resolutionKey, resolution)
+  return await resolution
+}
+
+async function resolveInitialPageBuilderEditLockUncached(
+  workspaceId: string,
+  sessionId: string,
+): Promise<PageBuilderEditLockLease> {
+  const storage = typeof window === 'undefined' ? null : window.sessionStorage
+  const fragmentCredentials = typeof window === 'undefined'
+    ? null
+    : readPageBuilderEditLockFragment(window.location.hash)
+
+  if (fragmentCredentials) {
+    try {
+      const lease = await api.renewPageBuilderEditLock(workspaceId, fragmentCredentials.lockId, {
+        holderId: fragmentCredentials.holderId,
+      })
+      if (storage) {
+        writeStoredPageBuilderEditLock(storage, workspaceId, sessionId, lease)
+      }
+      clearPageBuilderEditLockFragment()
+      return lease
+    } catch {
+      clearPageBuilderEditLockFragment()
+      if (storage) {
+        clearStoredPageBuilderEditLock(storage, workspaceId, sessionId)
+      }
+    }
+  }
+
+  const storedLock = storage
+    ? readStoredPageBuilderEditLock(storage, workspaceId, sessionId)
+    : null
+  if (storedLock && storage) {
+    try {
+      const lease = await api.renewPageBuilderEditLock(workspaceId, storedLock.lockId, {
+        holderId: storedLock.holderId,
+      })
+      writeStoredPageBuilderEditLock(storage, workspaceId, sessionId, lease)
+      return lease
+    } catch {
+      clearStoredPageBuilderEditLock(storage, workspaceId, sessionId)
+    }
+  }
+
+  const lease = await api.acquirePageBuilderEditLock(workspaceId, {
+    sessionId,
+    holderId: createPageBuilderEditLockHolderId(),
+  })
+  if (storage) {
+    writeStoredPageBuilderEditLock(storage, workspaceId, sessionId, lease)
+  }
+  return lease
+}
 
 function buildPageBuilderCmsGlobalGuidanceNotice(): PageBuilderCmsGuidanceNotice {
   return {
@@ -167,6 +259,23 @@ function resolvePageBuilderTargetBlockSelector(targetSelection: PageBuilderTarge
     : targetSelection.selector
 }
 
+function navigateToPageBuilderHome(): void {
+  if (typeof window === 'undefined') return
+
+  if (typeof window.history.pushState === 'function') {
+    window.history.pushState(null, '', '/')
+  } else {
+    window.history.replaceState(null, '', '/')
+  }
+
+  if (typeof window.dispatchEvent === 'function') {
+    const event = typeof PopStateEvent === 'function'
+      ? new PopStateEvent('popstate')
+      : new Event('popstate')
+    window.dispatchEvent(event)
+  }
+}
+
 export function BuilderPage({
   workspaceId,
   sessionId,
@@ -179,6 +288,8 @@ export function BuilderPage({
   const imageFileInputRef = React.useRef<HTMLInputElement>(null)
   const hydratedPreviewWorkspaceRef = React.useRef(workspaceId)
   const pendingImageReplacementRef = React.useRef<PageBuilderImageReplacementPayload | null>(null)
+  const editLockLeaseRef = React.useRef<PageBuilderEditLockLease | null>(null)
+  const releasedEditLockKeysRef = React.useRef<Set<string>>(new Set())
   const suppressedInlinePreviewRevisionsRef = React.useRef<Set<string>>(new Set())
   const handledStaticExportJobsRef = React.useRef<Set<string>>(new Set())
   const desktopSplitRatioRef = React.useRef(DEFAULT_BUILDER_SPLIT_RATIO)
@@ -190,6 +301,9 @@ export function BuilderPage({
   const setCurrentWorkspaceId = useSetAtom(currentAgentWorkspaceIdAtom)
   const streamingState = useAtomValue(agentStreamingStatesAtom).get(sessionId)
   const [loadState, setLoadState] = React.useState<LoadState>({ status: 'loading' })
+  const [editLockRequired, setEditLockRequired] = React.useState(false)
+  const [editLockLease, setEditLockLease] = React.useState<PageBuilderEditLockLease | null>(null)
+  const [editLockLostMessage, setEditLockLostMessage] = React.useState<string | null>(null)
   const [previewState, setPreviewState] = React.useState<WorkspacePreviewState | null>(() => {
     if (typeof window === 'undefined') return null
     return readWorkspacePreviewState(window.sessionStorage, workspaceId)
@@ -216,6 +330,15 @@ export function BuilderPage({
   const [isCreatingStaticExportJob, setIsCreatingStaticExportJob] = React.useState(false)
   const selectionModeEnabled = selectionActionState !== 'idle'
   const isAgentStreaming = streamingState?.running === true
+  const editLockCredentials = React.useMemo(() => toEditLockCredentials(editLockLease), [editLockLease])
+  const editLockRequestOptions = React.useMemo(() => (
+    editLockCredentials ? { editLock: editLockCredentials } : undefined
+  ), [editLockCredentials])
+  const editingEnabled = !editLockRequired || (editLockCredentials !== null && editLockLostMessage === null)
+
+  React.useEffect(() => {
+    editLockLeaseRef.current = editLockLease
+  }, [editLockLease])
 
   const clearVisibleSelection = React.useCallback(() => {
     setSelectionActionState('idle')
@@ -304,6 +427,17 @@ export function BuilderPage({
         return
       }
 
+      const needsEditLock = resolved.workspace?.template === 'page-builder'
+      setEditLockRequired(needsEditLock)
+      if (needsEditLock) {
+        const lease = await resolveInitialPageBuilderEditLock(workspaceId, sessionId)
+        setEditLockLease(lease)
+        setEditLockLostMessage(null)
+      } else {
+        setEditLockLease(null)
+        setEditLockLostMessage(null)
+      }
+
       setSessions(sessions)
       setWorkspaces(workspaces)
       setCurrentSessionId(sessionId)
@@ -360,6 +494,114 @@ export function BuilderPage({
     return () => window.removeEventListener('beforeunload', handleBeforeUnload)
   }, [isAgentStreaming])
 
+  const releaseCurrentEditLock = React.useCallback((options: {
+    clearStoredLock?: boolean
+  } = {}): void => {
+    if (!editLockRequired) {
+      return
+    }
+
+    const clearStoredLock = options.clearStoredLock ?? true
+    const lease = editLockLeaseRef.current
+    if (!lease) {
+      return
+    }
+
+    const releaseKey = `${lease.lockId}:${lease.holderId}`
+    if (releasedEditLockKeysRef.current.has(releaseKey)) {
+      return
+    }
+
+    releasedEditLockKeysRef.current.add(releaseKey)
+    if (clearStoredLock && typeof window !== 'undefined') {
+      clearStoredPageBuilderEditLock(window.sessionStorage, workspaceId, sessionId)
+    }
+
+    void api.releasePageBuilderEditLock(workspaceId, lease.lockId, {
+      holderId: lease.holderId,
+    }).catch((error) => {
+      console.warn('[BuilderPage] 释放 page-builder 编辑锁失败:', error)
+    })
+  }, [editLockRequired, sessionId, workspaceId])
+
+  const markEditLockLost = React.useCallback((): void => {
+    if (!editLockRequired) {
+      return
+    }
+
+    if (typeof window !== 'undefined') {
+      clearStoredPageBuilderEditLock(window.sessionStorage, workspaceId, sessionId)
+    }
+
+    editLockLeaseRef.current = null
+    setEditLockLease(null)
+    setEditLockLostMessage(EDIT_LOCK_LOST_MESSAGE)
+    clearVisibleSelection()
+    setPendingDeleteSelector(null)
+    pendingImageReplacementRef.current = null
+  }, [clearVisibleSelection, editLockRequired, sessionId, workspaceId])
+
+  const handlePageBuilderEditLockRejected = React.useCallback((error: unknown): boolean => {
+    if (!editLockRequired || !isPageBuilderEditLockRejected(error)) {
+      return false
+    }
+
+    markEditLockLost()
+    return true
+  }, [editLockRequired, markEditLockLost])
+
+  React.useEffect(() => {
+    if (!editLockRequired) {
+      return
+    }
+
+    return () => {
+      releaseCurrentEditLock()
+    }
+  }, [editLockRequired, releaseCurrentEditLock])
+
+  React.useEffect(() => {
+    if (!editLockRequired || typeof window === 'undefined') {
+      return
+    }
+
+    const handlePageHide = () => {
+      releaseCurrentEditLock({ clearStoredLock: false })
+    }
+
+    window.addEventListener('pagehide', handlePageHide)
+    return () => {
+      window.removeEventListener('pagehide', handlePageHide)
+    }
+  }, [editLockRequired, releaseCurrentEditLock])
+
+  React.useEffect(() => {
+    if (!editLockRequired || !editLockLease || typeof window === 'undefined') {
+      return
+    }
+
+    const intervalId = window.setInterval(async () => {
+      try {
+        const renewed = await api.renewPageBuilderEditLock(workspaceId, editLockLease.lockId, {
+          holderId: editLockLease.holderId,
+        })
+        writeStoredPageBuilderEditLock(window.sessionStorage, workspaceId, sessionId, renewed)
+        setEditLockLease(renewed)
+        setEditLockLostMessage(null)
+      } catch (error) {
+        console.warn('[BuilderPage] 续约 page-builder 编辑锁失败:', error)
+        clearStoredPageBuilderEditLock(window.sessionStorage, workspaceId, sessionId)
+        setEditLockLease(null)
+        setEditLockLostMessage(EDIT_LOCK_LOST_MESSAGE)
+        toast.error(EDIT_LOCK_LOST_MESSAGE)
+      }
+    }, editLockLease.heartbeatIntervalMs)
+
+    return () => {
+      window.clearInterval(intervalId)
+    }
+  }, [editLockLease, editLockRequired, sessionId, workspaceId])
+
   React.useEffect(() => {
     if (loadState.status !== 'ready' || typeof window === 'undefined') return
 
@@ -410,12 +652,21 @@ export function BuilderPage({
   const handleInlineTextSaveRequest = React.useCallback(async (
     request: PageBuilderInlineTextSaveRequest,
   ): Promise<PageBuilderInlineTextSaveResult> => {
+    if (!editingEnabled) {
+      toast.error(editLockLostMessage ?? EDIT_LOCK_LOST_MESSAGE)
+      return {
+        requestId: request.requestId,
+        ok: false,
+        error: EDIT_LOCK_LOST_MESSAGE,
+      }
+    }
+
     try {
       const nextState = await api.savePageBuilderInlineText(workspaceId, {
         selector: request.selector,
         textTargetDescriptor: request.textTargetDescriptor,
         nextText: request.nextText,
-      })
+      }, editLockRequestOptions)
 
       if (nextState.revision) {
         suppressedInlinePreviewRevisionsRef.current.add(nextState.revision)
@@ -436,6 +687,7 @@ export function BuilderPage({
     } catch (error) {
       const message = error instanceof Error ? error.message : '内联文字保存失败'
       console.error('[BuilderPage] 内联文字保存失败:', error)
+      handlePageBuilderEditLockRejected(error)
       toast.error(message)
 
       return {
@@ -444,7 +696,7 @@ export function BuilderPage({
         error: message,
       }
     }
-  }, [workspaceId])
+  }, [editLockLostMessage, editLockRequestOptions, editingEnabled, handlePageBuilderEditLockRejected, workspaceId])
 
   const writeNextPreviewState = React.useCallback((nextState: WorkspacePreviewState) => {
     if (typeof window !== 'undefined') {
@@ -490,6 +742,11 @@ export function BuilderPage({
   }, [workspaceId])
 
   const handleRequestExportStatic = React.useCallback(async (): Promise<void> => {
+    if (!editingEnabled) {
+      toast.error(editLockLostMessage ?? EDIT_LOCK_LOST_MESSAGE)
+      return
+    }
+
     if (!previewState?.hasPreview) {
       return
     }
@@ -500,7 +757,7 @@ export function BuilderPage({
 
     setDownloadCmsRemoteAssets(true)
     setStaticExportDialogOpen(true)
-  }, [previewState?.hasPreview, staticExportJob])
+  }, [editLockLostMessage, editingEnabled, previewState?.hasPreview, staticExportJob])
 
   const handleStaticExportDialogOpenChange = React.useCallback((open: boolean) => {
     if (!isCreatingStaticExportJob) {
@@ -527,16 +784,17 @@ export function BuilderPage({
       const options: PageBuilderStaticExportJobCreateOptions = {
         downloadCmsRemoteAssets,
       }
-      const job = await api.createPageBuilderStaticExportJob(workspaceId, options)
+      const job = await api.createPageBuilderStaticExportJob(workspaceId, options, editLockRequestOptions)
       setStaticExportJob(job)
       handleStaticExportSettled(job)
     } catch (error) {
       const message = error instanceof Error ? error.message : '静态包导出失败'
       console.error('[BuilderPage] 静态包导出失败:', error)
+      handlePageBuilderEditLockRejected(error)
       toast.error(message)
       setIsCreatingStaticExportJob(false)
     }
-  }, [downloadCmsRemoteAssets, handleStaticExportSettled, isCreatingStaticExportJob, previewState?.hasPreview, staticExportJob, workspaceId])
+  }, [downloadCmsRemoteAssets, editLockRequestOptions, handlePageBuilderEditLockRejected, handleStaticExportSettled, isCreatingStaticExportJob, previewState?.hasPreview, staticExportJob, workspaceId])
 
   React.useEffect(() => {
     if (typeof window === 'undefined') return
@@ -570,7 +828,10 @@ export function BuilderPage({
   }, [handleStaticExportSettled, staticExportJob, workspaceId])
 
   const handleRequestReplaceImage = React.useCallback((request: PageBuilderImageReplacementPayload) => {
-    if (isAgentStreaming) {
+    if (isAgentStreaming || !editingEnabled) {
+      if (!editingEnabled) {
+        toast.error(editLockLostMessage ?? EDIT_LOCK_LOST_MESSAGE)
+      }
       return
     }
 
@@ -582,15 +843,18 @@ export function BuilderPage({
 
     input.value = ''
     input.click()
-  }, [isAgentStreaming])
+  }, [editLockLostMessage, editingEnabled, isAgentStreaming])
 
   const handleRequestDeleteBlock = React.useCallback((selector: string) => {
-    if (isAgentStreaming) {
+    if (isAgentStreaming || !editingEnabled) {
+      if (!editingEnabled) {
+        toast.error(editLockLostMessage ?? EDIT_LOCK_LOST_MESSAGE)
+      }
       return
     }
 
     setPendingDeleteSelector(selector)
-  }, [isAgentStreaming])
+  }, [editLockLostMessage, editingEnabled, isAgentStreaming])
 
   const handleDeleteDialogOpenChange = React.useCallback((open: boolean) => {
     if (!open) {
@@ -612,7 +876,7 @@ export function BuilderPage({
         ...(selectedTargetSelection && resolvePageBuilderTargetBlockSelector(selectedTargetSelection) === selector
           ? { targetSelection: selectedTargetSelection }
           : {}),
-      } satisfies PageBuilderBlockDeletionPayload)
+      } satisfies PageBuilderBlockDeletionPayload, editLockRequestOptions)
 
       setPendingDeleteSelector(null)
       clearSelection()
@@ -621,12 +885,13 @@ export function BuilderPage({
     } catch (error) {
       const message = error instanceof Error ? error.message : '区块删除失败'
       console.error('[BuilderPage] 区块删除失败:', error)
+      handlePageBuilderEditLockRejected(error)
       setPendingDeleteSelector(null)
       toast.error(message)
     } finally {
       setIsDeletingBlock(false)
     }
-  }, [clearSelection, pendingDeleteSelector, selectedTargetSelection, workspaceId, writeNextPreviewState])
+  }, [clearSelection, editLockRequestOptions, handlePageBuilderEditLockRejected, pendingDeleteSelector, selectedTargetSelection, workspaceId, writeNextPreviewState])
 
   const handleImageFileChange = React.useCallback(async (
     event: React.ChangeEvent<HTMLInputElement>,
@@ -646,7 +911,7 @@ export function BuilderPage({
       const nextState = await api.replacePageBuilderImage(workspaceId, {
         ...target,
         file,
-      })
+      }, editLockRequestOptions)
 
       pendingImageReplacementRef.current = null
       writeNextPreviewState(nextState)
@@ -654,11 +919,12 @@ export function BuilderPage({
     } catch (error) {
       const message = error instanceof Error ? error.message : '图片替换失败'
       console.error('[BuilderPage] 图片替换失败:', error)
+      handlePageBuilderEditLockRejected(error)
       toast.error(message)
     } finally {
       setIsReplacingImage(false)
     }
-  }, [workspaceId, writeNextPreviewState])
+  }, [editLockRequestOptions, handlePageBuilderEditLockRejected, workspaceId, writeNextPreviewState])
 
   React.useEffect(() => {
     const element = desktopGridRef.current
@@ -734,7 +1000,7 @@ export function BuilderPage({
   }, [sessionId])
 
   const handleSelectionEvent = React.useCallback((event: PageBuilderPreviewSelectionEvent) => {
-    if (isAgentStreaming && event.type !== 'reset') {
+    if ((isAgentStreaming || !editingEnabled) && event.type !== 'reset') {
       return
     }
 
@@ -761,10 +1027,13 @@ export function BuilderPage({
     }
 
     clearSelection()
-  }, [clearSelection, isAgentStreaming])
+  }, [clearSelection, editingEnabled, isAgentStreaming])
 
   const handleToggleSelectionMode = React.useCallback(() => {
-    if (isAgentStreaming) {
+    if (isAgentStreaming || !editingEnabled) {
+      if (!editingEnabled) {
+        toast.error(editLockLostMessage ?? EDIT_LOCK_LOST_MESSAGE)
+      }
       return
     }
 
@@ -777,7 +1046,7 @@ export function BuilderPage({
     setHoveredSelector(null)
     setSelectedTargetSelection(null)
     setSelectedTargetDisplayLabel(null)
-  }, [clearSelection, isAgentStreaming, selectionActionState])
+  }, [clearSelection, editLockLostMessage, editingEnabled, isAgentStreaming, selectionActionState])
 
   const handleMessageSent = React.useCallback(() => {
     if (selectionActionState !== 'idle') {
@@ -844,17 +1113,23 @@ export function BuilderPage({
     }
   }, [cmsSelectionEntryPoint, selectedTargetSelection])
   const handleCmsSelectionConfirm = React.useCallback(async (selection: PageBuilderCmsSelectionResult) => {
+    if (!editingEnabled) {
+      toast.error(editLockLostMessage ?? EDIT_LOCK_LOST_MESSAGE)
+      return
+    }
+
     try {
       const request = await api.createPageBuilderCmsAutoHandoff(workspaceId, {
         sessionId,
         selection,
         ...(cmsSelectionRequestContext?.entryPoint ? { uiEntryPoint: cmsSelectionRequestContext.entryPoint } : {}),
-      })
+      }, editLockRequestOptions)
       setCmsAutoHandoffRequest(request)
     } catch (error) {
+      handlePageBuilderEditLockRejected(error)
       toast.error(error instanceof Error ? error.message : '无法读取当前目标的作者态源码快照')
     }
-  }, [cmsSelectionRequestContext?.entryPoint, sessionId, workspaceId])
+  }, [cmsSelectionRequestContext?.entryPoint, editLockLostMessage, editLockRequestOptions, editingEnabled, handlePageBuilderEditLockRejected, sessionId, workspaceId])
   const handleCmsAutoHandoffSettled = React.useCallback((result: PageBuilderCmsAutoAgentHandoffSettledResult) => {
     if (!cmsAutoHandoffRequest || result.requestId !== cmsAutoHandoffRequest.requestId) {
       return
@@ -1016,6 +1291,18 @@ export function BuilderPage({
       }
     }
   }, [messageDecorator, previewState?.hasCmsRendering, selectedTargetSelection, workspaceId])
+  const handleBeforeSendMessage = React.useCallback(() => {
+    if (editingEnabled) {
+      return undefined
+    }
+
+    toast.error(editLockLostMessage ?? EDIT_LOCK_LOST_MESSAGE)
+    return { handled: true as const }
+  }, [editLockLostMessage, editingEnabled])
+  const handleAgentSendError = React.useCallback((error: unknown): void => {
+    handlePageBuilderEditLockRejected(error)
+  }, [handlePageBuilderEditLockRejected])
+
   if (loadState.status === 'loading') {
     return (
       <div className="page-builder-workbench flex min-h-[100dvh] items-center justify-center px-6 py-10">
@@ -1036,9 +1323,14 @@ export function BuilderPage({
           </div>
           <h2 className="mt-4 text-xl font-semibold tracking-tight text-foreground">无法打开构建页</h2>
           <p className="mt-3 text-sm leading-6 text-muted-foreground">{loadState.message}</p>
-          <Button className="mt-6" onClick={() => { void loadBuilderRuntime() }} type="button">
-            重试
-          </Button>
+          <div className="mt-6 flex justify-center gap-2">
+            <Button variant="outline" onClick={navigateToPageBuilderHome} type="button">
+              返回首页
+            </Button>
+            <Button onClick={() => { void loadBuilderRuntime() }} type="button">
+              重试
+            </Button>
+          </div>
         </div>
       </div>
     )
@@ -1054,12 +1346,15 @@ export function BuilderPage({
         <PreviewPane
           exportStaticPending={exportStaticPending}
           imageReplacementPending={isReplacingImage}
-          interactionLocked={isAgentStreaming}
+          interactionLocked={isAgentStreaming || !editingEnabled}
           onInlineTextSaveRequest={handleInlineTextSaveRequest}
           onRequestDeleteBlock={handleRequestDeleteBlock}
           onRequestExportStatic={handleRequestExportStatic}
           onRequestOpenCmsBrowser={() => {
-            if (isAgentStreaming) {
+            if (isAgentStreaming || !editingEnabled) {
+              if (!editingEnabled) {
+                toast.error(editLockLostMessage ?? EDIT_LOCK_LOST_MESSAGE)
+              }
               return
             }
 
@@ -1072,7 +1367,7 @@ export function BuilderPage({
           requiresSameOrigin={previewState?.requiresSameOrigin === true}
           selectionActionState={selectionActionState}
           selectionModeEnabled={selectionModeEnabled}
-          selectionToggleDisabled={isAgentStreaming}
+          selectionToggleDisabled={isAgentStreaming || !editingEnabled}
           onToggleSelectionMode={handleToggleSelectionMode}
         />
 
@@ -1093,17 +1388,25 @@ export function BuilderPage({
         </div>
 
         <section className="page-builder-pane flex min-h-[560px] min-w-0 flex-col overflow-hidden rounded-2xl lg:h-full lg:min-h-0">
-          <ProjectTitleBar workspaceId={workspaceId} />
+          <ProjectTitleBar
+            editLock={editLockCredentials ?? undefined}
+            editingDisabled={!editingEnabled}
+            onEditLockRejected={handlePageBuilderEditLockRejected}
+            workspaceId={workspaceId}
+          />
           <div className="min-h-0 flex-1 overflow-hidden bg-background/40">
             <AgentView
               allowAttachments
+              beforeSendMessage={handleBeforeSendMessage}
               defaultMentionedSkills={[PAGE_BUILDER_GUIDED_GENERATION_SKILL]}
               initialUserMessage={loadState.initialUserMessage}
+              onSendError={handleAgentSendError}
               onMessageSent={handleMessageSent}
               onInitialUserMessageHandled={handleInitialUserMessageHandled}
               onProgrammaticSendSettled={handleCmsAutoHandoffSettled}
               prepareSendPayload={prepareSendPayload}
               programmaticSendRequest={cmsAutoHandoffRequest}
+              sendMessageOptions={editLockRequestOptions}
               sessionId={sessionId}
               showComposerMeta={false}
               showHeader={false}

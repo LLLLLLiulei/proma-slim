@@ -10,6 +10,9 @@ import type {
   PageBuilderCmsAutoAgentHandoffRequest,
   PageBuilderCmsAutoAgentHandoffSettledResult,
   PageBuilderCmsSelectionResult,
+  PageBuilderEditLockHolderRequest,
+  PageBuilderEditLockLease,
+  PageBuilderEditLockStatus,
   PageBuilderTargetSelection,
 } from '@proma/shared'
 import {
@@ -22,6 +25,10 @@ import {
 } from '@/atoms/agent-atoms'
 import { readBootstrapPayload, writeBootstrapPayload } from '@page-builder/lib/bootstrap-cache'
 import { DEFAULT_BUILDER_SPLIT_RATIO } from '@page-builder/lib/desktop-split'
+import {
+  readStoredPageBuilderEditLock,
+  writeStoredPageBuilderEditLock,
+} from '@page-builder/lib/edit-lock-context'
 
 interface WorkspacePreviewState {
   hasPreview: boolean
@@ -159,6 +166,7 @@ function createMemoryStorage(initial: Record<string, string> = {}): Storage {
 function installWindowHarness(): {
   localStorage: Storage
   sessionStorage: Storage
+  location: { pathname: string; search: string; hash: string }
   dispatchWindowEvent: (type: string, event?: unknown) => void
   getListenerCount: (type: string) => number
   runIntervalsOnce: () => Promise<void>
@@ -166,6 +174,11 @@ function installWindowHarness(): {
 } {
   const sessionStorage = createMemoryStorage()
   const localStorage = createMemoryStorage()
+  const location = {
+    pathname: '/builder/workspace-1/session-1',
+    search: '',
+    hash: '',
+  }
   const listeners = new Map<string, Set<(event?: unknown) => void>>()
   const intervals = new Map<number, () => void | Promise<void>>()
   let nextIntervalId = 1
@@ -184,6 +197,20 @@ function installWindowHarness(): {
       },
       localStorage,
       sessionStorage,
+      location,
+      history: {
+        replaceState: (_state: unknown, _title: string, url?: string | URL | null) => {
+          if (!url) {
+            location.hash = ''
+            return
+          }
+
+          const parsed = new URL(String(url), 'http://localhost')
+          location.pathname = parsed.pathname
+          location.search = parsed.search
+          location.hash = parsed.hash
+        },
+      },
       setInterval(callback: () => void | Promise<void>) {
         const id = nextIntervalId++
         intervals.set(id, callback)
@@ -199,6 +226,7 @@ function installWindowHarness(): {
   return {
     localStorage,
     sessionStorage,
+    location,
     open,
     dispatchWindowEvent(type: string, event?: unknown) {
       for (const listener of listeners.get(type) ?? []) {
@@ -222,12 +250,31 @@ async function loadBuilderPage(options: {
   sessions: AgentSessionMeta[]
   workspaces: AgentWorkspace[]
   previewStates?: WorkspacePreviewState[]
+  acquirePageBuilderEditLockImpl?: (
+    workspaceId: string,
+    payload?: { holderId?: string; sessionId?: string },
+  ) => Promise<PageBuilderEditLockLease>
+  renewPageBuilderEditLockImpl?: (
+    workspaceId: string,
+    lockId: string,
+    payload: PageBuilderEditLockHolderRequest,
+  ) => Promise<PageBuilderEditLockLease>
+  getPageBuilderEditLockStatusImpl?: (workspaceId: string, lockId: string) => Promise<PageBuilderEditLockStatus>
+  releasePageBuilderEditLockImpl?: (
+    workspaceId: string,
+    lockId: string,
+    payload: PageBuilderEditLockHolderRequest,
+  ) => Promise<void>
   getWorkspacePreviewStateImpl?: () => Promise<WorkspacePreviewState>
   getPageBuilderCmsTargetSnapshotImpl?: (
     workspaceId: string,
     targetSelection: PageBuilderTargetSelection,
   ) => Promise<PageBuilderCmsApplyTargetSnapshot>
-  savePageBuilderInlineTextImpl?: (workspaceId: string, payload: unknown) => Promise<WorkspacePreviewState>
+  savePageBuilderInlineTextImpl?: (
+    workspaceId: string,
+    payload: unknown,
+    options?: unknown,
+  ) => Promise<WorkspacePreviewState>
   createPageBuilderCmsAutoHandoffImpl?: (
     workspaceId: string,
     payload: {
@@ -235,19 +282,23 @@ async function loadBuilderPage(options: {
       selection: PageBuilderCmsSelectionResult
       uiEntryPoint?: 'block-toolbar' | 'agent-flow'
     },
+    options?: unknown,
   ) => Promise<PageBuilderCmsAutoAgentHandoffRequest>
   deletePageBuilderBlockImpl?: (
     workspaceId: string,
     payload: PageBuilderBlockDeletionPayload,
+    options?: unknown,
   ) => Promise<WorkspacePreviewState>
   createPageBuilderStaticExportJobImpl?: (
     workspaceId: string,
     options?: { downloadCmsRemoteAssets?: boolean },
+    requestOptions?: unknown,
   ) => Promise<PageBuilderStaticExportJob>
   getPageBuilderStaticExportJobImpl?: (workspaceId: string, jobId: string) => Promise<PageBuilderStaticExportJob>
   replacePageBuilderImageImpl?: (
     workspaceId: string,
     payload: PageBuilderImageReplacementPayload,
+    options?: unknown,
   ) => Promise<WorkspacePreviewState>
   mockPreviewPane?: boolean
   mockCmsBrowserDialog?: boolean
@@ -269,6 +320,40 @@ async function loadBuilderPage(options: {
   }
   const toastError = options.toastErrorImpl ?? mock(() => {})
   const toastSuccess = options.toastSuccessImpl ?? mock(() => {})
+  const acquirePageBuilderEditLock = mock(
+    options.acquirePageBuilderEditLockImpl
+      ?? (async (workspaceId: string, payload?: { holderId?: string; sessionId?: string }) => ({
+        workspaceId,
+        lockId: 'lock-acquired',
+        holderId: payload?.holderId ?? 'holder-acquired',
+        expiresAt: 60_000,
+        heartbeatIntervalMs: 15_000,
+      })),
+  )
+  const renewPageBuilderEditLock = mock(
+    options.renewPageBuilderEditLockImpl
+      ?? (async (workspaceId: string, lockId: string, payload: PageBuilderEditLockHolderRequest) => ({
+        workspaceId,
+        lockId,
+        holderId: payload.holderId,
+        expiresAt: 75_000,
+        heartbeatIntervalMs: 15_000,
+      })),
+  )
+  const getPageBuilderEditLockStatus = mock(
+    options.getPageBuilderEditLockStatusImpl
+      ?? (async (workspaceId: string, lockId: string) => ({
+        valid: true,
+        lease: {
+          workspaceId,
+          lockId,
+          holderId: 'holder-from-status',
+          expiresAt: 60_000,
+          heartbeatIntervalMs: 15_000,
+        },
+      })),
+  )
+  const releasePageBuilderEditLock = mock(options.releasePageBuilderEditLockImpl ?? (async () => {}))
 
   mock.module('@/components/agent', () => ({
     AgentView(props: Record<string, unknown>) {
@@ -328,7 +413,10 @@ async function loadBuilderPage(options: {
     mock.module('@page-builder/components/builder/PreviewPane', () => ({
       PreviewPane(props: Record<string, unknown>) {
         lastPreviewPaneProps = props
-        return React.createElement('div', { 'data-testid': 'preview-pane' })
+        return React.createElement('section', {
+          className: 'page-builder-pane flex min-h-[560px] min-w-0 flex-col overflow-hidden rounded-2xl lg:h-full lg:min-h-0',
+          'data-testid': 'preview-pane',
+        })
       },
     }))
   }
@@ -354,6 +442,10 @@ async function loadBuilderPage(options: {
     api: {
       listSessions: async () => options.sessions,
       listWorkspaces: async () => options.workspaces,
+      acquirePageBuilderEditLock,
+      renewPageBuilderEditLock,
+      getPageBuilderEditLockStatus,
+      releasePageBuilderEditLock,
       getWorkspacePreviewState: options.getWorkspacePreviewStateImpl ?? (async () => {
         const states = options.previewStates ?? [{
           hasPreview: false,
@@ -438,6 +530,10 @@ async function loadBuilderPage(options: {
     getToastSuccess() {
       return toastSuccess
     },
+    acquirePageBuilderEditLock,
+    renewPageBuilderEditLock,
+    getPageBuilderEditLockStatus,
+    releasePageBuilderEditLock,
   }
 }
 
@@ -717,6 +813,895 @@ describe('BuilderPage', () => {
     })
 
     expect(getListenerCount('beforeunload')).toBe(0)
+  })
+
+  test('renews edit lock from the URL fragment and passes credentials to AgentView', async () => {
+    const windowHarness = installWindowHarness()
+    windowHarness.location.hash = '#editLock=lock-from-home&editHolder=holder-from-home'
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const {
+      BuilderPage,
+      acquirePageBuilderEditLock,
+      renewPageBuilderEditLock,
+      getLastAgentViewProps,
+    } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      renewPageBuilderEditLockImpl: async (workspaceId, lockId, payload) => ({
+        workspaceId,
+        lockId,
+        holderId: payload.holderId,
+        expiresAt: 75_000,
+        heartbeatIntervalMs: 15_000,
+      }),
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(acquirePageBuilderEditLock).not.toHaveBeenCalled()
+    expect(renewPageBuilderEditLock).toHaveBeenCalledWith(workspace.id, 'lock-from-home', {
+      holderId: 'holder-from-home',
+    })
+    expect(windowHarness.location.hash).toBe('')
+    expect(getLastAgentViewProps()).toMatchObject({
+      sendMessageOptions: {
+        editLock: {
+          lockId: 'lock-from-home',
+          holderId: 'holder-from-home',
+        },
+      },
+    })
+  })
+
+  test('keeps fragment edit-lock credentials available across a remount while renewal is still pending', async () => {
+    const windowHarness = installWindowHarness()
+    windowHarness.location.hash = '#editLock=lock-from-home&editHolder=holder-from-home'
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const renewResolvers: Array<(lease: PageBuilderEditLockLease) => void> = []
+
+    const {
+      BuilderPage,
+      acquirePageBuilderEditLock,
+      renewPageBuilderEditLock,
+      getLastAgentViewProps,
+    } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      acquirePageBuilderEditLockImpl: async () => {
+        throw Object.assign(new Error('该项目当前有其他编辑会话正在进行，请稍后再试'), { status: 409 })
+      },
+      renewPageBuilderEditLockImpl: async (workspaceId, lockId, payload) => await new Promise<PageBuilderEditLockLease>((resolve) => {
+        renewResolvers.push(resolve)
+      }).then((lease) => ({
+        ...lease,
+        workspaceId,
+        lockId,
+        holderId: payload.holderId,
+      })),
+    })
+
+    let firstRenderer!: ReturnType<typeof create>
+    await act(async () => {
+      firstRenderer = create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(renewPageBuilderEditLock).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      firstRenderer.unmount()
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(acquirePageBuilderEditLock).not.toHaveBeenCalled()
+    expect(renewPageBuilderEditLock).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      for (const resolve of renewResolvers) {
+        resolve({
+          workspaceId: workspace.id,
+          lockId: 'lock-from-home',
+          holderId: 'holder-from-home',
+          expiresAt: 75_000,
+          heartbeatIntervalMs: 15_000,
+        })
+      }
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(windowHarness.location.hash).toBe('')
+    expect(getLastAgentViewProps()).toMatchObject({
+      sendMessageOptions: {
+        editLock: {
+          lockId: 'lock-from-home',
+          holderId: 'holder-from-home',
+        },
+      },
+    })
+  })
+
+  test('renews stored edit-lock credentials with the original holder', async () => {
+    const windowHarness = installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    writeStoredPageBuilderEditLock(windowHarness.sessionStorage, workspace.id, session.id, {
+      workspaceId: workspace.id,
+      lockId: 'lock-stored',
+      holderId: 'holder-stored',
+      expiresAt: 60_000,
+      heartbeatIntervalMs: 15_000,
+    })
+
+    const {
+      BuilderPage,
+      acquirePageBuilderEditLock,
+      renewPageBuilderEditLock,
+      getLastAgentViewProps,
+    } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      renewPageBuilderEditLockImpl: async (workspaceId, lockId, payload) => ({
+        workspaceId,
+        lockId,
+        holderId: payload.holderId,
+        expiresAt: 75_000,
+        heartbeatIntervalMs: 15_000,
+      }),
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(acquirePageBuilderEditLock).not.toHaveBeenCalled()
+    expect(renewPageBuilderEditLock).toHaveBeenCalledWith(workspace.id, 'lock-stored', {
+      holderId: 'holder-stored',
+    })
+    expect(getLastAgentViewProps()).toMatchObject({
+      sendMessageOptions: {
+        editLock: {
+          lockId: 'lock-stored',
+          holderId: 'holder-stored',
+        },
+      },
+    })
+  })
+
+  test('direct page-builder URL access acquires a new edit lock before enabling editing', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const {
+      BuilderPage,
+      acquirePageBuilderEditLock,
+      getLastAgentViewProps,
+      getLastPreviewPaneProps,
+    } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      mockPreviewPane: true,
+      acquirePageBuilderEditLockImpl: async (workspaceId, payload) => ({
+        workspaceId,
+        lockId: 'lock-direct',
+        holderId: payload?.holderId ?? 'holder-direct',
+        expiresAt: 60_000,
+        heartbeatIntervalMs: 15_000,
+      }),
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(acquirePageBuilderEditLock).toHaveBeenCalledTimes(1)
+    expect(acquirePageBuilderEditLock.mock.calls[0]?.[0]).toBe(workspace.id)
+    expect(acquirePageBuilderEditLock.mock.calls[0]?.[1]).toEqual(expect.objectContaining({
+      sessionId: session.id,
+      holderId: expect.any(String),
+    }))
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      interactionLocked: false,
+      selectionToggleDisabled: false,
+    })
+    expect(getLastAgentViewProps()).toMatchObject({
+      sendMessageOptions: {
+        editLock: {
+          lockId: 'lock-direct',
+        },
+      },
+    })
+  })
+
+  test('deduplicates direct URL edit-lock acquisition across a remount while acquisition is still pending', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    let resolveAcquire!: (lease: PageBuilderEditLockLease) => void
+
+    const {
+      BuilderPage,
+      acquirePageBuilderEditLock,
+      getLastAgentViewProps,
+    } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      acquirePageBuilderEditLockImpl: async (workspaceId, payload) => await new Promise<PageBuilderEditLockLease>((resolve) => {
+        resolveAcquire = resolve
+      }).then((lease) => ({
+        ...lease,
+        workspaceId,
+        holderId: payload?.holderId ?? lease.holderId,
+      })),
+    })
+
+    let firstRenderer!: ReturnType<typeof create>
+    await act(async () => {
+      firstRenderer = create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(acquirePageBuilderEditLock).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      firstRenderer.unmount()
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(acquirePageBuilderEditLock).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      resolveAcquire({
+        workspaceId: workspace.id,
+        lockId: 'lock-direct',
+        holderId: 'holder-direct',
+        expiresAt: 60_000,
+        heartbeatIntervalMs: 15_000,
+      })
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(getLastAgentViewProps()).toMatchObject({
+      sendMessageOptions: {
+        editLock: {
+          lockId: 'lock-direct',
+        },
+      },
+    })
+  })
+
+  test('heartbeat renewal failure disables page-builder editing interactions', async () => {
+    const windowHarness = installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const {
+      BuilderPage,
+      getLastAgentViewProps,
+      getLastPreviewPaneProps,
+      getToastError,
+    } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      mockPreviewPane: true,
+      renewPageBuilderEditLockImpl: async () => {
+        throw new Error('编辑锁已失效')
+      },
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      await windowHarness.runIntervalsOnce()
+    })
+
+    expect(getToastError()).toHaveBeenCalledWith('编辑锁已失效，请从首页重新进入编辑')
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      interactionLocked: true,
+      selectionToggleDisabled: true,
+    })
+    const beforeSendMessage = (getLastAgentViewProps() as {
+      beforeSendMessage?: (input: { userMessage: string; sessionId: string; workspaceId?: string }) => unknown
+    }).beforeSendMessage
+    expect(beforeSendMessage?.({
+      userMessage: '继续修改',
+      sessionId: session.id,
+      workspaceId: workspace.id,
+    })).toEqual({
+      handled: true,
+    })
+  })
+
+  test('blocks opening the cms browser after the edit lock is lost', async () => {
+    const windowHarness = installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const {
+      BuilderPage,
+      getLastCmsBrowserDialogProps,
+      getLastPreviewPaneProps,
+      getToastError,
+    } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      mockCmsBrowserDialog: true,
+      mockPreviewPane: true,
+      renewPageBuilderEditLockImpl: async () => {
+        throw new Error('编辑锁已失效')
+      },
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      await windowHarness.runIntervalsOnce()
+    })
+
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      interactionLocked: true,
+      selectionToggleDisabled: true,
+    })
+
+    await act(async () => {
+      (getLastPreviewPaneProps() as {
+        onRequestOpenCmsBrowser?: () => void
+      }).onRequestOpenCmsBrowser?.()
+    })
+
+    expect(getLastCmsBrowserDialogProps()).toMatchObject({
+      open: false,
+      confirming: false,
+    })
+    expect(getToastError()).toHaveBeenCalledWith('编辑锁已失效，请从首页重新进入编辑')
+  })
+
+  test('page-builder edit-lock write rejection immediately disables editing interactions', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const {
+      ApiError,
+      BuilderPage,
+      getLastAgentViewProps,
+      getLastPreviewPaneProps,
+      getToastError,
+    } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      mockPreviewPane: true,
+      acquirePageBuilderEditLockImpl: async (workspaceId) => ({
+        workspaceId,
+        lockId: 'lock-write',
+        holderId: 'holder-write',
+        expiresAt: 60_000,
+        heartbeatIntervalMs: 15_000,
+      }),
+      savePageBuilderInlineTextImpl: async () => {
+        throw new ApiError('编辑锁已失效，请从首页重新进入编辑', 409)
+      },
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      interactionLocked: false,
+      selectionToggleDisabled: false,
+    })
+
+    await act(async () => {
+      await (getLastPreviewPaneProps() as {
+        onInlineTextSaveRequest?: (request: {
+          requestId: string
+          selector: string
+          textTargetDescriptor: { version: number; tagName: string; childPath: number[] }
+          previousText: string
+          nextText: string
+        }) => Promise<unknown>
+      }).onInlineTextSaveRequest?.({
+        requestId: 'save-lock-rejected',
+        selector: '#hero',
+        textTargetDescriptor: {
+          version: 1,
+          tagName: 'h1',
+          childPath: [0],
+        },
+        previousText: '旧标题',
+        nextText: '新标题',
+      })
+      await Promise.resolve()
+    })
+
+    expect(getToastError()).toHaveBeenCalledWith('编辑锁已失效，请从首页重新进入编辑')
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      interactionLocked: true,
+      selectionToggleDisabled: true,
+    })
+    const beforeSendMessage = (getLastAgentViewProps() as {
+      beforeSendMessage?: (input: { userMessage: string; sessionId: string; workspaceId?: string }) => unknown
+    }).beforeSendMessage
+    expect(beforeSendMessage?.({
+      userMessage: '继续修改',
+      sessionId: session.id,
+      workspaceId: workspace.id,
+    })).toEqual({
+      handled: true,
+    })
+  })
+
+  test('page-builder edit-lock send rejection from AgentView disables editing interactions', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const {
+      ApiError,
+      BuilderPage,
+      getLastAgentViewProps,
+      getLastPreviewPaneProps,
+    } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      mockPreviewPane: true,
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      interactionLocked: false,
+      selectionToggleDisabled: false,
+    })
+
+    await act(async () => {
+      ;(getLastAgentViewProps() as {
+        onSendError?: (error: unknown) => void
+      }).onSendError?.(new ApiError('编辑锁已失效，请从首页重新进入编辑', 409))
+      await Promise.resolve()
+    })
+
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      interactionLocked: true,
+      selectionToggleDisabled: true,
+    })
+  })
+
+  test('direct page-builder URL lock conflict offers a home navigation action', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const { ApiError, BuilderPage } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      acquirePageBuilderEditLockImpl: async () => {
+        throw new ApiError('该项目当前有其他编辑会话正在进行，请稍后再试', 409)
+      },
+    })
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    const json = JSON.stringify(renderer.toJSON())
+    expect(json).toContain('无法打开构建页')
+    expect(json).toContain('返回首页')
+  })
+
+  test('releases the current page-builder edit lock on unmount', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const {
+      BuilderPage,
+      releasePageBuilderEditLock,
+    } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      acquirePageBuilderEditLockImpl: async (workspaceId, payload) => ({
+        workspaceId,
+        lockId: 'lock-release',
+        holderId: payload?.holderId ?? 'holder-release',
+        expiresAt: 60_000,
+        heartbeatIntervalMs: 15_000,
+      }),
+    })
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      renderer.unmount()
+      await Promise.resolve()
+    })
+
+    expect(releasePageBuilderEditLock).toHaveBeenCalledWith(workspace.id, 'lock-release', {
+      holderId: expect.any(String),
+    })
+  })
+
+  test('sends page-builder edit lock release on pagehide without clearing refresh lock context', async () => {
+    const windowHarness = installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const {
+      BuilderPage,
+      releasePageBuilderEditLock,
+    } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      acquirePageBuilderEditLockImpl: async (workspaceId, payload) => ({
+        workspaceId,
+        lockId: 'lock-pagehide',
+        holderId: payload?.holderId ?? 'holder-pagehide',
+        expiresAt: 60_000,
+        heartbeatIntervalMs: 15_000,
+      }),
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(readStoredPageBuilderEditLock(windowHarness.sessionStorage, workspace.id, session.id)).toMatchObject({
+      lockId: 'lock-pagehide',
+    })
+
+    await act(async () => {
+      windowHarness.dispatchWindowEvent('pagehide')
+      await Promise.resolve()
+    })
+
+    expect(releasePageBuilderEditLock).toHaveBeenCalledWith(workspace.id, 'lock-pagehide', {
+      holderId: expect.any(String),
+    })
+    expect(readStoredPageBuilderEditLock(windowHarness.sessionStorage, workspace.id, session.id)).toMatchObject({
+      lockId: 'lock-pagehide',
+    })
+  })
+
+  test('page-builder inline edit requests include the current edit lock credentials', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const savePageBuilderInlineText = mock(async () => ({
+      hasPreview: true,
+      entryUrl: `/api/workspaces/${workspace.id}/preview/`,
+      revision: 'rev-2',
+    }))
+
+    const { BuilderPage, getLastPreviewPaneProps } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      mockPreviewPane: true,
+      acquirePageBuilderEditLockImpl: async (workspaceId) => ({
+        workspaceId,
+        lockId: 'lock-write',
+        holderId: 'holder-write',
+        expiresAt: 60_000,
+        heartbeatIntervalMs: 15_000,
+      }),
+      savePageBuilderInlineTextImpl: savePageBuilderInlineText,
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      await (getLastPreviewPaneProps() as {
+        onInlineTextSaveRequest?: (request: {
+          requestId: string
+          selector: string
+          textTargetDescriptor: { version: number; tagName: string; childPath: number[] }
+          previousText: string
+          nextText: string
+        }) => Promise<unknown>
+      }).onInlineTextSaveRequest?.({
+        requestId: 'save-lock',
+        selector: '#hero',
+        textTargetDescriptor: {
+          version: 1,
+          tagName: 'h1',
+          childPath: [0],
+        },
+        previousText: '旧标题',
+        nextText: '新标题',
+      })
+    })
+
+    expect(savePageBuilderInlineText).toHaveBeenCalledWith(workspace.id, expect.objectContaining({
+      selector: '#hero',
+      nextText: '新标题',
+    }), {
+      editLock: {
+        lockId: 'lock-write',
+        holderId: 'holder-write',
+      },
+    })
   })
 
   test('keeps the desktop builder shell height-bounded so the embedded chat can scroll internally', async () => {
@@ -2996,6 +3981,11 @@ describe('BuilderPage', () => {
       sessionId: session.id,
       selection,
       uiEntryPoint: 'block-toolbar',
+    }, {
+      editLock: expect.objectContaining({
+        lockId: 'lock-acquired',
+        holderId: expect.any(String),
+      }),
     })
     expect(request?.composedUserMessage).toContain(
       '优先让 cms-* 标签作为动态区域源码根节点，并把 ul、nav、section、article 等主要动态容器写进 slot。',
@@ -3418,7 +4408,7 @@ describe('BuilderPage', () => {
       },
       confirming: false,
     })
-    expect(getLastAgentViewProps()).not.toHaveProperty('beforeSendMessage')
+    expect(getLastAgentViewProps()).toHaveProperty('beforeSendMessage')
     expect(getLastAgentViewProps()).toMatchObject({
       programmaticSendRequest: null,
     })
@@ -3890,6 +4880,11 @@ describe('BuilderPage', () => {
     expect(deletePageBuilderBlock).toHaveBeenCalledWith(workspace.id, {
       selector: '#hero',
       targetSelection: createBlockTargetSelection('#hero'),
+    }, {
+      editLock: expect.objectContaining({
+        lockId: 'lock-acquired',
+        holderId: expect.any(String),
+      }),
     })
     expect(getToastError()).toHaveBeenCalledTimes(0)
     expect(getToastSuccess()).toHaveBeenCalledTimes(1)
@@ -3973,6 +4968,11 @@ describe('BuilderPage', () => {
     expect(deletePageBuilderBlock).toHaveBeenCalledWith(workspace.id, {
       selector: '#hero',
       targetSelection: createBlockTargetSelection('#hero'),
+    }, {
+      editLock: expect.objectContaining({
+        lockId: 'lock-acquired',
+        holderId: expect.any(String),
+      }),
     })
     expect(toastError).toHaveBeenCalledTimes(1)
     expect(toastError).toHaveBeenCalledWith('区块删除失败')
@@ -4106,6 +5106,11 @@ describe('BuilderPage', () => {
     expect(createPageBuilderStaticExportJob).toHaveBeenCalledTimes(1)
     expect(createPageBuilderStaticExportJob).toHaveBeenCalledWith(workspace.id, {
       downloadCmsRemoteAssets: true,
+    }, {
+      editLock: expect.objectContaining({
+        lockId: 'lock-acquired',
+        holderId: expect.any(String),
+      }),
     })
     expect(getLastPreviewPaneProps()).toMatchObject({
       exportStaticPending: true,
@@ -4309,6 +5314,11 @@ describe('BuilderPage', () => {
     expect(createPageBuilderStaticExportJob).toHaveBeenCalledTimes(1)
     expect(createPageBuilderStaticExportJob).toHaveBeenCalledWith(workspace.id, {
       downloadCmsRemoteAssets: false,
+    }, {
+      editLock: expect.objectContaining({
+        lockId: 'lock-acquired',
+        holderId: expect.any(String),
+      }),
     })
 
     expect(windowHarness.open).toHaveBeenCalledWith(
@@ -4406,6 +5416,11 @@ describe('BuilderPage', () => {
     expect(createPageBuilderStaticExportJob).toHaveBeenCalledTimes(1)
     expect(createPageBuilderStaticExportJob).toHaveBeenCalledWith(workspace.id, {
       downloadCmsRemoteAssets: true,
+    }, {
+      editLock: expect.objectContaining({
+        lockId: 'lock-acquired',
+        holderId: expect.any(String),
+      }),
     })
     expect(getToastError()).toHaveBeenCalledWith('关键图片下载失败')
   })

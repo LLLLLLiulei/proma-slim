@@ -29,6 +29,12 @@
 - **WHEN** 用户进入某个项目对应的 builder 页面
 - **THEN** 系统 SHALL 展示左侧预览面板和右侧对话面板的双栏布局，而不是展示 `apps/app` 的侧边栏与页签式工作台
 
+#### Scenario: Builder 页面进入时处理编辑锁上下文
+- **WHEN** 用户进入某个项目对应的 builder 页面
+- **THEN** 系统 SHALL 优先复用已有锁上下文或直接获取新的编辑锁
+- **AND** 系统 SHALL 在恢复 stored lock 时使用原有 `lockId` 与 `holderId` 续约
+- **AND** 系统 SHALL 在锁失效或被拒绝时禁用编辑能力并提示用户重新进入
+
 #### Scenario: 预览面板保持精简项目控制项
 - **WHEN** builder 页面渲染左侧预览面板
 - **THEN** 系统 SHALL 提供 iframe 预览容器，以及 `PC / Mobile` 设备切换入口、“刷新预览”“全屏预览”“新窗口打开预览”“导出静态包”五类项目级操作入口
@@ -63,6 +69,11 @@
 #### Scenario: 右侧对话区直接复用现有聊天样式
 - **WHEN** builder 页面渲染右侧对话区
 - **THEN** 系统 SHALL 直接延续现有 Agent 对话框、消息列表和输入区的样式与交互语言，并保持比首页更紧凑的工作台密度
+
+#### Scenario: 锁失效时 CMS 入口不再打开
+- **WHEN** builder 页面已经失去 page-builder 编辑锁
+- **THEN** 系统 SHALL 禁用会修改项目的 builder 交互
+- **AND** 系统 SHALL 在用户尝试打开 CMS 浏览器时提示编辑锁已失效
 
 ### Requirement: Builder 顶部必须以工作区名称表达项目语义
 系统 SHALL 在 builder 顶部展示并编辑工作区名称作为项目名，而不是使用当前会话标题来表示项目。

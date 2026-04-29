@@ -100,4 +100,61 @@ describe('ProjectTitleBar', () => {
     expect(updateWorkspace).toHaveBeenCalledWith('workspace-1', { name: '营销官网项目' })
     expect(store.get(agentWorkspacesAtom)[0]?.name).toBe('营销官网项目')
   })
+
+  test('notifies parent when a page-builder title update is rejected by the edit lock', async () => {
+    const store = createStore()
+    const workspaces: AgentWorkspace[] = [{
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }]
+    const editLockError = Object.assign(new Error('编辑锁已失效，请从首页重新进入编辑'), { status: 409 })
+    const updateWorkspace = mock(async () => {
+      throw editLockError
+    })
+    const onEditLockRejected = mock(() => {})
+    api.updateWorkspace = updateWorkspace
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <Provider store={store}>
+          <HydrateWorkspaces workspaces={workspaces}>
+            <ProjectTitleBar
+              editLock={{ lockId: 'lock-1', holderId: 'holder-1' }}
+              onEditLockRejected={onEditLockRejected}
+              workspaceId="workspace-1"
+            />
+          </HydrateWorkspaces>
+        </Provider>,
+      )
+    })
+
+    const buttons = renderer.root.findAll((node) => node.type === 'button')
+    await act(async () => {
+      buttons[0]!.props.onClick()
+    })
+
+    const input = renderer.root.findByType('input')
+    await act(async () => {
+      input.props.onChange({ target: { value: '营销官网项目' } })
+    })
+
+    await act(async () => {
+      input.props.onKeyDown({
+        key: 'Enter',
+        preventDefault() {},
+      })
+      await Promise.resolve()
+    })
+
+    expect(updateWorkspace).toHaveBeenCalledWith('workspace-1', { name: '营销官网项目' }, {
+      editLock: { lockId: 'lock-1', holderId: 'holder-1' },
+    })
+    expect(onEditLockRejected).toHaveBeenCalledWith(editLockError)
+    expect(store.get(agentWorkspacesAtom)[0]?.name).toBe('未命名项目')
+  })
 })

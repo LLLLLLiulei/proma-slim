@@ -1127,6 +1127,64 @@ describe('AgentView rendering extension points', () => {
     expect(getSessionMessages).toHaveBeenCalledTimes(2)
   })
 
+  test('surfaces page-builder edit-lock 409 responses without adopting a busy session', async () => {
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: 'Page Builder Project',
+      slug: 'page-builder-project',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const editLockError = Object.assign(new Error('编辑锁已失效，请从首页重新进入编辑'), { status: 409 })
+    const reconcileSessionStreaming = mock(async () => true)
+    const sendMessage = mock(async () => {
+      throw editLockError
+    })
+    const getSessionMessages = mock(async () => [])
+    const toastError = mock(() => {})
+    const onSendError = mock(() => {})
+    const { AgentView, getLastRichTextInputProps, getToastError } = await loadAgentView({
+      reconcileSessionStreaming,
+      sendMessage,
+      getSessionMessages,
+      toastError,
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <HydrateAgentViewState sessions={[session]} workspaces={[workspace]}>
+            <AgentView sessionId={session.id} onSendError={onSendError} />
+          </HydrateAgentViewState>
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      getLastRichTextInputProps()?.onChange('请继续')
+    })
+    await act(async () => {
+      getLastRichTextInputProps()?.onSubmit()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(reconcileSessionStreaming).not.toHaveBeenCalled()
+    expect(getToastError()).toHaveBeenCalledWith('编辑锁已失效，请从首页重新进入编辑')
+    expect(onSendError).toHaveBeenCalledWith(editLockError)
+    expect(getSessionMessages).toHaveBeenCalledTimes(2)
+  })
+
   test('allows host-side beforeSendMessage interception to reroute a draft without sending it to the agent runtime', async () => {
     const workspace: AgentWorkspace = {
       id: 'workspace-1',

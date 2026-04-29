@@ -98,6 +98,154 @@ describe('page-builder routes', () => {
     expect(await listResponse.json()).toEqual([])
   })
 
+  test('edit-lock routes acquire, renew, validate, and release project edit locks', async () => {
+    const app = createApp()
+    const workspace = createAgentWorkspace('Lockable Project', { template: 'page-builder' })
+
+    const acquireResponse = await app.fetch(new Request(`http://localhost/api/page-builder/projects/${workspace.id}/edit-lock`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        holderId: 'holder-1',
+      }),
+    }))
+
+    expect(acquireResponse.status).toBe(201)
+    const lease = await acquireResponse.json() as {
+      workspaceId: string
+      lockId: string
+      holderId: string
+      expiresAt: number
+      heartbeatIntervalMs: number
+    }
+    expect(lease.workspaceId).toBe(workspace.id)
+    expect(lease.holderId).toBe('holder-1')
+    expect(lease.heartbeatIntervalMs).toBe(15_000)
+
+    const renewResponse = await app.fetch(new Request(`http://localhost/api/page-builder/projects/${workspace.id}/edit-lock/${lease.lockId}/renew`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        holderId: 'holder-1',
+      }),
+    }))
+
+    expect(renewResponse.status).toBe(200)
+    const renewedLease = await renewResponse.json() as { holderId: string; expiresAt: number }
+    expect(renewedLease.holderId).toBe('holder-1')
+    expect(renewedLease.expiresAt).toBeGreaterThanOrEqual(lease.expiresAt)
+
+    const mismatchedRenewResponse = await app.fetch(new Request(`http://localhost/api/page-builder/projects/${workspace.id}/edit-lock/${lease.lockId}/renew`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        holderId: 'holder-2',
+      }),
+    }))
+
+    expect(mismatchedRenewResponse.status).toBe(409)
+
+    const statusResponse = await app.fetch(new Request(`http://localhost/api/page-builder/projects/${workspace.id}/edit-lock/${lease.lockId}`))
+
+    expect(statusResponse.status).toBe(200)
+    expect(await statusResponse.json()).toEqual(expect.objectContaining({
+      valid: true,
+      lease: expect.objectContaining({
+        lockId: lease.lockId,
+        holderId: 'holder-1',
+      }),
+    }))
+
+    const releaseResponse = await app.fetch(new Request(`http://localhost/api/page-builder/projects/${workspace.id}/edit-lock/${lease.lockId}/release`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        holderId: 'holder-1',
+      }),
+    }))
+
+    expect(releaseResponse.status).toBe(204)
+  })
+
+  test('edit-lock acquire rejects a second editor and project summaries expose locked edit state', async () => {
+    const app = createApp()
+    const workspace = createAgentWorkspace('Locked History Project', { template: 'page-builder' })
+
+    const firstAcquire = await app.fetch(new Request(`http://localhost/api/page-builder/projects/${workspace.id}/edit-lock`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        holderId: 'holder-1',
+      }),
+    }))
+    expect(firstAcquire.status).toBe(201)
+
+    const secondAcquire = await app.fetch(new Request(`http://localhost/api/page-builder/projects/${workspace.id}/edit-lock`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        holderId: 'holder-2',
+      }),
+    }))
+
+    expect(secondAcquire.status).toBe(409)
+    expect(await secondAcquire.json()).toEqual(expect.objectContaining({
+      error: '该项目当前有其他编辑会话正在进行，请稍后再试',
+      editState: expect.objectContaining({
+        status: 'locked',
+        reason: 'editor',
+      }),
+    }))
+
+    const projectsResponse = await app.fetch(new Request('http://localhost/api/page-builder/projects'))
+
+    expect(projectsResponse.status).toBe(200)
+    expect(await projectsResponse.json()).toEqual(expect.arrayContaining([expect.objectContaining({
+      workspaceId: workspace.id,
+      editState: expect.objectContaining({
+        status: 'locked',
+        reason: 'editor',
+      }),
+    })]))
+  })
+
+  test('DELETE /api/page-builder/projects/:workspaceId rejects locked projects', async () => {
+    const app = createApp()
+    const workspace = createAgentWorkspace('Locked Delete Project', { template: 'page-builder' })
+
+    const acquireResponse = await app.fetch(new Request(`http://localhost/api/page-builder/projects/${workspace.id}/edit-lock`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        holderId: 'holder-1',
+      }),
+    }))
+    expect(acquireResponse.status).toBe(201)
+
+    const deleteResponse = await app.fetch(new Request(`http://localhost/api/page-builder/projects/${workspace.id}`, {
+      method: 'DELETE',
+    }))
+
+    expect(deleteResponse.status).toBe(409)
+    expect(await deleteResponse.json()).toEqual({
+      error: '该项目当前有其他编辑会话正在进行，请稍后再试',
+    })
+  })
+
   test('GET /api/page-builder/cms/catalogs returns normalized catalog data', async () => {
     setCmsEnv()
     const app = createApp()

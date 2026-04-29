@@ -1,8 +1,13 @@
 import * as React from 'react'
 import type { PageBuilderProjectSummary } from '@proma/shared'
+import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { buildBuilderPath } from '@page-builder/lib/routes'
 import { openUrlInNewWindow } from '@page-builder/lib/open-url'
+
+function isProjectLocked(project: PageBuilderProjectSummary): boolean {
+  return project.editState.status === 'locked'
+}
 
 export function usePageBuilderHistory() {
   const [projects, setProjects] = React.useState<PageBuilderProjectSummary[]>([])
@@ -52,14 +57,19 @@ export function usePageBuilderHistory() {
   }, [])
 
   const removeProject = React.useCallback(async (workspaceId: string): Promise<void> => {
+    const project = projects.find((entry) => entry.workspaceId === workspaceId)
+    if (project && isProjectLocked(project)) {
+      toast.error('项目正在编辑或构建中，暂不能删除')
+      return
+    }
+
     try {
       await api.deletePageBuilderProject(workspaceId)
       setProjects((current) => current.filter((project) => project.workspaceId !== workspaceId))
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : '删除项目失败')
-      throw nextError
+      toast.error(nextError instanceof Error ? nextError.message : '删除项目失败')
     }
-  }, [])
+  }, [projects])
 
   return {
     error,

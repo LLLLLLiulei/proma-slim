@@ -5,6 +5,7 @@ import type {
   AgentEvent,
   AgentSendInput,
   AgentSessionMeta,
+  PageBuilderEditLockCredentials,
   AskUserRequest,
   PermissionRequest,
 } from '@proma/shared'
@@ -25,6 +26,10 @@ type AgentSendRequestPayload =
   Pick<AgentSendInput, 'userMessage'>
   & Partial<AgentSendInput>
   & { attachmentFiles?: File[] }
+
+interface AgentSendRequestOptions {
+  editLock?: PageBuilderEditLockCredentials
+}
 
 interface RawSSEFrame {
   event: string
@@ -489,6 +494,7 @@ export function useAgentSSE() {
   const sendMessage = useCallback(async (
     sessionId: string,
     payload: AgentSendRequestPayload,
+    options: AgentSendRequestOptions = {},
   ): Promise<void> => {
     ensureStreamingState(store, sessionId, { reset: true })
     clearStreamError(sessionId)
@@ -559,7 +565,10 @@ export function useAgentSSE() {
 
     let response: Response
     try {
-      response = await api.sendMessage(sessionId, payload, { signal: controller.signal })
+      response = await api.sendMessage(sessionId, payload, {
+        signal: controller.signal,
+        editLock: options.editLock,
+      })
       pendingConnectStartedAtRef.current.delete(sessionId)
       logStreamLifecycle('info', {
         phase: 'send_stream_connected',

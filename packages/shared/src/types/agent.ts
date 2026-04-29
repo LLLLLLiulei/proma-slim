@@ -65,6 +65,42 @@ export interface PageBuilderProjectSummary {
   latestSessionId: string | null
   /** 当前可用预览入口，不存在时为 null */
   previewUrl: string | null
+  /** 当前编辑可用状态 */
+  editState: PageBuilderProjectEditState
+}
+
+export type PageBuilderProjectEditState =
+  | { status: 'available' }
+  | {
+      status: 'locked'
+      reason: 'editor' | 'agent'
+      expiresAt?: number
+    }
+
+export interface PageBuilderEditLockCredentials {
+  lockId: string
+  holderId: string
+}
+
+export interface PageBuilderEditLockLease extends PageBuilderEditLockCredentials {
+  workspaceId: string
+  expiresAt: number
+  heartbeatIntervalMs: number
+}
+
+export interface PageBuilderEditLockAcquireRequest {
+  sessionId?: string
+  holderId?: string
+}
+
+export interface PageBuilderEditLockHolderRequest {
+  holderId: string
+}
+
+export interface PageBuilderEditLockStatus {
+  valid: boolean
+  lease: PageBuilderEditLockLease | null
+  editState?: PageBuilderProjectEditState
 }
 
 // ===== SDK 新增类型声明（0.2.52 ~ 0.2.63） =====

@@ -50,6 +50,7 @@ import { HttpError } from '../errors'
 import { json, noContent, readJsonBody } from '../responses'
 import type { HttpAppEnv } from '../types'
 import { workspaceMiddleware } from '../middleware/workspace'
+import { assertPageBuilderEditLockForWorkspace } from '../page-builder-edit-lock-auth'
 
 export const workspaceRoutes = new Hono<HttpAppEnv>()
 
@@ -89,6 +90,8 @@ workspaceRoutes.use('/:workspaceId', workspaceMiddleware)
 workspaceRoutes.use('/:workspaceId/*', workspaceMiddleware)
 
 workspaceRoutes.patch('/:workspaceId', async (c) => {
+  assertPageBuilderEditLockForWorkspace(c.var.workspace, c.req.raw)
+
   const body = await readJsonBody<{ name?: string }>(c.req.raw)
   if (!body.name || !body.name.trim()) {
     throw new HttpError(400, '工作区名称不能为空')
@@ -147,6 +150,8 @@ workspaceRoutes.post('/:workspaceId/page-builder/cms-target-snapshot', async (c)
 })
 
 workspaceRoutes.post('/:workspaceId/page-builder/cms-auto-handoff', async (c) => {
+  assertPageBuilderEditLockForWorkspace(c.var.workspace, c.req.raw)
+
   const body = await readJsonBody<{
     sessionId?: unknown
     selection?: unknown
@@ -200,6 +205,8 @@ workspaceRoutes.post('/:workspaceId/page-builder/cms-auto-handoff', async (c) =>
 })
 
 workspaceRoutes.post('/:workspaceId/page-builder/inline-text', async (c) => {
+  assertPageBuilderEditLockForWorkspace(c.var.workspace, c.req.raw)
+
   const body = await readJsonBody<Partial<PageBuilderInlineTextSavePayload>>(c.req.raw)
   const payload = readInlineTextSavePayload(body)
 
@@ -223,6 +230,8 @@ workspaceRoutes.post('/:workspaceId/page-builder/inline-text', async (c) => {
 })
 
 workspaceRoutes.post('/:workspaceId/page-builder/block-delete', async (c) => {
+  assertPageBuilderEditLockForWorkspace(c.var.workspace, c.req.raw)
+
   const body = await readJsonBody<Partial<PageBuilderBlockDeletionPayload>>(c.req.raw)
   const payload = readPageBuilderBlockDeletionPayload(body)
 
@@ -242,6 +251,8 @@ workspaceRoutes.post('/:workspaceId/page-builder/block-delete', async (c) => {
 })
 
 workspaceRoutes.post('/:workspaceId/page-builder/image', async (c) => {
+  assertPageBuilderEditLockForWorkspace(c.var.workspace, c.req.raw)
+
   const { payload, file } = await readPageBuilderImageReplacementRequest(c.req.raw)
 
   try {
@@ -264,6 +275,8 @@ workspaceRoutes.post('/:workspaceId/page-builder/image', async (c) => {
 })
 
 workspaceRoutes.post('/:workspaceId/page-builder/export-static-jobs', async (c) => {
+  assertPageBuilderEditLockForWorkspace(c.var.workspace, c.req.raw)
+
   const payload = await readPageBuilderStaticExportJobCreatePayload(c.req.raw)
 
   try {

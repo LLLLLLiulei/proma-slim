@@ -16,7 +16,7 @@ function installWindowHarness(initialPathname = '/') {
     },
   }
   const dispatchEvent = mock(() => true)
-  const open = mock(() => ({}))
+  const open = mock((_url?: string | URL, _target?: string, _features?: string) => ({}))
 
   Object.defineProperty(globalThis, 'window', {
     configurable: true,
@@ -46,8 +46,13 @@ async function loadHistorySection(options: {
   projects?: PageBuilderProjectSummary[]
   createSessionImpl?: (title?: string, workspaceId?: string) => Promise<AgentSessionMeta>
   deleteProjectImpl?: (workspaceId: string) => Promise<void>
+  releaseLockImpl?: (workspaceId: string, lockId: string, payload: { holderId: string }) => Promise<void>
+  toastErrorImpl?: (message: string) => void
 }) {
   const listPageBuilderProjects = mock(async () => options.projects ?? [])
+  const acquirePageBuilderEditLock = mock(async () => {
+    throw new Error('首页不应直接获取 page-builder 编辑锁')
+  })
   const createSession = mock(
     options.createSessionImpl
       ?? (async (title?: string, workspaceId?: string) => ({
@@ -59,12 +64,16 @@ async function loadHistorySection(options: {
       })),
   )
   const deletePageBuilderProject = mock(options.deleteProjectImpl ?? (async () => {}))
+  const releasePageBuilderEditLock = mock(options.releaseLockImpl ?? (async () => {}))
+  const toastError = options.toastErrorImpl ?? mock(() => {})
 
   mock.module('@/lib/api', () => ({
     api: {
       listPageBuilderProjects,
+      acquirePageBuilderEditLock,
       createSession,
       deletePageBuilderProject,
+      releasePageBuilderEditLock,
     },
   }))
 
@@ -89,13 +98,36 @@ async function loadHistorySection(options: {
     }
   })
 
+  mock.module('sonner', () => ({
+    toast: {
+      error: toastError,
+    },
+  }))
+
   const module = await import(`./PageBuilderHistorySection.tsx?test=${Date.now()}-${Math.random()}`)
 
   return {
     PageBuilderHistorySection: module.PageBuilderHistorySection,
     listPageBuilderProjects,
+    acquirePageBuilderEditLock,
     createSession,
     deletePageBuilderProject,
+    releasePageBuilderEditLock,
+    toastError,
+  }
+}
+
+function createProject(overrides: Partial<PageBuilderProjectSummary> = {}): PageBuilderProjectSummary {
+  return {
+    workspaceId: 'workspace-1',
+    workspaceName: 'History Project',
+    workspaceSlug: 'history-project',
+    createdAt: 1710000000000,
+    lastActiveAt: 1710001000000,
+    latestSessionId: 'session-1',
+    previewUrl: '/api/workspaces/workspace-1/preview/',
+    editState: { status: 'available' },
+    ...overrides,
   }
 }
 
@@ -108,15 +140,7 @@ afterEach(() => {
 describe('PageBuilderHistorySection', () => {
   test('renders project cards from page-builder history summaries', async () => {
     installWindowHarness()
-    const project: PageBuilderProjectSummary = {
-      workspaceId: 'workspace-1',
-      workspaceName: 'History Project',
-      workspaceSlug: 'history-project',
-      createdAt: 1710000000000,
-      lastActiveAt: 1710001000000,
-      latestSessionId: 'session-1',
-      previewUrl: '/api/workspaces/workspace-1/preview/',
-    }
+    const project = createProject()
 
     const { PageBuilderHistorySection, listPageBuilderProjects } = await loadHistorySection({
       projects: [project],
@@ -142,15 +166,7 @@ describe('PageBuilderHistorySection', () => {
 
   test('preview action opens the project preview url in a new window', async () => {
     const { open } = installWindowHarness()
-    const project: PageBuilderProjectSummary = {
-      workspaceId: 'workspace-1',
-      workspaceName: 'History Project',
-      workspaceSlug: 'history-project',
-      createdAt: 1710000000000,
-      lastActiveAt: 1710001000000,
-      latestSessionId: 'session-1',
-      previewUrl: '/api/workspaces/workspace-1/preview/',
-    }
+    const project = createProject()
 
     const { PageBuilderHistorySection } = await loadHistorySection({
       projects: [project],
@@ -173,17 +189,9 @@ describe('PageBuilderHistorySection', () => {
 
   test('edit action reuses the latest session when one exists', async () => {
     const { location, open } = installWindowHarness()
-    const project: PageBuilderProjectSummary = {
-      workspaceId: 'workspace-1',
-      workspaceName: 'History Project',
-      workspaceSlug: 'history-project',
-      createdAt: 1710000000000,
-      lastActiveAt: 1710001000000,
-      latestSessionId: 'session-1',
-      previewUrl: '/api/workspaces/workspace-1/preview/',
-    }
+    const project = createProject()
 
-    const { PageBuilderHistorySection, createSession } = await loadHistorySection({
+    const { PageBuilderHistorySection, acquirePageBuilderEditLock, createSession } = await loadHistorySection({
       projects: [project],
     })
 
@@ -199,6 +207,7 @@ describe('PageBuilderHistorySection', () => {
       await editButton!.props.onClick()
     })
 
+    expect(acquirePageBuilderEditLock).not.toHaveBeenCalled()
     expect(createSession).not.toHaveBeenCalled()
     expect(open).toHaveBeenCalledWith(buildBuilderPath(project.workspaceId, 'session-1'), '_blank', 'noopener,noreferrer')
     expect(location.pathname).toBe('/')
@@ -206,15 +215,10 @@ describe('PageBuilderHistorySection', () => {
 
   test('edit action creates a new session when the project has no latest session', async () => {
     const { location, open } = installWindowHarness()
-    const project: PageBuilderProjectSummary = {
-      workspaceId: 'workspace-1',
-      workspaceName: 'History Project',
-      workspaceSlug: 'history-project',
-      createdAt: 1710000000000,
-      lastActiveAt: 1710001000000,
+    const project = createProject({
       latestSessionId: null,
       previewUrl: null,
-    }
+    })
     const createdSession: AgentSessionMeta = {
       id: 'session-new',
       title: '新 Agent 会话',
@@ -223,7 +227,7 @@ describe('PageBuilderHistorySection', () => {
       updatedAt: 2,
     }
 
-    const { PageBuilderHistorySection, createSession } = await loadHistorySection({
+    const { PageBuilderHistorySection, acquirePageBuilderEditLock, createSession } = await loadHistorySection({
       projects: [project],
       createSessionImpl: async () => createdSession,
     })
@@ -240,22 +244,124 @@ describe('PageBuilderHistorySection', () => {
       await editButton!.props.onClick()
     })
 
+    expect(acquirePageBuilderEditLock).not.toHaveBeenCalled()
     expect(createSession).toHaveBeenCalledWith(undefined, project.workspaceId)
     expect(open).toHaveBeenCalledWith(buildBuilderPath(project.workspaceId, createdSession.id), '_blank', 'noopener,noreferrer')
     expect(location.pathname).toBe('/')
   })
 
+  test('edit action does not acquire or release a lock when session creation fails', async () => {
+    const { open } = installWindowHarness()
+    const project = createProject({
+      latestSessionId: null,
+      previewUrl: null,
+    })
+    const createError = new Error('创建会话失败')
+
+    const {
+      PageBuilderHistorySection,
+      acquirePageBuilderEditLock,
+      releasePageBuilderEditLock,
+    } = await loadHistorySection({
+      projects: [project],
+      createSessionImpl: async () => {
+        throw createError
+      },
+    })
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(React.createElement(PageBuilderHistorySection))
+    })
+
+    const editButton = renderer.root.findAllByType('button').find((button) => button.props['aria-label'] === '编辑项目')
+    expect(editButton).toBeDefined()
+
+    await act(async () => {
+      await expect(editButton!.props.onClick()).rejects.toThrow(createError)
+    })
+
+    expect(acquirePageBuilderEditLock).not.toHaveBeenCalled()
+    expect(releasePageBuilderEditLock).not.toHaveBeenCalled()
+    expect(open).not.toHaveBeenCalled()
+  })
+
+  test('locked project edit action opens the builder instead of intercepting on the home page', async () => {
+    const { open } = installWindowHarness()
+    const project = createProject({
+      editState: {
+        status: 'locked',
+        reason: 'editor',
+      },
+    })
+
+    const {
+      PageBuilderHistorySection,
+      acquirePageBuilderEditLock,
+      listPageBuilderProjects,
+    } = await loadHistorySection({
+      projects: [project],
+    })
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(React.createElement(PageBuilderHistorySection))
+    })
+
+    const editButton = renderer.root.findAllByType('button').find((button) => button.props['aria-label'] === '编辑项目')
+    expect(editButton).toBeDefined()
+    expect(editButton!.props.disabled).not.toBe(true)
+
+    await act(async () => {
+      await editButton!.props.onClick()
+    })
+
+    expect(acquirePageBuilderEditLock).not.toHaveBeenCalled()
+    expect(listPageBuilderProjects).toHaveBeenCalledTimes(1)
+    expect(open).toHaveBeenCalledWith(buildBuilderPath(project.workspaceId, 'session-1'), '_blank', 'noopener,noreferrer')
+  })
+
+  test('locked project preview action still opens preview without acquiring a lock', async () => {
+    const { open } = installWindowHarness()
+    const project = createProject({
+      editState: {
+        status: 'locked',
+        reason: 'editor',
+      },
+    })
+
+    const {
+      PageBuilderHistorySection,
+      acquirePageBuilderEditLock,
+      listPageBuilderProjects,
+    } = await loadHistorySection({
+      projects: [project],
+    })
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(React.createElement(PageBuilderHistorySection))
+    })
+
+    const editButton = renderer.root.findAllByType('button').find((button) => button.props['aria-label'] === '编辑项目')
+    expect(editButton).toBeDefined()
+    expect(editButton!.props.disabled).not.toBe(true)
+
+    const previewButton = renderer.root.findAllByType('button').find((button) => button.props['aria-label'] === '查看项目')
+    expect(previewButton).toBeDefined()
+
+    await act(async () => {
+      previewButton!.props.onClick()
+    })
+
+    expect(acquirePageBuilderEditLock).not.toHaveBeenCalled()
+    expect(listPageBuilderProjects).toHaveBeenCalledTimes(1)
+    expect(open).toHaveBeenCalledWith(project.previewUrl, '_blank', 'noopener,noreferrer')
+  })
+
   test('delete action removes the project card after confirmation', async () => {
     installWindowHarness()
-    const project: PageBuilderProjectSummary = {
-      workspaceId: 'workspace-1',
-      workspaceName: 'History Project',
-      workspaceSlug: 'history-project',
-      createdAt: 1710000000000,
-      lastActiveAt: 1710001000000,
-      latestSessionId: 'session-1',
-      previewUrl: '/api/workspaces/workspace-1/preview/',
-    }
+    const project = createProject()
 
     const { PageBuilderHistorySection, deletePageBuilderProject } = await loadHistorySection({
       projects: [project],
@@ -284,17 +390,45 @@ describe('PageBuilderHistorySection', () => {
     expect(JSON.stringify(renderer.toJSON())).not.toContain('History Project')
   })
 
+  test('delete failure uses a lightweight toast instead of the inline history error banner', async () => {
+    installWindowHarness()
+    const project = createProject()
+    const deleteError = new Error('该项目当前有其他编辑会话正在进行，请稍后再试')
+
+    const { PageBuilderHistorySection, deletePageBuilderProject, toastError } = await loadHistorySection({
+      projects: [project],
+      deleteProjectImpl: async () => {
+        throw deleteError
+      },
+    })
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(React.createElement(PageBuilderHistorySection))
+    })
+
+    const deleteButton = renderer.root.findAllByType('button').find((button) => button.props['aria-label'] === '删除项目')
+    expect(deleteButton).toBeDefined()
+
+    await act(async () => {
+      deleteButton!.props.onClick()
+    })
+
+    const confirmButton = renderer.root.findAllByType('button').find((button) => button.props.children === '删除项目')
+    expect(confirmButton).toBeDefined()
+
+    await act(async () => {
+      await confirmButton!.props.onClick()
+    })
+
+    expect(deletePageBuilderProject).toHaveBeenCalledWith(project.workspaceId)
+    expect(toastError).toHaveBeenCalledWith('该项目当前有其他编辑会话正在进行，请稍后再试')
+    expect(JSON.stringify(renderer.toJSON())).not.toContain('page-builder-home-history-feedback')
+  })
+
   test('delete confirmation dialog uses the dedicated compact layout classes', async () => {
     installWindowHarness()
-    const project: PageBuilderProjectSummary = {
-      workspaceId: 'workspace-1',
-      workspaceName: 'History Project',
-      workspaceSlug: 'history-project',
-      createdAt: 1710000000000,
-      lastActiveAt: 1710001000000,
-      latestSessionId: 'session-1',
-      previewUrl: '/api/workspaces/workspace-1/preview/',
-    }
+    const project = createProject()
 
     const { PageBuilderHistorySection } = await loadHistorySection({
       projects: [project],

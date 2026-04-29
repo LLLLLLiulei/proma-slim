@@ -15,6 +15,11 @@ import type {
   PageBuilderCmsContentQuery,
   PageBuilderCmsSelectionResult,
   PageBuilderCmsSiteSummary,
+  PageBuilderEditLockAcquireRequest,
+  PageBuilderEditLockCredentials,
+  PageBuilderEditLockHolderRequest,
+  PageBuilderEditLockLease,
+  PageBuilderEditLockStatus,
   PageBuilderImageReplacementPayload,
   PageBuilderInlineTextSavePayload,
   PageBuilderProjectSummary,
@@ -50,6 +55,7 @@ interface CreateWorkspaceOptions {
 
 interface RequestOptions extends Omit<RequestInit, 'body'> {
   body?: unknown
+  editLock?: PageBuilderEditLockCredentials
 }
 
 interface PageBuilderImageReplacementRequest extends PageBuilderImageReplacementPayload {
@@ -75,12 +81,24 @@ type SendMessagePayload = Partial<AgentSendInput> & {
   attachmentFiles?: File[]
 }
 
+interface PageBuilderEditLockRequestOptions {
+  editLock?: PageBuilderEditLockCredentials
+}
+
 function isFormDataBody(body: unknown): body is FormData {
   return typeof FormData !== 'undefined' && body instanceof FormData
 }
 
-function buildHeaders(headers?: HeadersInit, body?: unknown): Headers {
+function buildHeaders(
+  headers?: HeadersInit,
+  body?: unknown,
+  editLock?: PageBuilderEditLockCredentials,
+): Headers {
   const next = new Headers(headers)
+  if (editLock) {
+    next.set('x-proma-page-builder-edit-lock', editLock.lockId)
+    next.set('x-proma-page-builder-edit-holder', editLock.holderId)
+  }
   if (body !== undefined && !isFormDataBody(body) && !next.has('content-type')) {
     next.set('content-type', 'application/json')
   }
@@ -147,7 +165,7 @@ async function readErrorMessage(response: Response): Promise<string> {
 async function request<T>(url: string, options: RequestOptions = {}): Promise<T> {
   const response = await fetch(url, {
     ...options,
-    headers: buildHeaders(options.headers, options.body),
+    headers: buildHeaders(options.headers, options.body, options.editLock),
     body: buildRequestBody(options.body),
   })
 
@@ -165,7 +183,7 @@ async function request<T>(url: string, options: RequestOptions = {}): Promise<T>
 async function requestStream(url: string, options: RequestOptions = {}): Promise<Response> {
   const response = await fetch(url, {
     ...options,
-    headers: buildHeaders(options.headers, options.body),
+    headers: buildHeaders(options.headers, options.body, options.editLock),
     body: buildRequestBody(options.body),
   })
 
@@ -224,10 +242,12 @@ export const api = {
   updateWorkspace(
     workspaceId: string,
     updates: Partial<Pick<AgentWorkspace, 'name'>>,
+    options?: PageBuilderEditLockRequestOptions,
   ): Promise<AgentWorkspace> {
     return request<AgentWorkspace>(`/api/workspaces/${encodeURIComponent(workspaceId)}`, {
       method: 'PATCH',
       body: updates,
+      editLock: options?.editLock,
     })
   },
 
@@ -244,6 +264,43 @@ export const api = {
   deletePageBuilderProject(workspaceId: string): Promise<void> {
     return request<void>(`/api/page-builder/projects/${encodeURIComponent(workspaceId)}`, {
       method: 'DELETE',
+    })
+  },
+
+  acquirePageBuilderEditLock(
+    workspaceId: string,
+    payload: PageBuilderEditLockAcquireRequest = {},
+  ): Promise<PageBuilderEditLockLease> {
+    return request<PageBuilderEditLockLease>(`/api/page-builder/projects/${encodeURIComponent(workspaceId)}/edit-lock`, {
+      method: 'POST',
+      body: payload,
+    })
+  },
+
+  renewPageBuilderEditLock(
+    workspaceId: string,
+    lockId: string,
+    payload: PageBuilderEditLockHolderRequest,
+  ): Promise<PageBuilderEditLockLease> {
+    return request<PageBuilderEditLockLease>(`/api/page-builder/projects/${encodeURIComponent(workspaceId)}/edit-lock/${encodeURIComponent(lockId)}/renew`, {
+      method: 'POST',
+      body: payload,
+    })
+  },
+
+  getPageBuilderEditLockStatus(workspaceId: string, lockId: string): Promise<PageBuilderEditLockStatus> {
+    return request<PageBuilderEditLockStatus>(`/api/page-builder/projects/${encodeURIComponent(workspaceId)}/edit-lock/${encodeURIComponent(lockId)}`)
+  },
+
+  releasePageBuilderEditLock(
+    workspaceId: string,
+    lockId: string,
+    payload: PageBuilderEditLockHolderRequest,
+  ): Promise<void> {
+    return request<void>(`/api/page-builder/projects/${encodeURIComponent(workspaceId)}/edit-lock/${encodeURIComponent(lockId)}/release`, {
+      method: 'POST',
+      body: payload,
+      keepalive: true,
     })
   },
 
@@ -339,52 +396,62 @@ export const api = {
       selection: PageBuilderCmsSelectionResult
       uiEntryPoint?: 'block-toolbar' | 'agent-flow'
     },
+    options: PageBuilderEditLockRequestOptions = {},
   ): Promise<PageBuilderCmsAutoAgentHandoffRequest> {
     return request<PageBuilderCmsAutoAgentHandoffRequest>(`/api/workspaces/${encodeURIComponent(workspaceId)}/page-builder/cms-auto-handoff`, {
       method: 'POST',
       body: payload,
+      editLock: options.editLock,
     })
   },
 
   savePageBuilderInlineText(
     workspaceId: string,
     payload: PageBuilderInlineTextSavePayload,
+    options: PageBuilderEditLockRequestOptions = {},
   ): Promise<WorkspacePreviewState> {
     return request<WorkspacePreviewState>(`/api/workspaces/${encodeURIComponent(workspaceId)}/page-builder/inline-text`, {
       method: 'POST',
       body: payload,
+      editLock: options.editLock,
     })
   },
 
   deletePageBuilderBlock(
     workspaceId: string,
     payload: PageBuilderBlockDeletionPayload,
+    options: PageBuilderEditLockRequestOptions = {},
   ): Promise<WorkspacePreviewState> {
     return request<WorkspacePreviewState>(`/api/workspaces/${encodeURIComponent(workspaceId)}/page-builder/block-delete`, {
       method: 'POST',
       body: payload,
+      editLock: options.editLock,
     })
   },
 
   replacePageBuilderImage(
     workspaceId: string,
     payload: PageBuilderImageReplacementRequest,
+    options: PageBuilderEditLockRequestOptions = {},
   ): Promise<WorkspacePreviewState> {
     return request<WorkspacePreviewState>(`/api/workspaces/${encodeURIComponent(workspaceId)}/page-builder/image`, {
       method: 'POST',
       body: buildPageBuilderImageReplacementBody(payload),
+      editLock: options.editLock,
     })
   },
 
   createPageBuilderStaticExportJob(
     workspaceId: string,
     options?: PageBuilderStaticExportJobCreateOptions,
+    requestOptions: PageBuilderEditLockRequestOptions = {},
   ): Promise<PageBuilderStaticExportJob> {
     return request<PageBuilderStaticExportJob>(`/api/workspaces/${encodeURIComponent(workspaceId)}/page-builder/export-static-jobs`, {
       method: 'POST',
       body: {
         downloadCmsRemoteAssets: options?.downloadCmsRemoteAssets ?? true,
       },
+      editLock: requestOptions.editLock,
     })
   },
 
@@ -458,12 +525,13 @@ export const api = {
   sendMessage(
     sessionId: string,
     payload: SendMessagePayload,
-    init?: Pick<RequestInit, 'signal'>,
+    init?: Pick<RequestInit, 'signal'> & PageBuilderEditLockRequestOptions,
   ): Promise<Response> {
     return requestStream(`/api/sessions/${encodeURIComponent(sessionId)}/send`, {
       method: 'POST',
       body: buildSendMessageBody(payload),
       signal: init?.signal,
+      editLock: init?.editLock,
     })
   },
 

@@ -27,12 +27,14 @@ import {
   moveSessionToWorkspace,
   updateAgentSessionMeta,
 } from '../../lib/agent-session-manager'
+import { getAgentWorkspace } from '../../lib/workspace-service'
 import { sseManager } from '../../sse-manager'
 import { createSendResponse } from '../agent-stream'
 import { HttpError } from '../errors'
 import { noContent, readJsonBody } from '../responses'
 import type { HttpAppEnv } from '../types'
 import { sessionMiddleware } from '../middleware/session'
+import { assertPageBuilderEditLockForWorkspace } from '../page-builder-edit-lock-auth'
 
 export const sessionRoutes = new Hono<HttpAppEnv>()
 
@@ -231,6 +233,13 @@ sessionRoutes.post('/:sessionId/ask-user-respond', async (c) => {
 })
 
 sessionRoutes.post('/:sessionId/send', async (c) => {
+  if (c.var.sessionMeta.workspaceId) {
+    const workspace = getAgentWorkspace(c.var.sessionMeta.workspaceId)
+    if (workspace) {
+      assertPageBuilderEditLockForWorkspace(workspace, c.req.raw)
+    }
+  }
+
   const { body, attachments, structuredRequestPayload } = await readSendRequestBody(
     c.req.raw,
     c.var.sessionMeta.id,
