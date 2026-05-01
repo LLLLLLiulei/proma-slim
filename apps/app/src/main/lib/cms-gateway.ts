@@ -15,6 +15,7 @@ import {
 } from './cms-token-provider'
 import type { PageBuilderCmsConfig } from './page-builder-cms-config'
 import {
+  isAbsoluteHttpUrl,
   isAllowedCmsAssetUrl as isAllowedCmsAssetUrlShared,
   resolveCmsAssetUrl as resolveCmsAssetUrlShared,
 } from './page-builder-asset-reference-utils'
@@ -47,6 +48,14 @@ interface CmsGatewayOptions {
   fetchFn?: typeof fetch
   tokenProvider?: CmsAuthorizationProvider
 }
+
+interface CmsAssetResolutionContext {
+  baseUrl: string
+  defaultSiteId: string
+  siteUrlById: Map<string, string>
+}
+
+type CmsSiteUrlMapLoader = () => Promise<Map<string, string>>
 
 export class CmsGateway {
   private readonly config: PageBuilderCmsConfig
@@ -83,7 +92,22 @@ export class CmsGateway {
       ...(query.searchKeyword ? { keyword: query.searchKeyword } : {}),
     })
 
-    const items = normalizeCatalogs(extractCatalogArray(payload), this.config.baseUrl)
+    const treeItems = extractCatalogArray(payload)
+    if (treeItems.length === 0) {
+      return {
+        items: [],
+        tree: [],
+      }
+    }
+
+    const metadataItems = await this.fetchCatalogMetadata(siteId)
+    const enrichedTreeItems = enrichCatalogTreeWithMetadata(treeItems, metadataItems)
+    const assetContext = await this.createAssetResolutionContext(
+      siteId,
+      [...enrichedTreeItems, ...metadataItems],
+      this.createSiteUrlMapLoader(),
+    )
+    const items = normalizeCatalogs(enrichedTreeItems, assetContext)
     return {
       items,
       tree: buildCatalogTree(items),
@@ -91,14 +115,20 @@ export class CmsGateway {
   }
 
   async getCatalogDetail(catalogId: string, siteId?: string): Promise<NormalizedCmsCatalogDetail> {
-    const items = await this.fetchCatalogMetadata(resolveSiteId(siteId))
+    const resolvedSiteId = resolveSiteId(siteId)
+    const items = await this.fetchCatalogMetadata(resolvedSiteId)
     const catalog = items.find((item) => readString(item.id ?? item.ID) === catalogId)
 
     if (!catalog) {
       throw new CmsGatewayError('invalid_response', `CMS 栏目详情不存在：${catalogId}`)
     }
 
-    return normalizeCatalogDetail(catalog, this.config.baseUrl)
+    const assetContext = await this.createAssetResolutionContext(
+      resolvedSiteId,
+      [catalog],
+      this.createSiteUrlMapLoader(),
+    )
+    return normalizeCatalogDetail(catalog, assetContext)
   }
 
   async listContents(query: CmsContentQuery): Promise<NormalizedCmsContentList> {
@@ -121,7 +151,12 @@ export class CmsGateway {
       },
     )
 
-    return normalizeContentList(payload, query, this.config.baseUrl)
+    const assetContext = await this.createAssetResolutionContext(
+      siteId,
+      [payload],
+      this.createSiteUrlMapLoader(),
+    )
+    return normalizeContentList(payload, query, assetContext)
   }
 
   async fetchAsset(assetUrl: string): Promise<Response> {
@@ -186,14 +221,20 @@ export class CmsGateway {
     siteId: string,
     ids: string[],
   ): Promise<NormalizedCmsCatalogList> {
-    const items = (
+    const records = (
       await Promise.all(ids.map((catalogId) => this.fetchCatalogById(siteId, catalogId)))
-    ).flatMap((item) => {
+    ).flatMap((item) => item ? [item] : [])
+    const assetContext = await this.createAssetResolutionContext(
+      siteId,
+      records,
+      this.createSiteUrlMapLoader(),
+    )
+    const items = records.flatMap((item) => {
       if (!item) {
         return []
       }
 
-      const normalized = normalizeCatalogNode(item, this.config.baseUrl)
+      const normalized = normalizeCatalogNode(item, assetContext)
       return normalized ? [stripCatalogChildren(normalized)] : []
     })
 
@@ -223,6 +264,7 @@ export class CmsGateway {
   ): Promise<NormalizedCmsContentList> {
     const targetIds = new Set(ids)
     const itemsById = new Map<string, NormalizedCmsContentSummary>()
+    const loadSiteUrlMap = this.createSiteUrlMapLoader()
     let pageIndex = 0
 
     while (true) {
@@ -235,10 +277,11 @@ export class CmsGateway {
           loadextend: 'true',
         },
       )
+      const assetContext = await this.createAssetResolutionContext(siteId, [payload], loadSiteUrlMap)
       const page = normalizeContentList(payload, {
         pageIndex,
         pageSize: CONTENTS_PAGE_SIZE,
-      }, this.config.baseUrl)
+      }, assetContext)
 
       for (const item of page.items) {
         if (targetIds.has(item.id) && item.catalogId === catalogId) {
@@ -342,6 +385,43 @@ export class CmsGateway {
     }
 
     return payload
+  }
+
+  private createSiteUrlMapLoader(): CmsSiteUrlMapLoader {
+    let promise: Promise<Map<string, string>> | undefined
+
+    return () => {
+      promise ??= this.loadSiteUrlMap()
+      return promise
+    }
+  }
+
+  private async loadSiteUrlMap(): Promise<Map<string, string>> {
+    const payload = await this.requestJson('/api/sites', {})
+    const siteUrlById = new Map<string, string>()
+
+    for (const item of extractSiteArray(payload)) {
+      const site = normalizeSiteSummary(item)
+      const siteUrl = normalizeCmsSiteUrl(site.url)
+      if (siteUrl) {
+        siteUrlById.set(site.id, siteUrl)
+      }
+    }
+
+    return siteUrlById
+  }
+
+  private async createAssetResolutionContext(
+    defaultSiteId: string,
+    candidates: unknown[],
+    loadSiteUrlMap: CmsSiteUrlMapLoader,
+  ): Promise<CmsAssetResolutionContext> {
+    const needsSiteUrl = candidates.some(containsRelativeCmsCoverAsset)
+    return {
+      baseUrl: this.config.baseUrl,
+      defaultSiteId,
+      siteUrlById: needsSiteUrl ? await loadSiteUrlMap() : new Map(),
+    }
   }
 }
 
@@ -460,6 +540,48 @@ function extractSiteArray(payload: unknown): unknown[] {
   throw new CmsGatewayError('invalid_response', 'CMS 站点响应缺少 data 数组')
 }
 
+function enrichCatalogTreeWithMetadata(
+  treeItems: unknown[],
+  metadataItems: Record<string, unknown>[],
+): unknown[] {
+  const metadataById = new Map<string, Record<string, unknown>>()
+  for (const metadata of metadataItems) {
+    const id = readString(metadata.ID ?? metadata.id)
+    if (id) {
+      metadataById.set(id, metadata)
+    }
+  }
+
+  return treeItems.map((item) => enrichCatalogTreeNodeWithMetadata(item, metadataById))
+}
+
+function enrichCatalogTreeNodeWithMetadata(
+  item: unknown,
+  metadataById: Map<string, Record<string, unknown>>,
+): unknown {
+  const record = asRecord(item)
+  if (!record) {
+    return item
+  }
+
+  const id = readString(record.ID ?? record.id)
+  const metadata = id ? metadataById.get(id) : undefined
+  const children = Array.isArray(record.children)
+    ? record.children.map((child) => enrichCatalogTreeNodeWithMetadata(child, metadataById))
+    : record.children
+
+  return {
+    ...record,
+    ...(metadata ?? {}),
+    // The tree endpoint remains the hierarchy authority; metadata only enriches display/link fields.
+    ...(record.ID !== undefined ? { ID: record.ID } : {}),
+    ...(record.id !== undefined ? { id: record.id } : {}),
+    ...(record.parentID !== undefined ? { parentID: record.parentID } : {}),
+    ...(record.parentId !== undefined ? { parentId: record.parentId } : {}),
+    ...(Array.isArray(record.children) ? { children } : {}),
+  }
+}
+
 function normalizeSiteSummary(item: unknown): NormalizedCmsSiteSummary {
   const record = asRecord(item)
   if (!record) {
@@ -484,6 +606,22 @@ function normalizeSiteSummary(item: unknown): NormalizedCmsSiteSummary {
   }
 }
 
+function normalizeCmsSiteUrl(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined
+  }
+
+  try {
+    const url = new URL(value)
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      return undefined
+    }
+    return url.toString()
+  } catch {
+    return undefined
+  }
+}
+
 function resolveSiteId(siteId: string | undefined): string {
   const next = siteId?.trim()
   return next || '1'
@@ -499,6 +637,17 @@ function normalizeOrderedIds(value: string[] | undefined): string[] | undefined 
     .filter(Boolean)
 
   return normalized.length > 0 ? normalized : undefined
+}
+
+function readFirstString(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    const normalized = readString(value)
+    if (normalized) {
+      return normalized
+    }
+  }
+
+  return undefined
 }
 
 function assertValidCatalogExactIdsQuery(query: CmsCatalogQuery, ids: string[]): void {
@@ -553,15 +702,45 @@ function stripCatalogChildren(item: NormalizedCmsCatalog): NormalizedCmsCatalog 
   }
 }
 
-function normalizeCatalogs(items: unknown[], baseUrl: string): NormalizedCmsCatalog[] {
+function containsRelativeCmsCoverAsset(candidate: unknown): boolean {
+  const record = asRecord(candidate)
+  if (!record) {
+    return false
+  }
+
+  const assetUrl = readFirstString(
+    record.logoFile,
+    record.logoSrc,
+    record.logoUrl,
+    record.logo,
+    record.listLogo,
+  )
+  if (assetUrl && !isAbsoluteHttpUrl(assetUrl)) {
+    return true
+  }
+
+  for (const value of Object.values(record)) {
+    if (Array.isArray(value) && value.some(containsRelativeCmsCoverAsset)) {
+      return true
+    }
+
+    if (asRecord(value) && containsRelativeCmsCoverAsset(value)) {
+      return true
+    }
+  }
+
+  return false
+}
+
+function normalizeCatalogs(items: unknown[], assetContext: CmsAssetResolutionContext): NormalizedCmsCatalog[] {
   const tree = items
-    .map((item) => normalizeCatalogNode(item, baseUrl))
+    .map((item) => normalizeCatalogNode(item, assetContext))
     .filter((item): item is NormalizedCmsCatalog => item !== null)
 
   return flattenCatalogTree(tree)
 }
 
-function normalizeCatalogNode(item: unknown, baseUrl: string): NormalizedCmsCatalog | null {
+function normalizeCatalogNode(item: unknown, assetContext: CmsAssetResolutionContext): NormalizedCmsCatalog | null {
   const record = asRecord(item)
   if (!record) {
     return null
@@ -574,13 +753,14 @@ function normalizeCatalogNode(item: unknown, baseUrl: string): NormalizedCmsCata
 
   const parentValue = readString(record.parentID ?? record.parentId)
   const parentId = !parentValue || parentValue === '0' ? null : parentValue
-  const logoUrl = resolveCmsAssetUrl(
-    baseUrl,
-    readString(record.logoSrc ?? record.logoFile ?? record.logoUrl ?? record.logo),
+  const logoUrl = resolveCmsCoverAssetUrl(
+    assetContext,
+    readFirstString(record.logoFile, record.logoSrc, record.logoUrl, record.logo),
+    readString(record.siteID ?? record.siteId),
   )
   const children = Array.isArray(record.children)
     ? record.children
-        .map((child) => normalizeCatalogNode(child, baseUrl))
+        .map((child) => normalizeCatalogNode(child, assetContext))
         .filter((child): child is NormalizedCmsCatalog => child !== null)
     : []
 
@@ -588,7 +768,7 @@ function normalizeCatalogNode(item: unknown, baseUrl: string): NormalizedCmsCata
     id,
     name: readString(record.name) || '',
     parentId,
-    path: readString(record.path) || '',
+    path: readFirstString(record.listLink, record.link, record.url, record.path) || '',
     contentType: readString(record.contentType) || '',
     contentTypeName: readString(record.contentTypeName) || '',
     ...(logoUrl ? { logoUrl } : {}),
@@ -640,7 +820,7 @@ function buildCatalogTree(items: NormalizedCmsCatalog[]): NormalizedCmsCatalog[]
 
 function normalizeCatalogDetail(
   item: Record<string, unknown>,
-  baseUrl: string,
+  assetContext: CmsAssetResolutionContext,
 ): NormalizedCmsCatalogDetail {
   const id = readString(item.ID ?? item.id)
   if (!id) {
@@ -648,7 +828,11 @@ function normalizeCatalogDetail(
   }
 
   const contentType = readString(item.contentType) || ''
-  const logoUrl = resolveCmsAssetUrl(baseUrl, readString(item.logoSrc ?? item.logoFile))
+  const logoUrl = resolveCmsCoverAssetUrl(
+    assetContext,
+    readFirstString(item.logoFile, item.logoSrc),
+    readString(item.siteID ?? item.siteId),
+  )
 
   return {
     id,
@@ -667,7 +851,7 @@ function normalizeCatalogDetail(
 function normalizeContentList(
   payload: unknown,
   query: Pick<CmsContentQuery, 'pageIndex' | 'pageSize'>,
-  baseUrl: string,
+  assetContext: CmsAssetResolutionContext,
 ): NormalizedCmsContentList {
   const root = asRecord(payload)
   if (!root) {
@@ -677,7 +861,7 @@ function normalizeContentList(
   const container = asRecord(root.data) ?? root
   const itemsRaw = extractContentArray(container)
   const items = itemsRaw
-    .map((item) => normalizeContentItem(item, baseUrl))
+    .map((item) => normalizeContentItem(item, assetContext))
     .filter((item): item is NormalizedCmsContentSummary => item !== null)
 
   const pageIndex = readNumber(container.pageIndex ?? container.pageNo ?? container.page) ?? query.pageIndex ?? 0
@@ -773,7 +957,7 @@ function findMatchingRecord(candidates: unknown[], id: string): Record<string, u
 
 function normalizeContentItem(
   item: unknown,
-  baseUrl: string,
+  assetContext: CmsAssetResolutionContext,
 ): NormalizedCmsContentSummary | null {
   const record = asRecord(item)
   if (!record) {
@@ -786,7 +970,11 @@ function normalizeContentItem(
     return null
   }
 
-  const logoUrl = resolveCmsAssetUrl(baseUrl, readString(record.listLogo ?? record.logoFile))
+  const logoUrl = resolveCmsCoverAssetUrl(
+    assetContext,
+    readFirstString(record.logoFile, record.listLogo),
+    readString(record.siteID ?? record.siteId),
+  )
   const addedAt = pickContentAddedAt(record)
 
   return {
@@ -796,7 +984,44 @@ function normalizeContentItem(
     summary: readString(record.summary ?? record.description ?? record.digest) || '',
     ...(logoUrl ? { listLogoUrl: logoUrl } : {}),
     ...(addedAt ? { addedAt } : {}),
-    publishUrl: readString(record.publishUrl ?? record.link ?? record.url) || '',
+    publishUrl: readFirstString(record.link, record.url, record.publishUrl) || '',
+  }
+}
+
+function resolveCmsCoverAssetUrl(
+  context: CmsAssetResolutionContext,
+  assetUrl: string | undefined,
+  siteId: string | undefined,
+): string | undefined {
+  const trimmed = assetUrl?.trim()
+  if (!trimmed) {
+    return undefined
+  }
+
+  if (isAbsoluteHttpUrl(trimmed)) {
+    return trimmed
+  }
+
+  const siteBaseUrl = context.siteUrlById.get(siteId || context.defaultSiteId)
+  if (siteBaseUrl) {
+    try {
+      const base = new URL(siteBaseUrl.endsWith('/') ? siteBaseUrl : `${siteBaseUrl}/`)
+      return new URL(trimmed, base).toString()
+    } catch {
+      // Fall through to API baseUrl fallback below.
+    }
+  }
+
+  const sharedResolved = resolveCmsAssetUrlShared(context.baseUrl, trimmed)
+  if (sharedResolved) {
+    return sharedResolved
+  }
+
+  try {
+    const base = new URL(context.baseUrl.endsWith('/') ? context.baseUrl : `${context.baseUrl}/`)
+    return new URL(trimmed, base).toString()
+  } catch {
+    return undefined
   }
 }
 

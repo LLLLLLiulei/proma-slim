@@ -58,6 +58,71 @@ describe('createBrowserCmsClient', () => {
     })).resolves.toEqual({ items: [], tree: [] })
   })
 
+  test('proxies catalog logo images through the cms asset endpoint including nested children', async () => {
+    const alreadyProxied = '/api/page-builder/cms/assets?url=https%3A%2F%2Fcdn.example.com%2Falready.png'
+    const fetchMock = mock(async () => new Response(JSON.stringify({
+      items: [
+        {
+          id: 'catalog-1',
+          name: 'News',
+          parentId: null,
+          path: 'https://demo.zving.com/news/list.shtml',
+          logoUrl: 'https://demo.zving.com/upload/resources/image/news.png',
+          hasChild: true,
+          total: 2,
+          contentType: 'Article',
+          contentTypeName: '文章',
+          children: [],
+        },
+      ],
+      tree: [
+        {
+          id: 'catalog-1',
+          name: 'News',
+          parentId: null,
+          path: 'https://demo.zving.com/news/list.shtml',
+          logoUrl: 'https://demo.zving.com/upload/resources/image/news.png',
+          hasChild: true,
+          total: 2,
+          contentType: 'Article',
+          contentTypeName: '文章',
+          children: [
+            {
+              id: 'catalog-child',
+              name: 'Child',
+              parentId: 'catalog-1',
+              path: 'https://demo.zving.com/news/child/list.shtml',
+              logoUrl: alreadyProxied,
+              hasChild: false,
+              total: 0,
+              contentType: 'Article',
+              contentTypeName: '文章',
+              children: [],
+            },
+          ],
+        },
+      ],
+    }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }))
+
+    const client = createBrowserCmsClient({
+      baseUrl: '/api/page-builder/cms/',
+      fetchFn: fetchMock as unknown as typeof fetch,
+    })
+
+    const result = await client.listCatalogs({ siteId: '14' })
+
+    expect(result.items[0]?.logoUrl).toBe(
+      '/api/page-builder/cms/assets?url=https%3A%2F%2Fdemo.zving.com%2Fupload%2Fresources%2Fimage%2Fnews.png',
+    )
+    expect(result.tree[0]?.logoUrl).toBe(
+      '/api/page-builder/cms/assets?url=https%3A%2F%2Fdemo.zving.com%2Fupload%2Fresources%2Fimage%2Fnews.png',
+    )
+    expect(result.tree[0]?.children[0]?.logoUrl).toBe(alreadyProxied)
+  })
+
   test('preserves pageIndex=0 when serializing content queries without using browser cache', async () => {
     const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input), 'https://example.com')

@@ -22,7 +22,7 @@ const contentItemFields = ['id', 'catalogId', 'title', 'summary', 'publishUrl', 
 const catalogItemFieldMeta = [
   { name: 'id', type: 'string', optional: false, description: 'Catalog identifier.', recommendedUsage: 'Use as the stable :key when iterating catalogs.' },
   { name: 'name', type: 'string', optional: false, description: 'Catalog display name.', recommendedUsage: 'Render as the visible catalog label.' },
-  { name: 'path', type: 'string', optional: false, description: 'Catalog detail URL/path.', recommendedUsage: 'Use :href=\"item.path\" for catalog links.' },
+  { name: 'path', type: 'string', optional: false, description: 'Catalog navigation URL.', recommendedUsage: 'Use :href=\"item.path\" for catalog links; add target=\"_blank\" rel=\"noopener noreferrer\" when opening CMS destinations in a new window.' },
   { name: 'parentId', type: 'string|null', optional: false, description: 'Parent catalog identifier, or null for root catalogs.' },
   { name: 'logoUrl', type: 'string', optional: true, description: 'Optional catalog logo or thumbnail URL.', recommendedUsage: 'Guard with v-if before binding to <img :src>.' },
   { name: 'hasChild', type: 'boolean', optional: false, description: 'Whether the catalog has child catalogs.', recommendedUsage: 'Use for child-indicator UI or nested navigation affordances.' },
@@ -36,7 +36,7 @@ const contentItemFieldMeta = [
   { name: 'catalogId', type: 'string', optional: false, description: 'Owning catalog identifier for the content item.' },
   { name: 'title', type: 'string', optional: false, description: 'Content title.', recommendedUsage: 'Use as the primary visible headline.' },
   { name: 'summary', type: 'string', optional: false, description: 'Content summary or excerpt.', recommendedUsage: 'Use for body preview text when the selected target already supports summary copy.' },
-  { name: 'publishUrl', type: 'string', optional: false, description: 'Content detail URL.', recommendedUsage: 'Use :href=\"item.publishUrl\" for content links.' },
+  { name: 'publishUrl', type: 'string', optional: false, description: 'Content detail URL.', recommendedUsage: 'Use :href=\"item.publishUrl\" for content links; add target=\"_blank\" rel=\"noopener noreferrer\" when opening CMS destinations in a new window.' },
   { name: 'listLogoUrl', type: 'string', optional: true, description: 'Optional list thumbnail or cover image URL.', recommendedUsage: 'Guard with v-if before binding to <img :src>.' },
   { name: 'addedAt', type: 'string', optional: true, description: 'Optional publish/add time string.', recommendedUsage: 'Render only when the current design needs date metadata and guard for absence.' },
 ] as const
@@ -81,6 +81,7 @@ const catalogApplyInput = {
     itemFields: [...catalogItemFields],
     itemFieldMeta: [...catalogItemFieldMeta],
     recommendedLinkField: 'path',
+    recommendedImageField: 'logoUrl',
     forbiddenStructures: ['nested-cms-islands', 'dangerous-tags', 'outer-slot-wrapper'],
   },
   targetSnapshot: {
@@ -132,6 +133,7 @@ const catalogListApplyInput = {
     itemFields: [...catalogItemFields],
     itemFieldMeta: [...catalogItemFieldMeta],
     recommendedLinkField: 'path',
+    recommendedImageField: 'logoUrl',
     forbiddenStructures: ['nested-cms-islands', 'dangerous-tags', 'outer-slot-wrapper'],
   },
   targetSnapshot: {

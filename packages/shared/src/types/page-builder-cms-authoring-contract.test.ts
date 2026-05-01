@@ -31,7 +31,7 @@ describe('page-builder CMS authoring contract', () => {
     }
 
     expect(module.PAGE_BUILDER_CMS_AUTHORING_CONTRACT_VERSION).toBeGreaterThan(0)
-    expect(module.PAGE_BUILDER_CMS_AUTHORING_CONTRACT_VERSION).toBe(3)
+    expect(module.PAGE_BUILDER_CMS_AUTHORING_CONTRACT_VERSION).toBe(4)
     expect(module.PAGE_BUILDER_CMS_AUTHORING_CONTRACT.slotScope).toEqual(['items', 'loading', 'error', 'empty'])
     expect(module.PAGE_BUILDER_CMS_AUTHORING_CONTRACT.forbiddenStructures).toEqual(expect.arrayContaining([
       'nested-cms-islands',
@@ -42,16 +42,40 @@ describe('page-builder CMS authoring contract', () => {
       allowedProps: ['site-id', 'ids', 'level', 'parent-id', 'content-type', 'search-keyword', 'take'],
       itemFields: ['id', 'name', 'path', 'parentId', 'logoUrl', 'hasChild', 'total', 'contentType', 'contentTypeName', 'children'],
       itemFieldMeta: expect.arrayContaining([
-        expect.objectContaining({ name: 'path', type: 'string', optional: false }),
-        expect.objectContaining({ name: 'logoUrl', type: 'string', optional: true }),
+        expect.objectContaining({
+          name: 'path',
+          type: 'string',
+          optional: false,
+          description: 'Catalog navigation URL.',
+          recommendedUsage: expect.stringContaining('target="_blank"'),
+        }),
+        expect.objectContaining({
+          name: 'logoUrl',
+          type: 'string',
+          optional: true,
+          description: 'Optional catalog logo or thumbnail URL.',
+        }),
       ]),
+      recommendedLinkField: 'path',
+      recommendedImageField: 'logoUrl',
     }))
     expect(module.PAGE_BUILDER_CMS_AUTHORING_CONTRACT.components['cms-content']).toEqual(expect.objectContaining({
       allowedProps: ['site-id', 'ids', 'catalog-id', 'keyword', 'page-index', 'page-size'],
       itemFields: ['id', 'catalogId', 'title', 'summary', 'publishUrl', 'listLogoUrl', 'addedAt'],
       itemFieldMeta: expect.arrayContaining([
-        expect.objectContaining({ name: 'publishUrl', type: 'string', optional: false }),
-        expect.objectContaining({ name: 'listLogoUrl', type: 'string', optional: true }),
+        expect.objectContaining({
+          name: 'publishUrl',
+          type: 'string',
+          optional: false,
+          description: 'Content detail URL.',
+          recommendedUsage: expect.stringContaining('target="_blank"'),
+        }),
+        expect.objectContaining({
+          name: 'listLogoUrl',
+          type: 'string',
+          optional: true,
+          description: 'Optional list thumbnail or cover image URL.',
+        }),
         expect.objectContaining({ name: 'addedAt', type: 'string', optional: true }),
       ]),
     }))
@@ -125,7 +149,7 @@ describe('page-builder CMS authoring contract', () => {
           type: 'string',
           optional: false,
           description: 'Content detail URL.',
-          recommendedUsage: 'Use :href="item.publishUrl" for content links.',
+          recommendedUsage: 'Use :href="item.publishUrl" for content links; add target="_blank" rel="noopener noreferrer" when opening CMS destinations in a new window.',
         },
         {
           name: 'listLogoUrl',

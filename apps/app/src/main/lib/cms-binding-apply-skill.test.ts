@@ -136,6 +136,26 @@ describe('cms-binding-apply skill contract docs', () => {
     expect(downstream).toContain('canonical authoring contract')
   })
 
+  test('documents canonical cms field usage without exposing upstream source priority', () => {
+    const catalog = readRelativeText('../../../default-skills/cms-binding-apply/references/cms-catalog-authoring.md')
+    const content = readRelativeText('../../../default-skills/cms-binding-apply/references/cms-content-authoring.md')
+    const shared = readRelativeText('../../../default-skills/cms-binding-apply/references/shared-authoring-rules.md')
+
+    expect(catalog).toContain('`item.path`: catalog navigation URL; use `:href="item.path"` for catalog links')
+    expect(catalog).toContain('`item.logoUrl`: optional catalog image URL; guard before rendering')
+    expect(content).toContain('`item.publishUrl`: content detail URL; use `:href="item.publishUrl"` for content links')
+    expect(content).toContain('`item.listLogoUrl`: optional content list image URL; guard before rendering')
+    expect(shared).toContain('Prefer declarative `<a :href>` links')
+    expect(shared).toContain('target="_blank"')
+    expect(shared).toContain('rel="noopener noreferrer"')
+    expect(catalog).not.toContain('normalized from CMS')
+    expect(catalog).not.toContain('`listLink`')
+    expect(catalog).not.toContain('`logoFile`')
+    expect(content).not.toContain('normalized from CMS')
+    expect(content).not.toContain('`logoFile`')
+    expect(shared).not.toContain('`item.logoFile`')
+  })
+
   test('documents optional field guards and stable v-for keys in the component references', () => {
     const skill = readRelativeText('../../../default-skills/cms-binding-apply/SKILL.md')
     const catalog = readRelativeText('../../../default-skills/cms-binding-apply/references/cms-catalog-authoring.md')

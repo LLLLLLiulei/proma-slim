@@ -8,8 +8,8 @@ The current target component is `cms-catalog`.
 
 - Use `item.id` as the normal `:key`.
 - Use `item.name` for the visible catalog label.
-- Use `item.path` for catalog links.
-- Guard `item.logoUrl` before rendering an image.
+- Use `item.path` for catalog navigation links.
+- Guard `item.logoUrl` before rendering an optional catalog image.
 - Use `item.children` only when the current structure explicitly needs nested catalogs.
 
 Do not guess aliases such as `item.url` or `item.link`.
@@ -23,7 +23,7 @@ In ordinary flow, keep the current binding query props unchanged and rewrite onl
   <template v-slot:default="{ items }">
     <ul class="catalog-nav">
       <li v-for="item in items" :key="item.id">
-        <a :href="item.path">{{ item.name }}</a>
+        <a :href="item.path" target="_blank" rel="noopener noreferrer">{{ item.name }}</a>
       </li>
     </ul>
   </template>

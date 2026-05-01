@@ -1,4 +1,5 @@
 import type {
+  PageBuilderCmsCatalog,
   PageBuilderCmsCatalogList,
   PageBuilderCmsCatalogQuery,
   PageBuilderCmsContentList,
@@ -20,11 +21,13 @@ export function createBrowserCmsClient(options: BrowserCmsClientOptions = {}): C
 
   return {
     async listCatalogs(query: PageBuilderCmsCatalogQuery = {}) {
-      return requestJson<PageBuilderCmsCatalogList>({
+      const response = await requestJson<PageBuilderCmsCatalogList>({
         url: `${baseUrl}/catalogs${toSearchSuffix(query)}`,
         errorLabel: 'Catalog request failed',
         fetchFn,
       })
+
+      return rewriteCatalogListAssetUrls(response, baseUrl)
     },
 
     async listContents(query: PageBuilderCmsContentQuery) {
@@ -67,6 +70,28 @@ function shouldIncludeQueryValue(value: unknown): boolean {
   }
 
   return true
+}
+
+function rewriteCatalogListAssetUrls(
+  response: PageBuilderCmsCatalogList,
+  baseUrl: string,
+): PageBuilderCmsCatalogList {
+  return {
+    ...response,
+    items: response.items.map((item) => rewriteCatalogAssetUrls(item, baseUrl)),
+    tree: response.tree.map((item) => rewriteCatalogAssetUrls(item, baseUrl)),
+  }
+}
+
+function rewriteCatalogAssetUrls(
+  item: PageBuilderCmsCatalog,
+  baseUrl: string,
+): PageBuilderCmsCatalog {
+  return {
+    ...item,
+    logoUrl: rewriteAssetUrl(item.logoUrl, baseUrl),
+    children: item.children.map((child) => rewriteCatalogAssetUrls(child, baseUrl)),
+  }
 }
 
 function rewriteContentListAssetUrls(

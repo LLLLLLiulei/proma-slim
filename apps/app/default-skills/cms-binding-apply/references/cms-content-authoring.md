@@ -41,8 +41,8 @@ Use an explicit subset of the shared slot scope `{ items, loading, error, empty 
 - `item.catalogId`: owning catalog identifier
 - `item.title`: primary headline
 - `item.summary`: excerpt or preview copy
-- `item.publishUrl`: content detail URL; use `:href="item.publishUrl"`
-- `item.listLogoUrl`: optional list image; guard before rendering
+- `item.publishUrl`: content detail URL; use `:href="item.publishUrl"` for content links
+- `item.listLogoUrl`: optional content list image URL; guard before rendering
 - `item.addedAt`: optional date/time string; render only when the current design already includes metadata
 
 ## Recipe: content-list
@@ -55,7 +55,7 @@ Use this when the target block intent is `content-list`.
     <section class="news-list">
       <article v-for="item in items" :key="item.id" class="news-card">
         <img v-if="item.listLogoUrl" class="news-card__image" :src="item.listLogoUrl" :alt="item.title">
-        <h3><a :href="item.publishUrl">{{ item.title }}</a></h3>
+        <h3><a :href="item.publishUrl" target="_blank" rel="noopener noreferrer">{{ item.title }}</a></h3>
         <p>{{ item.summary }}</p>
         <time v-if="item.addedAt">{{ item.addedAt }}</time>
       </article>
@@ -71,7 +71,7 @@ Use this when the current shell is a single highlighted card and the selection s
 ```html
 <cms-content site-id="14" catalog-id="news" ids="n-101">
   <template v-slot:default="{ items }">
-    <a class="hero-card" :href="items[0]?.publishUrl || '#'">
+    <a class="hero-card" :href="items[0]?.publishUrl || '#'" target="_blank" rel="noopener noreferrer">
       <img v-if="items[0]?.listLogoUrl" class="hero-card__image" :src="items[0]?.listLogoUrl" :alt="items[0]?.title || ''">
       <span class="hero-card__title">{{ items[0]?.title }}</span>
       <span class="hero-card__summary">{{ items[0]?.summary }}</span>

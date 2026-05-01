@@ -36,6 +36,7 @@ Prefer:
 - Do not write raw HTML inline event attributes such as `onclick`, `onerror`, or `onload`.
 - Do not use imperative DOM mutation such as `window.location`, `document.querySelector(...)`, or `element.style.display = ...` inside CMS slot content.
 - Do not place `<script>` or `<style>` inside CMS slot content.
+- Prefer declarative `<a :href>` links for CMS destinations. When a catalog/content name or card opens a CMS destination in a new window, add `target="_blank"` and `rel="noopener noreferrer"`.
 
 ## Apply payload boundary
 
@@ -54,7 +55,7 @@ Treat this as a structural compatibility decision. A content-topic mismatch alon
 ```html
 <cms-content site-id="14" catalog-id="news" ids="n-101">
   <template v-slot:default="{ items, loading, error, empty }">
-    <a class="hero-card" :href="items[0]?.publishUrl || '#'">
+    <a class="hero-card" :href="items[0]?.publishUrl || '#'" target="_blank" rel="noopener noreferrer">
       <img
         v-if="items[0]?.listLogoUrl"
         class="hero-card__image"
@@ -76,7 +77,7 @@ Avoid leaving the main container outside and using the slot only for scattered i
   <cms-catalog site-id="14" ids="news,products,about">
     <template v-slot:default="{ items }">
       <li v-for="item in items" :key="item.id">
-        <a :href="item.path">{{ item.name }}</a>
+        <a :href="item.path" target="_blank" rel="noopener noreferrer">{{ item.name }}</a>
       </li>
     </template>
   </cms-catalog>

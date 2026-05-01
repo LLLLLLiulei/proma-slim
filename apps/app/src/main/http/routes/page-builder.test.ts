@@ -260,47 +260,93 @@ describe('page-builder routes', () => {
         return createTokenResponse()
       }
 
-      expect(url).toBe(
-        'https://demo.zving.com/manager/api/catalogsTree?siteID=14&contentType=Image&keyword=%E9%A6%96%E9%A1%B5',
-      )
       expect(init?.headers).toMatchObject({
         Authorization: 'Bearer slim-token',
       })
 
-      return new Response(JSON.stringify({
-        status: 1,
-        data: [
-          {
-            ID: 100,
-            parentID: 0,
-            path: 'home/',
-            name: '首页',
-            logoSrc: '/upload/resources/image/home.png',
-            contentType: '',
-            contentTypeName: '文章',
-            hasChild: true,
-            total: 12,
-            children: [
-              {
-                ID: 101,
-                parentID: 100,
-                path: 'home/banner/',
-                name: 'Banner',
-                logoFile: '/upload/resources/image/banner.png',
-                contentType: 'Image',
-                contentTypeName: '图片',
-                hasChild: false,
-                total: 3,
-              },
-            ],
+      if (url === 'https://demo.zving.com/manager/api/catalogsTree?siteID=14&contentType=Image&keyword=%E9%A6%96%E9%A1%B5') {
+        return new Response(JSON.stringify({
+          status: 1,
+          data: [
+            {
+              ID: 100,
+              parentID: 0,
+              name: '首页',
+              children: [
+                {
+                  ID: 101,
+                  parentID: 100,
+                  name: 'Banner',
+                },
+              ],
+            },
+          ],
+        }), {
+          status: 200,
+          headers: {
+            'content-type': 'application/json; charset=utf-8',
           },
-        ],
-      }), {
-        status: 200,
-        headers: {
-          'content-type': 'application/json; charset=utf-8',
-        },
-      })
+        })
+      }
+
+      if (url === 'https://demo.zving.com/manager/api/catalogs?siteID=14&level=All&pageIndex=0&pageSize=500') {
+        return new Response(JSON.stringify({
+          status: 1,
+          data: [
+            {
+              id: 100,
+              parentID: 0,
+              path: 'home/',
+              listLink: 'https://site14.example.com/home/list.shtml',
+              name: '首页',
+              logoFile: 'upload/resources/image/home.png',
+              contentType: '',
+              contentTypeName: '文章',
+              childCount: 1,
+              total: 12,
+              siteID: 14,
+            },
+            {
+              id: 101,
+              parentID: 100,
+              path: 'home/banner/',
+              link: 'https://site14.example.com/home/banner/',
+              name: 'Banner',
+              logoFile: '/upload/resources/image/banner.png',
+              contentType: 'Image',
+              contentTypeName: '图片',
+              hasChild: false,
+              total: 3,
+              siteID: 14,
+            },
+          ],
+        }), {
+          status: 200,
+          headers: {
+            'content-type': 'application/json; charset=utf-8',
+          },
+        })
+      }
+
+      if (url === 'https://demo.zving.com/manager/api/sites') {
+        return new Response(JSON.stringify({
+          status: 1,
+          data: [
+            {
+              id: 14,
+              name: '新闻站',
+              url: 'https://site14.example.com/',
+            },
+          ],
+        }), {
+          status: 200,
+          headers: {
+            'content-type': 'application/json; charset=utf-8',
+          },
+        })
+      }
+
+      throw new Error(`unexpected request: ${url}`)
     })
     globalThis.fetch = fetchMock as unknown as typeof fetch
 
@@ -314,10 +360,10 @@ describe('page-builder routes', () => {
           id: '100',
           name: '首页',
           parentId: null,
-          path: 'home/',
+          path: 'https://site14.example.com/home/list.shtml',
           contentType: '',
           contentTypeName: '文章',
-          logoUrl: 'https://demo.zving.com/manager/upload/resources/image/home.png',
+          logoUrl: 'https://site14.example.com/upload/resources/image/home.png',
           hasChild: true,
           total: 12,
           children: [],
@@ -326,10 +372,10 @@ describe('page-builder routes', () => {
           id: '101',
           name: 'Banner',
           parentId: '100',
-          path: 'home/banner/',
+          path: 'https://site14.example.com/home/banner/',
           contentType: 'Image',
           contentTypeName: '图片',
-          logoUrl: 'https://demo.zving.com/manager/upload/resources/image/banner.png',
+          logoUrl: 'https://site14.example.com/upload/resources/image/banner.png',
           hasChild: false,
           total: 3,
           children: [],
@@ -340,10 +386,10 @@ describe('page-builder routes', () => {
           id: '100',
           name: '首页',
           parentId: null,
-          path: 'home/',
+          path: 'https://site14.example.com/home/list.shtml',
           contentType: '',
           contentTypeName: '文章',
-          logoUrl: 'https://demo.zving.com/manager/upload/resources/image/home.png',
+          logoUrl: 'https://site14.example.com/upload/resources/image/home.png',
           hasChild: true,
           total: 12,
           children: [
@@ -351,10 +397,10 @@ describe('page-builder routes', () => {
               id: '101',
               name: 'Banner',
               parentId: '100',
-              path: 'home/banner/',
+              path: 'https://site14.example.com/home/banner/',
               contentType: 'Image',
               contentTypeName: '图片',
-              logoUrl: 'https://demo.zving.com/manager/upload/resources/image/banner.png',
+              logoUrl: 'https://site14.example.com/upload/resources/image/banner.png',
               hasChild: false,
               total: 3,
               children: [],
@@ -503,37 +549,57 @@ describe('page-builder routes', () => {
         return createTokenResponse()
       }
 
-      expect(url).toBe(
-        'https://demo.zving.com/manager/api/catalogs/101/contents?siteID=14&pageIndex=1&pageSize=10&loadextend=true',
-      )
       expect(init?.headers).toMatchObject({
         Authorization: 'Bearer slim-token',
       })
 
-      return new Response(JSON.stringify({
-        status: 1,
-        data: {
-          pageIndex: 1,
-          pageSize: 10,
-          total: 1,
+      if (url === 'https://demo.zving.com/manager/api/catalogs/101/contents?siteID=14&pageIndex=1&pageSize=10&loadextend=true') {
+        return new Response(JSON.stringify({
+          status: 1,
+          data: {
+            pageIndex: 1,
+            pageSize: 10,
+            total: 1,
+            data: [
+              {
+                id: 501,
+                catalogID: 101,
+                title: '首页轮播图',
+                summary: '三张首页图片',
+                logoFile: 'preview/news/upload/resources/image/banner-list-logo.jpg',
+                link: 'https://demo.zving.com/home/banner/501.html',
+                publishUrl: 'https://legacy.example.com/home/banner/501.html',
+                addTime: '2025-04-11 17:48:06',
+              },
+            ],
+          },
+        }), {
+          status: 200,
+          headers: {
+            'content-type': 'application/json; charset=utf-8',
+          },
+        })
+      }
+
+      if (url === 'https://demo.zving.com/manager/api/sites') {
+        return new Response(JSON.stringify({
+          status: 1,
           data: [
             {
-              id: 501,
-              catalogID: 101,
-              title: '首页轮播图',
-              summary: '三张首页图片',
-              logoFile: 'preview/news/upload/resources/image/banner-list-logo.jpg',
-              publishUrl: 'https://demo.zving.com/home/banner/501.html',
-              addTime: '2025-04-11 17:48:06',
+              id: 14,
+              name: '新闻站',
+              url: 'https://site14.example.com/',
             },
           ],
-        },
-      }), {
-        status: 200,
-        headers: {
-          'content-type': 'application/json; charset=utf-8',
-        },
-      })
+        }), {
+          status: 200,
+          headers: {
+            'content-type': 'application/json; charset=utf-8',
+          },
+        })
+      }
+
+      throw new Error(`unexpected request: ${url}`)
     })
     globalThis.fetch = fetchMock as unknown as typeof fetch
 
@@ -552,7 +618,7 @@ describe('page-builder routes', () => {
           catalogId: '101',
           title: '首页轮播图',
           summary: '三张首页图片',
-          listLogoUrl: 'https://demo.zving.com/manager/preview/news/upload/resources/image/banner-list-logo.jpg',
+          listLogoUrl: 'https://site14.example.com/preview/news/upload/resources/image/banner-list-logo.jpg',
           addedAt: '2025-04-11 17:48',
           publishUrl: 'https://demo.zving.com/home/banner/501.html',
         },
@@ -608,6 +674,24 @@ describe('page-builder routes', () => {
         })
       }
 
+      if (url === 'https://demo.zving.com/manager/api/sites') {
+        return new Response(JSON.stringify({
+          status: 1,
+          data: [
+            {
+              id: 14,
+              name: '新闻站',
+              url: 'https://site14.example.com/',
+            },
+          ],
+        }), {
+          status: 200,
+          headers: {
+            'content-type': 'application/json; charset=utf-8',
+          },
+        })
+      }
+
       throw new Error(`unexpected request: ${url}`)
     })
     globalThis.fetch = fetchMock as unknown as typeof fetch
@@ -634,7 +718,7 @@ describe('page-builder routes', () => {
           catalogId: '101',
           title: '首页轮播图',
           summary: '三张首页图片',
-          listLogoUrl: 'https://demo.zving.com/manager/preview/news/upload/resources/image/banner-list-logo.jpg',
+          listLogoUrl: 'https://site14.example.com/preview/news/upload/resources/image/banner-list-logo.jpg',
           addedAt: '2025-04-11 17:48',
           publishUrl: 'https://demo.zving.com/home/banner/501.html',
         },
@@ -652,31 +736,53 @@ describe('page-builder routes', () => {
         return createTokenResponse()
       }
 
-      expect(url).toBe('https://demo.zving.com/manager/api/catalogs?siteID=14&level=All&pageIndex=0&pageSize=500')
       expect(init?.headers).toMatchObject({
         Authorization: 'Bearer slim-token',
       })
 
-      return new Response(JSON.stringify({
-        status: 1,
-        data: [
-          {
-            id: 17765,
-            innerCode: '002676000004',
-            status: 20,
-            name: '文章',
-            alias: 'lbt_wz',
-            contentType: 'Article',
-            info: '栏目描述',
-            logoFile: 'assets/images/addpicture.png',
+      if (url === 'https://demo.zving.com/manager/api/catalogs?siteID=14&level=All&pageIndex=0&pageSize=500') {
+        return new Response(JSON.stringify({
+          status: 1,
+          data: [
+            {
+              id: 17765,
+              innerCode: '002676000004',
+              status: 20,
+              name: '文章',
+              alias: 'lbt_wz',
+              contentType: 'Article',
+              info: '栏目描述',
+              logoFile: 'assets/images/addpicture.png',
+              siteID: 14,
+            },
+          ],
+        }), {
+          status: 200,
+          headers: {
+            'content-type': 'application/json; charset=utf-8',
           },
-        ],
-      }), {
-        status: 200,
-        headers: {
-          'content-type': 'application/json; charset=utf-8',
-        },
-      })
+        })
+      }
+
+      if (url === 'https://demo.zving.com/manager/api/sites') {
+        return new Response(JSON.stringify({
+          status: 1,
+          data: [
+            {
+              id: 14,
+              name: '新闻站',
+              url: 'https://site14.example.com/',
+            },
+          ],
+        }), {
+          status: 200,
+          headers: {
+            'content-type': 'application/json; charset=utf-8',
+          },
+        })
+      }
+
+      throw new Error(`unexpected request: ${url}`)
     })
     globalThis.fetch = fetchMock as unknown as typeof fetch
 
@@ -694,7 +800,7 @@ describe('page-builder routes', () => {
       contentType: 'Article',
       contentTypeName: '文章',
       description: '栏目描述',
-      logoUrl: 'https://demo.zving.com/manager/assets/images/addpicture.png',
+      logoUrl: 'https://site14.example.com/assets/images/addpicture.png',
     })
   })
 

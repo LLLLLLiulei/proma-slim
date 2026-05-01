@@ -39,9 +39,9 @@ Use an explicit subset of the shared slot scope `{ items, loading, error, empty 
 
 - `item.id`: stable identifier; use as the stable `:key`
 - `item.name`: visible catalog label
-- `item.path`: catalog detail path; use `:href="item.path"`
+- `item.path`: catalog navigation URL; use `:href="item.path"` for catalog links
 - `item.parentId`: parent catalog identifier, or `null` for roots
-- `item.logoUrl`: optional catalog image; guard before rendering
+- `item.logoUrl`: optional catalog image URL; guard before rendering
 - `item.hasChild`: whether the catalog has children
 - `item.total`: total entries under the catalog; use only when the current design needs a count badge
 - `item.contentType`: internal content-type code
@@ -57,7 +57,7 @@ Use this when the target block intent is `nav`.
   <template v-slot:default="{ items }">
     <ul class="nav-list">
       <li v-for="item in items" :key="item.id">
-        <a :href="item.path">{{ item.name }}</a>
+        <a :href="item.path" target="_blank" rel="noopener noreferrer">{{ item.name }}</a>
       </li>
     </ul>
   </template>
@@ -76,7 +76,7 @@ Use this when the target block intent is `catalog-list`.
         <img v-if="item.logoUrl" class="catalog-card__image" :src="item.logoUrl" :alt="item.name">
         <h3>{{ item.name }}</h3>
         <p v-if="item.total > 0">{{ item.total }} items</p>
-        <a class="catalog-card__link" :href="item.path">查看栏目</a>
+        <a class="catalog-card__link" :href="item.path" target="_blank" rel="noopener noreferrer">查看栏目</a>
       </article>
     </section>
   </template>

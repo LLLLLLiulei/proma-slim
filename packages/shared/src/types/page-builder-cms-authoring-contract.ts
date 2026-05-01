@@ -1,6 +1,6 @@
 import type { PageBuilderCmsSelectionResult } from './page-builder-cms'
 
-export const PAGE_BUILDER_CMS_AUTHORING_CONTRACT_VERSION = 3
+export const PAGE_BUILDER_CMS_AUTHORING_CONTRACT_VERSION = 4
 
 export const PAGE_BUILDER_CMS_AUTHORING_SLOT_SCOPE = ['items', 'loading', 'error', 'empty'] as const
 export const PAGE_BUILDER_CMS_AUTHORING_FORBIDDEN_STRUCTURES = [
@@ -114,8 +114,8 @@ const CMS_CATALOG_ITEM_META: PageBuilderCmsAuthoringFieldContract[] = [
     name: 'path',
     type: 'string',
     optional: false,
-    description: 'Catalog detail URL/path.',
-    recommendedUsage: 'Use :href="item.path" for catalog links.',
+    description: 'Catalog navigation URL.',
+    recommendedUsage: 'Use :href="item.path" for catalog links; add target="_blank" rel="noopener noreferrer" when opening CMS destinations in a new window.',
   },
   {
     name: 'parentId',
@@ -198,7 +198,7 @@ const CMS_CONTENT_ITEM_META: PageBuilderCmsAuthoringFieldContract[] = [
     type: 'string',
     optional: false,
     description: 'Content detail URL.',
-    recommendedUsage: 'Use :href="item.publishUrl" for content links.',
+    recommendedUsage: 'Use :href="item.publishUrl" for content links; add target="_blank" rel="noopener noreferrer" when opening CMS destinations in a new window.',
   },
   {
     name: 'listLogoUrl',
@@ -249,6 +249,7 @@ export const PAGE_BUILDER_CMS_AUTHORING_CONTRACT: PageBuilderCmsAuthoringContrac
         },
       },
       recommendedLinkField: 'path',
+      recommendedImageField: 'logoUrl',
     },
     'cms-content': {
       component: 'cms-content',
