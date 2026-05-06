@@ -34,7 +34,7 @@ import type {
   PageBuilderCmsAutoAgentHandoffRequest,
   PageBuilderCmsAutoAgentHandoffSettledResult,
   PageBuilderEditLockCredentials,
-} from '@proma/shared'
+} from '@ai-page-builder/shared'
 
 interface SyncSessionMessagesDeps {
   loadSessionMessagesWithCatchup: typeof loadSessionMessagesWithCatchup

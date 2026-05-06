@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { extname } from 'node:path'
-import type { FileAttachment } from '@proma/shared'
+import type { FileAttachment } from '@ai-page-builder/shared'
 import {
   AGENT_ATTACHMENT_MAX_FILES,
   AGENT_ATTACHMENT_MAX_FILE_SIZE_BYTES,
   AGENT_ATTACHMENT_MAX_TOTAL_SIZE_BYTES,
-} from '@proma/shared'
+} from '@ai-page-builder/shared'
 import { HttpError } from '../http/errors'
 import { getAgentSessionMessages, getAgentSessionMeta } from './agent-session-manager'
 import {

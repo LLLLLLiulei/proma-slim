@@ -19,12 +19,12 @@ import type {
   PageBuilderStaticExportJob,
   PageBuilderTurnRoutingMetadata,
   PageBuilderTargetSelection,
-} from '@proma/shared'
+} from '@ai-page-builder/shared'
 import {
   buildPageBuilderCmsOrdinaryAuthoringDigest,
   createPageBuilderBlockTargetSelection,
   tryResolvePageBuilderCmsAuthoringSourceTypeFromSourceTag,
-} from '@proma/shared'
+} from '@ai-page-builder/shared'
 import {
   AgentView,
   prepareAgentSendPayload,

@@ -1,5 +1,5 @@
 import { parseHTML } from 'linkedom'
-import type { AgentWorkspace, PageBuilderInlineTextSavePayload, PageBuilderInlineTextTargetDescriptor } from '@proma/shared'
+import type { AgentWorkspace, PageBuilderInlineTextSavePayload, PageBuilderInlineTextTargetDescriptor } from '@ai-page-builder/shared'
 import { type WorkspacePreviewState } from './workspace-preview-service'
 import {
   PageBuilderWorkspaceHtmlServiceError,

@@ -20,7 +20,7 @@ import type {
   WorkspaceCapabilities,
   WorkspaceDirectoryContext,
   WorkspaceMcpConfig,
-} from '@proma/shared'
+} from '@ai-page-builder/shared'
 import {
   getAgentSessionWorkspacePath,
   getAgentWorkspacePath,

@@ -9,12 +9,12 @@ import type {
   PageBuilderInlineTextSaveResult,
   PageBuilderPreviewParentMessage,
   PageBuilderTargetSelection,
-} from '@proma/shared'
+} from '@ai-page-builder/shared'
 import {
   createPageBuilderBlockTargetSelection,
   PAGE_BUILDER_PREVIEW_BRIDGE_SOURCE,
   PAGE_BUILDER_PREVIEW_PARENT_SOURCE,
-} from '@proma/shared'
+} from '@ai-page-builder/shared'
 import { Button } from '@/components/ui/button'
 import { PageBuilderBlockActionBar } from '@page-builder/components/builder/PageBuilderBlockActionBar'
 import type { PageBuilderPreviewSelectionEvent } from '@page-builder/lib/preview-selection'

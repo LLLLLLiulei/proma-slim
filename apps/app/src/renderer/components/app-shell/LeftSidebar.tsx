@@ -44,7 +44,7 @@ import {
   resolveWorkspaceSelectionFallback,
   WorkspaceSidebarSection,
 } from './WorkspaceSidebarSection'
-import type { AgentSessionMeta, AgentWorkspace } from '@proma/shared'
+import type { AgentSessionMeta, AgentWorkspace } from '@ai-page-builder/shared'
 import type { AppSettings } from '../../../types'
 
 type DateGroupLabel = '今天' | '昨天' | '更早'

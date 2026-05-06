@@ -1,12 +1,12 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import type { AgentWorkspace } from '@proma/shared'
+import type { AgentWorkspace } from '@ai-page-builder/shared'
 import {
   scanCmsRenderingManifest,
   validateCmsRendering,
   type CmsRenderingManifest,
   type CmsRenderingValidationResult,
-} from '@proma/page-builder-cms-rendering'
+} from '@ai-page-builder/page-builder-cms-rendering'
 import { getWorkspaceCmsRenderingManifestPath, getWorkspaceFilesDir } from './config-paths'
 import { getWorkspacePreviewState, type WorkspacePreviewState } from './workspace-preview-service'
 import {

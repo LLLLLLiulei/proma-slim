@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { useAtom } from 'jotai'
 import { Send } from 'lucide-react'
-import type { AskUserQuestion } from '@proma/shared'
+import type { AskUserQuestion } from '@ai-page-builder/shared'
 import { Button } from '@/components/ui/button'
 import { allPendingAskUserRequestsAtom } from '@/atoms/agent-atoms'
 import { api } from '@/lib/api'

@@ -44,7 +44,7 @@ import StepLogo from '@/assets/models/step.png'
 import MiniMaxLogo from '@/assets/models/minimax.png'
 import CohereLogo from '@/assets/models/cohere.png'
 import EmbeddingLogo from '@/assets/models/embedding.png'
-import type { ProviderType } from '@proma/shared'
+import type { ProviderType } from '@ai-page-builder/shared'
 
 const MODEL_LOGO_MAP: Record<string, string> = {
   'gpt-image': GPTImageLogo,

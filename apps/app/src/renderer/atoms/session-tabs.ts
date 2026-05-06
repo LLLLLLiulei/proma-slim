@@ -1,5 +1,5 @@
 import { atomWithStorage } from 'jotai/utils'
-import type { AgentSessionMeta } from '@proma/shared'
+import type { AgentSessionMeta } from '@ai-page-builder/shared'
 
 export interface SessionTab {
   id: string

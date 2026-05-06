@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { parseHTML } from 'linkedom'
 import {
   PAGE_BUILDER_PREVIEW_PARENT_SOURCE,
-} from '@proma/shared'
+} from '@ai-page-builder/shared'
 import { resolveOverlayBorder } from './page-builder-preview-bridge/overlays'
 import { shouldSyncFromMutations } from './page-builder-preview-bridge/shared'
 

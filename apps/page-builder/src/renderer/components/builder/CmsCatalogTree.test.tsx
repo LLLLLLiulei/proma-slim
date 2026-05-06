@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
 import React from 'react'
 import { act, create } from 'react-test-renderer'
-import type { PageBuilderCmsCatalog } from '@proma/shared'
+import type { PageBuilderCmsCatalog } from '@ai-page-builder/shared'
 
 const CATALOGS: PageBuilderCmsCatalog[] = [
   {

@@ -13,7 +13,7 @@ import type {
   ParsedMailboxMessage,
   TaskItem,
   TeamConfig,
-} from '@proma/shared'
+} from '@ai-page-builder/shared'
 
 interface InboxMessage {
   from: string

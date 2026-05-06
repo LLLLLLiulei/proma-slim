@@ -1,4 +1,4 @@
-import type { McpServerEntry } from '@proma/shared'
+import type { McpServerEntry } from '@ai-page-builder/shared'
 import { readWorkspaceTemplateMcpConfig } from './workspace-template-service'
 
 type EnvSource = Record<string, string | undefined>

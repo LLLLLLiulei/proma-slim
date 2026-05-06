@@ -1,5 +1,5 @@
 {
-  "name": "proma",
+  "name": "ai-page-builder",
   "version": "0.1.0",
   "description": "The next gen ai software with general agents",
   "type": "module",
@@ -12,10 +12,10 @@
     "apps/*"
   ],
   "scripts": {
-    "dev": "bun run --filter='@proma/app' dev",
-    "dev:page-builder": "bun run --filter='@proma/page-builder' dev",
-    "build": "bun run --filter='@proma/app' build",
-    "start": "bun run --filter='@proma/app' start",
+    "dev": "bun run --filter='@ai-page-builder/app' dev",
+    "dev:page-builder": "bun run --filter='@ai-page-builder/page-builder' dev",
+    "build": "bun run --filter='@ai-page-builder/app' build",
+    "start": "bun run --filter='@ai-page-builder/app' start",
     "typecheck": "bun run --filter='*' typecheck",
     "test": "bun test"
   },

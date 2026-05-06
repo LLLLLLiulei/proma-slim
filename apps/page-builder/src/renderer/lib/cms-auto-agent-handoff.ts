@@ -3,5 +3,5 @@ export {
   PAGE_BUILDER_CMS_AUTO_AGENT_HANDOFF_MESSAGE,
   buildPageBuilderCmsApplySkillInput,
   createPageBuilderCmsAutoAgentHandoffRequest,
-} from '@proma/shared'
+} from '@ai-page-builder/shared'
 

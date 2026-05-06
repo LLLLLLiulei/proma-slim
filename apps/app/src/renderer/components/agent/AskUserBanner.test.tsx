@@ -3,7 +3,7 @@ import React from 'react'
 import { Provider, createStore } from 'jotai'
 import { useHydrateAtoms } from 'jotai/utils'
 import { act, create } from 'react-test-renderer'
-import type { AskUserRequest } from '@proma/shared'
+import type { AskUserRequest } from '@ai-page-builder/shared'
 import { allPendingAskUserRequestsAtom } from '@/atoms/agent-atoms'
 import { AskUserBanner } from './AskUserBanner'
 

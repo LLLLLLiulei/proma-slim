@@ -4,7 +4,7 @@ import { extname, join } from 'node:path'
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk'
 import { parseHTML } from 'linkedom'
 import { z } from 'zod'
-import type { AgentMcpServerConfig, AgentWorkspace } from '@proma/shared'
+import type { AgentMcpServerConfig, AgentWorkspace } from '@ai-page-builder/shared'
 import { getWorkspaceFilesDir } from './config-paths'
 
 export const IMAGE_SEARCH_RUNTIME_SERVER_NAME = 'image_search'

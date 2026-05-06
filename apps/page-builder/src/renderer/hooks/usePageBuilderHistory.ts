@@ -1,5 +1,5 @@
 import * as React from 'react'
-import type { PageBuilderProjectSummary } from '@proma/shared'
+import type { PageBuilderProjectSummary } from '@ai-page-builder/shared'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { buildBuilderPath } from '@page-builder/lib/routes'

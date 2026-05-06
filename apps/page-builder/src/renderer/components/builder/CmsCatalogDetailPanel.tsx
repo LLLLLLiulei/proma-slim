@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { Alert, Image, Spin } from 'antd'
-import type { PageBuilderCmsCatalogDetail } from '@proma/shared'
+import type { PageBuilderCmsCatalogDetail } from '@ai-page-builder/shared'
 import { Button } from '@/components/ui/button'
 import { RefreshCw } from 'lucide-react'
 import type { CmsAsyncState } from './useCmsBrowserState'

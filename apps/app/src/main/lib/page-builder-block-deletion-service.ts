@@ -2,8 +2,8 @@ import { parseHTML } from 'linkedom'
 import type {
   AgentWorkspace,
   PageBuilderBlockDeletionPayload,
-} from '@proma/shared'
-import { PAGE_BUILDER_DEFAULT_HTML_PATH } from '@proma/shared'
+} from '@ai-page-builder/shared'
+import { PAGE_BUILDER_DEFAULT_HTML_PATH } from '@ai-page-builder/shared'
 import { type WorkspacePreviewState } from './workspace-preview-service'
 import {
   PageBuilderWorkspaceHtmlServiceError,

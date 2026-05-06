@@ -28,7 +28,7 @@ import type {
   AgentProviderAdapter,
   TypedError,
   RetryAttempt,
-} from '@proma/shared'
+} from '@ai-page-builder/shared'
 import {
   extractPageBuilderTurnRoutingMetadata,
   PAGE_BUILDER_CMS_BINDING_APPLY_OWNER_SKILL,
@@ -36,8 +36,8 @@ import {
   SAFE_TOOLS,
   type PageBuilderOwnerSkill,
   type PageBuilderTurnRoutingMetadata,
-} from '@proma/shared'
-import type { PermissionRequest, PromaPermissionMode, AskUserRequest } from '@proma/shared'
+} from '@ai-page-builder/shared'
+import type { PermissionRequest, PromaPermissionMode, AskUserRequest } from '@ai-page-builder/shared'
 import type { HookCallbackMatcher, PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk'
 import type { ClaudeAgentQueryOptions } from './adapters/claude-agent-adapter'
 import { isPromptTooLongError } from './adapters/claude-agent-adapter'
@@ -116,14 +116,14 @@ import { writeTurnDiagnosticSidecar } from './diagnostic-sidecar-writer'
 type AgentMcpServerMap = Record<string, AgentMcpServerConfig>
 
 interface ResolvedWorkspaceRuntime {
-  workspace: import('@proma/shared').AgentWorkspace
+  workspace: import('@ai-page-builder/shared').AgentWorkspace
   agentCwd: string
   pluginPath: string
   additionalDirectories: string[]
   mcpServers: AgentMcpServerMap
 }
 
-function buildWorkspaceMcpServers(workspace: import('@proma/shared').AgentWorkspace): AgentMcpServerMap {
+function buildWorkspaceMcpServers(workspace: import('@ai-page-builder/shared').AgentWorkspace): AgentMcpServerMap {
   const mcpServers: AgentMcpServerMap = {}
   const mcpConfig = getWorkspaceMcpConfig(workspace.slug)
   const dockerRuntime = workspace.template === 'page-builder'
@@ -304,7 +304,7 @@ function buildWorkspaceMcpStateLines(servers: AgentMcpServerMap): string[] {
 }
 
 function resolveCmsRuntimeToolBundle(
-  workspace: import('@proma/shared').AgentWorkspace,
+  workspace: import('@ai-page-builder/shared').AgentWorkspace,
   sessionId: string,
 ): CmsRuntimeToolBundle | null {
   if (workspace.template !== 'page-builder') {
@@ -327,7 +327,7 @@ function resolveCmsRuntimeToolBundle(
 }
 
 function resolveImageSearchRuntimeToolBundle(
-  workspace: import('@proma/shared').AgentWorkspace,
+  workspace: import('@ai-page-builder/shared').AgentWorkspace,
 ): ReturnType<typeof buildImageSearchRuntimeToolBundle> | null {
   if (workspace.template !== 'page-builder') {
     return null
@@ -690,7 +690,7 @@ const MAX_TOOL_SUMMARY_LENGTH = 200
  *
  * 返回简要的工具名称 + 关键输入信息，帮助新 SDK 会话理解之前做过什么。
  */
-function extractToolSummary(events: import('@proma/shared').AgentEvent[]): string {
+function extractToolSummary(events: import('@ai-page-builder/shared').AgentEvent[]): string {
   const summaries: string[] = []
   for (const event of events) {
     if (event.type === 'tool_start') {

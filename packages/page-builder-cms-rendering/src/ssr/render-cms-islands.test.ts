@@ -3,7 +3,7 @@ import type {
   PageBuilderCmsCatalogList,
   PageBuilderCmsContentList,
   PageBuilderCmsContentQuery,
-} from '@proma/shared'
+} from '@ai-page-builder/shared'
 import { createServerCmsClient } from '../runtime/server-cms-client'
 import { CmsIslandRenderPipelineError } from './island-render-errors'
 import { renderCmsIslands } from './render-cms-islands'

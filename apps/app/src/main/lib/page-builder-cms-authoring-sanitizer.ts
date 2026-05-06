@@ -2,7 +2,7 @@ import { parseHTML } from 'linkedom'
 import type {
   CmsRenderingDiagnostic,
   CmsRenderingValidationResult,
-} from '@proma/page-builder-cms-rendering'
+} from '@ai-page-builder/page-builder-cms-rendering'
 
 export function isRuntimeOnlyCmsAuthoringAttr(name: string): boolean {
   return name === 'data-proma-cms-source-id' || name.startsWith('data-proma-cms-island-')

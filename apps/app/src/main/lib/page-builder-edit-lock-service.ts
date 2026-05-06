@@ -6,7 +6,7 @@ import type {
   PageBuilderEditLockLease,
   PageBuilderEditLockStatus,
   PageBuilderProjectEditState,
-} from '@proma/shared'
+} from '@ai-page-builder/shared'
 import { listAgentSessions } from './agent-session-manager'
 import { isAgentSessionActive } from './agent-service'
 

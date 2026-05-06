@@ -2,11 +2,11 @@ import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { AgentWorkspace } from '@proma/shared'
+import type { AgentWorkspace } from '@ai-page-builder/shared'
 import {
   PAGE_BUILDER_PREVIEW_BRIDGE_SOURCE,
   PAGE_BUILDER_PREVIEW_PARENT_SOURCE,
-} from '@proma/shared'
+} from '@ai-page-builder/shared'
 
 const PAGE_BUILDER_PREVIEW_BRIDGE_LOADER_ATTR = 'data-page-builder-preview-bridge-loader'
 

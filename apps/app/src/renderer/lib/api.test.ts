@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
-import type { PageBuilderCmsSelectionResult, PageBuilderProjectSummary, PageBuilderTargetSelection } from '@proma/shared'
+import type { PageBuilderCmsSelectionResult, PageBuilderProjectSummary, PageBuilderTargetSelection } from '@ai-page-builder/shared'
 
 const originalFetch = globalThis.fetch
 const UUID_WORKSPACE_SLUG = '550e8400-e29b-41d4-a716-446655440000'

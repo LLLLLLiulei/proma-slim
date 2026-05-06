@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { Tree } from 'antd'
-import type { PageBuilderCmsCatalog } from '@proma/shared'
+import type { PageBuilderCmsCatalog } from '@ai-page-builder/shared'
 
 interface CmsCatalogTreeSharedProps {
   catalogs: PageBuilderCmsCatalog[]

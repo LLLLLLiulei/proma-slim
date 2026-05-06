@@ -9,7 +9,7 @@
 import { execSync, spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import type { BunRuntimeStatus, PlatformArch } from '@proma/shared'
+import type { BunRuntimeStatus, PlatformArch } from '@ai-page-builder/shared'
 
 function getVendorRoot(): string {
   return new URL('../../../vendor/bun/', import.meta.url).pathname

@@ -7,7 +7,7 @@ import type {
   PageBuilderCmsContentQuery,
   PageBuilderCmsContentSummary,
   PageBuilderCmsSiteSummary,
-} from '@proma/shared'
+} from '@ai-page-builder/shared'
 import {
   CmsTokenProviderError,
   getSharedCmsTokenProvider,

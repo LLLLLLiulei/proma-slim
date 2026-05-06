@@ -5,8 +5,8 @@ import type {
   AgentWorkspace,
   PageBuilderCmsApplyTargetSnapshot,
   PageBuilderTargetSelection,
-} from '@proma/shared'
-import { PAGE_BUILDER_DEFAULT_HTML_PATH } from '@proma/shared'
+} from '@ai-page-builder/shared'
+import { PAGE_BUILDER_DEFAULT_HTML_PATH } from '@ai-page-builder/shared'
 import { getWorkspaceFilesDir } from './config-paths'
 import { sanitizeRuntimeOnlyCmsAuthoringElementOuterHtml } from './page-builder-cms-authoring-sanitizer'
 

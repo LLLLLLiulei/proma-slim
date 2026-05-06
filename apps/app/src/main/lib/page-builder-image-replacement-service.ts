@@ -6,7 +6,7 @@ import type {
   AgentWorkspace,
   PageBuilderImageReplacementPayload,
   PageBuilderImageTargetDescriptor,
-} from '@proma/shared'
+} from '@ai-page-builder/shared'
 import { getWorkspaceFilesDir } from './config-paths'
 import { type WorkspacePreviewState } from './workspace-preview-service'
 import {

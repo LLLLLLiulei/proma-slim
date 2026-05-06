@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import React from 'react'
 import { create } from 'react-test-renderer'
-import type { PageBuilderProjectSummary } from '@proma/shared'
+import type { PageBuilderProjectSummary } from '@ai-page-builder/shared'
 import { PageBuilderHistoryCard } from './PageBuilderHistoryCard'
 
 function createProject(overrides: Partial<PageBuilderProjectSummary> = {}): PageBuilderProjectSummary {

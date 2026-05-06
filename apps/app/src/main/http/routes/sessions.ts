@@ -4,7 +4,7 @@ import type {
   AskUserResponse,
   FileAttachment,
   PermissionResponse,
-} from '@proma/shared'
+} from '@ai-page-builder/shared'
 import { askUserService } from '../../lib/agent-ask-user-service'
 import {
   deleteAgentSessionAttachments,

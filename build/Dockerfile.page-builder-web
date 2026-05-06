@@ -16,7 +16,7 @@ WORKDIR /app
 
 COPY . .
 
-RUN bun run --filter='@proma/page-builder' build
+RUN bun run --filter='@ai-page-builder/page-builder' build
 
 FROM oven/bun:1.2.5 AS runtime
 WORKDIR /app

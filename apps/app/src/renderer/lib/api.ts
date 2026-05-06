@@ -30,7 +30,7 @@ import type {
   RuntimeStatus,
   WorkspaceCapabilities,
   WorkspaceDirectoryContext,
-} from '@proma/shared'
+} from '@ai-page-builder/shared'
 import type { AppSettings, UserProfile } from '../../types'
 
 export interface AppStatus {

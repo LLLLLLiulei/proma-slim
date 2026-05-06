@@ -1,7 +1,7 @@
 import type {
   PageBuilderCmsCatalogQuery,
   PageBuilderCmsContentQuery,
-} from '@proma/shared'
+} from '@ai-page-builder/shared'
 
 export function createCatalogQueryCacheKey(query: PageBuilderCmsCatalogQuery = {}): string {
   return serializeCacheKey('catalogs', {

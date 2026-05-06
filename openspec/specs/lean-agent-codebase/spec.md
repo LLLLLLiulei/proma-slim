@@ -25,7 +25,7 @@
 系统 SHALL 删除已删除功能对应、且没有消费者的 shared 类型导出与相关路径助手。
 
 #### Scenario: 旧功能域导出被收口
-- **WHEN** `@proma/shared` 中某个功能域类型在当前仓库内已无消费者
+- **WHEN** `@ai-page-builder/shared` 中某个功能域类型在当前仓库内已无消费者
 - **THEN** 系统 SHALL 移除对应的 barrel export、类型文件或相关配置路径助手，并保留仍被 Agent Web 运行时使用的导出
 
 ### Requirement: 冗余依赖必须随源码一起收口

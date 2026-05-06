@@ -10,8 +10,8 @@ import type {
   PageBuilderCmsSiteSummary,
   PageBuilderCmsSelectionRequestContext,
   PageBuilderCmsSelectionResult,
-} from '@proma/shared'
-import { PAGE_BUILDER_CMS_SELECTION_RESULT_VERSION } from '@proma/shared'
+} from '@ai-page-builder/shared'
+import { PAGE_BUILDER_CMS_SELECTION_RESULT_VERSION } from '@ai-page-builder/shared'
 
 const CATALOGS: PageBuilderCmsCatalogList = {
   items: [

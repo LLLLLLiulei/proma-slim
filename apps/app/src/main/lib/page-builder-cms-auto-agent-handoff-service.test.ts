@@ -2,8 +2,8 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import type { PageBuilderCmsSelectionResult } from '@proma/shared'
-import { createPageBuilderBlockTargetSelection } from '@proma/shared'
+import type { PageBuilderCmsSelectionResult } from '@ai-page-builder/shared'
+import { createPageBuilderBlockTargetSelection } from '@ai-page-builder/shared'
 import { CmsGatewayError } from './cms-gateway'
 import {
   createPageBuilderCmsAutoAgentHandoff,

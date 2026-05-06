@@ -16,7 +16,7 @@ import {
   getAgentSessionsDir,
   getAgentSessionMessagesPath,
 } from './config-paths'
-import type { AgentSessionMeta, AgentMessage } from '@proma/shared'
+import type { AgentSessionMeta, AgentMessage } from '@ai-page-builder/shared'
 import { reconstructAssistantContent } from './agent-assistant-content'
 import {
   ensureDefaultWorkspace,

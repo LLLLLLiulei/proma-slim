@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { PAGE_BUILDER_CMS_AUTHORING_CONTRACT } from '@proma/shared/types/page-builder-cms-authoring-contract'
+import { PAGE_BUILDER_CMS_AUTHORING_CONTRACT } from '@ai-page-builder/shared/types/page-builder-cms-authoring-contract'
 import {
   CMS_AUTHORING_RUNTIME_ALLOWED_PROPS,
   CMS_AUTHORING_RUNTIME_DEFAULT_SITE_ID,

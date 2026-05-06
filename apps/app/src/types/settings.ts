@@ -4,7 +4,7 @@
  * 主题模式、IPC 通道等设置相关定义。
  */
 
-import type { EnvironmentCheckResult, PromaPermissionMode, ThinkingConfig, AgentEffort } from '@proma/shared'
+import type { EnvironmentCheckResult, PromaPermissionMode, ThinkingConfig, AgentEffort } from '@ai-page-builder/shared'
 
 /** 主题模式 */
 export type ThemeMode = 'light' | 'dark' | 'system'

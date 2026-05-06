@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { FileText, Folder } from 'lucide-react'
-import type { FileIndexEntry } from '@proma/shared'
+import type { FileIndexEntry } from '@ai-page-builder/shared'
 import { cn } from '@/lib/utils'
 
 export interface FileMentionListProps {

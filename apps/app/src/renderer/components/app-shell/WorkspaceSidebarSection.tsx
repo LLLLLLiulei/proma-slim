@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { FolderOpen, Pencil, Plus, Trash2 } from 'lucide-react'
-import type { AgentWorkspace } from '@proma/shared'
+import type { AgentWorkspace } from '@ai-page-builder/shared'
 import { cn } from '@/lib/utils'
 
 export interface WorkspaceSidebarSectionProps {

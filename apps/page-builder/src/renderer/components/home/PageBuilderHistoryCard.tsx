@@ -1,5 +1,5 @@
 import * as React from 'react'
-import type { PageBuilderProjectSummary } from '@proma/shared'
+import type { PageBuilderProjectSummary } from '@ai-page-builder/shared'
 import { Eye, PencilLine, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 

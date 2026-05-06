@@ -3,14 +3,14 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 describe('app package scripts', () => {
-  test('workspace package is published as @proma/app', () => {
+  test('workspace package is published as @ai-page-builder/app', () => {
     const packageJson = JSON.parse(
       readFileSync(join(import.meta.dir, 'package.json'), 'utf-8'),
     ) as {
       name?: string
     }
 
-    expect(packageJson.name).toBe('@proma/app')
+    expect(packageJson.name).toBe('@ai-page-builder/app')
   })
 
   test('dev:server sets PROMA_CONFIG_DIR to ~/.proma-dev by default', () => {

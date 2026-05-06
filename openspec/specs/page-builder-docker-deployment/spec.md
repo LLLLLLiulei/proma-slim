@@ -4,7 +4,7 @@
 定义 `page-builder` 的 Docker Compose 部署约定，包括 `build/` 目录内部署资产、`web` / `server` 双服务拓扑、同源 API 入口、Bun 运行基线，以及宿主机 `~/.ai-page-builder` 持久化要求。
 ## Requirements
 ### Requirement: Docker Compose 部署必须提供 page builder 的前后端双服务闭环
-系统 SHALL 提供一套面向 `page-builder` 的 `docker compose` 部署资产，使页面构建前端与 `@proma/app` 后端能够作为两个协作服务一起启动，而不是要求操作者手工分别拼装多个本地命令。
+系统 SHALL 提供一套面向 `page-builder` 的 `docker compose` 部署资产，使页面构建前端与 `@ai-page-builder/app` 后端能够作为两个协作服务一起启动，而不是要求操作者手工分别拼装多个本地命令。
 
 #### Scenario: 部署资产位于 `build/` 并支持在该目录内直接执行
 - **WHEN** 操作者进入仓库内的 `build/` 目录并执行默认的 `docker compose` 命令
@@ -19,7 +19,7 @@
 #### Scenario: 默认 compose 仅要求访问 page builder 对外入口
 - **WHEN** 操作者使用默认 compose 配置启动 page builder 部署
 - **THEN** 系统 SHALL 提供单一的 page builder 对外访问入口
-- **AND** 系统 SHALL NOT 要求用户直接访问 `@proma/app` 的独立宿主机端口才能使用 page builder
+- **AND** 系统 SHALL NOT 要求用户直接访问 `@ai-page-builder/app` 的独立宿主机端口才能使用 page builder
 
 ### Requirement: Docker 可见部署命名必须使用 `ai-page-builder` / `server` / `web`
 系统 SHALL 在 compose 分组名、镜像名、容器名和对外环境变量中使用 page-builder 专属命名，而不是继续暴露 legacy `proma` Docker 可见名称。
@@ -128,11 +128,11 @@
 - **AND** 宿主机 SHALL 能从该默认 bind mount 对应的目录中检查同一份文件
 
 ### Requirement: 默认运行镜像必须以 Bun 为基线并最小化额外运行时依赖
-系统 SHALL 以 Bun 作为 page builder 部署的默认构建与运行时基线，并 SHALL 为 `@proma/app` 运行镜像提供 page builder 所需的最小额外依赖集合，而不是默认要求完整 Node.js 运行时。
+系统 SHALL 以 Bun 作为 page builder 部署的默认构建与运行时基线，并 SHALL 为 `@ai-page-builder/app` 运行镜像提供 page builder 所需的最小额外依赖集合，而不是默认要求完整 Node.js 运行时。
 
 #### Scenario: 默认 app 运行镜像在缺少 Node.js 时仍可启动基础 page builder 后端
-- **WHEN** 默认 `@proma/app` 运行镜像包含 Bun 与 Git，但未额外安装 Node.js
-- **THEN** 系统 SHALL 仍可启动 `@proma/app` 服务
+- **WHEN** 默认 `@ai-page-builder/app` 运行镜像包含 Bun 与 Git，但未额外安装 Node.js
+- **THEN** 系统 SHALL 仍可启动 `@ai-page-builder/app` 服务
 - **AND** 系统 SHALL 暴露 page builder 所需的 HTTP API 与流式接口
 
 #### Scenario: 默认 page builder Web 运行镜像使用 Bun 提供前端入口

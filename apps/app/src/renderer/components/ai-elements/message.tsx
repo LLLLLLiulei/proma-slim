@@ -32,9 +32,9 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { LoadingIndicator } from '@/components/ui/loading-indicator'
-import { CodeBlock, MermaidBlock } from '@proma/ui'
+import { CodeBlock, MermaidBlock } from '@ai-page-builder/ui'
 import type { HTMLAttributes, ComponentProps, ReactNode } from 'react'
-import type { FileAttachment } from '@proma/shared'
+import type { FileAttachment } from '@ai-page-builder/shared'
 
 // ===== Message 根容器 =====
 

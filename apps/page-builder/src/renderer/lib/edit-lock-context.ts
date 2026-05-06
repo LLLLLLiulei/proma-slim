@@ -1,4 +1,4 @@
-import type { PageBuilderEditLockCredentials, PageBuilderEditLockLease } from '@proma/shared'
+import type { PageBuilderEditLockCredentials, PageBuilderEditLockLease } from '@ai-page-builder/shared'
 
 interface StoredPageBuilderEditLock extends PageBuilderEditLockCredentials {
   workspaceId: string

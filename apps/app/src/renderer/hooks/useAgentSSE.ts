@@ -8,7 +8,7 @@ import type {
   PageBuilderEditLockCredentials,
   AskUserRequest,
   PermissionRequest,
-} from '@proma/shared'
+} from '@ai-page-builder/shared'
 import {
   agentMessageRefreshAtom,
   agentSessionsAtom,

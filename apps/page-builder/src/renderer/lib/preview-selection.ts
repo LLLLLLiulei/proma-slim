@@ -2,8 +2,8 @@ import type {
   PageBuilderCmsOrdinaryAuthoringDigest,
   PageBuilderTurnRoutingMetadata,
   PageBuilderTargetSelection,
-} from '@proma/shared'
-import { serializePageBuilderTurnRoutingMetadata } from '@proma/shared'
+} from '@ai-page-builder/shared'
+import { serializePageBuilderTurnRoutingMetadata } from '@ai-page-builder/shared'
 
 export type PageBuilderSelectedTarget = PageBuilderTargetSelection
 

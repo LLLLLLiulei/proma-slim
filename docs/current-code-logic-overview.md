@@ -54,7 +54,7 @@
 - `bun run typecheck`
 - `bun test`
 
-这些顶层脚本最终都转发到 `@proma/app` 这个 workspace。
+这些顶层脚本最终都转发到 `@ai-page-builder/app` 这个 workspace。
 
 ## 3. 总体架构图
 

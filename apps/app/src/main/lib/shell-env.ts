@@ -6,7 +6,7 @@
  */
 
 import { execSync } from 'node:child_process'
-import type { ShellEnvResult } from '@proma/shared'
+import type { ShellEnvResult } from '@ai-page-builder/shared'
 
 export function getUserShell(): string {
   return process.env.SHELL || '/bin/zsh'

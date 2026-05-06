@@ -1,7 +1,7 @@
 import type React from 'react'
 import { ReactRenderer } from '@tiptap/react'
 import type { SuggestionKeyDownProps, SuggestionOptions, SuggestionProps } from '@tiptap/suggestion'
-import type { FileIndexEntry } from '@proma/shared'
+import type { FileIndexEntry } from '@ai-page-builder/shared'
 import { api } from '@/lib/api'
 import { createMentionPopup, positionPopup } from '@/components/agent/mention-popup-utils'
 import { FileMentionList } from './FileMentionList'

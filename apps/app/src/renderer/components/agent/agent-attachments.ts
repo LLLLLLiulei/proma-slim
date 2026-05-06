@@ -2,7 +2,7 @@ import {
   AGENT_ATTACHMENT_MAX_FILES,
   AGENT_ATTACHMENT_MAX_FILE_SIZE_BYTES,
   AGENT_ATTACHMENT_MAX_TOTAL_SIZE_BYTES,
-} from '@proma/shared'
+} from '@ai-page-builder/shared'
 
 export interface PendingAgentAttachment {
   id: string

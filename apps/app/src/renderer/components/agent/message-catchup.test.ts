@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import type { AgentMessage } from '@proma/shared'
+import type { AgentMessage } from '@ai-page-builder/shared'
 import { loadSessionMessagesWithCatchup } from './message-catchup'
 
 function createMessage(id: string, role: AgentMessage['role'], content: string): AgentMessage {

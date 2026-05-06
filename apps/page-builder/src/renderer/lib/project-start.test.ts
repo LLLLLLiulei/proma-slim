@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from 'bun:test'
-import type { AgentSessionMeta, AgentWorkspace } from '@proma/shared'
+import type { AgentSessionMeta, AgentWorkspace } from '@ai-page-builder/shared'
 import {
   DEFAULT_PAGE_BUILDER_PROJECT_NAME,
   PageBuilderProjectStartError,

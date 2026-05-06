@@ -1,8 +1,8 @@
 {
-  "name": "@proma/shared",
+  "name": "@ai-page-builder/shared",
   "version": "0.1.14",
   "license": "Apache-2.0",
-  "description": "Shared types, configs and utilities for proma",
+  "description": "Shared types, configs and utilities for AI Page Builder",
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",

@@ -6,7 +6,7 @@
  * session `cwd` 误判成“完整项目仓库”，进而在纯研究任务里错误选择 `worktree` isolation。
  */
 
-import type { PromaPermissionMode } from '@proma/shared'
+import type { PromaPermissionMode } from '@ai-page-builder/shared'
 import {
   getWorkspaceMcpConfig,
   getWorkspaceSkillInvocationName,

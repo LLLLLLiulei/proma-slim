@@ -2,14 +2,14 @@ import { expect, test } from 'bun:test'
 import { existsSync } from 'node:fs'
 
 test('app can import cms rendering preview helpers from the package preview subpath', async () => {
-  const module = await import('@proma/page-builder-cms-rendering/preview')
+  const module = await import('@ai-page-builder/page-builder-cms-rendering/preview')
 
   expect(typeof module.detectCmsRenderingUsage).toBe('function')
   expect(typeof module.injectCmsRenderingPreview).toBe('function')
 })
 
 test('app can import cms rendering preview build paths from the package subpath', async () => {
-  const module = await import('@proma/page-builder-cms-rendering/preview/build-paths')
+  const module = await import('@ai-page-builder/page-builder-cms-rendering/preview/build-paths')
 
   expect(typeof module.getCmsRenderingPreviewBuildPaths).toBe('function')
 

@@ -4,11 +4,11 @@ import type {
   AgentMcpServerConfig,
   AgentWorkspace,
   PageBuilderCmsApplyDecisionResult,
-} from '@proma/shared'
+} from '@ai-page-builder/shared'
 import {
   PAGE_BUILDER_CMS_DECIDE_TOOL_ID,
   PAGE_BUILDER_CMS_DECIDE_TOOL_NAME,
-} from '@proma/shared'
+} from '@ai-page-builder/shared'
 import { CmsGatewayError, type CmsGateway } from './cms-gateway'
 import {
   PageBuilderCmsBindingDecisionStoreError,

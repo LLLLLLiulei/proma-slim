@@ -1,5 +1,5 @@
 {
-  "name": "@proma/page-builder-cms-rendering",
+  "name": "@ai-page-builder/page-builder-cms-rendering",
   "version": "0.1.0",
   "license": "Apache-2.0",
   "description": "Shared page-builder CMS rendering core",
@@ -15,7 +15,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@proma/shared": "workspace:*",
+    "@ai-page-builder/shared": "workspace:*",
     "@vue/compiler-dom": "^3.5.13",
     "@vue/server-renderer": "^3.5.13",
     "linkedom": "^0.18.12",

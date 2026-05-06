@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import type { PageBuilderCmsCatalog, PageBuilderCmsContentSummary } from '@proma/shared'
+import type { PageBuilderCmsCatalog, PageBuilderCmsContentSummary } from '@ai-page-builder/shared'
 import { mapCatalog } from './catalog'
 import { mapContent } from './content'
 

@@ -18,14 +18,14 @@ import type {
   AgentDefinition,
   SdkBeta,
   JsonSchemaOutputFormat,
-} from '@proma/shared'
+} from '@ai-page-builder/shared'
 import {
   ToolIndex,
   extractToolStarts,
   extractToolResults,
   SUBAGENT_TOOL_NAMES,
   type ContentBlock,
-} from '@proma/shared'
+} from '@ai-page-builder/shared'
 import type { CanUseToolOptions, PermissionResult } from '../agent-permission-service'
 import { mapAgentFriendlyError } from '../agent-friendly-error'
 

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
-import type { AgentWorkspace, PageBuilderTargetSelection } from '@proma/shared'
+import type { AgentWorkspace, PageBuilderTargetSelection } from '@ai-page-builder/shared'
 import {
   PageBuilderCmsAuthoringTargetSnapshotError,
   readPageBuilderCmsApplyTargetSnapshot,

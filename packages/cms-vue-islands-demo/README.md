@@ -4,8 +4,8 @@ Temporary self-contained demo package for validating the HTML-first CMS Vue isla
 
 ## Commands
 
-- `bun run --filter='@proma/cms-vue-islands-demo' dev`
-- `bun run --filter='@proma/cms-vue-islands-demo' export`
+- `bun run --filter='@ai-page-builder/cms-vue-islands-demo' dev`
+- `bun run --filter='@ai-page-builder/cms-vue-islands-demo' export`
 
 ## What it validates
 
@@ -25,7 +25,7 @@ Temporary self-contained demo package for validating the HTML-first CMS Vue isla
 
 ## Preview flow
 
-1. Run `bun run --filter='@proma/cms-vue-islands-demo' dev`
+1. Run `bun run --filter='@ai-page-builder/cms-vue-islands-demo' dev`
 2. Open `http://localhost:4311/`
 3. Compare:
    - `preview` for CSR islands rendering
@@ -34,6 +34,6 @@ Temporary self-contained demo package for validating the HTML-first CMS Vue isla
 
 ## Export flow
 
-1. Run `bun run --filter='@proma/cms-vue-islands-demo' export`
+1. Run `bun run --filter='@ai-page-builder/cms-vue-islands-demo' export`
 2. Open files from `packages/cms-vue-islands-demo/dist-demo/export/`
 3. If the preview server is running, use the `export` links from `http://localhost:4311/`

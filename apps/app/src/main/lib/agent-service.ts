@@ -10,7 +10,7 @@
 import type {
   AgentGenerateTitleInput,
   AgentSendInput,
-} from '@proma/shared'
+} from '@ai-page-builder/shared'
 import type { AgentSendDiagnosticContext } from './diagnostic-logging'
 import { sseManager } from '../sse-manager'
 import { ClaudeAgentAdapter } from './adapters/claude-agent-adapter'

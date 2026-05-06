@@ -6,7 +6,7 @@
 
 import { execSync, spawnSync } from 'child_process'
 import { existsSync } from 'fs'
-import type { GitRuntimeStatus, GitRepoStatus } from '@proma/shared'
+import type { GitRuntimeStatus, GitRepoStatus } from '@ai-page-builder/shared'
 
 /**
  * 从系统 PATH 查找 Git

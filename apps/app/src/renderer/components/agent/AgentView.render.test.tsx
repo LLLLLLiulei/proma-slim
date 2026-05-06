@@ -9,7 +9,7 @@ import type {
   PageBuilderCmsAutoAgentHandoffRequest,
   PageBuilderCmsAutoAgentHandoffSettledResult,
   WorkspaceDirectoryContext,
-} from '@proma/shared'
+} from '@ai-page-builder/shared'
 import {
   type AgentStreamState,
   agentSessionDraftsAtom,

@@ -1,4 +1,4 @@
-import type { AgentSessionMeta, AgentWorkspace } from '@proma/shared'
+import type { AgentSessionMeta, AgentWorkspace } from '@ai-page-builder/shared'
 
 export type BuilderContextError =
   | 'workspace-not-found'

@@ -1,4 +1,4 @@
-import type { AgentMessage } from '@proma/shared'
+import type { AgentMessage } from '@ai-page-builder/shared'
 
 export interface LoadSessionMessagesWithCatchupOptions {
   initialMessages?: AgentMessage[]

@@ -1,4 +1,4 @@
-import type { AgentWorkspace, PageBuilderEditLockCredentials } from '@proma/shared'
+import type { AgentWorkspace, PageBuilderEditLockCredentials } from '@ai-page-builder/shared'
 import {
   PageBuilderEditLockConflictError,
   pageBuilderEditLockService,

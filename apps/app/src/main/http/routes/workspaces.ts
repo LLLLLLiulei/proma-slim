@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { PAGE_BUILDER_CMS_SELECTION_RESULT_VERSION } from '@proma/shared'
+import { PAGE_BUILDER_CMS_SELECTION_RESULT_VERSION } from '@ai-page-builder/shared'
 import type {
   PageBuilderBlockDeletionPayload,
   PageBuilderCmsSelectionEntryPoint,
@@ -9,7 +9,7 @@ import type {
   PageBuilderStaticExportJobCreateOptions,
   PageBuilderStaticExportJobCreateRequest,
   PageBuilderTargetSelection,
-} from '@proma/shared'
+} from '@ai-page-builder/shared'
 import {
   DEFAULT_WORKSPACE_SLUG,
   createAgentWorkspace,

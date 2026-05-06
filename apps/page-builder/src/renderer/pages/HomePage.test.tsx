@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
 import React from 'react'
 import { act, create } from 'react-test-renderer'
-import type { AgentSessionMeta, AgentWorkspace } from '@proma/shared'
+import type { AgentSessionMeta, AgentWorkspace } from '@ai-page-builder/shared'
 import { readBootstrapPayload } from '@page-builder/lib/bootstrap-cache'
 import { buildBuilderPath } from '@page-builder/lib/routes'
 

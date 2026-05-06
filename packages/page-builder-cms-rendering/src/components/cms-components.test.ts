@@ -5,7 +5,7 @@ import type {
   PageBuilderCmsCatalogQuery,
   PageBuilderCmsContentList,
   PageBuilderCmsContentQuery,
-} from '@proma/shared'
+} from '@ai-page-builder/shared'
 import { createSSRApp, h, type Component } from 'vue'
 import { CMS_RUNTIME_CLIENT_KEY, type CmsRuntimeClient, type CmsSlotScope } from '../runtime/cms-runtime-client'
 import { CmsCatalog } from './cms-catalog'

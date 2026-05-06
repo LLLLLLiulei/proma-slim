@@ -1,4 +1,4 @@
-import type { AgentGenerateTitleInput, AgentSendInput } from '@proma/shared'
+import type { AgentGenerateTitleInput, AgentSendInput } from '@ai-page-builder/shared'
 import type { AgentSendDiagnosticContext } from '../lib/diagnostic-logging'
 import { agentEventBus, generateAgentTitle, isAgentSessionActive, runAgent, stopAgent } from '../lib/agent-service'
 import { getAgentSessionMeta, updateAgentSessionMeta } from '../lib/agent-session-manager'

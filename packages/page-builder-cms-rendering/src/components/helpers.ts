@@ -2,7 +2,7 @@ import type {
   PageBuilderCmsCatalog,
   PageBuilderCmsCatalogQuery,
   PageBuilderCmsContentQuery,
-} from '@proma/shared/types/page-builder-cms'
+} from '@ai-page-builder/shared/types/page-builder-cms'
 import { inject, type Slots } from 'vue'
 import { CMS_AUTHORING_RUNTIME_DEFAULT_SITE_ID } from '../cms-authoring-runtime-contract'
 import { CMS_RUNTIME_CLIENT_KEY, type CmsRuntimeClient, type CmsSlotError, type CmsSlotScope } from '../runtime/cms-runtime-client'

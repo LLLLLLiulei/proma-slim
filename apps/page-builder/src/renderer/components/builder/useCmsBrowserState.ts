@@ -5,7 +5,7 @@ import type {
   PageBuilderCmsCatalogList,
   PageBuilderCmsContentList,
   PageBuilderCmsSiteSummary,
-} from '@proma/shared'
+} from '@ai-page-builder/shared'
 import { api } from '@/lib/api'
 
 export type CmsBrowserTab = 'catalogs' | 'contents'

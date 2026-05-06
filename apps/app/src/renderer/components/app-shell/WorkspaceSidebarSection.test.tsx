@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import type { AgentWorkspace } from '@proma/shared'
+import type { AgentWorkspace } from '@ai-page-builder/shared'
 import {
   WorkspaceSidebarSection,
   getWorkspaceDeleteBlockedReason,

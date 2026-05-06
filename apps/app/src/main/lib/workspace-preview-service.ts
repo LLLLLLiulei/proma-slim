@@ -2,11 +2,11 @@ import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, resolve, sep } from 'node:path'
 import { parseHTML } from 'linkedom'
-import type { AgentWorkspace } from '@proma/shared'
+import type { AgentWorkspace } from '@ai-page-builder/shared'
 import {
   detectCmsRenderingUsage,
   injectCmsRenderingPreview,
-} from '@proma/page-builder-cms-rendering/preview'
+} from '@ai-page-builder/page-builder-cms-rendering/preview'
 import { HttpError } from '../http/errors'
 import { getWorkspaceFilesDir } from './config-paths'
 import {

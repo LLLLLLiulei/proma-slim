@@ -7,11 +7,11 @@ import type {
   PageBuilderCmsContentSummary,
   PageBuilderCmsSelectionEntryPoint,
   PageBuilderCmsSelectionResult,
-} from '@proma/shared'
+} from '@ai-page-builder/shared'
 import {
   buildPageBuilderCmsApplySkillInput,
   createPageBuilderCmsAutoAgentHandoffRequest,
-} from '@proma/shared'
+} from '@ai-page-builder/shared'
 import {
   CmsGateway,
   CmsGatewayError,

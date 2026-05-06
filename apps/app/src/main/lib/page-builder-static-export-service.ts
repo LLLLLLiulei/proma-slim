@@ -15,13 +15,13 @@ import type {
   PageBuilderStaticExportRetainedExternalLink,
   PageBuilderStaticExportUnsupportedRuntimeDependency,
   PageBuilderStaticExportWarning,
-} from '@proma/shared'
+} from '@ai-page-builder/shared'
 import {
   CmsIslandRenderPipelineError,
   createServerCmsClient,
   renderCmsIslands,
   type ServerCmsClientAdapter,
-} from '@proma/page-builder-cms-rendering'
+} from '@ai-page-builder/page-builder-cms-rendering'
 import { CmsGateway } from './cms-gateway'
 import { getWorkspaceFilesDir } from './config-paths'
 import {

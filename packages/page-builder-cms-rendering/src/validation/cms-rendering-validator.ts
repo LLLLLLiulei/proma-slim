@@ -1,6 +1,6 @@
 import { compile } from '@vue/compiler-dom'
 import { parseHTML } from 'linkedom'
-import { PAGE_BUILDER_CMS_AUTHORING_CONTRACT } from '@proma/shared'
+import { PAGE_BUILDER_CMS_AUTHORING_CONTRACT } from '@ai-page-builder/shared'
 import {
   CMS_ISLAND_ATTRIBUTES,
   CMS_ISLAND_SELECTOR,

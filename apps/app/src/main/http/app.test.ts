@@ -6,7 +6,7 @@ import { strFromU8, unzipSync } from 'fflate'
 import {
   PAGE_BUILDER_PREVIEW_BRIDGE_SOURCE,
   PAGE_BUILDER_PREVIEW_PARENT_SOURCE,
-} from '@proma/shared'
+} from '@ai-page-builder/shared'
 import { getSettings, updateSettings } from '../lib/settings-service'
 import { getUserProfile, updateUserProfile } from '../lib/user-profile-service'
 import { appendAgentMessage, createAgentSession, getAgentSessionMeta, updateAgentSessionMeta } from '../lib/agent-session-manager'

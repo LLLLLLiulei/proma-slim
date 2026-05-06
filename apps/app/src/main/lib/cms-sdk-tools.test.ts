@@ -2,12 +2,12 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
-import type { PageBuilderCmsSelectionResult } from '@proma/shared'
+import type { PageBuilderCmsSelectionResult } from '@ai-page-builder/shared'
 import {
   PAGE_BUILDER_CMS_DECIDE_TOOL_NAME,
   buildPageBuilderCmsApplySkillInput,
   createPageBuilderBlockTargetSelection,
-} from '@proma/shared'
+} from '@ai-page-builder/shared'
 import { CmsGatewayError } from './cms-gateway'
 import { CMS_TOOL_NAMES, buildCmsRuntimeToolBundle } from './cms-sdk-tools'
 import { createPageBuilderCmsAutoAgentHandoff } from './page-builder-cms-auto-agent-handoff-service'

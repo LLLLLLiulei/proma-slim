@@ -1,7 +1,7 @@
 {
-  "name": "@proma/page-builder",
+  "name": "@ai-page-builder/page-builder",
   "version": "0.1.0",
-  "description": "Proma page builder app",
+  "description": "AI Page Builder app",
   "private": true,
   "type": "module",
   "scripts": {
@@ -14,8 +14,8 @@
   "dependencies": {
     "@emoji-mart/data": "^1.2.1",
     "@emoji-mart/react": "^1.1.1",
-    "@proma/shared": "workspace:*",
-    "@proma/ui": "workspace:*",
+    "@ai-page-builder/shared": "workspace:*",
+    "@ai-page-builder/ui": "workspace:*",
     "@radix-ui/react-alert-dialog": "^1.1.15",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-popover": "^1.1.15",

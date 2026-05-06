@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import type { PageBuilderCmsSelectionResult } from '@proma/shared'
+import type { PageBuilderCmsSelectionResult } from '@ai-page-builder/shared'
 import {
   PAGE_BUILDER_CMS_AUTO_AGENT_HANDOFF_MCP_SERVER,
   buildPageBuilderCmsApplySkillInput,

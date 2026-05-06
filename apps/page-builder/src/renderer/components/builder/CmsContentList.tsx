@@ -5,7 +5,7 @@ import { RefreshCw } from 'lucide-react'
 import type {
   PageBuilderCmsContentList,
   PageBuilderCmsContentSummary,
-} from '@proma/shared'
+} from '@ai-page-builder/shared'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import type { CmsAsyncState } from './useCmsBrowserState'

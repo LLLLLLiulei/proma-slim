@@ -1,4 +1,4 @@
-import type { AgentEvent } from '@proma/shared'
+import type { AgentEvent } from '@ai-page-builder/shared'
 import {
   createSseConnectionTraceContext,
   getDiagnosticBackendLogger,

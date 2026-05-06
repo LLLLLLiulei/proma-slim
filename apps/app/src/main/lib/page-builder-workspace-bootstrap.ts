@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
-import type { McpServerEntry, WorkspaceMcpConfig } from '@proma/shared'
+import type { McpServerEntry, WorkspaceMcpConfig } from '@ai-page-builder/shared'
 import { getWorkspaceMcpPath } from './config-paths'
 import { initializeWorkspaceTemplate, readWorkspaceTemplateMcpConfig } from './workspace-template-service'
 

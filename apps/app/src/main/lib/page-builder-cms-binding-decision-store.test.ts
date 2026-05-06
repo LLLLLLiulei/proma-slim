@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import type { PageBuilderCmsSelectionResult } from '@proma/shared'
-import { buildPageBuilderCmsApplySkillInput, createPageBuilderBlockTargetSelection } from '@proma/shared'
+import type { PageBuilderCmsSelectionResult } from '@ai-page-builder/shared'
+import { buildPageBuilderCmsApplySkillInput, createPageBuilderBlockTargetSelection } from '@ai-page-builder/shared'
 import {
   createPageBuilderCmsBindingDecisionStore,
   PageBuilderCmsBindingDecisionStoreError,

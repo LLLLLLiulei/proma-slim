@@ -11,7 +11,7 @@ import type {
   PageBuilderCmsBindingApplyPlan,
   PageBuilderCmsBindingDecisionResult,
   PageBuilderCmsBindingStructureGuardrails,
-} from '@proma/shared'
+} from '@ai-page-builder/shared'
 
 type DecisionRecordState = 'ready' | 'consumed' | 'invalidated'
 

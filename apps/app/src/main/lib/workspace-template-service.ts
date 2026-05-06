@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { WorkspaceMcpConfig } from '@proma/shared'
+import type { WorkspaceMcpConfig } from '@ai-page-builder/shared'
 import { getAgentWorkspacePath } from './config-paths'
 
 export type WorkspaceTemplateName = 'page-builder'

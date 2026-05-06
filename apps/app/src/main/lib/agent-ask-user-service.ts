@@ -15,7 +15,7 @@ import type {
   AskUserRequest,
   AskUserQuestion,
   AskUserQuestionOption,
-} from '@proma/shared'
+} from '@ai-page-builder/shared'
 import { DEFAULT_ASK_USER_TIMEOUT_MS } from '../../types'
 import { getSettings } from './settings-service'
 

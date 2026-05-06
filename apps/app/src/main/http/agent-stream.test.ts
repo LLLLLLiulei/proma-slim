@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
-import type { AgentSendInput, FileAttachment } from '@proma/shared'
+import type { AgentSendInput, FileAttachment } from '@ai-page-builder/shared'
 import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'

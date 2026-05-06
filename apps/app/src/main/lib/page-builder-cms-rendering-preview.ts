@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { getCmsRenderingPreviewBuildPaths } from '@proma/page-builder-cms-rendering/preview/build-paths'
+import { getCmsRenderingPreviewBuildPaths } from '@ai-page-builder/page-builder-cms-rendering/preview/build-paths'
 
 interface CmsRenderingPreviewBuildLog {
   message?: string

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import type { AgentSessionMeta, AgentWorkspace } from '@proma/shared'
+import type { AgentSessionMeta, AgentWorkspace } from '@ai-page-builder/shared'
 import { resolveBuilderContext } from './builder-context'
 
 const workspace: AgentWorkspace = {

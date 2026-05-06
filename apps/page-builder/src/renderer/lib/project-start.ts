@@ -1,4 +1,4 @@
-import type { AgentSessionMeta, AgentWorkspace } from '@proma/shared'
+import type { AgentSessionMeta, AgentWorkspace } from '@ai-page-builder/shared'
 
 export const DEFAULT_PAGE_BUILDER_PROJECT_NAME = '未命名项目'
 

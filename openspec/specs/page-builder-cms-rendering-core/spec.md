@@ -12,7 +12,7 @@
 - **AND** 该包 SHALL 暴露统一入口以供运行时、组件、ViewModel 和模板工具被其他模块复用
 
 ### Requirement: 核心运行时契约必须对齐 page-builder 归一化 CMS 类型
-系统 SHALL 将 `CmsRuntimeClient` 定义为基于 `@proma/shared` 的归一化 CMS query/result 类型，而不是直接暴露 demo 专用 ViewModel 返回结构；该运行时契约 MUST 同时支持查询式来源和 fixed-ids 精确来源，并 SHALL 在 exact-ids 模式下保持输入顺序与稳定降级行为。
+系统 SHALL 将 `CmsRuntimeClient` 定义为基于 `@ai-page-builder/shared` 的归一化 CMS query/result 类型，而不是直接暴露 demo 专用 ViewModel 返回结构；该运行时契约 MUST 同时支持查询式来源和 fixed-ids 精确来源，并 SHALL 在 exact-ids 模式下保持输入顺序与稳定降级行为。
 
 #### Scenario: Catalog 与 content 方法使用归一化 query/result 契约
 - **WHEN** 任意 consumer 调用 `CmsRuntimeClient` 的 catalog 或 content 查询方法

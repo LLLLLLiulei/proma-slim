@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { AgentMessages, shouldRenderTransientAssistantMessage } from './AgentMessages'
-import type { AgentMessage } from '@proma/shared'
+import type { AgentMessage } from '@ai-page-builder/shared'
 import type { AgentStreamState } from '@/atoms/agent-atoms'
 
 function countOccurrences(source: string, needle: string): number {

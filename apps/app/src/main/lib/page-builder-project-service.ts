@@ -1,6 +1,6 @@
 import { rmSync } from 'node:fs'
 import { join } from 'node:path'
-import type { AgentSessionMeta, AgentWorkspace, PageBuilderProjectSummary } from '@proma/shared'
+import type { AgentSessionMeta, AgentWorkspace, PageBuilderProjectSummary } from '@ai-page-builder/shared'
 import { listAgentSessions, deleteAgentSession } from './agent-session-manager'
 import { getAgentWorkspacesDir } from './config-paths'
 import { pageBuilderEditLockService } from './page-builder-edit-lock-service'

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
 import React from 'react'
 import { act, create } from 'react-test-renderer'
-import type { AgentSessionMeta, PageBuilderProjectSummary } from '@proma/shared'
+import type { AgentSessionMeta, PageBuilderProjectSummary } from '@ai-page-builder/shared'
 import { buildBuilderPath } from '@page-builder/lib/routes'
 
 function installWindowHarness(initialPathname = '/') {

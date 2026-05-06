@@ -5,16 +5,16 @@ import {
   type AgentWorkspace,
   type PageBuilderCmsBindingStructureGuardrails,
   type PageBuilderTargetSelection,
-} from '@proma/shared'
+} from '@ai-page-builder/shared'
 import type {
   CmsRenderingDiagnostic,
   CmsRenderingManifestEntry,
-} from '@proma/page-builder-cms-rendering'
+} from '@ai-page-builder/page-builder-cms-rendering'
 import {
   resolveCmsIslandSourceSelectorSnapshot,
   resolveCmsRenderingSelectorSnapshot,
-} from '@proma/page-builder-cms-rendering'
-import { validateCmsRendering } from '@proma/page-builder-cms-rendering'
+} from '@ai-page-builder/page-builder-cms-rendering'
+import { validateCmsRendering } from '@ai-page-builder/page-builder-cms-rendering'
 import {
   PageBuilderWorkspaceHtmlServiceError,
   pageBuilderWorkspaceHtmlService,

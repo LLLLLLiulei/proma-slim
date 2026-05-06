@@ -3,7 +3,7 @@ import type {
   PageBuilderCmsCatalogQuery,
   PageBuilderCmsContentList,
   PageBuilderCmsContentQuery,
-} from '@proma/shared'
+} from '@ai-page-builder/shared'
 import type { CmsRuntimeClient } from './cms-runtime-client'
 import { createCatalogQueryCacheKey, createContentQueryCacheKey } from './cache-key'
 import {

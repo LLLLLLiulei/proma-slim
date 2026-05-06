@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import type {
   PageBuilderCmsCatalogQuery,
   PageBuilderCmsContentQuery,
-} from '@proma/shared'
+} from '@ai-page-builder/shared'
 import { createCatalogQueryCacheKey, createContentQueryCacheKey } from './cache-key'
 
 describe('cache-key', () => {

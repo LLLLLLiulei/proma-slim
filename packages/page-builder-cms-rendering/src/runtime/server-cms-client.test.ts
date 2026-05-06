@@ -3,7 +3,7 @@ import type {
   PageBuilderCmsCatalogList,
   PageBuilderCmsContentList,
   PageBuilderCmsContentQuery,
-} from '@proma/shared'
+} from '@ai-page-builder/shared'
 import { createServerCmsClient } from './server-cms-client'
 
 const CATALOG_RESPONSE: PageBuilderCmsCatalogList = {

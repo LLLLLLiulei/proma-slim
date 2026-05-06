@@ -4,7 +4,7 @@ import { Check, Shield, ShieldAlert, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { allPendingPermissionRequestsAtom } from '@/atoms/agent-atoms'
 import { api } from '@/lib/api'
-import type { DangerLevel } from '@proma/shared'
+import type { DangerLevel } from '@ai-page-builder/shared'
 import { formatAgentToolLabel } from './tool-labels'
 
 const DANGER_ICON_STYLES: Record<DangerLevel, string> = {

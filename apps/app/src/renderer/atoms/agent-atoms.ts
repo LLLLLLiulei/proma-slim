@@ -16,7 +16,7 @@ import type {
   RetryAttempt,
   TaskUsage,
   WorkspaceDirectoryContext,
-} from '@proma/shared'
+} from '@ai-page-builder/shared'
 
 /** 活动状态 */
 export type ActivityStatus = 'pending' | 'running' | 'completed' | 'error' | 'backgrounded'

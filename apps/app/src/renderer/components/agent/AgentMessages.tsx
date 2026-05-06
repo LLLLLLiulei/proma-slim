@@ -25,7 +25,7 @@ import {
 } from '@/components/ai-elements/conversation'
 import { ScrollMinimap } from '@/components/ai-elements/scroll-minimap'
 import type { MinimapItem } from '@/components/ai-elements/scroll-minimap'
-import { useSmoothStream } from '@proma/ui'
+import { useSmoothStream } from '@ai-page-builder/ui'
 import { UserAvatar } from '@/components/common/UserAvatar'
 import { CopyButton } from '@/components/common/CopyButton'
 import { formatMessageTime } from '@/lib/message-time'
@@ -33,7 +33,7 @@ import { getModelLogo } from '@/lib/model-logo'
 import { ToolActivityList } from './ToolActivityItem'
 import { userProfileAtom } from '@/atoms/user-profile'
 import { cn } from '@/lib/utils'
-import type { AgentMessage, RetryAttempt } from '@proma/shared'
+import type { AgentMessage, RetryAttempt } from '@ai-page-builder/shared'
 import type {
   AgentCompactNotice,
   AgentStatusNotice,

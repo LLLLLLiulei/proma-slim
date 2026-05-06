@@ -1,4 +1,4 @@
-import type { PageBuilderCmsContentSummary } from '@proma/shared'
+import type { PageBuilderCmsContentSummary } from '@ai-page-builder/shared'
 
 export interface CmsContentItemViewModel {
   id: string

@@ -1,4 +1,4 @@
-import type { AgentSessionMeta, AgentWorkspace } from '@proma/shared'
+import type { AgentSessionMeta, AgentWorkspace } from '@ai-page-builder/shared'
 import type { RequestTraceContext } from '../lib/diagnostic-logging'
 
 export interface HttpRequestDiagnosticState {

@@ -14,7 +14,7 @@ import type {
   PageBuilderEditLockLease,
   PageBuilderEditLockStatus,
   PageBuilderTargetSelection,
-} from '@proma/shared'
+} from '@ai-page-builder/shared'
 import {
   type AgentStreamState,
   agentSessionsAtom,
