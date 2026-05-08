@@ -7,6 +7,7 @@ import {
   PAGE_BUILDER_PREVIEW_BRIDGE_SOURCE,
   PAGE_BUILDER_PREVIEW_PARENT_SOURCE,
 } from '@ai-page-builder/shared'
+import { buildPageBuilderPublicUrl } from './page-builder-public-url'
 
 const PAGE_BUILDER_PREVIEW_BRIDGE_LOADER_ATTR = 'data-page-builder-preview-bridge-loader'
 
@@ -188,7 +189,7 @@ export async function readPageBuilderPreviewBridgeScript(): Promise<string> {
 }
 
 export function getPageBuilderPreviewBridgeAssetUrl(): string {
-  return `/api/page-builder/preview-bridge.js?v=${getPageBuilderPreviewBridgeVersion()}`
+  return buildPageBuilderPublicUrl(`/api/page-builder/preview-bridge.js?v=${getPageBuilderPreviewBridgeVersion()}`)
 }
 
 function createPageBuilderPreviewBridgeLoaderTag(): string {

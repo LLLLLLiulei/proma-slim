@@ -17,6 +17,7 @@ describe('page builder project service', () => {
 
   afterEach(() => {
     delete process.env.PROMA_CONFIG_DIR
+    delete process.env.AI_PAGE_BUILDER_BASE_PATH
     rmSync(configDir, { recursive: true, force: true })
   })
 
@@ -76,6 +77,24 @@ describe('page builder project service', () => {
       previewUrl: `/api/workspaces/${builderAlpha.id}/preview/`,
       lastActiveAt: 500,
     })
+  })
+
+  test('lists project preview urls with the configured public base path', () => {
+    process.env.AI_PAGE_BUILDER_BASE_PATH = '/pagebuilder'
+    const builder = createAgentWorkspace('Base Path Project', { template: 'page-builder' })
+    createAgentSession('Base Path Session', undefined, builder.id)
+
+    const workspaceFiles = join(getAgentWorkspacesDir(), builder.slug, 'workspace-files')
+    writeFileSync(
+      join(workspaceFiles, 'index.html'),
+      '<!doctype html><html><body><h1>Base Path</h1></body></html>',
+      'utf-8',
+    )
+
+    const projects = listPageBuilderProjects()
+
+    expect(projects.find((project) => project.workspaceId === builder.id)?.previewUrl)
+      .toBe(`/pagebuilder/api/workspaces/${builder.id}/preview/`)
   })
 
   test('deletes a page-builder project with its sessions, messages, and workspace root', () => {

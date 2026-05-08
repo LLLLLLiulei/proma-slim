@@ -16,9 +16,35 @@ function jsonResponse(payload: unknown, init: ResponseInit = {}): Response {
 
 afterEach(() => {
   globalThis.fetch = originalFetch
+  mock.restore()
 })
 
 describe('renderer api wrappers', () => {
+  test('keeps root API paths by default and rewrites them only after explicit page-builder configuration', async () => {
+    const requestedUrls: string[] = []
+    const fetchMock = mock(async (input: RequestInfo | URL) => {
+      requestedUrls.push(String(input))
+      return jsonResponse({ ok: true, apiKeyConfigured: true, sdkCliAvailable: true })
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const { api, configureApiPublicBasePath, resolveApiUrl } = await import(`./api.ts?test=${Date.now()}-${Math.random()}`)
+
+    await api.getStatus()
+    configureApiPublicBasePath('/pagebuilder')
+    expect(resolveApiUrl('/api/sessions/session-1/attachments/attachment-1/content')).toBe('/pagebuilder/api/sessions/session-1/attachments/attachment-1/content')
+    await api.getStatus()
+    configureApiPublicBasePath('/')
+    expect(resolveApiUrl('/api/sessions/session-1/attachments/attachment-1/content')).toBe('/api/sessions/session-1/attachments/attachment-1/content')
+    await api.getStatus()
+
+    expect(requestedUrls).toEqual([
+      '/api/status',
+      '/pagebuilder/api/status',
+      '/api/status',
+    ])
+  })
+
   test('getSettings requests /api/settings and parses persisted workspace settings', async () => {
     const fetchMock = mock(async (input: RequestInfo | URL) => {
       expect(String(input)).toBe('/api/settings')
@@ -1046,6 +1072,23 @@ describe('renderer api wrappers', () => {
     }).getPageBuilderStaticExportDownloadUrl('workspace-1', 'job-1')
 
     expect(url).toBe('/api/workspaces/workspace-1/page-builder/export-static-jobs/job-1/download')
+    expect(fetchMock).toHaveBeenCalledTimes(0)
+  })
+
+  test('getPageBuilderStaticExportDownloadUrl applies the configured public base path', async () => {
+    const fetchMock = mock(async () => {
+      throw new Error('should not fetch')
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const { api, configureApiPublicBasePath } = await import(`./api.ts?test=${Date.now()}-${Math.random()}`)
+    configureApiPublicBasePath('/pagebuilder')
+
+    const url = (api as unknown as {
+      getPageBuilderStaticExportDownloadUrl: (workspaceId: string, jobId: string) => string
+    }).getPageBuilderStaticExportDownloadUrl('workspace-1', 'job-1')
+
+    expect(url).toBe('/pagebuilder/api/workspaces/workspace-1/page-builder/export-static-jobs/job-1/download')
     expect(fetchMock).toHaveBeenCalledTimes(0)
   })
 })

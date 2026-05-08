@@ -10,9 +10,13 @@ import {
   themeModeAtom,
 } from '@/atoms/theme'
 import { Toaster } from '@/components/ui/sonner'
+import { configureApiPublicBasePath } from '@/lib/api'
+import { getPageBuilderPublicBasePath } from '@page-builder/lib/public-base-path'
 import '@/styles/globals.css'
 import '@page-builder/styles/page-builder.css'
 import 'katex/dist/katex.min.css'
+
+configureApiPublicBasePath(getPageBuilderPublicBasePath())
 
 function ThemeInitializer(): null {
   const setThemeMode = useSetAtom(themeModeAtom)

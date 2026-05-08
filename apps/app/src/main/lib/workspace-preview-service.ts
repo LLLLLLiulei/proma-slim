@@ -17,6 +17,7 @@ import {
   injectPageBuilderPreviewBridge,
   shouldInjectPageBuilderPreviewBridge,
 } from './page-builder-preview-bridge'
+import { buildPageBuilderPublicUrl } from './page-builder-public-url'
 import { resolvePageBuilderCmsConfig } from './page-builder-cms-config'
 import {
   PAGE_BUILDER_HTML_SRCSET_ATTRIBUTES,
@@ -108,7 +109,7 @@ export function getWorkspacePreviewState(workspace: AgentWorkspace): WorkspacePr
 
   return {
     hasPreview: true,
-    entryUrl: `/api/workspaces/${encodeURIComponent(workspace.id)}/preview/`,
+    entryUrl: buildPageBuilderPublicUrl(`/api/workspaces/${encodeURIComponent(workspace.id)}/preview/`),
     revision: createHash('sha1').update(revisionEntries.join('\n')).digest('hex'),
     hasCmsRendering,
     requiresSameOrigin: hasCmsRendering,
@@ -134,7 +135,7 @@ function shouldServeHtmlFromSource(resolvedPath: string): boolean {
 }
 
 function buildCmsAssetProxyUrl(assetUrl: string): string {
-  return `/api/page-builder/cms/assets?url=${encodeURIComponent(assetUrl)}`
+  return buildPageBuilderPublicUrl(`/api/page-builder/cms/assets?url=${encodeURIComponent(assetUrl)}`)
 }
 
 function rewriteCmsAssetUrl(baseUrl: string, rawValue: string): string {
@@ -226,7 +227,7 @@ function injectWorkspaceCmsRenderingPreview(
 
   return injectCmsRenderingPreview(sourceHtml, {
     workspaceId: workspace.id,
-    cmsProxyBase: '/api/page-builder/cms',
+    cmsProxyBase: buildPageBuilderPublicUrl('/api/page-builder/cms'),
     vueAssetUrl: getPageBuilderCmsRenderingVueAssetUrl(),
     bootstrapAssetUrl: getPageBuilderCmsRenderingPreviewAssetUrl(),
   })

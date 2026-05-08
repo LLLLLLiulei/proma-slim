@@ -4,7 +4,8 @@ import { Button } from '@/components/ui/button'
 import { House } from 'lucide-react'
 import { BuilderPage } from '@page-builder/pages/BuilderPage'
 import { HomePage } from '@page-builder/pages/HomePage'
-import { parsePageBuilderRoute } from '@page-builder/lib/routes'
+import { getPageBuilderPublicBasePath } from '@page-builder/lib/public-base-path'
+import { buildHomePath, parsePageBuilderRoute } from '@page-builder/lib/routes'
 
 function usePathname(): string {
   const [pathname, setPathname] = React.useState(() => window.location.pathname)
@@ -24,7 +25,7 @@ function usePathname(): string {
 }
 
 function navigateHome(): void {
-  window.history.pushState(null, '', '/')
+  window.history.pushState(null, '', buildHomePath(getPageBuilderPublicBasePath()))
   window.dispatchEvent(new PopStateEvent('popstate'))
 }
 
@@ -48,7 +49,8 @@ function NotFound(): React.ReactElement {
 
 export default function App(): React.ReactElement {
   const pathname = usePathname()
-  const route = React.useMemo(() => parsePageBuilderRoute(pathname), [pathname])
+  const publicBasePath = getPageBuilderPublicBasePath()
+  const route = React.useMemo(() => parsePageBuilderRoute(pathname, publicBasePath), [pathname, publicBasePath])
 
   return (
     <TooltipProvider delayDuration={200}>

@@ -6,6 +6,7 @@ import { createAgentWorkspace } from './workspace-service'
 
 const originalFetch = globalThis.fetch
 const CMS_ENV_KEYS = [
+  'AI_PAGE_BUILDER_BASE_PATH',
   'PROMA_CMS_BASE_URL',
   'PROMA_CMS_SITE_ID',
   'PROMA_CMS_USERNAME',
@@ -13,6 +14,7 @@ const CMS_ENV_KEYS = [
 ] as const
 
 const originalCmsEnv = {
+  AI_PAGE_BUILDER_BASE_PATH: process.env.AI_PAGE_BUILDER_BASE_PATH,
   PROMA_CMS_BASE_URL: process.env.PROMA_CMS_BASE_URL,
   PROMA_CMS_SITE_ID: process.env.PROMA_CMS_SITE_ID,
   PROMA_CMS_USERNAME: process.env.PROMA_CMS_USERNAME,
@@ -49,6 +51,7 @@ async function waitForTerminalJob(
     component?: string
     props?: Record<string, string>
   } | null
+  downloadUrl?: string | null
 }> {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     const job = service.getJob(workspaceId, jobId)
@@ -103,6 +106,32 @@ describe('page-builder static export service', () => {
     expect(requestInit?.method).toBe('GET')
     expect(requestInit?.signal).toBeUndefined()
     expect(requestInit?.redirect).toBeUndefined()
+  })
+
+  test('returns completed download URL with the configured public base path', async () => {
+    process.env.AI_PAGE_BUILDER_BASE_PATH = '/pagebuilder'
+    const workspace = createAgentWorkspace('Static Export Base Path', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(
+      join(workspaceFilesDir, 'index.html'),
+      '<!doctype html><html><body><h1>Base Path Export</h1></body></html>',
+      'utf-8',
+    )
+
+    const {
+      PageBuilderStaticExportService,
+    } = await import('./page-builder-static-export-service')
+    const service = new PageBuilderStaticExportService({
+      randomUUID: () => 'job-base-path',
+    })
+
+    const createdJob = service.createJob(workspace)
+    const finishedJob = await waitForTerminalJob(service, workspace.id, createdJob.jobId)
+
+    expect(finishedJob.status).toBe('completed')
+    expect(finishedJob.downloadUrl).toBe(`/pagebuilder/api/workspaces/${workspace.id}/page-builder/export-static-jobs/job-base-path/download`)
   })
 
   test('localizes supported remote assets, uses the CMS gateway, and records warnings plus unsupported runtime dependencies', async () => {

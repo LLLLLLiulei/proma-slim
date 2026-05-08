@@ -19,6 +19,7 @@ services:
       AI_PAGE_BUILDER_CMS_PASSWORD: ${AI_PAGE_BUILDER_CMS_PASSWORD:-}
       AI_PAGE_BUILDER_PLAYWRIGHT_MCP_URL: ${AI_PAGE_BUILDER_PLAYWRIGHT_MCP_URL:-http://playwright:8931/mcp}
       AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN: ${AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN:-http://server:8888}
+      AI_PAGE_BUILDER_BASE_PATH: ${AI_PAGE_BUILDER_BASE_PATH:-}
     volumes:
       - type: bind
         source: ${HOME:?Set HOME in your shell}/.ai-page-builder
@@ -59,5 +60,6 @@ services:
     environment:
       PORT: 3333
       AI_PAGE_BUILDER_SERVER_ORIGIN: http://server:8888
+      AI_PAGE_BUILDER_BASE_PATH: ${AI_PAGE_BUILDER_BASE_PATH:-}
     ports:
       - "${PAGE_BUILDER_PORT:-3333}:3333"

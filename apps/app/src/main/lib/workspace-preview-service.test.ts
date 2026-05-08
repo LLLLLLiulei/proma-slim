@@ -7,6 +7,7 @@ import { createWorkspacePreviewResponse, getWorkspacePreviewState } from './work
 import { createAgentWorkspace } from './workspace-service'
 
 const CMS_ENV_KEYS = [
+  'AI_PAGE_BUILDER_BASE_PATH',
   'PROMA_CMS_BASE_URL',
   'PROMA_CMS_SITE_ID',
   'PROMA_CMS_USERNAME',
@@ -14,6 +15,7 @@ const CMS_ENV_KEYS = [
 ] as const
 
 const originalCmsEnv = {
+  AI_PAGE_BUILDER_BASE_PATH: process.env.AI_PAGE_BUILDER_BASE_PATH,
   PROMA_CMS_BASE_URL: process.env.PROMA_CMS_BASE_URL,
   PROMA_CMS_SITE_ID: process.env.PROMA_CMS_SITE_ID,
   PROMA_CMS_USERNAME: process.env.PROMA_CMS_USERNAME,
@@ -64,6 +66,19 @@ describe('workspace preview service', () => {
     expect(state.requiresSameOrigin).toBe(false)
   })
 
+  test('returns preview entry URLs with the configured public base path', async () => {
+    process.env.AI_PAGE_BUILDER_BASE_PATH = '/pagebuilder'
+    const workspace = createAgentWorkspace('Preview State With Base Path')
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(join(workspaceFilesDir, 'index.html'), '<html><body>ready</body></html>', 'utf-8')
+
+    const state = getWorkspacePreviewState(workspace)
+
+    expect(state.entryUrl).toBe(`/pagebuilder/api/workspaces/${workspace.id}/preview/`)
+  })
+
   test('reports CMS preview metadata and injects CMS rendering assets before the bridge', async () => {
     const workspace = createAgentWorkspace('CMS Preview State', { template: 'page-builder' })
     const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
@@ -90,6 +105,25 @@ describe('workspace preview service', () => {
     expect(html).toContain('data-proma-cms-rendering-loader="true"')
     expect(previewAssetIndex).toBeGreaterThan(-1)
     expect(bridgeAssetIndex).toBeGreaterThan(previewAssetIndex)
+  })
+
+  test('injects the configured public base path into CMS preview runtime requests', async () => {
+    process.env.AI_PAGE_BUILDER_BASE_PATH = '/pagebuilder'
+    const workspace = createAgentWorkspace('CMS Preview State With Base Path', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(
+      join(workspaceFilesDir, 'index.html'),
+      '<!doctype html><html><body><cms-content catalog-id="news"></cms-content></body></html>',
+      'utf-8',
+    )
+
+    const response = createWorkspacePreviewResponse(workspace, '/', { enablePageBuilderBridge: true })
+    const html = await response.text()
+
+    expect(html).toContain('"cmsProxyBase":"/pagebuilder/api/page-builder/cms"')
+    expect(html).not.toContain('"cmsProxyBase":"/api/page-builder/cms"')
   })
 
   test('injects the page-builder preview bridge only when the request explicitly enables it', async () => {
@@ -168,5 +202,29 @@ describe('workspace preview service', () => {
     expect(html).toContain('<link rel="stylesheet" href="./assets/site.css">')
     expect(html).toContain('<a href="https://demo.zving.com/test/kj/">科技</a>')
     expect(html).not.toContain('<img src="https://example.com/not-cms.png">')
+  })
+
+  test('rewrites CMS resource URLs with the configured public base path', async () => {
+    process.env.AI_PAGE_BUILDER_BASE_PATH = '/pagebuilder'
+    process.env.PROMA_CMS_BASE_URL = 'https://demo.zving.com/manager/'
+    process.env.PROMA_CMS_SITE_ID = '277'
+    process.env.PROMA_CMS_USERNAME = 'test-user'
+    process.env.PROMA_CMS_PASSWORD = 'test-pass'
+
+    const workspace = createAgentWorkspace('Preview CMS Asset Proxy With Base Path', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(
+      join(workspaceFilesDir, 'index.html'),
+      '<!doctype html><html><body><img src="https://demo.zving.com/manager/preview/news/upload/resources/image/banner.jpg"></body></html>',
+      'utf-8',
+    )
+
+    const response = createWorkspacePreviewResponse(workspace, '/')
+    const html = await response.text()
+
+    expect(html).toContain('/pagebuilder/api/page-builder/cms/assets?url=')
+    expect(html).not.toContain('src="/api/page-builder/cms/assets?url=')
   })
 })

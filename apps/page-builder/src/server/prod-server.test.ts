@@ -2,7 +2,11 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createPageBuilderProdFetchHandler, resolvePageBuilderProdAppOrigin } from './prod-server'
+import {
+  createPageBuilderProdFetchHandler,
+  resolvePageBuilderProdAppOrigin,
+  resolvePageBuilderProdPublicBasePath,
+} from './prod-server'
 
 function createTempDistDir(): string {
   const distDir = mkdtempSync(join(tmpdir(), 'proma-page-builder-dist-'))
@@ -33,6 +37,14 @@ describe('page-builder production server', () => {
     expect(resolvePageBuilderProdAppOrigin({
       PROMA_APP_ORIGIN: 'http://legacy:8888',
     })).toBe('http://legacy:8888')
+  })
+
+  test('resolves docker runtime public base path env', () => {
+    expect(resolvePageBuilderProdPublicBasePath({
+      AI_PAGE_BUILDER_BASE_PATH: 'pagebuilder',
+    })).toBe('/pagebuilder')
+
+    expect(resolvePageBuilderProdPublicBasePath({})).toBe('')
   })
 
   test('serves static assets from dist', async () => {
@@ -66,6 +78,66 @@ describe('page-builder production server', () => {
     expect(await rootResponse.text()).toContain('page-builder')
     expect(builderResponse.status).toBe(200)
     expect(await builderResponse.text()).toContain('page-builder')
+  })
+
+  test('injects runtime public base path config when serving index.html', async () => {
+    const distDir = createTempDistDir()
+    tempDirs.push(distDir)
+
+    const handler = createPageBuilderProdFetchHandler({
+      distDir,
+      appOrigin: 'http://app:3000',
+      publicBasePath: '/ai/pagebuilder',
+    })
+
+    const response = await handler(new Request('http://localhost/ai/pagebuilder/'))
+    const html = await response.text()
+
+    expect(response.status).toBe(200)
+    expect(html).toContain('<base href="/ai/pagebuilder/">')
+    expect(html).toContain('window.__AI_PAGE_BUILDER_RUNTIME_CONFIG__')
+    expect(html).toContain('"basePath":"/ai/pagebuilder"')
+    expect(html).toContain('page-builder')
+  })
+
+  test('does not inject runtime config into static assets', async () => {
+    const distDir = createTempDistDir()
+    tempDirs.push(distDir)
+
+    const handler = createPageBuilderProdFetchHandler({
+      distDir,
+      appOrigin: 'http://app:3000',
+      publicBasePath: '/ai/pagebuilder',
+    })
+
+    const response = await handler(new Request('http://localhost/ai/pagebuilder/assets/app.js'))
+
+    expect(response.status).toBe(200)
+    expect(await response.text()).toBe('console.log("page-builder")')
+  })
+
+  test('refreshes existing runtime config injection when the runtime base path changes', async () => {
+    const distDir = createTempDistDir()
+    tempDirs.push(distDir)
+    writeFileSync(
+      join(distDir, 'index.html'),
+      '<!doctype html><html><head><base href="/old/"><script>window.__AI_PAGE_BUILDER_RUNTIME_CONFIG__={"basePath":"/old"};</script></head><body>page-builder</body></html>',
+      'utf-8',
+    )
+
+    const handler = createPageBuilderProdFetchHandler({
+      distDir,
+      appOrigin: 'http://app:3000',
+      publicBasePath: '/new/path',
+    })
+
+    const response = await handler(new Request('http://localhost/new/path/'))
+    const html = await response.text()
+
+    expect(response.status).toBe(200)
+    expect(html).toContain('<base href="/new/path/">')
+    expect(html).toContain('"basePath":"/new/path"')
+    expect(html).not.toContain('/old')
   })
 
   test('returns 404 for missing static assets with file extensions', async () => {
@@ -126,5 +198,56 @@ describe('page-builder production server', () => {
     expect(response.status).toBe(202)
     expect(response.headers.get('x-proxied')).toBe('true')
     expect(await response.text()).toBe('stream-astream-b')
+  })
+
+  test('handles direct base path requests by stripping the prefix once', async () => {
+    const distDir = createTempDistDir()
+    tempDirs.push(distDir)
+
+    let proxiedUrl = ''
+    const handler = createPageBuilderProdFetchHandler({
+      distDir,
+      appOrigin: 'http://app:3000',
+      publicBasePath: '/pagebuilder',
+      fetchImpl: async (request) => {
+        proxiedUrl = request.url
+        return new Response(JSON.stringify({ ok: true }), {
+          headers: { 'content-type': 'application/json; charset=utf-8' },
+        })
+      },
+    })
+
+    const rootResponse = await handler(new Request('http://localhost/pagebuilder/'))
+    const builderResponse = await handler(new Request('http://localhost/pagebuilder/builder/workspace-1/session-1'))
+    const assetResponse = await handler(new Request('http://localhost/pagebuilder/assets/app.js'))
+    const apiResponse = await handler(new Request('http://localhost/pagebuilder/api/status?ready=1'))
+
+    expect(rootResponse.status).toBe(200)
+    expect(await rootResponse.text()).toContain('page-builder')
+    expect(builderResponse.status).toBe(200)
+    expect(await builderResponse.text()).toContain('page-builder')
+    expect(assetResponse.status).toBe(200)
+    expect(await assetResponse.text()).toContain('console.log("page-builder")')
+    expect(apiResponse.status).toBe(200)
+    expect(proxiedUrl).toBe('http://app:3000/api/status?ready=1')
+  })
+
+  test('does not strip repeated base path prefixes as an internal API path', async () => {
+    const distDir = createTempDistDir()
+    tempDirs.push(distDir)
+
+    const handler = createPageBuilderProdFetchHandler({
+      distDir,
+      appOrigin: 'http://app:3000',
+      publicBasePath: '/pagebuilder',
+      fetchImpl: async () => {
+        throw new Error('Repeated base path request must not be proxied as an API request')
+      },
+    })
+
+    const response = await handler(new Request('http://localhost/pagebuilder/pagebuilder/api/status'))
+
+    expect(response.status).toBe(200)
+    expect(await response.text()).toContain('page-builder')
   })
 })

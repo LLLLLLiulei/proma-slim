@@ -51,6 +51,8 @@ import { Button } from '@/components/ui/button'
 import { ApiError, api } from '@/lib/api'
 import { clearBootstrapPayload, readBootstrapPayload } from '@page-builder/lib/bootstrap-cache'
 import { resolveBuilderContext } from '@page-builder/lib/builder-context'
+import { getPageBuilderPublicBasePath } from '@page-builder/lib/public-base-path'
+import { buildHomePath } from '@page-builder/lib/routes'
 import {
   clearPageBuilderEditLockFragment,
   clearStoredPageBuilderEditLock,
@@ -261,11 +263,12 @@ function resolvePageBuilderTargetBlockSelector(targetSelection: PageBuilderTarge
 
 function navigateToPageBuilderHome(): void {
   if (typeof window === 'undefined') return
+  const homePath = buildHomePath(getPageBuilderPublicBasePath())
 
   if (typeof window.history.pushState === 'function') {
-    window.history.pushState(null, '', '/')
+    window.history.pushState(null, '', homePath)
   } else {
-    window.history.replaceState(null, '', '/')
+    window.history.replaceState(null, '', homePath)
   }
 
   if (typeof window.dispatchEvent === 'function') {

@@ -1,7 +1,8 @@
-import { describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, test } from 'bun:test'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { AgentMessages, shouldRenderTransientAssistantMessage } from './AgentMessages'
+import { configureApiPublicBasePath } from '@/lib/api'
 import type { AgentMessage } from '@ai-page-builder/shared'
 import type { AgentStreamState } from '@/atoms/agent-atoms'
 
@@ -11,6 +12,10 @@ function countOccurrences(source: string, needle: string): number {
 
 const TASK_CREATE_LABEL = '创建任务'
 const TASK_LIST_LABEL = '查看任务列表'
+
+afterEach(() => {
+  configureApiPublicBasePath('/')
+})
 
 function createCompletedToolStreamState(content: string): AgentStreamState {
   return {
@@ -531,6 +536,8 @@ describe('AgentMessages transient assistant rendering', () => {
   })
 
   test('renders structured user attachments through the session-scoped content route', () => {
+    configureApiPublicBasePath('/')
+
     const markup = renderToStaticMarkup(
       React.createElement(AgentMessages, {
         sessionId: 'session-attachments',
@@ -563,6 +570,35 @@ describe('AgentMessages transient assistant rendering', () => {
     expect(markup).toContain('/api/sessions/session-attachments/attachments/attachment-image/content')
     expect(markup).toContain('/api/sessions/session-attachments/attachments/attachment-doc/content')
     expect(markup).toContain('brief.pdf')
+  })
+
+  test('renders structured user attachments with the configured public base path', () => {
+    configureApiPublicBasePath('/pagebuilder')
+
+    const markup = renderToStaticMarkup(
+      React.createElement(AgentMessages, {
+        sessionId: 'session-attachments',
+        messages: [{
+          id: 'user-1',
+          role: 'user',
+          content: '请参考这张图',
+          createdAt: 1,
+          attachments: [
+            {
+              id: 'attachment-image',
+              filename: 'reference.png',
+              mediaType: 'image/png',
+              localPath: 'attachments/reference.png',
+              size: 128,
+            },
+          ],
+        }],
+        streaming: false,
+      })
+    )
+
+    expect(markup).toContain('/pagebuilder/api/sessions/session-attachments/attachments/attachment-image/content')
+    expect(markup).not.toContain('src="/api/sessions/session-attachments/attachments/attachment-image/content')
   })
 
   test('renders multiple image attachments with max dimensions and proportional scaling instead of cropping', () => {

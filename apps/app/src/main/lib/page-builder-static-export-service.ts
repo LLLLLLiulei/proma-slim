@@ -39,6 +39,7 @@ import {
   getPageBuilderStaticExportStagingDir,
   getPageBuilderStaticExportTtlMs,
 } from './page-builder-static-export-paths'
+import { buildPageBuilderPublicUrl } from './page-builder-public-url'
 
 type CmsAssetGateway = Pick<CmsGateway, 'fetchAsset'>
 type CmsQueryAdapter = Pick<CmsGateway, 'listCatalogs' | 'listContents'>
@@ -1062,7 +1063,7 @@ function buildZipArchive(stagingDir: string): Uint8Array {
 }
 
 function buildDownloadUrl(workspaceId: string, jobId: string): string {
-  return `/api/workspaces/${encodeURIComponent(workspaceId)}/page-builder/export-static-jobs/${jobId}/download`
+  return buildPageBuilderPublicUrl(`/api/workspaces/${encodeURIComponent(workspaceId)}/page-builder/export-static-jobs/${encodeURIComponent(jobId)}/download`)
 }
 
 function normalizePageBuilderStaticExportJobCreateOptions(

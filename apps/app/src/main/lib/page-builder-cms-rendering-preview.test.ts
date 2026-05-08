@@ -1,6 +1,19 @@
 import { spawnSync } from 'node:child_process'
 import { expect, test } from 'bun:test'
 
+test('cms rendering preview asset URLs use the configured public base path and keep version queries', async () => {
+  process.env.AI_PAGE_BUILDER_BASE_PATH = '/pagebuilder'
+  const module = await import('./page-builder-cms-rendering-preview.ts')
+
+  const previewUrl = module.getPageBuilderCmsRenderingPreviewAssetUrl()
+  const vueUrl = module.getPageBuilderCmsRenderingVueAssetUrl()
+
+  expect(previewUrl).toStartWith('/pagebuilder/api/page-builder/cms-rendering-preview.js?v=')
+  expect(vueUrl).toStartWith('/pagebuilder/api/page-builder/cms-rendering-vue.js?v=')
+
+  delete process.env.AI_PAGE_BUILDER_BASE_PATH
+})
+
 test('cms rendering preview bundle excludes server-only linkedom dependency', () => {
   const result = spawnSync(
     'bun',

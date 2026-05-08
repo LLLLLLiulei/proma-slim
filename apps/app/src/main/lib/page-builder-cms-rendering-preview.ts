@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { getCmsRenderingPreviewBuildPaths } from '@ai-page-builder/page-builder-cms-rendering/preview/build-paths'
+import { buildPageBuilderPublicUrl } from './page-builder-public-url'
 
 interface CmsRenderingPreviewBuildLog {
   message?: string
@@ -86,11 +87,11 @@ function getCmsRenderingVueVersion(): string {
 }
 
 export function getPageBuilderCmsRenderingPreviewAssetUrl(): string {
-  return `/api/page-builder/cms-rendering-preview.js?v=${getCmsRenderingPreviewVersion()}`
+  return buildPageBuilderPublicUrl(`/api/page-builder/cms-rendering-preview.js?v=${getCmsRenderingPreviewVersion()}`)
 }
 
 export function getPageBuilderCmsRenderingVueAssetUrl(): string {
-  return `/api/page-builder/cms-rendering-vue.js?v=${getCmsRenderingVueVersion()}`
+  return buildPageBuilderPublicUrl(`/api/page-builder/cms-rendering-vue.js?v=${getCmsRenderingVueVersion()}`)
 }
 
 export async function readPageBuilderCmsRenderingPreviewScript(): Promise<string> {

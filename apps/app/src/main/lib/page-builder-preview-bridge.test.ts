@@ -15,9 +15,20 @@ async function importPreviewBridgeModule() {
 }
 
 afterEach(() => {
+  delete process.env.AI_PAGE_BUILDER_BASE_PATH
   delete process.env.PROMA_PAGE_BUILDER_PREVIEW_BRIDGE_PATH
   delete process.env.PROMA_PAGE_BUILDER_PREVIEW_BRIDGE_ENTRY_PATH
   delete process.env.PROMA_PAGE_BUILDER_PREVIEW_BRIDGE_SOURCE_ROOT
+})
+
+test('preview bridge asset url uses the configured public base path and keeps the version query', async () => {
+  process.env.AI_PAGE_BUILDER_BASE_PATH = '/pagebuilder'
+  const module = await importPreviewBridgeModule()
+
+  const assetUrl = module.getPageBuilderPreviewBridgeAssetUrl()
+
+  expect(assetUrl).toStartWith('/pagebuilder/api/page-builder/preview-bridge.js?v=')
+  expect(assetUrl).not.toStartWith('/api/page-builder/preview-bridge.js')
 })
 
 function setupPreviewBridgeDom(

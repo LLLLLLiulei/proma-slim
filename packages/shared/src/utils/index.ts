@@ -9,3 +9,9 @@ export function noop(): void {
 
 export { diffCapabilities } from './capabilities-diff'
 export type { CapabilityChange } from './capabilities-diff'
+export {
+  normalizePageBuilderPublicBasePath,
+  prependPageBuilderPublicBasePath,
+  stripPageBuilderPublicBasePath,
+  toPageBuilderBaseHref,
+} from './page-builder-public-path'

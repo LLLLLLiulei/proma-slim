@@ -383,6 +383,53 @@ describe('HomePage', () => {
     })
   })
 
+  test('creates a project and preserves the public base path when navigating to builder', async () => {
+    const { location } = installWindowHarness('/pagebuilder/')
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const originalBaseUrl = import.meta.env.BASE_URL
+    import.meta.env.BASE_URL = '/pagebuilder/'
+    try {
+      const { HomePage } = await loadHomePage({
+        createPageBuilderProjectImpl: async () => ({ workspace, session }),
+        retryPageBuilderSessionImpl: async () => session,
+      })
+
+      let renderer!: ReturnType<typeof create>
+      await act(async () => {
+        renderer = create(React.createElement(HomePage))
+      })
+
+      const textarea = renderer.root.findByType('textarea')
+      await act(async () => {
+        textarea.props.onChange({ target: { value: '生成一个 AI 咨询公司官网' } })
+      })
+
+      const submitButton = renderer.root.findByType('button')
+      await act(async () => {
+        submitButton.props.onClick()
+      })
+
+      expect(location.pathname).toBe(buildBuilderPath(workspace.id, session.id, '/pagebuilder'))
+    } finally {
+      import.meta.env.BASE_URL = originalBaseUrl
+    }
+  })
+
+
   test('inserts pasted content as plain text only', async () => {
     installWindowHarness()
     const workspace: AgentWorkspace = {

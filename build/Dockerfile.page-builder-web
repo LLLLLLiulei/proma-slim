@@ -21,11 +21,17 @@ RUN bun run --filter='@ai-page-builder/page-builder' build
 FROM oven/bun:1.2.5 AS runtime
 WORKDIR /app
 
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=build /app/package.json ./package.json
+COPY --from=build /app/bun.lock ./bun.lock
+COPY --from=build /app/tsconfig.json ./tsconfig.json
+COPY --from=build /app/packages/shared ./packages/shared
 COPY --from=build /app/apps/page-builder/dist ./apps/page-builder/dist
 COPY --from=build /app/apps/page-builder/src/server/prod-server.ts ./apps/page-builder/src/server/prod-server.ts
 
 ENV PORT=3333
 ENV AI_PAGE_BUILDER_SERVER_ORIGIN=http://server:8888
+ENV AI_PAGE_BUILDER_BASE_PATH=
 
 EXPOSE 3333
 

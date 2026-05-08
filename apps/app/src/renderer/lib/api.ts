@@ -1,3 +1,7 @@
+import {
+  normalizePageBuilderPublicBasePath,
+  prependPageBuilderPublicBasePath,
+} from '@ai-page-builder/shared'
 import type {
   AgentMessage,
   AgentSendInput,
@@ -65,6 +69,7 @@ interface PageBuilderImageReplacementRequest extends PageBuilderImageReplacement
 const CMS_REALTIME_REQUEST_OPTIONS = {
   cache: 'no-store' as const,
 }
+let configuredPublicBasePath = ''
 
 export class ApiError extends Error {
   status: number
@@ -74,6 +79,10 @@ export class ApiError extends Error {
     this.name = 'ApiError'
     this.status = status
   }
+}
+
+export function configureApiPublicBasePath(publicBasePath?: string | null): void {
+  configuredPublicBasePath = normalizePageBuilderPublicBasePath(publicBasePath)
 }
 
 type SendMessagePayload = Partial<AgentSendInput> & {
@@ -142,6 +151,16 @@ function buildPageBuilderImageReplacementBody(payload: PageBuilderImageReplaceme
   return formData
 }
 
+export function resolveApiUrl(url: string): string {
+  if (!configuredPublicBasePath || !url.startsWith('/api')) {
+    return url
+  }
+  if (url !== '/api' && !url.startsWith('/api/')) {
+    return url
+  }
+  return prependPageBuilderPublicBasePath(url, configuredPublicBasePath)
+}
+
 async function readErrorMessage(response: Response): Promise<string> {
   const contentType = response.headers.get('content-type') ?? ''
 
@@ -163,7 +182,7 @@ async function readErrorMessage(response: Response): Promise<string> {
 }
 
 async function request<T>(url: string, options: RequestOptions = {}): Promise<T> {
-  const response = await fetch(url, {
+  const response = await fetch(resolveApiUrl(url), {
     ...options,
     headers: buildHeaders(options.headers, options.body, options.editLock),
     body: buildRequestBody(options.body),
@@ -181,7 +200,7 @@ async function request<T>(url: string, options: RequestOptions = {}): Promise<T>
 }
 
 async function requestStream(url: string, options: RequestOptions = {}): Promise<Response> {
-  const response = await fetch(url, {
+  const response = await fetch(resolveApiUrl(url), {
     ...options,
     headers: buildHeaders(options.headers, options.body, options.editLock),
     body: buildRequestBody(options.body),
@@ -463,7 +482,7 @@ export const api = {
   },
 
   getPageBuilderStaticExportDownloadUrl(workspaceId: string, jobId: string): string {
-    return `/api/workspaces/${encodeURIComponent(workspaceId)}/page-builder/export-static-jobs/${encodeURIComponent(jobId)}/download`
+    return resolveApiUrl(`/api/workspaces/${encodeURIComponent(workspaceId)}/page-builder/export-static-jobs/${encodeURIComponent(jobId)}/download`)
   },
 
   searchWorkspaceFiles(

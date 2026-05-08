@@ -3,6 +3,7 @@ import { AlertTriangle, ArrowUp, LoaderCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { api } from '@/lib/api'
+import { getPageBuilderPublicBasePath } from '@page-builder/lib/public-base-path'
 import { buildBuilderPath } from '@page-builder/lib/routes'
 import { clearBootstrapPayload, writeBootstrapPayload } from '@page-builder/lib/bootstrap-cache'
 import { PageBuilderHistorySection } from '@page-builder/components/home/PageBuilderHistorySection'
@@ -27,6 +28,7 @@ export function HomePage(): React.ReactElement {
   const [starting, setStarting] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [recoverable, setRecoverable] = React.useState<RecoverableState | null>(null)
+  const publicBasePath = getPageBuilderPublicBasePath()
 
   const persistBootstrap = React.useCallback((sessionId: string, workspaceId: string, initialPrompt: string) => {
     if (typeof window === 'undefined') return
@@ -53,7 +55,7 @@ export function HomePage(): React.ReactElement {
       })
 
       persistBootstrap(session.id, workspace.id, initialPrompt)
-      navigateTo(buildBuilderPath(workspace.id, session.id))
+      navigateTo(buildBuilderPath(workspace.id, session.id, publicBasePath))
     } catch (nextError) {
       if (nextError instanceof PageBuilderProjectStartError) {
         setRecoverable({
@@ -67,7 +69,7 @@ export function HomePage(): React.ReactElement {
     } finally {
       setStarting(false)
     }
-  }, [persistBootstrap, prompt, starting])
+  }, [persistBootstrap, prompt, publicBasePath, starting])
 
   const handleRetry = React.useCallback(async (): Promise<void> => {
     if (!recoverable || starting) return
@@ -80,7 +82,7 @@ export function HomePage(): React.ReactElement {
         createSession: api.createSession,
       })
       persistBootstrap(session.id, recoverable.workspaceId, recoverable.prompt)
-      navigateTo(buildBuilderPath(recoverable.workspaceId, session.id))
+      navigateTo(buildBuilderPath(recoverable.workspaceId, session.id, publicBasePath))
     } catch (nextError) {
       const message = nextError instanceof Error ? nextError.message : '重试创建会话失败'
       setError(message)
@@ -88,7 +90,7 @@ export function HomePage(): React.ReactElement {
     } finally {
       setStarting(false)
     }
-  }, [persistBootstrap, recoverable, starting])
+  }, [persistBootstrap, publicBasePath, recoverable, starting])
 
   const handlePromptChange = React.useCallback((event: React.ChangeEvent<HTMLTextAreaElement>) => {
     setPrompt(event.target.value)

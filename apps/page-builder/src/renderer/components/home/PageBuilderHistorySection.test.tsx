@@ -213,6 +213,40 @@ describe('PageBuilderHistorySection', () => {
     expect(location.pathname).toBe('/')
   })
 
+  test('edit action preserves the public base path when opening an existing project', async () => {
+    const { open } = installWindowHarness('/pagebuilder/')
+    const project = createProject()
+    const originalBaseUrl = import.meta.env.BASE_URL
+    import.meta.env.BASE_URL = '/pagebuilder/'
+
+    try {
+      const { PageBuilderHistorySection } = await loadHistorySection({
+        projects: [project],
+      })
+
+      let renderer!: ReturnType<typeof create>
+      await act(async () => {
+        renderer = create(React.createElement(PageBuilderHistorySection))
+      })
+
+      const editButton = renderer.root.findAllByType('button').find((button) => button.props['aria-label'] === '编辑项目')
+      expect(editButton).toBeDefined()
+
+      await act(async () => {
+        await editButton!.props.onClick()
+      })
+
+      expect(open).toHaveBeenCalledWith(
+        buildBuilderPath(project.workspaceId, 'session-1', '/pagebuilder'),
+        '_blank',
+        'noopener,noreferrer',
+      )
+    } finally {
+      import.meta.env.BASE_URL = originalBaseUrl
+    }
+  })
+
+
   test('edit action creates a new session when the project has no latest session', async () => {
     const { location, open } = installWindowHarness()
     const project = createProject({

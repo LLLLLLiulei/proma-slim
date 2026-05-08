@@ -1,6 +1,11 @@
 import { existsSync, statSync } from 'node:fs'
 import { extname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import {
+  normalizePageBuilderPublicBasePath,
+  stripPageBuilderPublicBasePath,
+  toPageBuilderBaseHref,
+} from '@ai-page-builder/shared'
 
 const DEFAULT_PORT = 3333
 const DEFAULT_APP_ORIGIN = 'http://127.0.0.1:8888'
@@ -8,6 +13,7 @@ const DEFAULT_APP_ORIGIN = 'http://127.0.0.1:8888'
 export interface PageBuilderProdServerOptions {
   distDir: string
   appOrigin: string
+  publicBasePath?: string | null
   fetchImpl?: (request: Request) => Promise<Response>
 }
 
@@ -38,9 +44,10 @@ async function proxyApiRequest(
   request: Request,
   appOrigin: string,
   fetchImpl: (request: Request) => Promise<Response>,
+  upstreamPathname?: string,
 ): Promise<Response> {
   const requestUrl = new URL(request.url)
-  const targetUrl = new URL(`${requestUrl.pathname}${requestUrl.search}`, appOrigin)
+  const targetUrl = new URL(`${upstreamPathname ?? requestUrl.pathname}${requestUrl.search}`, appOrigin)
   const proxiedRequest = new Request(targetUrl, request)
   return fetchImpl(proxiedRequest)
 }
@@ -49,20 +56,66 @@ function staticFileResponse(filePath: string): Response {
   return new Response(Bun.file(filePath))
 }
 
+function escapeHtmlAttribute(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+}
+
+function runtimeConfigScript(publicBasePath: string): string {
+  const json = JSON.stringify({
+    basePath: publicBasePath,
+  }).replace(/</g, '\\u003c')
+
+  return `<script>window.__AI_PAGE_BUILDER_RUNTIME_CONFIG__=${json};</script>`
+}
+
+function stripExistingRuntimeInjection(html: string): string {
+  return html
+    .replace(/\s*<base\s+href="[^"]*"\s*\/?>\s*/i, '\n')
+    .replace(/\s*<script>\s*window\.__AI_PAGE_BUILDER_RUNTIME_CONFIG__=.*?<\/script>\s*/si, '\n')
+}
+
+function injectRuntimeConfigIntoIndexHtml(html: string, publicBasePath: string): string {
+  const baseTag = `<base href="${escapeHtmlAttribute(toPageBuilderBaseHref(publicBasePath))}">`
+  const runtimeScript = runtimeConfigScript(publicBasePath)
+  const headInjection = `${baseTag}\n    ${runtimeScript}`
+  const cleanedHtml = stripExistingRuntimeInjection(html)
+
+  if (cleanedHtml.includes('<head>')) {
+    return cleanedHtml.replace('<head>', `<head>\n    ${headInjection}`)
+  }
+
+  return `${headInjection}\n${cleanedHtml}`
+}
+
+async function indexHtmlResponse(filePath: string, publicBasePath: string): Promise<Response> {
+  const html = await Bun.file(filePath).text()
+  return new Response(injectRuntimeConfigIntoIndexHtml(html, publicBasePath), {
+    headers: {
+      'content-type': 'text/html;charset=utf-8',
+    },
+  })
+}
+
 export function createPageBuilderProdFetchHandler(options: PageBuilderProdServerOptions) {
   const fetchImpl = options.fetchImpl ?? ((request: Request) => fetch(request))
   const normalizedDistDir = resolve(options.distDir)
+  const publicBasePath = normalizePageBuilderPublicBasePath(options.publicBasePath)
 
   return async (request: Request): Promise<Response> => {
     const url = new URL(request.url)
+    const upstreamPathname = stripPageBuilderPublicBasePath(url.pathname, publicBasePath)
 
-    if (isApiRequest(url.pathname)) {
-      return proxyApiRequest(request, options.appOrigin, fetchImpl)
+    if (isApiRequest(upstreamPathname)) {
+      return proxyApiRequest(request, options.appOrigin, fetchImpl, upstreamPathname)
     }
 
     let requestedPath: string
     try {
-      requestedPath = normalizeStaticPath(normalizedDistDir, url.pathname)
+      requestedPath = normalizeStaticPath(normalizedDistDir, upstreamPathname)
     } catch (response) {
       if (response instanceof Response) {
         return response
@@ -71,10 +124,13 @@ export function createPageBuilderProdFetchHandler(options: PageBuilderProdServer
     }
 
     if (existsSync(requestedPath) && statSync(requestedPath).isFile()) {
+      if (requestedPath === getFallbackIndexPath(normalizedDistDir)) {
+        return indexHtmlResponse(requestedPath, publicBasePath)
+      }
       return staticFileResponse(requestedPath)
     }
 
-    if (isStaticAssetRequest(url.pathname)) {
+    if (isStaticAssetRequest(upstreamPathname)) {
       return new Response('Not Found', { status: 404 })
     }
 
@@ -83,7 +139,7 @@ export function createPageBuilderProdFetchHandler(options: PageBuilderProdServer
       return new Response(`page-builder static entry not found: ${fallbackPath}`, { status: 404 })
     }
 
-    return staticFileResponse(fallbackPath)
+    return indexHtmlResponse(fallbackPath, publicBasePath)
   }
 }
 
@@ -114,18 +170,28 @@ export function resolvePageBuilderProdAppOrigin(env: EnvSource = process.env): s
   return configuredOrigin || DEFAULT_APP_ORIGIN
 }
 
+export function resolvePageBuilderProdPublicBasePath(env: EnvSource = process.env): string {
+  return normalizePageBuilderPublicBasePath(env.AI_PAGE_BUILDER_BASE_PATH)
+}
+
 function getAppOrigin(): string {
   return resolvePageBuilderProdAppOrigin()
+}
+
+function getPublicBasePath(): string {
+  return resolvePageBuilderProdPublicBasePath()
 }
 
 export function startPageBuilderProdServer(): void {
   const distDir = getDistDir()
   const appOrigin = getAppOrigin()
+  const publicBasePath = getPublicBasePath()
   const port = getPort()
 
   const handler = createPageBuilderProdFetchHandler({
     distDir,
     appOrigin,
+    publicBasePath,
   })
 
   const server = Bun.serve({
@@ -143,6 +209,7 @@ export function startPageBuilderProdServer(): void {
   console.log(`[Page Builder Web] listening on http://0.0.0.0:${server.port}`)
   console.log(`[Page Builder Web] dist: ${distDir}`)
   console.log(`[Page Builder Web] app origin: ${appOrigin}`)
+  console.log(`[Page Builder Web] public base path: ${publicBasePath || '/'}`)
 }
 
 if (import.meta.main) {

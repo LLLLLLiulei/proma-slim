@@ -24,6 +24,7 @@ import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
 import { ChevronDown, ChevronUp, Paperclip, FileText, Sparkles, Server } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { resolveApiUrl } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import {
   Tooltip,
@@ -482,7 +483,7 @@ function resolveAttachmentUrl(sessionId: string, attachment: FileAttachment): st
     return attachment.localPath
   }
 
-  return `/api/sessions/${encodeURIComponent(sessionId)}/attachments/${encodeURIComponent(attachment.id)}/content`
+  return resolveApiUrl(`/api/sessions/${encodeURIComponent(sessionId)}/attachments/${encodeURIComponent(attachment.id)}/content`)
 }
 
 /** 消息附件容器 */
