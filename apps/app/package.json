@@ -2,10 +2,6 @@
   "name": "@ai-page-builder/app",
   "version": "0.7.1",
   "description": "AI Page Builder minimal Claude Code web app",
-  "author": {
-    "name": "ErlichLiu",
-    "email": "erlichliu@gmail.com"
-  },
   "private": true,
   "type": "module",
   "scripts": {
