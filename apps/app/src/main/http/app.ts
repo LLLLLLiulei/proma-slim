@@ -15,6 +15,7 @@ import { sessionRoutes } from './routes/sessions'
 import { statusRoutes } from './routes/status'
 import { userProfileRoutes } from './routes/user-profile'
 import { pageBuilderRoutes } from './routes/page-builder'
+import { cmsIntegrationRoutes } from './routes/cms-integration'
 import { workspaceRoutes } from './routes/workspaces'
 import type { HttpAppEnv } from './types'
 
@@ -87,6 +88,7 @@ export function createHttpApp(options: HttpAppOptions) {
   app.route('/api/settings', settingsRoutes)
   app.route('/api/user-profile', userProfileRoutes)
   app.route('/api/page-builder', pageBuilderRoutes)
+  app.route('/api/integrations/cms', cmsIntegrationRoutes)
   app.route('/api/workspaces', workspaceRoutes)
   app.route('/api/sessions', sessionRoutes)
 
