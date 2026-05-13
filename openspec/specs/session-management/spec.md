@@ -1,5 +1,5 @@
 ## Purpose
-定义会话的创建、列表展示、页签管理、标题维护与文件持久化行为。
+定义 Agent 会话的创建、列表展示、页签管理、标题维护、工作区归属、文件持久化行为，以及 CMS 集成创建项目时只初始化空 primary session 的边界。
 
 ## Requirements
 
@@ -98,3 +98,17 @@
 #### Scenario: 页面刷新后补齐刚完成的助手消息
 - **WHEN** 用户在一轮回复刚结束、但最后一条 assistant 消息可能仍处于持久化完成窗口时刷新页面
 - **THEN** 系统 SHALL 在初次历史读取后短暂补拉该会话消息，避免长期停留在仅显示最后一条 `user` 消息的截断历史状态
+
+### Requirement: CMS 创建项目只初始化 primary session 元数据
+系统 SHALL 在 CMS 创建 AI 专题项目时创建一个归属于该 page-builder workspace 的 primary session，但 SHALL NOT 写入初始用户消息或启动 Agent。
+
+#### Scenario: CMS 项目 primary session 创建后消息为空
+- **WHEN** CMS 创建 AI 专题项目成功
+- **THEN** 系统 SHALL 创建一个归属于新 workspace 的 primary session
+- **AND** 该 session 的消息文件 SHALL 不包含初始用户消息
+- **AND** 系统 SHALL NOT 因创建项目而启动 Agent 运行
+
+#### Scenario: project binding 记录 primary session
+- **WHEN** CMS 创建 AI 专题项目成功
+- **THEN** 系统 SHALL 将 primary session 的 `id` 写入 project binding 的 `primarySessionId`
+- **AND** 后续 CMS 集成能力 SHALL 能通过 `projectId` 找到该 primary session

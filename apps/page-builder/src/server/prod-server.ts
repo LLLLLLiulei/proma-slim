@@ -49,6 +49,8 @@ async function proxyApiRequest(
   const requestUrl = new URL(request.url)
   const targetUrl = new URL(`${upstreamPathname ?? requestUrl.pathname}${requestUrl.search}`, appOrigin)
   const proxiedRequest = new Request(targetUrl, request)
+  proxiedRequest.headers.set('x-forwarded-host', requestUrl.host)
+  proxiedRequest.headers.set('x-forwarded-proto', requestUrl.protocol.replace(/:$/, ''))
   return fetchImpl(proxiedRequest)
 }
 
@@ -96,6 +98,7 @@ async function indexHtmlResponse(filePath: string, publicBasePath: string): Prom
   return new Response(injectRuntimeConfigIntoIndexHtml(html, publicBasePath), {
     headers: {
       'content-type': 'text/html;charset=utf-8',
+      'content-security-policy': "frame-ancestors 'self'",
     },
   })
 }

@@ -5,6 +5,10 @@ export type CmsIntegrationErrorCode =
   | 'cms_login_unavailable'
   | 'project_conflict'
   | 'project_not_found'
+  | 'handoff_expired'
+  | 'preview_not_ready'
+  | 'builder_access_required'
+  | 'builder_access_mismatch'
 
 const DEFAULT_MESSAGES: Record<CmsIntegrationErrorCode, string> = {
   invalid_request: '请求参数不合法',
@@ -13,6 +17,10 @@ const DEFAULT_MESSAGES: Record<CmsIntegrationErrorCode, string> = {
   cms_login_unavailable: 'CMS 登录态校验暂不可用，请稍后再试',
   project_conflict: 'CMS 项目绑定冲突，无法安全复用已有项目',
   project_not_found: 'CMS 项目不存在',
+  handoff_expired: 'CMS handoff 已失效，请重新从 CMS 进入',
+  preview_not_ready: '当前项目尚未生成可预览内容，请先完成预览构建',
+  builder_access_required: '请先通过 CMS handoff 重新进入 PageBuilder',
+  builder_access_mismatch: '当前访问会话与目标工作区不匹配，请从 CMS 重新进入',
 }
 
 export class CmsIntegrationError extends Error {
@@ -54,4 +62,24 @@ export function cmsLoginUnavailable(message?: string): CmsIntegrationError {
 
 export function cmsProjectConflict(message?: string): CmsIntegrationError {
   return new CmsIntegrationError('project_conflict', 409, message)
+}
+
+export function cmsProjectNotFound(message?: string): CmsIntegrationError {
+  return new CmsIntegrationError('project_not_found', 404, message)
+}
+
+export function handoffExpired(message?: string): CmsIntegrationError {
+  return new CmsIntegrationError('handoff_expired', 410, message)
+}
+
+export function previewNotReady(message?: string): CmsIntegrationError {
+  return new CmsIntegrationError('preview_not_ready', 409, message)
+}
+
+export function builderAccessRequired(message?: string): CmsIntegrationError {
+  return new CmsIntegrationError('builder_access_required', 401, message)
+}
+
+export function builderAccessMismatch(message?: string): CmsIntegrationError {
+  return new CmsIntegrationError('builder_access_mismatch', 403, message)
 }

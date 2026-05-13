@@ -264,6 +264,7 @@ export function createWorkspacePreviewResponse(
         headers: {
           'cache-control': 'no-store',
           'content-type': 'text/html; charset=utf-8',
+          'content-security-policy': "frame-ancestors 'self'",
         },
       },
     )

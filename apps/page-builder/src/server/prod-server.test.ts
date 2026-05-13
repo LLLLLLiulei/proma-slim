@@ -75,8 +75,12 @@ describe('page-builder production server', () => {
     const builderResponse = await handler(new Request('http://localhost/builder/workspace-1/session-1'))
 
     expect(rootResponse.status).toBe(200)
+    expect(rootResponse.headers.get('content-security-policy')).toBe("frame-ancestors 'self'")
+    expect(rootResponse.headers.get('x-frame-options')).not.toBe('DENY')
     expect(await rootResponse.text()).toContain('page-builder')
     expect(builderResponse.status).toBe(200)
+    expect(builderResponse.headers.get('content-security-policy')).toBe("frame-ancestors 'self'")
+    expect(builderResponse.headers.get('x-frame-options')).not.toBe('DENY')
     expect(await builderResponse.text()).toContain('page-builder')
   })
 
@@ -113,6 +117,7 @@ describe('page-builder production server', () => {
     const response = await handler(new Request('http://localhost/ai/pagebuilder/assets/app.js'))
 
     expect(response.status).toBe(200)
+    expect(response.headers.get('content-security-policy')).toBeNull()
     expect(await response.text()).toBe('console.log("page-builder")')
   })
 
@@ -161,6 +166,8 @@ describe('page-builder production server', () => {
     let proxiedUrl = ''
     let proxiedMethod = ''
     let proxiedBody = ''
+    let forwardedHost = ''
+    let forwardedProto = ''
 
     const handler = createPageBuilderProdFetchHandler({
       distDir,
@@ -169,6 +176,8 @@ describe('page-builder production server', () => {
         proxiedUrl = request.url
         proxiedMethod = request.method
         proxiedBody = await request.text()
+        forwardedHost = request.headers.get('x-forwarded-host') ?? ''
+        forwardedProto = request.headers.get('x-forwarded-proto') ?? ''
 
         const encoder = new TextEncoder()
         const stream = new ReadableStream({
@@ -195,6 +204,8 @@ describe('page-builder production server', () => {
     expect(proxiedUrl).toBe('http://app:3000/api/sessions/session-1/send?draft=1')
     expect(proxiedMethod).toBe('POST')
     expect(proxiedBody).toBe('payload')
+    expect(forwardedHost).toBe('localhost')
+    expect(forwardedProto).toBe('http')
     expect(response.status).toBe(202)
     expect(response.headers.get('x-proxied')).toBe('true')
     expect(await response.text()).toBe('stream-astream-b')
@@ -249,5 +260,32 @@ describe('page-builder production server', () => {
 
     expect(response.status).toBe(200)
     expect(await response.text()).toContain('page-builder')
+  })
+
+  test('forwards browser host and proto after stripping the runtime public base path', async () => {
+    const distDir = createTempDistDir()
+    tempDirs.push(distDir)
+
+    let proxiedUrl = ''
+    let forwardedHost = ''
+    let forwardedProto = ''
+    const handler = createPageBuilderProdFetchHandler({
+      distDir,
+      appOrigin: 'http://app:3000',
+      publicBasePath: '/pagebuilder',
+      fetchImpl: async (request) => {
+        proxiedUrl = request.url
+        forwardedHost = request.headers.get('x-forwarded-host') ?? ''
+        forwardedProto = request.headers.get('x-forwarded-proto') ?? ''
+        return new Response(null, { status: 204 })
+      },
+    })
+
+    const response = await handler(new Request('https://builder.example.com/pagebuilder/api/integrations/cms/handoffs/handoff-1/open'))
+
+    expect(response.status).toBe(204)
+    expect(proxiedUrl).toBe('http://app:3000/api/integrations/cms/handoffs/handoff-1/open')
+    expect(forwardedHost).toBe('builder.example.com')
+    expect(forwardedProto).toBe('https')
   })
 })

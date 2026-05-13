@@ -97,6 +97,8 @@ describe('workspace preview service', () => {
     const response = createWorkspacePreviewResponse(workspace, '/', { enablePageBuilderBridge: true })
     const html = await response.text()
 
+    expect(response.headers.get('content-security-policy')).toBe("frame-ancestors 'self'")
+    expect(response.headers.get('x-frame-options')).not.toBe('DENY')
     const previewAssetIndex = html.indexOf('/api/page-builder/cms-rendering-preview.js')
     const bridgeAssetIndex = html.indexOf(getPageBuilderPreviewBridgeAssetUrl())
 
@@ -160,6 +162,7 @@ describe('workspace preview service', () => {
 
     const assetResponse = createWorkspacePreviewResponse(workspace, '/assets/site.css')
 
+    expect(assetResponse.headers.get('content-security-policy')).toBeNull()
     expect(await assetResponse.text()).toBe('body { color: rebeccapurple; }')
   })
 

@@ -25,6 +25,13 @@ import {
   getWorkspacePreviewState,
 } from '../../lib/workspace-preview-service'
 import {
+  builderAccessMismatch,
+  builderAccessRequired,
+  toCmsIntegrationErrorResponse,
+} from '../../lib/cms-integration/cms-integration-errors'
+import { getSharedBuilderAccessSessionService } from '../../lib/cms-integration/cms-integration-runtime'
+import { resolveCmsIntegrationConfig } from '../../lib/cms-integration/cms-integration-config'
+import {
   PageBuilderBlockDeletionError,
   savePageBuilderBlockDeletion,
 } from '../../lib/page-builder-block-deletion-service'
@@ -311,6 +318,22 @@ workspaceRoutes.get('/:workspaceId/page-builder/export-static-jobs/:jobId/downlo
 })
 
 const handleWorkspacePreview = (c: { req: { raw: Request }; var: { workspace: HttpAppEnv['Variables']['workspace'] } }) => {
+  const cmsConfig = resolveCmsIntegrationConfig()
+  if (cmsConfig.enabled) {
+    const validation = getSharedBuilderAccessSessionService(cmsConfig.accessSessionTtlMs).validate(
+      c.req.raw.headers.get('cookie'),
+      { workspaceId: c.var.workspace.id },
+    )
+
+    if (!validation.valid) {
+      return toCmsIntegrationErrorResponse(
+        validation.code === 'builder_access_mismatch'
+          ? builderAccessMismatch()
+          : builderAccessRequired(),
+      )
+    }
+  }
+
   const url = new URL(c.req.raw.url)
   const requestPath = getWorkspacePreviewRequestPath(c.req.raw.url, c.var.workspace.id)
   const enablePageBuilderBridge = url.searchParams.get('page-builder-bridge') === '1'

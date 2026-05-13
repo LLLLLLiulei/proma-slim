@@ -17,6 +17,9 @@ describe('cms integration config', () => {
       basePath: '',
       cmsBaseUrl: null,
       integrationSecret: null,
+      publicOrigin: null,
+      handoffTtlMs: 120000,
+      accessSessionTtlMs: 259200000,
     })
     expect(buildCmsIntegrationStatus(config)).toEqual({
       integrationMode: 'standalone',
@@ -30,6 +33,9 @@ describe('cms integration config', () => {
       AI_PAGE_BUILDER_INTEGRATION_SECRET: 'secret-value',
       AI_PAGE_BUILDER_CMS_BASE_URL: 'https://cms.example.com/manager/',
       AI_PAGE_BUILDER_BASE_PATH: '/pagebuilder/',
+      AI_PAGE_BUILDER_PUBLIC_ORIGIN: 'https://builder.example.com/',
+      AI_PAGE_BUILDER_HANDOFF_TTL_MS: '300000',
+      AI_PAGE_BUILDER_ACCESS_SESSION_TTL_MS: '86400000',
     })
 
     expect(config).toEqual({
@@ -38,6 +44,9 @@ describe('cms integration config', () => {
       basePath: '/pagebuilder',
       cmsBaseUrl: 'https://cms.example.com/manager',
       integrationSecret: 'secret-value',
+      publicOrigin: 'https://builder.example.com',
+      handoffTtlMs: 300000,
+      accessSessionTtlMs: 86400000,
     })
     expect(buildCmsIntegrationStatus(config)).toEqual({
       integrationMode: 'cms',
@@ -72,6 +81,40 @@ describe('cms integration config', () => {
       supportedOpenModes: ['iframe', 'window'],
       basePath: '/pagebuilder',
     })
+  })
+
+  test('parses missing public origin and ttl overrides as null and defaults', () => {
+    const config = resolveCmsIntegrationConfig({
+      AI_PAGE_BUILDER_INTEGRATION_MODE: 'cms',
+      AI_PAGE_BUILDER_INTEGRATION_SECRET: 'secret-value',
+      AI_PAGE_BUILDER_CMS_BASE_URL: 'https://cms.example.com/manager',
+      AI_PAGE_BUILDER_BASE_PATH: '/',
+      AI_PAGE_BUILDER_PUBLIC_ORIGIN: '   ',
+      AI_PAGE_BUILDER_HANDOFF_TTL_MS: '',
+      AI_PAGE_BUILDER_ACCESS_SESSION_TTL_MS: 'not-a-number',
+    })
+
+    expect(config).toEqual({
+      integrationMode: 'cms',
+      enabled: true,
+      basePath: '',
+      cmsBaseUrl: 'https://cms.example.com/manager',
+      integrationSecret: 'secret-value',
+      publicOrigin: null,
+      handoffTtlMs: 120000,
+      accessSessionTtlMs: 259200000,
+    })
+  })
+
+  test('rejects public origin values that include path query or hash', () => {
+    const config = resolveCmsIntegrationConfig({
+      AI_PAGE_BUILDER_INTEGRATION_MODE: 'cms',
+      AI_PAGE_BUILDER_INTEGRATION_SECRET: 'secret-value',
+      AI_PAGE_BUILDER_CMS_BASE_URL: 'https://cms.example.com/manager',
+      AI_PAGE_BUILDER_PUBLIC_ORIGIN: 'https://builder.example.com/pagebuilder',
+    })
+
+    expect(config.publicOrigin).toBeNull()
   })
 
   test('write interfaces reject missing CMS mode configuration with structured errors', () => {

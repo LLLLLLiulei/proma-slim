@@ -36,6 +36,9 @@ describe('page-builder docker assets', () => {
     expect(envExample).toContain('AI_PAGE_BUILDER_PLAYWRIGHT_MCP_URL=')
     expect(envExample).toContain('AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN=')
     expect(envExample).toContain('Playwright sidecar is enabled by default')
+    expect(envExample).toContain('AI_PAGE_BUILDER_PUBLIC_ORIGIN=')
+    expect(envExample).toContain('AI_PAGE_BUILDER_HANDOFF_TTL_MS=')
+    expect(envExample).toContain('AI_PAGE_BUILDER_ACCESS_SESSION_TTL_MS=')
   })
 
   test('docker assets expose page-builder public base path as runtime configuration', () => {
@@ -48,6 +51,9 @@ describe('page-builder docker assets', () => {
     expect(envExample).toContain('AI_PAGE_BUILDER_BASE_PATH=')
     expect(envExample).toContain('public browser-facing base path')
     expect(envExample).toContain('Nginx or CMS gateway should strip')
+    expect(envExample).toContain('AI_PAGE_BUILDER_PUBLIC_ORIGIN=')
+    expect(envExample).toContain('AI_PAGE_BUILDER_HANDOFF_TTL_MS=')
+    expect(envExample).toContain('AI_PAGE_BUILDER_ACCESS_SESSION_TTL_MS=')
 
     expect(dockerfile).not.toContain('ARG AI_PAGE_BUILDER_BASE_PATH=')
     expect(dockerfile).not.toContain('AI_PAGE_BUILDER_BASE_PATH="$AI_PAGE_BUILDER_BASE_PATH" bun run --filter')
@@ -56,7 +62,13 @@ describe('page-builder docker assets', () => {
     expect(dockerfile).toContain('COPY --from=build /app/packages/shared ./packages/shared')
 
     expect(compose).toContain('AI_PAGE_BUILDER_BASE_PATH: ${AI_PAGE_BUILDER_BASE_PATH:-}')
+    expect(compose).toContain('AI_PAGE_BUILDER_PUBLIC_ORIGIN: ${AI_PAGE_BUILDER_PUBLIC_ORIGIN:-}')
+    expect(compose).toContain('AI_PAGE_BUILDER_HANDOFF_TTL_MS: ${AI_PAGE_BUILDER_HANDOFF_TTL_MS:-}')
+    expect(compose).toContain('AI_PAGE_BUILDER_ACCESS_SESSION_TTL_MS: ${AI_PAGE_BUILDER_ACCESS_SESSION_TTL_MS:-}')
     expect(serverBlock).toContain('AI_PAGE_BUILDER_BASE_PATH: ${AI_PAGE_BUILDER_BASE_PATH:-}')
+    expect(serverBlock).toContain('AI_PAGE_BUILDER_PUBLIC_ORIGIN: ${AI_PAGE_BUILDER_PUBLIC_ORIGIN:-}')
+    expect(serverBlock).toContain('AI_PAGE_BUILDER_HANDOFF_TTL_MS: ${AI_PAGE_BUILDER_HANDOFF_TTL_MS:-}')
+    expect(serverBlock).toContain('AI_PAGE_BUILDER_ACCESS_SESSION_TTL_MS: ${AI_PAGE_BUILDER_ACCESS_SESSION_TTL_MS:-}')
     expect(webBlock).toContain('AI_PAGE_BUILDER_BASE_PATH: ${AI_PAGE_BUILDER_BASE_PATH:-}')
     expect(webBlock).not.toContain('args:')
     expect(compose).not.toContain('/pagebuilder/api')
