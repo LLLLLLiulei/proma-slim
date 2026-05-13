@@ -45,6 +45,34 @@ export interface AppStatus {
   runtimeStatus?: RuntimeStatus | null
 }
 
+export interface CmsIntegrationStatus {
+  integrationMode: 'standalone' | 'cms'
+  enabled: boolean
+  supportedOpenModes?: Array<'iframe' | 'window'>
+  basePath?: string
+}
+
+export interface CmsBuilderContextWorkspace extends Pick<AgentWorkspace, 'id' | 'name' | 'slug'> {
+  template?: AgentWorkspace['template']
+  createdAt?: number
+  updatedAt?: number
+}
+
+export interface CmsBuilderContextSession extends Pick<AgentSessionMeta, 'id' | 'title'> {
+  workspaceId?: string
+  createdAt?: number
+  updatedAt?: number
+}
+
+export interface CmsBuilderContext {
+  projectId: string
+  workspace: CmsBuilderContextWorkspace
+  session: CmsBuilderContextSession
+  access: {
+    expiresAt: string
+  }
+}
+
 export interface WorkspacePreviewState {
   hasPreview: boolean
   entryUrl: string | null
@@ -216,6 +244,18 @@ async function requestStream(url: string, options: RequestOptions = {}): Promise
 export const api = {
   getStatus(): Promise<AppStatus> {
     return request<AppStatus>('/api/status')
+  },
+
+  getCmsIntegrationStatus(): Promise<CmsIntegrationStatus> {
+    return request<CmsIntegrationStatus>('/api/integrations/cms/status')
+  },
+
+  getCmsBuilderContext(workspaceId: string, sessionId: string): Promise<CmsBuilderContext> {
+    const params = new URLSearchParams({
+      workspaceId,
+      sessionId,
+    })
+    return request<CmsBuilderContext>(`/api/integrations/cms/builder-context?${params.toString()}`)
   },
 
   getSettings(): Promise<AppSettings> {

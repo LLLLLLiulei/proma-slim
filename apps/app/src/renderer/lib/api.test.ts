@@ -99,6 +99,99 @@ describe('renderer api wrappers', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
+  test('getCmsIntegrationStatus requests the anonymous CMS integration status endpoint', async () => {
+    const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe('/api/integrations/cms/status')
+      expect(init?.method).toBeUndefined()
+      return jsonResponse({
+        integrationMode: 'cms',
+        enabled: true,
+        supportedOpenModes: ['iframe', 'window'],
+        basePath: '/pagebuilder',
+      })
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const { api } = await import('./api')
+    const status = await api.getCmsIntegrationStatus()
+
+    expect(status).toEqual({
+      integrationMode: 'cms',
+      enabled: true,
+      supportedOpenModes: ['iframe', 'window'],
+      basePath: '/pagebuilder',
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  test('getCmsBuilderContext requests the builder context endpoint with encoded workspace and session ids', async () => {
+    const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe('/api/integrations/cms/builder-context?workspaceId=workspace%2F1&sessionId=session%231')
+      expect(init?.method).toBeUndefined()
+      return jsonResponse({
+        projectId: 'pbp_1',
+        workspace: {
+          id: 'workspace/1',
+          name: 'CMS 专题',
+          slug: 'workspace-1',
+          template: 'page-builder',
+          createdAt: 1,
+          updatedAt: 2,
+        },
+        session: {
+          id: 'session#1',
+          title: '新 Agent 会话',
+          workspaceId: 'workspace/1',
+          createdAt: 1,
+          updatedAt: 2,
+        },
+        access: {
+          expiresAt: '2026-05-13T00:00:00.000Z',
+        },
+      })
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const { api } = await import('./api')
+    const context = await api.getCmsBuilderContext('workspace/1', 'session#1')
+
+    expect(context.projectId).toBe('pbp_1')
+    expect(context.workspace.id).toBe('workspace/1')
+    expect(context.session.id).toBe('session#1')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  test('CMS integration API wrappers use the configured page-builder public base path', async () => {
+    const requestedUrls: string[] = []
+    const fetchMock = mock(async (input: RequestInfo | URL) => {
+      requestedUrls.push(String(input))
+      return jsonResponse({ integrationMode: 'standalone', enabled: false })
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const { api, configureApiPublicBasePath } = await import(`./api.ts?test=${Date.now()}-${Math.random()}`)
+    configureApiPublicBasePath('/pagebuilder')
+
+    await api.getCmsIntegrationStatus()
+
+    globalThis.fetch = mock(async (input: RequestInfo | URL) => {
+      requestedUrls.push(String(input))
+      return jsonResponse({
+        projectId: 'pbp_1',
+        workspace: { id: 'workspace-1', name: 'CMS 专题', slug: 'workspace-1', createdAt: 1, updatedAt: 1 },
+        session: { id: 'session-1', title: '新 Agent 会话', workspaceId: 'workspace-1', createdAt: 1, updatedAt: 1 },
+        access: { expiresAt: '2026-05-13T00:00:00.000Z' },
+      })
+    }) as unknown as typeof fetch
+
+    await api.getCmsBuilderContext('workspace-1', 'session-1')
+
+    expect(requestedUrls).toEqual([
+      '/pagebuilder/api/integrations/cms/status',
+      '/pagebuilder/api/integrations/cms/builder-context?workspaceId=workspace-1&sessionId=session-1',
+    ])
+  })
+
   test('updateSessionTitle PATCHes the session title endpoint', async () => {
     const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
       expect(String(input)).toBe('/api/sessions/session-1')

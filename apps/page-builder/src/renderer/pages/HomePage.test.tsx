@@ -71,8 +71,20 @@ function installWindowHarness(initialPathname = '/') {
 async function loadHomePage(options: {
   createPageBuilderProjectImpl: (deps: unknown) => Promise<{ workspace: AgentWorkspace; session: AgentSessionMeta }>
   retryPageBuilderSessionImpl: (workspaceId: string, deps: unknown) => Promise<AgentSessionMeta>
+  getCmsIntegrationStatusImpl?: () => Promise<{ integrationMode: 'standalone' | 'cms'; enabled: boolean }>
 }) {
   const toastError = mock(() => {})
+  let historyRenderCount = 0
+  const createWorkspace = mock(async () => {
+    throw new Error('createWorkspace should be provided through project-start mock')
+  })
+  const createSession = mock(async () => {
+    throw new Error('createSession should be provided through project-start mock')
+  })
+  const getCmsIntegrationStatus = mock(options.getCmsIntegrationStatusImpl ?? (async () => ({
+    integrationMode: 'standalone' as const,
+    enabled: false,
+  })))
 
   class MockPageBuilderProjectStartError extends Error {
     readonly workspace: AgentWorkspace
@@ -93,9 +105,18 @@ async function loadHomePage(options: {
 
   mock.module('@page-builder/components/home/PageBuilderHistorySection', () => ({
     PageBuilderHistorySection() {
+      historyRenderCount += 1
       return React.createElement('div', {
         'data-testid': 'page-builder-history-section',
       }, 'history-section')
+    },
+  }))
+
+  mock.module('@/lib/api', () => ({
+    api: {
+      createWorkspace,
+      createSession,
+      getCmsIntegrationStatus,
     },
   }))
 
@@ -111,6 +132,10 @@ async function loadHomePage(options: {
   return {
     HomePage: module.HomePage,
     PageBuilderProjectStartError: MockPageBuilderProjectStartError,
+    createSession,
+    createWorkspace,
+    getCmsIntegrationStatus,
+    getHistoryRenderCount: () => historyRenderCount,
     toastError,
   }
 }
@@ -122,6 +147,111 @@ afterEach(() => {
 })
 
 describe('HomePage', () => {
+  test('does not mount standalone entry or history while integration status is pending', async () => {
+    installWindowHarness()
+    const pendingStatus = new Promise<{ integrationMode: 'standalone'; enabled: false }>(() => {})
+    const createPageBuilderProject = mock(async () => {
+      throw new Error('should not create project')
+    })
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: 'workspace-1',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const { HomePage, getHistoryRenderCount } = await loadHomePage({
+      createPageBuilderProjectImpl: createPageBuilderProject,
+      retryPageBuilderSessionImpl: async () => session,
+      getCmsIntegrationStatusImpl: async () => await pendingStatus,
+    })
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(React.createElement(HomePage))
+    })
+
+    expect(renderer.root.findAllByType('textarea')).toHaveLength(0)
+    expect(renderer.root.findAll((node) => node.props['data-testid'] === 'page-builder-history-section')).toHaveLength(0)
+    expect(getHistoryRenderCount()).toBe(0)
+    expect(createPageBuilderProject).toHaveBeenCalledTimes(0)
+  })
+
+  test('shows a restricted CMS entry page without local creation or history in CMS mode', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const createPageBuilderProject = mock(async () => ({ workspace, session }))
+
+    const { HomePage, getHistoryRenderCount } = await loadHomePage({
+      createPageBuilderProjectImpl: createPageBuilderProject,
+      retryPageBuilderSessionImpl: async () => session,
+      getCmsIntegrationStatusImpl: async () => ({ integrationMode: 'cms', enabled: true }),
+    })
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(React.createElement(HomePage))
+      await Promise.resolve()
+    })
+
+    const json = JSON.stringify(renderer.toJSON())
+    expect(json).toContain('请从 CMS 系统进入 PageBuilder')
+    expect(renderer.root.findAllByType('textarea')).toHaveLength(0)
+    expect(renderer.root.findAll((node) => node.props['data-testid'] === 'page-builder-history-section')).toHaveLength(0)
+    expect(getHistoryRenderCount()).toBe(0)
+    expect(createPageBuilderProject).toHaveBeenCalledTimes(0)
+  })
+
+  test('fails closed when integration status cannot be loaded', async () => {
+    installWindowHarness()
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: 'workspace-1',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const createPageBuilderProject = mock(async () => {
+      throw new Error('should not create project')
+    })
+
+    const { HomePage, getHistoryRenderCount } = await loadHomePage({
+      createPageBuilderProjectImpl: createPageBuilderProject,
+      retryPageBuilderSessionImpl: async () => session,
+      getCmsIntegrationStatusImpl: async () => {
+        throw new Error('status unavailable')
+      },
+    })
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(React.createElement(HomePage))
+      await Promise.resolve()
+    })
+
+    const json = JSON.stringify(renderer.toJSON())
+    expect(json).toContain('服务暂不可用')
+    expect(json).toContain('重试')
+    expect(renderer.root.findAllByType('textarea')).toHaveLength(0)
+    expect(renderer.root.findAll((node) => node.props['data-testid'] === 'page-builder-history-section')).toHaveLength(0)
+    expect(getHistoryRenderCount()).toBe(0)
+    expect(createPageBuilderProject).toHaveBeenCalledTimes(0)
+  })
+
   test('keeps the hero content inside a viewport-tall stage while placing history below the fold', async () => {
     installWindowHarness()
     const workspace: AgentWorkspace = {

@@ -249,6 +249,16 @@ function installWindowHarness(): {
 async function loadBuilderPage(options: {
   sessions: AgentSessionMeta[]
   workspaces: AgentWorkspace[]
+  getCmsIntegrationStatusImpl?: () => Promise<{ integrationMode: 'standalone' | 'cms'; enabled: boolean }>
+  getCmsBuilderContextImpl?: (
+    workspaceId: string,
+    sessionId: string,
+  ) => Promise<{
+    projectId: string
+    workspace: AgentWorkspace
+    session: AgentSessionMeta
+    access: { expiresAt: string }
+  }>
   previewStates?: WorkspacePreviewState[]
   acquirePageBuilderEditLockImpl?: (
     workspaceId: string,
@@ -320,6 +330,27 @@ async function loadBuilderPage(options: {
   }
   const toastError = options.toastErrorImpl ?? mock(() => {})
   const toastSuccess = options.toastSuccessImpl ?? mock(() => {})
+  const listSessions = mock(async () => options.sessions)
+  const listWorkspaces = mock(async () => options.workspaces)
+  const getCmsIntegrationStatus = mock(options.getCmsIntegrationStatusImpl ?? (async () => ({
+    integrationMode: 'standalone' as const,
+    enabled: false,
+  })))
+  const getCmsBuilderContext = mock(options.getCmsBuilderContextImpl ?? (async (workspaceId: string, sessionId: string) => {
+    const workspace = options.workspaces.find((item) => item.id === workspaceId)
+    const session = options.sessions.find((item) => item.id === sessionId)
+    if (!workspace || !session) {
+      throw new MockApiError('访问已失效，请从 CMS 系统重新进入 PageBuilder', 401)
+    }
+    return {
+      projectId: 'pbp_test',
+      workspace,
+      session,
+      access: {
+        expiresAt: '2026-05-13T00:00:00.000Z',
+      },
+    }
+  }))
   const acquirePageBuilderEditLock = mock(
     options.acquirePageBuilderEditLockImpl
       ?? (async (workspaceId: string, payload?: { holderId?: string; sessionId?: string }) => ({
@@ -440,8 +471,10 @@ async function loadBuilderPage(options: {
   mock.module('@/lib/api', () => ({
     ApiError: MockApiError,
     api: {
-      listSessions: async () => options.sessions,
-      listWorkspaces: async () => options.workspaces,
+      getCmsBuilderContext,
+      getCmsIntegrationStatus,
+      listSessions,
+      listWorkspaces,
       acquirePageBuilderEditLock,
       renewPageBuilderEditLock,
       getPageBuilderEditLockStatus,
@@ -534,6 +567,10 @@ async function loadBuilderPage(options: {
     renewPageBuilderEditLock,
     getPageBuilderEditLockStatus,
     releasePageBuilderEditLock,
+    getCmsBuilderContext,
+    getCmsIntegrationStatus,
+    listSessions,
+    listWorkspaces,
   }
 }
 
@@ -728,6 +765,181 @@ afterEach(() => {
 })
 
 describe('BuilderPage', () => {
+  test('loads CMS builder context before project APIs and hydrates the current project', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: 'CMS 专题',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const store = createStore()
+
+    const {
+      BuilderPage,
+      acquirePageBuilderEditLock,
+      getCmsBuilderContext,
+      getLastAgentViewProps,
+      listSessions,
+      listWorkspaces,
+    } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      getCmsIntegrationStatusImpl: async () => ({ integrationMode: 'cms', enabled: true }),
+      mockPreviewPane: true,
+      mockCmsBrowserDialog: true,
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={store}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(getCmsBuilderContext).toHaveBeenCalledWith(workspace.id, session.id)
+    expect(listSessions).not.toHaveBeenCalled()
+    expect(listWorkspaces).not.toHaveBeenCalled()
+    expect(acquirePageBuilderEditLock).toHaveBeenCalledWith(workspace.id, expect.objectContaining({
+      sessionId: session.id,
+    }))
+    expect(store.get(agentSessionsAtom)).toEqual([session])
+    expect(store.get(agentWorkspacesAtom)).toEqual([workspace])
+    expect(store.get(currentAgentSessionIdAtom)).toBe(session.id)
+    expect(store.get(currentAgentWorkspaceIdAtom)).toBe(workspace.id)
+    expect(getLastAgentViewProps()).toMatchObject({
+      sessionId: session.id,
+      initialUserMessage: null,
+    })
+  })
+
+  test('does not mount project UI or acquire edit lock when CMS builder context fails', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: 'CMS 专题',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const {
+      ApiError,
+      BuilderPage,
+      acquirePageBuilderEditLock,
+      getLastAgentViewProps,
+      getLastCmsBrowserDialogProps,
+      getLastPreviewPaneProps,
+      listSessions,
+      listWorkspaces,
+    } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      getCmsIntegrationStatusImpl: async () => ({ integrationMode: 'cms', enabled: true }),
+      getCmsBuilderContextImpl: async () => {
+        throw new ApiError('请先通过 CMS handoff 重新进入 PageBuilder', 401)
+      },
+      mockPreviewPane: true,
+      mockCmsBrowserDialog: true,
+    })
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    const json = JSON.stringify(renderer.toJSON())
+    expect(json).toContain('访问已失效，请从 CMS 系统重新进入 PageBuilder')
+    expect(json).toContain('重试')
+    expect(json).not.toContain('返回首页')
+    expect(acquirePageBuilderEditLock).not.toHaveBeenCalled()
+    expect(listSessions).not.toHaveBeenCalled()
+    expect(listWorkspaces).not.toHaveBeenCalled()
+    expect(getLastAgentViewProps()).toBeNull()
+    expect(getLastPreviewPaneProps()).toBeNull()
+    expect(getLastCmsBrowserDialogProps()).toBeNull()
+  })
+
+  test('fails closed when BuilderPage cannot load integration status', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: 'CMS 专题',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const {
+      BuilderPage,
+      acquirePageBuilderEditLock,
+      getCmsBuilderContext,
+      listSessions,
+      listWorkspaces,
+    } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      getCmsIntegrationStatusImpl: async () => {
+        throw new Error('status unavailable')
+      },
+      mockPreviewPane: true,
+      mockCmsBrowserDialog: true,
+    })
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    const json = JSON.stringify(renderer.toJSON())
+    expect(json).toContain('服务暂不可用')
+    expect(json).toContain('重试')
+    expect(acquirePageBuilderEditLock).not.toHaveBeenCalled()
+    expect(getCmsBuilderContext).not.toHaveBeenCalled()
+    expect(listSessions).not.toHaveBeenCalled()
+    expect(listWorkspaces).not.toHaveBeenCalled()
+  })
+
   test('registers a beforeunload guard only while the agent is processing', async () => {
     const { dispatchWindowEvent, getListenerCount } = installWindowHarness()
     const workspace: AgentWorkspace = {

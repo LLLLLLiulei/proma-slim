@@ -3,6 +3,8 @@ import { useAtomValue, useSetAtom } from 'jotai'
 import { AlertTriangle, LoaderCircle, X } from 'lucide-react'
 import { toast } from 'sonner'
 import type {
+  AgentSessionMeta,
+  AgentWorkspace,
   PageBuilderBlockDeletionPayload,
   PageBuilderCmsAuthoringComponent,
   PageBuilderCmsAutoAgentHandoffRequest,
@@ -91,11 +93,11 @@ import {
 import { CmsBrowserDialog } from '@page-builder/components/builder/CmsBrowserDialog'
 import { PreviewPane } from '@page-builder/components/builder/PreviewPane'
 import { ProjectTitleBar } from '@page-builder/components/builder/ProjectTitleBar'
-import type { WorkspacePreviewState } from '@/lib/api'
+import type { CmsBuilderContext, CmsIntegrationStatus, WorkspacePreviewState } from '@/lib/api'
 
 type LoadState =
   | { status: 'loading' }
-  | { status: 'error'; message: string }
+  | { status: 'error'; message: string; recovery: 'home-and-retry' | 'retry-only' }
   | { status: 'ready'; initialUserMessage: string | null }
 
 type SelectionActionState = 'idle' | 'armed' | 'selected'
@@ -104,7 +106,39 @@ const PAGE_BUILDER_GUIDED_GENERATION_SKILL = 'page-builder-guided-generation'
 const PAGE_BUILDER_CMS_REGION_AUTHORING_GUIDANCE_SKILL = 'page-builder-cms-region-authoring-guidance'
 const CMS_REGION_BLOCKED_ERROR_MESSAGE = '当前已选 CMS 区域已失效或无法确认，请重新选择该区域后再修改。'
 const EDIT_LOCK_LOST_MESSAGE = '编辑锁已失效，请从首页重新进入编辑'
+const CMS_BUILDER_CONTEXT_EXPIRED_MESSAGE = '访问已失效，请从 CMS 系统重新进入 PageBuilder'
+const INTEGRATION_STATUS_UNAVAILABLE_MESSAGE = '服务暂不可用，请稍后重试。'
 const pendingInitialEditLockResolutions = new Map<string, Promise<PageBuilderEditLockLease>>()
+
+function isCmsIntegrationEnabled(status: CmsIntegrationStatus): boolean {
+  return status.integrationMode === 'cms' && status.enabled
+}
+
+function normalizeCmsBuilderWorkspace(workspace: CmsBuilderContext['workspace']): AgentWorkspace {
+  const now = Date.now()
+  return {
+    id: workspace.id,
+    name: workspace.name,
+    slug: workspace.slug,
+    ...(workspace.template ? { template: workspace.template } : {}),
+    createdAt: workspace.createdAt ?? now,
+    updatedAt: workspace.updatedAt ?? workspace.createdAt ?? now,
+  }
+}
+
+function normalizeCmsBuilderSession(
+  session: CmsBuilderContext['session'],
+  workspaceId: string,
+): AgentSessionMeta {
+  const now = Date.now()
+  return {
+    id: session.id,
+    title: session.title,
+    ...(session.workspaceId ? { workspaceId: session.workspaceId } : { workspaceId }),
+    createdAt: session.createdAt ?? now,
+    updatedAt: session.updatedAt ?? session.createdAt ?? now,
+  }
+}
 
 function toEditLockCredentials(lease: PageBuilderEditLockLease | null): PageBuilderEditLockCredentials | null {
   return lease
@@ -405,6 +439,61 @@ export function BuilderPage({
 
   const loadBuilderRuntime = React.useCallback(async (): Promise<void> => {
     setLoadState({ status: 'loading' })
+    setEditLockRequired(false)
+    setEditLockLease(null)
+    setEditLockLostMessage(null)
+
+    let integrationStatus: CmsIntegrationStatus
+    try {
+      integrationStatus = await api.getCmsIntegrationStatus()
+    } catch {
+      setLoadState({
+        status: 'error',
+        message: INTEGRATION_STATUS_UNAVAILABLE_MESSAGE,
+        recovery: 'retry-only',
+      })
+      return
+    }
+
+    if (isCmsIntegrationEnabled(integrationStatus)) {
+      let context: CmsBuilderContext
+      try {
+        context = await api.getCmsBuilderContext(workspaceId, sessionId)
+      } catch {
+        setLoadState({
+          status: 'error',
+          message: CMS_BUILDER_CONTEXT_EXPIRED_MESSAGE,
+          recovery: 'retry-only',
+        })
+        return
+      }
+
+      try {
+        const cmsWorkspace = normalizeCmsBuilderWorkspace(context.workspace)
+        const cmsSession = normalizeCmsBuilderSession(context.session, cmsWorkspace.id)
+        const needsEditLock = cmsWorkspace.template === 'page-builder'
+        setEditLockRequired(needsEditLock)
+        if (needsEditLock) {
+          const lease = await resolveInitialPageBuilderEditLock(cmsWorkspace.id, cmsSession.id)
+          setEditLockLease(lease)
+          setEditLockLostMessage(null)
+        }
+
+        setSessions([cmsSession])
+        setWorkspaces([cmsWorkspace])
+        setCurrentSessionId(cmsSession.id)
+        setCurrentWorkspaceId(cmsWorkspace.id)
+        setLoadState({ status: 'ready', initialUserMessage: null })
+        return
+      } catch (error) {
+        setLoadState({
+          status: 'error',
+          message: error instanceof Error ? error.message : '加载构建页失败',
+          recovery: 'retry-only',
+        })
+      }
+      return
+    }
 
     try {
       const [sessions, workspaces] = await Promise.all([
@@ -426,7 +515,11 @@ export function BuilderPage({
           'workspace-mismatch': '当前对话不属于该项目，无法进入构建页。',
         } as const
 
-        setLoadState({ status: 'error', message: messageMap[resolved.error] })
+        setLoadState({
+          status: 'error',
+          message: messageMap[resolved.error],
+          recovery: 'home-and-retry',
+        })
         return
       }
 
@@ -461,6 +554,7 @@ export function BuilderPage({
       setLoadState({
         status: 'error',
         message: error instanceof Error ? error.message : '加载构建页失败',
+        recovery: 'home-and-retry',
       })
     }
   }, [sessionId, setCurrentSessionId, setCurrentWorkspaceId, setSessions, setWorkspaces, workspaceId])
@@ -1327,9 +1421,11 @@ export function BuilderPage({
           <h2 className="mt-4 text-xl font-semibold tracking-tight text-foreground">无法打开构建页</h2>
           <p className="mt-3 text-sm leading-6 text-muted-foreground">{loadState.message}</p>
           <div className="mt-6 flex justify-center gap-2">
-            <Button variant="outline" onClick={navigateToPageBuilderHome} type="button">
-              返回首页
-            </Button>
+            {loadState.recovery === 'home-and-retry' && (
+              <Button variant="outline" onClick={navigateToPageBuilderHome} type="button">
+                返回首页
+              </Button>
+            )}
             <Button onClick={() => { void loadBuilderRuntime() }} type="button">
               重试
             </Button>
