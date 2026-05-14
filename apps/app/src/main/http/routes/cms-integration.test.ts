@@ -3,6 +3,9 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import {
+  PAGE_BUILDER_CMS_SELECTION_RESULT_VERSION,
+} from '@ai-page-builder/shared'
+import {
   PAGE_BUILDER_EDIT_HOLDER_HEADER,
   PAGE_BUILDER_EDIT_LOCK_HEADER,
 } from '../page-builder-edit-lock-auth'
@@ -21,6 +24,9 @@ const ORIGINAL_ENV = {
   AI_PAGE_BUILDER_CMS_BASE_URL: process.env.AI_PAGE_BUILDER_CMS_BASE_URL,
   AI_PAGE_BUILDER_BASE_PATH: process.env.AI_PAGE_BUILDER_BASE_PATH,
   AI_PAGE_BUILDER_PUBLIC_ORIGIN: process.env.AI_PAGE_BUILDER_PUBLIC_ORIGIN,
+  PROMA_CMS_BASE_URL: process.env.PROMA_CMS_BASE_URL,
+  PROMA_CMS_USERNAME: process.env.PROMA_CMS_USERNAME,
+  PROMA_CMS_PASSWORD: process.env.PROMA_CMS_PASSWORD,
 }
 const originalFetch = globalThis.fetch
 
@@ -61,6 +67,15 @@ function jsonResponse(body: unknown, status = 200): Response {
   })
 }
 
+function createCmsTokenResponse(): Response {
+  return jsonResponse({
+    status: 1,
+    message: '操作成功!',
+    access_token: 'Bearer cms-token',
+    expires_in: 18_000,
+  })
+}
+
 function createLoginFetchMock() {
   return mock(async (_input: RequestInfo | URL, init?: RequestInit) => {
     const cookie = new Headers(init?.headers).get('cookie') ?? ''
@@ -77,6 +92,39 @@ function createLoginFetchMock() {
       },
     })
   })
+}
+
+function createCmsAutoHandoffSelection(siteId: string) {
+  return {
+    version: PAGE_BUILDER_CMS_SELECTION_RESULT_VERSION,
+    siteId,
+    targetSelection: {
+      kind: 'block',
+      selector: '#hero',
+      parentBlockSelector: '#hero',
+      editBoundary: 'block',
+    },
+    targetBlock: {
+      selector: '#hero',
+    },
+    selectionKind: 'contents',
+    sourceType: 'contents-by-catalog',
+    selectionMode: 'by-catalog',
+    catalogId: '100',
+    snapshot: {
+      catalog: {
+        id: '100',
+        name: '新闻',
+        parentId: null,
+        path: 'news/',
+        contentType: 'Article',
+        contentTypeName: '文章',
+        hasChild: false,
+        total: 12,
+        children: [],
+      },
+    },
+  }
 }
 
 async function createBoundCmsProject(app: ReturnType<typeof createApp>, input?: {
@@ -822,6 +870,23 @@ describe('cms integration routes', () => {
     expect(autoHandoffMismatchedSession.status).toBe(403)
     expect(await autoHandoffMismatchedSession.json()).toMatchObject({ code: 'builder_access_mismatch' })
 
+    const autoHandoffMismatchedSite = await app.fetch(new Request(`http://localhost/api/workspaces/${primary.binding.workspaceId}/page-builder/cms-auto-handoff`, {
+      method: 'POST',
+      headers: {
+        cookie: accessCookie!,
+        origin: 'https://builder.example.com',
+        'content-type': 'application/json',
+        [PAGE_BUILDER_EDIT_LOCK_HEADER]: lease.lockId,
+        [PAGE_BUILDER_EDIT_HOLDER_HEADER]: lease.holderId,
+      },
+      body: JSON.stringify({
+        sessionId: primary.binding.primarySessionId,
+        selection: createCmsAutoHandoffSelection('99'),
+      }),
+    }))
+    expect(autoHandoffMismatchedSite.status).toBe(403)
+    expect(await autoHandoffMismatchedSite.json()).toMatchObject({ code: 'builder_access_mismatch' })
+
     const editLockStatus = await app.fetch(new Request(`http://localhost/api/page-builder/projects/${primary.binding.workspaceId}/edit-lock/${lease.lockId}`, {
       headers: {
         cookie: accessCookie!,
@@ -867,6 +932,146 @@ describe('cms integration routes', () => {
     const renderingVueScript = await app.fetch(new Request('http://localhost/api/page-builder/cms-rendering-vue.js'))
     expect(renderingVueScript.status).toBe(200)
     expect(await renderingVueScript.text()).not.toContain('ai_page_builder_access')
+  })
+
+  test('scopes CMS browser data APIs to the builder workspace project binding', async () => {
+    enableCmsIntegration(configDir)
+    process.env.PROMA_CMS_BASE_URL = 'https://demo.zving.com/manager/'
+    process.env.PROMA_CMS_USERNAME = 'test-user'
+    process.env.PROMA_CMS_PASSWORD = 'test-pass'
+
+    const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === 'https://cms.example.com/manager/ui/login') {
+        return jsonResponse({
+          status: 1,
+          data: {
+            logined: true,
+            userName: 'cms-user',
+            realName: 'CMS User',
+          },
+        })
+      }
+
+      if (url === 'https://demo.zving.com/manager/api/token') {
+        expect(init?.method).toBe('POST')
+        return createCmsTokenResponse()
+      }
+
+      if (url === 'https://demo.zving.com/manager/preview/news/upload/resources/image/banner.jpg') {
+        expect(new Headers(init?.headers).get('authorization')).toBeNull()
+        return new Response('image-bytes', {
+          headers: {
+            'content-type': 'image/jpeg',
+          },
+        })
+      }
+
+      expect(init?.headers).toMatchObject({
+        Authorization: 'Bearer cms-token',
+      })
+
+      if (url === 'https://demo.zving.com/manager/api/sites') {
+        return jsonResponse({
+          status: 1,
+          data: [
+            { id: 14, name: '绑定站点', url: 'https://site14.example.com/' },
+            { id: 99, name: '其他站点', url: 'https://site99.example.com/' },
+          ],
+        })
+      }
+
+      if (url === 'https://demo.zving.com/manager/api/catalogsTree?siteID=14') {
+        return jsonResponse({
+          status: 1,
+          data: [],
+        })
+      }
+
+      throw new Error(`unexpected request: ${url}`)
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+    const app = createApp()
+
+    const primary = await createBoundCmsProject(app, {
+      externalRecordId: 'cms-browser-scope-primary',
+      projectName: 'CMS Browser Scope Primary',
+      siteId: '14',
+    })
+    const secondary = await createBoundCmsProject(app, {
+      externalRecordId: 'cms-browser-scope-secondary',
+      projectName: 'CMS Browser Scope Secondary',
+      siteId: '99',
+    })
+    const handoffResponse = await createHandoff(app, primary.projectId, { target: 'builder' })
+    const handoff = await handoffResponse.json() as { openUrl: string }
+    const accessCookie = (await consumeOpenUrl(app, handoff.openUrl)).headers.get('set-cookie')
+    expect(accessCookie).toContain('ai_page_builder_access=')
+
+    const countCmsGatewayCalls = () => fetchMock.mock.calls
+      .filter(([input]) => String(input).startsWith('https://demo.zving.com/manager/api/'))
+      .length
+
+    const beforeMissingAccess = countCmsGatewayCalls()
+    const missingAccess = await app.fetch(new Request(`http://localhost/api/workspaces/${primary.binding.workspaceId}/page-builder/cms/sites`))
+    expect(missingAccess.status).toBe(401)
+    expect(await missingAccess.json()).toMatchObject({ code: 'builder_access_required' })
+    expect(countCmsGatewayCalls()).toBe(beforeMissingAccess)
+
+    const missingAssetAccess = await app.fetch(new Request(`http://localhost/api/workspaces/${primary.binding.workspaceId}/page-builder/cms/assets?url=${encodeURIComponent('https://demo.zving.com/manager/preview/news/upload/resources/image/banner.jpg')}`))
+    expect(missingAssetAccess.status).toBe(401)
+    expect(await missingAssetAccess.json()).toMatchObject({ code: 'builder_access_required' })
+    expect(countCmsGatewayCalls()).toBe(beforeMissingAccess)
+
+    const beforeWorkspaceMismatch = countCmsGatewayCalls()
+    const workspaceMismatch = await app.fetch(new Request(`http://localhost/api/workspaces/${secondary.binding.workspaceId}/page-builder/cms/sites`, {
+      headers: { cookie: accessCookie! },
+    }))
+    expect(workspaceMismatch.status).toBe(403)
+    expect(await workspaceMismatch.json()).toMatchObject({ code: 'builder_access_mismatch' })
+    expect(countCmsGatewayCalls()).toBe(beforeWorkspaceMismatch)
+
+    const assetWorkspaceMismatch = await app.fetch(new Request(`http://localhost/api/workspaces/${secondary.binding.workspaceId}/page-builder/cms/assets?url=${encodeURIComponent('https://demo.zving.com/manager/preview/news/upload/resources/image/banner.jpg')}`, {
+      headers: { cookie: accessCookie! },
+    }))
+    expect(assetWorkspaceMismatch.status).toBe(403)
+    expect(await assetWorkspaceMismatch.json()).toMatchObject({ code: 'builder_access_mismatch' })
+    expect(countCmsGatewayCalls()).toBe(beforeWorkspaceMismatch)
+
+    const beforeSiteMismatch = countCmsGatewayCalls()
+    const siteMismatch = await app.fetch(new Request(`http://localhost/api/workspaces/${primary.binding.workspaceId}/page-builder/cms/catalogs?siteId=99`, {
+      headers: { cookie: accessCookie! },
+    }))
+    expect(siteMismatch.status).toBe(403)
+    expect(await siteMismatch.json()).toMatchObject({ code: 'builder_access_mismatch' })
+    expect(countCmsGatewayCalls()).toBe(beforeSiteMismatch)
+
+    const sites = await app.fetch(new Request(`http://localhost/api/workspaces/${primary.binding.workspaceId}/page-builder/cms/sites`, {
+      headers: { cookie: accessCookie! },
+    }))
+    expect(sites.status).toBe(200)
+    expect(sites.headers.get('cache-control')).toBe('no-store')
+    expect(sites.headers.get('set-cookie')).toContain('ai_page_builder_access=')
+    expect(await sites.json()).toEqual([
+      expect.objectContaining({ id: '14', name: '绑定站点' }),
+    ])
+
+    const catalogs = await app.fetch(new Request(`http://localhost/api/workspaces/${primary.binding.workspaceId}/page-builder/cms/catalogs`, {
+      headers: { cookie: accessCookie! },
+    }))
+    expect(catalogs.status).toBe(200)
+    expect(catalogs.headers.get('cache-control')).toBe('no-store')
+    expect(await catalogs.json()).toEqual({ items: [], tree: [] })
+    expect(fetchMock.mock.calls.some(([input]) => String(input) === 'https://demo.zving.com/manager/api/catalogsTree?siteID=14')).toBe(true)
+
+    const asset = await app.fetch(new Request(`http://localhost/api/workspaces/${primary.binding.workspaceId}/page-builder/cms/assets?url=${encodeURIComponent('https://demo.zving.com/manager/preview/news/upload/resources/image/banner.jpg')}`, {
+      headers: { cookie: accessCookie! },
+    }))
+    expect(asset.status).toBe(200)
+    expect(asset.headers.get('cache-control')).toBe('private, no-store')
+    expect(asset.headers.get('content-type')).toBe('image/jpeg')
+    expect(asset.headers.get('set-cookie')).toContain('ai_page_builder_access=')
+    expect(await asset.text()).toBe('image-bytes')
   })
 
   test('rejects CMS mode permission and ask-user responses for another session requestId', async () => {

@@ -13,6 +13,10 @@ import type {
 } from '@ai-page-builder/shared'
 import { PAGE_BUILDER_CMS_SELECTION_RESULT_VERSION } from '@ai-page-builder/shared'
 
+interface CmsBrowserApiScope {
+  workspaceId?: string
+}
+
 const CATALOGS: PageBuilderCmsCatalogList = {
   items: [
     {
@@ -395,10 +399,10 @@ function installUiMocks() {
 }
 
 async function loadCmsBrowserDialog(options?: {
-  listSites?: () => Promise<PageBuilderCmsSiteSummary[]>
-  listCatalogs?: (query?: PageBuilderCmsCatalogQuery) => Promise<PageBuilderCmsCatalogList>
-  getCatalogDetail?: (catalogId: string, siteId?: string) => Promise<PageBuilderCmsCatalogDetail>
-  listContents?: (query: PageBuilderCmsContentQuery) => Promise<PageBuilderCmsContentList>
+  listSites?: (scope?: CmsBrowserApiScope) => Promise<PageBuilderCmsSiteSummary[]>
+  listCatalogs?: (query?: PageBuilderCmsCatalogQuery, scope?: CmsBrowserApiScope) => Promise<PageBuilderCmsCatalogList>
+  getCatalogDetail?: (catalogId: string, siteId?: string, scope?: CmsBrowserApiScope) => Promise<PageBuilderCmsCatalogDetail>
+  listContents?: (query: PageBuilderCmsContentQuery, scope?: CmsBrowserApiScope) => Promise<PageBuilderCmsContentList>
 }) {
   const treeHarness = installUiMocks()
   const listSites = options?.listSites ?? mock(async () => CMS_SITES)
@@ -407,6 +411,7 @@ async function loadCmsBrowserDialog(options?: {
   const listContents = options?.listContents ?? mock(async () => createContentsPayload('首页轮播图'))
 
   mock.module('@/lib/api', () => ({
+    resolveApiUrl: (url: string) => url,
     api: {
       listPageBuilderCmsSites: listSites,
       listPageBuilderCmsCatalogs: listCatalogs,
@@ -488,6 +493,70 @@ describe('CmsBrowserDialog', () => {
       catalogId: '100',
     }))
     expect(JSON.stringify(renderer.toJSON())).toContain('首页轮播图')
+  })
+
+  test('uses workspace-scoped CMS browser APIs and asset proxy when workspaceId is provided', async () => {
+    const { CmsBrowserDialog, listSites, listCatalogs, getCatalogDetail } = await loadCmsBrowserDialog()
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <CmsBrowserDialog open onOpenChange={() => {}} workspaceId="workspace-1" />,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(listSites).toHaveBeenCalledWith({ workspaceId: 'workspace-1' })
+    expect(listCatalogs).toHaveBeenCalledWith({ siteId: '1' }, { workspaceId: 'workspace-1' })
+    expect(getCatalogDetail).toHaveBeenCalledWith('100', '1', { workspaceId: 'workspace-1' })
+    expect(JSON.stringify(renderer.toJSON())).toContain('/api/workspaces/workspace-1/page-builder/cms/assets?url=')
+  })
+
+  test('clears checked selections when workspaceId changes while the dialog stays open', async () => {
+    const { CmsBrowserDialog, getLastTreeProps } = await loadCmsBrowserDialog()
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <CmsBrowserDialog
+          open
+          onOpenChange={() => {}}
+          requestContext={REQUEST_CONTEXT}
+          workspaceId="workspace-1"
+        />,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      (getLastTreeProps() as {
+        onCheck?: (checkedKeys: string[]) => void
+      } | null)?.onCheck?.(['101'])
+      await Promise.resolve()
+    })
+
+    expect(JSON.stringify(renderer.toJSON())).toContain('已选 1 个栏目')
+
+    await act(async () => {
+      renderer.update(
+        <CmsBrowserDialog
+          open
+          onOpenChange={() => {}}
+          requestContext={REQUEST_CONTEXT}
+          workspaceId="workspace-2"
+        />,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(getLastTreeProps()).toEqual(expect.objectContaining({
+      checkedKeys: [],
+    }))
+    expect(JSON.stringify(renderer.toJSON())).not.toContain('已选 1 个栏目')
   })
 
   test('reloads content data when returning to the content tab instead of reusing a cached page', async () => {

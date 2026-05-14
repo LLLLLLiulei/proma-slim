@@ -9,6 +9,7 @@ import { DEFAULT_CMS_PREVIEW_IMAGE, pickCmsPreviewImage } from './cmsPreviewImag
 interface CmsCatalogDetailPanelProps {
   state: CmsAsyncState<PageBuilderCmsCatalogDetail>
   onRetry: () => void
+  workspaceId?: string | null
 }
 
 function renderValue(value: string): string {
@@ -16,7 +17,7 @@ function renderValue(value: string): string {
 }
 
 export function CmsCatalogDetailPanel(props: CmsCatalogDetailPanelProps): React.ReactElement {
-  const { onRetry, state } = props
+  const { onRetry, state, workspaceId } = props
 
   if (state.status === 'loading' && !state.data) {
     return (
@@ -80,7 +81,7 @@ export function CmsCatalogDetailPanel(props: CmsCatalogDetailPanelProps): React.
             className="page-builder-cms-catalog-detail-logo"
             fallback={DEFAULT_CMS_PREVIEW_IMAGE}
             preview={false}
-            src={pickCmsPreviewImage(detail.logoUrl)}
+            src={pickCmsPreviewImage(detail.logoUrl, workspaceId)}
           />
         </div>
       </div>

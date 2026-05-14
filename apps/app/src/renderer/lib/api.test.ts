@@ -161,6 +161,50 @@ describe('renderer api wrappers', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
+  test('CMS browser APIs use legacy paths by default and workspace-scoped paths when requested', async () => {
+    const requestedUrls: string[] = []
+    const fetchMock = mock(async (input: RequestInfo | URL) => {
+      requestedUrls.push(String(input))
+      if (String(input).includes('/sites')) {
+        return jsonResponse([])
+      }
+      if (String(input).includes('/contents')) {
+        return jsonResponse({ pageIndex: 0, pageSize: 6, total: 0, totalPages: 1, items: [] })
+      }
+      if (String(input).includes('/catalogs/100')) {
+        return jsonResponse({
+          id: '100',
+          innerCode: '',
+          statusCode: 20,
+          statusLabel: '启用',
+          name: '栏目',
+          alias: '',
+          contentType: '',
+          contentTypeName: '',
+          description: '',
+          logoUrl: '',
+        })
+      }
+      return jsonResponse({ items: [], tree: [] })
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const { api } = await import(`./api.ts?test=${Date.now()}-${Math.random()}`)
+    await api.listPageBuilderCmsSites()
+    await api.listPageBuilderCmsSites({ workspaceId: 'workspace/1' })
+    await api.listPageBuilderCmsCatalogs({ siteId: '14' }, { workspaceId: 'workspace/1' })
+    await api.getPageBuilderCmsCatalogDetail('100', '14', { workspaceId: 'workspace/1' })
+    await api.listPageBuilderCmsContents({ siteId: '14', catalogId: '100', pageIndex: 0, pageSize: 6 }, { workspaceId: 'workspace/1' })
+
+    expect(requestedUrls).toEqual([
+      '/api/page-builder/cms/sites',
+      '/api/workspaces/workspace%2F1/page-builder/cms/sites',
+      '/api/workspaces/workspace%2F1/page-builder/cms/catalogs?siteId=14',
+      '/api/workspaces/workspace%2F1/page-builder/cms/catalogs/100?siteId=14',
+      '/api/workspaces/workspace%2F1/page-builder/cms/contents?siteId=14&catalogId=100&pageIndex=0&pageSize=6',
+    ])
+  })
+
   test('CMS integration API wrappers use the configured page-builder public base path', async () => {
     const requestedUrls: string[] = []
     const fetchMock = mock(async (input: RequestInfo | URL) => {

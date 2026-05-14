@@ -20,12 +20,13 @@ interface CmsContentListProps {
   state: CmsAsyncState<PageBuilderCmsContentList>
   onRetry: () => void
   onPageChange: (page: number, pageSize?: number) => void
+  workspaceId?: string | null
 }
 
 const CONTENTS_PAGE_SIZE_OPTIONS = ['6', '12', '24']
 
-function pickPreviewImage(item: PageBuilderCmsContentSummary): string {
-  return pickCmsPreviewImage(item.listLogoUrl)
+function pickPreviewImage(item: PageBuilderCmsContentSummary, workspaceId?: string | null): string {
+  return pickCmsPreviewImage(item.listLogoUrl, workspaceId)
 }
 
 function ReadyState(props: {
@@ -33,12 +34,14 @@ function ReadyState(props: {
   onCheckedContentChange: (item: PageBuilderCmsContentSummary, checked: boolean) => void
   data: PageBuilderCmsContentList
   onPageChange: (page: number, pageSize?: number) => void
+  workspaceId?: string | null
 }): React.ReactElement {
   const {
     checkedContentIds,
     data,
     onCheckedContentChange,
     onPageChange,
+    workspaceId,
   } = props
   const checkedContentIdSet = React.useMemo(() => new Set(checkedContentIds), [checkedContentIds])
 
@@ -47,7 +50,7 @@ function ReadyState(props: {
       <div className="page-builder-cms-content-list-scroll">
         <div className="page-builder-cms-content-list">
           {data.items.map((item) => {
-            const previewImage = pickPreviewImage(item)
+            const previewImage = pickPreviewImage(item, workspaceId)
             const checked = checkedContentIdSet.has(item.id)
             const toggleChecked = () => onCheckedContentChange(item, !checked)
             const summary = item.summary.trim()
@@ -147,6 +150,7 @@ export function CmsContentList(props: CmsContentListProps): React.ReactElement {
     state,
     onPageChange,
     onRetry,
+    workspaceId,
   } = props
 
   if (state.status === 'loading' && !state.data) {
@@ -196,6 +200,7 @@ export function CmsContentList(props: CmsContentListProps): React.ReactElement {
         data={state.data}
         onCheckedContentChange={onCheckedContentChange}
         onPageChange={onPageChange}
+        workspaceId={workspaceId}
       />
     </ConfigProvider>
   )

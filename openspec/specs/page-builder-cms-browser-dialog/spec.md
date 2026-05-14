@@ -170,17 +170,23 @@
 - **AND** 系统 SHALL 保持内容项的 `catalogId` 来自上游 `catalogID`
 
 ### Requirement: CMS 集成模式 CMS 浏览弹框不得使用旧全局 CMS browser API
-系统 SHALL 在 CMS 集成模式下阻止 CMS 浏览弹框继续使用旧全局 `/api/page-builder/cms/*` 数据读取和资产代理入口；在 workspace-scoped CMS 数据路由完成前，弹框可以显示不可用或错误状态，但不得通过旧全局接口匿名读取 CMS 数据。
+系统 SHALL 在 CMS 集成模式下阻止 CMS 浏览弹框继续使用旧全局 `/api/page-builder/cms/*` 数据读取和资产代理入口；弹框必须使用当前 Builder workspace 对应的 workspace-scoped CMS API 加载 CMS 站点、栏目、内容和资产。
 
 #### Scenario: CMS 模式打开 CMS 浏览弹框时不调用旧全局接口
 - **WHEN** `AI_PAGE_BUILDER_INTEGRATION_MODE=cms` 且用户在 Builder 中打开 CMS 浏览弹框
 - **THEN** 系统 SHALL NOT 使用 `/api/page-builder/cms/sites`、`/api/page-builder/cms/catalogs`、`/api/page-builder/cms/contents` 或 `/api/page-builder/cms/assets`
 - **AND** 系统 SHALL NOT 通过无 workspace 上下文的旧全局接口读取 CMS 站点、栏目、内容或资产
 
-#### Scenario: CMS 模式 workspace-scoped CMS 数据路由完成前弹框可展示不可用状态
-- **WHEN** `AI_PAGE_BUILDER_INTEGRATION_MODE=cms` 且 workspace-scoped CMS 数据路由尚未提供
-- **THEN** CMS 浏览弹框 SHALL 展示明确的暂不可用或读取失败提示
-- **AND** 系统 SHALL 保持 Builder 其他已受保护项目 API 的访问控制不受影响
+#### Scenario: CMS 模式 CMS 浏览弹框使用 workspace-scoped CMS API
+- **WHEN** `AI_PAGE_BUILDER_INTEGRATION_MODE=cms` 且用户在 Builder 中打开 CMS 浏览弹框
+- **THEN** 系统 SHALL 使用 `/api/workspaces/:workspaceId/page-builder/cms/sites`、`/catalogs`、`/contents` 和 `/assets` 读取 CMS 数据和图片
+- **AND** 请求中的 `workspaceId` SHALL 来自当前 Builder 页面上下文
+- **AND** 系统 SHALL 依赖同源 `ai_page_builder_access` Cookie 完成访问校验
+
+#### Scenario: CMS 模式 CMS 浏览弹框只展示绑定站点范围内数据
+- **WHEN** `AI_PAGE_BUILDER_INTEGRATION_MODE=cms` 且 CMS 浏览弹框加载站点、栏目或内容
+- **THEN** 弹框 SHALL 只展示当前 project binding `siteId` 范围内的数据
+- **AND** 弹框 SHALL NOT 提供切换到其他 CMS 站点并读取数据的能力
 
 #### Scenario: standalone 模式 CMS 浏览弹框继续使用旧全局读取链路
 - **WHEN** `AI_PAGE_BUILDER_INTEGRATION_MODE` 未设置为 `cms` 且用户打开 CMS 浏览弹框

@@ -120,10 +120,15 @@
 - **WHEN** 当前工作区存在可预览页面，且未配置 public base path
 - **THEN** 预览状态接口返回的 `entryUrl` SHALL 继续形如 `/api/workspaces/<workspaceId>/preview/`
 
-#### Scenario: CMS 资源代理 URL 使用 public base path
+#### Scenario: CMS 资源代理 URL 使用 public base path 和 workspace 上下文
 - **WHEN** 预览 HTML 中的 CMS 远程资源被重写为宿主代理 URL，且 public base path 为 `/pagebuilder`
-- **THEN** 重写后的资源 URL SHALL 位于 `/pagebuilder/api/page-builder/cms/assets`
+- **THEN** 重写后的资源 URL SHALL 位于 `/pagebuilder/api/workspaces/<workspaceId>/page-builder/cms/assets`
 - **AND** 系统 SHALL NOT 生成指向 CMS 根路径 `/api/page-builder/cms/assets` 的浏览器 URL
+
+#### Scenario: CMS 资源代理 URL 无 base path 时仍携带 workspace 上下文
+- **WHEN** 预览 HTML 中的 CMS 远程资源被重写为宿主代理 URL，且未配置 public base path
+- **THEN** 重写后的资源 URL SHALL 位于 `/api/workspaces/<workspaceId>/page-builder/cms/assets`
+- **AND** 系统 SHALL NOT 生成无 workspace 上下文的 `/api/page-builder/cms/assets` 预览资源 URL
 
 ### Requirement: CMS 集成模式下 workspace preview 必须校验 Builder Access Session
 系统 SHALL 在 CMS 集成模式下通过统一 CMS Builder Access middleware 对 workspace preview HTML 和静态子资源执行 Builder Access Session 校验，防止未通过 CMS handoff 的浏览器直接访问 preview URL。

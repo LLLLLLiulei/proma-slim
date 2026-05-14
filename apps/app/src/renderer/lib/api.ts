@@ -90,6 +90,10 @@ interface RequestOptions extends Omit<RequestInit, 'body'> {
   editLock?: PageBuilderEditLockCredentials
 }
 
+export interface PageBuilderCmsBrowserRequestScope {
+  workspaceId?: string
+}
+
 interface PageBuilderImageReplacementRequest extends PageBuilderImageReplacementPayload {
   file: File
 }
@@ -187,6 +191,16 @@ export function resolveApiUrl(url: string): string {
     return url
   }
   return prependPageBuilderPublicBasePath(url, configuredPublicBasePath)
+}
+
+function buildPageBuilderCmsBrowserPath(path: string, scope?: PageBuilderCmsBrowserRequestScope): string {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`
+  const workspaceId = scope?.workspaceId?.trim()
+  if (workspaceId) {
+    return `/api/workspaces/${encodeURIComponent(workspaceId)}/page-builder/cms${normalizedPath}`
+  }
+
+  return `/api/page-builder/cms${normalizedPath}`
 }
 
 async function readErrorMessage(response: Response): Promise<string> {
@@ -363,7 +377,10 @@ export const api = {
     })
   },
 
-  listPageBuilderCmsCatalogs(query: PageBuilderCmsCatalogQuery = {}): Promise<PageBuilderCmsCatalogList> {
+  listPageBuilderCmsCatalogs(
+    query: PageBuilderCmsCatalogQuery = {},
+    scope?: PageBuilderCmsBrowserRequestScope,
+  ): Promise<PageBuilderCmsCatalogList> {
     const params = new URLSearchParams()
     if (query.siteId) {
       params.set('siteId', query.siteId)
@@ -378,31 +395,38 @@ export const api = {
       params.set('searchKeyword', query.searchKeyword)
     }
 
-    const url = params.size > 0
-      ? `/api/page-builder/cms/catalogs?${params.toString()}`
-      : '/api/page-builder/cms/catalogs'
+    const path = params.size > 0
+      ? `/catalogs?${params.toString()}`
+      : '/catalogs'
 
-    return request<PageBuilderCmsCatalogList>(url, CMS_REALTIME_REQUEST_OPTIONS)
+    return request<PageBuilderCmsCatalogList>(buildPageBuilderCmsBrowserPath(path, scope), CMS_REALTIME_REQUEST_OPTIONS)
   },
 
-  listPageBuilderCmsSites(): Promise<PageBuilderCmsSiteSummary[]> {
-    return request<PageBuilderCmsSiteSummary[]>('/api/page-builder/cms/sites', CMS_REALTIME_REQUEST_OPTIONS)
+  listPageBuilderCmsSites(scope?: PageBuilderCmsBrowserRequestScope): Promise<PageBuilderCmsSiteSummary[]> {
+    return request<PageBuilderCmsSiteSummary[]>(buildPageBuilderCmsBrowserPath('/sites', scope), CMS_REALTIME_REQUEST_OPTIONS)
   },
 
-  getPageBuilderCmsCatalogDetail(catalogId: string, siteId?: string): Promise<PageBuilderCmsCatalogDetail> {
+  getPageBuilderCmsCatalogDetail(
+    catalogId: string,
+    siteId?: string,
+    scope?: PageBuilderCmsBrowserRequestScope,
+  ): Promise<PageBuilderCmsCatalogDetail> {
     const params = new URLSearchParams()
     if (siteId) {
       params.set('siteId', siteId)
     }
 
-    const url = params.size > 0
-      ? `/api/page-builder/cms/catalogs/${encodeURIComponent(catalogId)}?${params.toString()}`
-      : `/api/page-builder/cms/catalogs/${encodeURIComponent(catalogId)}`
+    const path = params.size > 0
+      ? `/catalogs/${encodeURIComponent(catalogId)}?${params.toString()}`
+      : `/catalogs/${encodeURIComponent(catalogId)}`
 
-    return request<PageBuilderCmsCatalogDetail>(url, CMS_REALTIME_REQUEST_OPTIONS)
+    return request<PageBuilderCmsCatalogDetail>(buildPageBuilderCmsBrowserPath(path, scope), CMS_REALTIME_REQUEST_OPTIONS)
   },
 
-  listPageBuilderCmsContents(query: PageBuilderCmsContentQuery): Promise<PageBuilderCmsContentList> {
+  listPageBuilderCmsContents(
+    query: PageBuilderCmsContentQuery,
+    scope?: PageBuilderCmsBrowserRequestScope,
+  ): Promise<PageBuilderCmsContentList> {
     const params = new URLSearchParams()
     if (query.siteId) {
       params.set('siteId', query.siteId)
@@ -423,7 +447,7 @@ export const api = {
       params.set('keyword', query.keyword)
     }
 
-    return request<PageBuilderCmsContentList>(`/api/page-builder/cms/contents?${params.toString()}`, CMS_REALTIME_REQUEST_OPTIONS)
+    return request<PageBuilderCmsContentList>(buildPageBuilderCmsBrowserPath(`/contents?${params.toString()}`, scope), CMS_REALTIME_REQUEST_OPTIONS)
   },
 
   getWorkspaceCapabilities(workspaceId: string): Promise<WorkspaceCapabilities> {

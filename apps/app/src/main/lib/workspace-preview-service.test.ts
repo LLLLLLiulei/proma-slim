@@ -124,7 +124,7 @@ describe('workspace preview service', () => {
     const response = createWorkspacePreviewResponse(workspace, '/', { enablePageBuilderBridge: true })
     const html = await response.text()
 
-    expect(html).toContain('"cmsProxyBase":"/pagebuilder/api/page-builder/cms"')
+    expect(html).toContain(`"cmsProxyBase":"/pagebuilder/api/workspaces/${workspace.id}/page-builder/cms"`)
     expect(html).not.toContain('"cmsProxyBase":"/api/page-builder/cms"')
   })
 
@@ -194,7 +194,7 @@ describe('workspace preview service', () => {
     const response = createWorkspacePreviewResponse(workspace, '/')
     const html = await response.text()
 
-    expect(html).toContain('/api/page-builder/cms/assets?url=')
+    expect(html).toContain(`/api/workspaces/${workspace.id}/page-builder/cms/assets?url=`)
     expect(html).toContain(encodeURIComponent('https://demo.zving.com/manager/preview/news/upload/resources/image/banner.jpg'))
     expect(html).toContain(encodeURIComponent('https://demo.zving.com/assets/images/addpicture.png'))
     expect(html).toContain(encodeURIComponent('https://demo.zving.com/manager/preview/news/upload/resources/video/demo.mp4'))
@@ -227,7 +227,7 @@ describe('workspace preview service', () => {
     const response = createWorkspacePreviewResponse(workspace, '/')
     const html = await response.text()
 
-    expect(html).toContain('/pagebuilder/api/page-builder/cms/assets?url=')
+    expect(html).toContain(`/pagebuilder/api/workspaces/${workspace.id}/page-builder/cms/assets?url=`)
     expect(html).not.toContain('src="/api/page-builder/cms/assets?url=')
   })
 })

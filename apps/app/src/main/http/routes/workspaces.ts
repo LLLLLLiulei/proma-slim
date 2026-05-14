@@ -28,7 +28,9 @@ import {
   assertCmsBuilderApiAvailableInCmsMode,
   createCmsBuilderAccessMiddleware,
 } from '../../lib/cms-integration/cms-builder-access-middleware'
-import { builderAccessMismatch } from '../../lib/cms-integration/cms-integration-errors'
+import { resolveCmsIntegrationConfig } from '../../lib/cms-integration/cms-integration-config'
+import { builderAccessMismatch, builderAccessRequired, cmsProjectNotFound } from '../../lib/cms-integration/cms-integration-errors'
+import { getSharedCmsProjectBindingStore, type CmsIntegratedProjectBinding } from '../../lib/cms-integration/cms-project-binding-store'
 import {
   PageBuilderBlockDeletionError,
   savePageBuilderBlockDeletion,
@@ -56,6 +58,14 @@ import { json, noContent, readJsonBody } from '../responses'
 import type { HttpAppEnv } from '../types'
 import { workspaceMiddleware } from '../middleware/workspace'
 import { assertPageBuilderEditLockForWorkspace } from '../page-builder-edit-lock-auth'
+import {
+  type PageBuilderCmsBrowserScope,
+  handlePageBuilderCmsAsset,
+  handlePageBuilderCmsCatalogDetail,
+  handlePageBuilderCmsCatalogs,
+  handlePageBuilderCmsContents,
+  handlePageBuilderCmsSites,
+} from './page-builder-cms-browser-handlers'
 
 export const workspaceRoutes = new Hono<HttpAppEnv>()
 
@@ -65,6 +75,40 @@ function getWorkspacePreviewRequestPath(url: string, workspaceId: string): strin
   const suffix = pathname.startsWith(prefix) ? pathname.slice(prefix.length) : '/'
 
   return suffix || '/'
+}
+
+function resolveCmsWorkspaceBrowserScope(c: { var: HttpAppEnv['Variables'] }): PageBuilderCmsBrowserScope {
+  if (!resolveCmsIntegrationConfig().enabled) {
+    return {}
+  }
+
+  const binding = resolveCmsProjectBindingForWorkspace(c)
+  return {
+    siteId: binding.siteId,
+    filterSitesToSiteId: binding.siteId,
+  }
+}
+
+function resolveCmsProjectBindingForWorkspace(c: { var: HttpAppEnv['Variables'] }): CmsIntegratedProjectBinding {
+  const access = c.var.cmsBuilderAccess
+  if (!access) {
+    throw builderAccessRequired()
+  }
+
+  const binding = getSharedCmsProjectBindingStore().findByProjectId(access.projectId)
+  if (!binding) {
+    throw cmsProjectNotFound()
+  }
+
+  if (
+    binding.workspaceId !== access.workspaceId
+    || binding.workspaceId !== c.var.workspace.id
+    || binding.primarySessionId !== access.sessionId
+  ) {
+    throw builderAccessMismatch('当前 CMS access session 与 project binding 不匹配，请从 CMS 重新进入')
+  }
+
+  return binding
 }
 
 workspaceRoutes.get('/', (c) => {
@@ -148,6 +192,31 @@ workspaceRoutes.get('/:workspaceId/preview-state', (c) => {
   return json(getWorkspacePreviewState(c.var.workspace))
 })
 
+workspaceRoutes.get('/:workspaceId/page-builder/cms/sites', async (c) => {
+  const scope = resolveCmsWorkspaceBrowserScope(c)
+  return handlePageBuilderCmsSites(c, scope)
+})
+
+workspaceRoutes.get('/:workspaceId/page-builder/cms/catalogs', async (c) => {
+  const scope = resolveCmsWorkspaceBrowserScope(c)
+  return handlePageBuilderCmsCatalogs(c, scope)
+})
+
+workspaceRoutes.get('/:workspaceId/page-builder/cms/catalogs/:catalogId', async (c) => {
+  const scope = resolveCmsWorkspaceBrowserScope(c)
+  return handlePageBuilderCmsCatalogDetail(c, c.req.param('catalogId'), scope)
+})
+
+workspaceRoutes.get('/:workspaceId/page-builder/cms/contents', async (c) => {
+  const scope = resolveCmsWorkspaceBrowserScope(c)
+  return handlePageBuilderCmsContents(c, scope)
+})
+
+workspaceRoutes.get('/:workspaceId/page-builder/cms/assets', async (c) => {
+  resolveCmsWorkspaceBrowserScope(c)
+  return handlePageBuilderCmsAsset(c)
+})
+
 workspaceRoutes.post('/:workspaceId/page-builder/cms-target-snapshot', async (c) => {
   const body = await readJsonBody<{ targetSelection?: unknown }>(c.req.raw)
   const targetSelection = readPageBuilderTargetSelection(body.targetSelection)
@@ -189,6 +258,12 @@ workspaceRoutes.post('/:workspaceId/page-builder/cms-auto-handoff', async (c) =>
   }
 
   const selection = readPageBuilderCmsSelectionResult(body.selection)
+  if (cmsBuilderAccess) {
+    const binding = resolveCmsProjectBindingForWorkspace(c)
+    if (selection.siteId !== binding.siteId) {
+      throw builderAccessMismatch('当前 CMS handoff selection.siteId 与当前项目绑定站点不匹配，请从 CMS 重新进入')
+    }
+  }
   const uiEntryPoint = readPageBuilderCmsSelectionEntryPoint(body.uiEntryPoint)
 
   try {

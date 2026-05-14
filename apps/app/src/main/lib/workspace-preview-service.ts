@@ -134,20 +134,20 @@ function shouldServeHtmlFromSource(resolvedPath: string): boolean {
   return /\.html?$/i.test(resolvedPath)
 }
 
-function buildCmsAssetProxyUrl(assetUrl: string): string {
-  return buildPageBuilderPublicUrl(`/api/page-builder/cms/assets?url=${encodeURIComponent(assetUrl)}`)
+function buildCmsAssetProxyUrl(assetUrl: string, workspaceId: string): string {
+  return buildPageBuilderPublicUrl(`/api/workspaces/${encodeURIComponent(workspaceId)}/page-builder/cms/assets?url=${encodeURIComponent(assetUrl)}`)
 }
 
-function rewriteCmsAssetUrl(baseUrl: string, rawValue: string): string {
+function rewriteCmsAssetUrl(baseUrl: string, workspaceId: string, rawValue: string): string {
   const resolved = resolveCmsAssetUrl(baseUrl, rawValue)
   if (!resolved) {
     return rawValue
   }
 
-  return buildCmsAssetProxyUrl(resolved)
+  return buildCmsAssetProxyUrl(resolved, workspaceId)
 }
 
-function rewritePreviewHtmlCmsAssetUrls(sourceHtml: string): string {
+function rewritePreviewHtmlCmsAssetUrls(workspace: AgentWorkspace, sourceHtml: string): string {
   const cmsConfig = resolvePageBuilderCmsConfig()
   if (!cmsConfig) {
     return sourceHtml
@@ -167,7 +167,7 @@ function rewritePreviewHtmlCmsAssetUrls(sourceHtml: string): string {
         continue
       }
 
-      const nextValue = rewriteCmsAssetUrl(cmsConfig.baseUrl, currentValue)
+      const nextValue = rewriteCmsAssetUrl(cmsConfig.baseUrl, workspace.id, currentValue)
       if (nextValue !== currentValue) {
         element.setAttribute(attribute, nextValue)
         changed = true
@@ -184,7 +184,7 @@ function rewritePreviewHtmlCmsAssetUrls(sourceHtml: string): string {
         continue
       }
 
-      const nextValue = rewriteSrcsetValue(currentValue, (rawUrl) => rewriteCmsAssetUrl(cmsConfig.baseUrl, rawUrl))
+      const nextValue = rewriteSrcsetValue(currentValue, (rawUrl) => rewriteCmsAssetUrl(cmsConfig.baseUrl, workspace.id, rawUrl))
       if (nextValue !== currentValue) {
         element.setAttribute(attribute, nextValue)
         changed = true
@@ -193,7 +193,7 @@ function rewritePreviewHtmlCmsAssetUrls(sourceHtml: string): string {
 
     const styleValue = element.getAttribute('style')
     if (styleValue) {
-      const nextStyleValue = rewriteCssUrlFunctions(styleValue, (rawUrl) => rewriteCmsAssetUrl(cmsConfig.baseUrl, rawUrl))
+      const nextStyleValue = rewriteCssUrlFunctions(styleValue, (rawUrl) => rewriteCmsAssetUrl(cmsConfig.baseUrl, workspace.id, rawUrl))
       if (nextStyleValue !== styleValue) {
         element.setAttribute('style', nextStyleValue)
         changed = true
@@ -207,7 +207,7 @@ function rewritePreviewHtmlCmsAssetUrls(sourceHtml: string): string {
       continue
     }
 
-    const nextCssText = rewriteCssUrlFunctions(currentCssText, (rawUrl) => rewriteCmsAssetUrl(cmsConfig.baseUrl, rawUrl))
+    const nextCssText = rewriteCssUrlFunctions(currentCssText, (rawUrl) => rewriteCmsAssetUrl(cmsConfig.baseUrl, workspace.id, rawUrl))
     if (nextCssText !== currentCssText) {
       styleElement.textContent = nextCssText
       changed = true
@@ -227,7 +227,7 @@ function injectWorkspaceCmsRenderingPreview(
 
   return injectCmsRenderingPreview(sourceHtml, {
     workspaceId: workspace.id,
-    cmsProxyBase: buildPageBuilderPublicUrl('/api/page-builder/cms'),
+    cmsProxyBase: buildPageBuilderPublicUrl(`/api/workspaces/${encodeURIComponent(workspace.id)}/page-builder/cms`),
     vueAssetUrl: getPageBuilderCmsRenderingVueAssetUrl(),
     bootstrapAssetUrl: getPageBuilderCmsRenderingPreviewAssetUrl(),
   })
@@ -252,7 +252,7 @@ export function createWorkspacePreviewResponse(
     const sourceHtml = readFileSync(resolvedPath, 'utf-8')
     const previewHtml = injectWorkspaceCmsRenderingPreview(
       workspace,
-      rewritePreviewHtmlCmsAssetUrls(sourceHtml),
+      rewritePreviewHtmlCmsAssetUrls(workspace, sourceHtml),
     )
     const transformedHtml = shouldInjectBridge
       ? injectPageBuilderPreviewBridge(previewHtml)

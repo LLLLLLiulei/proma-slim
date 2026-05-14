@@ -825,7 +825,8 @@ describe('BuilderPage', () => {
       initialUserMessage: null,
     })
     expect(getLastCmsBrowserDialogProps()).toMatchObject({
-      cmsDataUnavailableReason: expect.stringContaining('CMS 集成模式'),
+      cmsDataUnavailableReason: null,
+      workspaceId: workspace.id,
     })
   })
 

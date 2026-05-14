@@ -1,5 +1,11 @@
-export function buildCmsAssetProxyUrl(assetUrl: string): string {
-  return `/api/page-builder/cms/assets?url=${encodeURIComponent(assetUrl)}`
+import { resolveApiUrl } from '@/lib/api'
+
+export function buildCmsAssetProxyUrl(assetUrl: string, workspaceId?: string | null): string {
+  const normalizedWorkspaceId = workspaceId?.trim()
+  const path = normalizedWorkspaceId
+    ? `/api/workspaces/${encodeURIComponent(normalizedWorkspaceId)}/page-builder/cms/assets?url=${encodeURIComponent(assetUrl)}`
+    : `/api/page-builder/cms/assets?url=${encodeURIComponent(assetUrl)}`
+  return resolveApiUrl(path)
 }
 
 function buildDefaultPreviewImage(): string {
@@ -20,9 +26,9 @@ function buildDefaultPreviewImage(): string {
 
 export const DEFAULT_CMS_PREVIEW_IMAGE = buildDefaultPreviewImage()
 
-export function pickCmsPreviewImage(assetUrl?: string | null): string {
+export function pickCmsPreviewImage(assetUrl?: string | null, workspaceId?: string | null): string {
   if (assetUrl) {
-    return buildCmsAssetProxyUrl(assetUrl)
+    return buildCmsAssetProxyUrl(assetUrl, workspaceId)
   }
 
   return DEFAULT_CMS_PREVIEW_IMAGE

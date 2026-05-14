@@ -108,8 +108,6 @@ const CMS_REGION_BLOCKED_ERROR_MESSAGE = '当前已选 CMS 区域已失效或无
 const EDIT_LOCK_LOST_MESSAGE = '编辑锁已失效，请从首页重新进入编辑'
 const CMS_BUILDER_CONTEXT_EXPIRED_MESSAGE = '访问已失效，请从 CMS 系统重新进入 PageBuilder'
 const INTEGRATION_STATUS_UNAVAILABLE_MESSAGE = '服务暂不可用，请稍后重试。'
-const CMS_BROWSER_UNAVAILABLE_IN_INTEGRATION_MODE_MESSAGE =
-  'CMS 集成模式下暂不支持旧版 CMS 浏览，待工作区级 CMS 数据路由启用后恢复。'
 const pendingInitialEditLockResolutions = new Map<string, Promise<PageBuilderEditLockLease>>()
 
 function isCmsIntegrationEnabled(status: CmsIntegrationStatus): boolean {
@@ -360,6 +358,7 @@ export function BuilderPage({
   const [pendingDeleteSelector, setPendingDeleteSelector] = React.useState<string | null>(null)
   const [cmsBrowserOpen, setCmsBrowserOpen] = React.useState(false)
   const [cmsDataUnavailableReason, setCmsDataUnavailableReason] = React.useState<string | null>(null)
+  const [cmsBrowserWorkspaceId, setCmsBrowserWorkspaceId] = React.useState<string | null>(null)
   const [cmsSelectionEntryPoint, setCmsSelectionEntryPoint] = React.useState<PageBuilderCmsSelectionEntryPoint>('block-toolbar')
   const [cmsAutoHandoffRequest, setCmsAutoHandoffRequest] = React.useState<PageBuilderCmsAutoAgentHandoffRequest | null>(null)
   const [isDeletingBlock, setIsDeletingBlock] = React.useState(false)
@@ -446,6 +445,7 @@ export function BuilderPage({
     setEditLockLease(null)
     setEditLockLostMessage(null)
     setCmsDataUnavailableReason(null)
+    setCmsBrowserWorkspaceId(null)
 
     let integrationStatus: CmsIntegrationStatus
     try {
@@ -460,7 +460,6 @@ export function BuilderPage({
     }
 
     if (isCmsIntegrationEnabled(integrationStatus)) {
-      setCmsDataUnavailableReason(CMS_BROWSER_UNAVAILABLE_IN_INTEGRATION_MODE_MESSAGE)
       let context: CmsBuilderContext
       try {
         context = await api.getCmsBuilderContext(workspaceId, sessionId)
@@ -488,6 +487,7 @@ export function BuilderPage({
         setWorkspaces([cmsWorkspace])
         setCurrentSessionId(cmsSession.id)
         setCurrentWorkspaceId(cmsWorkspace.id)
+        setCmsBrowserWorkspaceId(cmsWorkspace.id)
         setLoadState({ status: 'ready', initialUserMessage: null })
         return
       } catch (error) {
@@ -501,6 +501,7 @@ export function BuilderPage({
     }
 
     setCmsDataUnavailableReason(null)
+    setCmsBrowserWorkspaceId(null)
 
     try {
       const [sessions, workspaces] = await Promise.all([
@@ -1635,6 +1636,7 @@ export function BuilderPage({
         onOpenChange={setCmsBrowserOpen}
         open={cmsBrowserOpen}
         requestContext={cmsSelectionRequestContext}
+        workspaceId={cmsBrowserWorkspaceId}
       />
     </div>
   )

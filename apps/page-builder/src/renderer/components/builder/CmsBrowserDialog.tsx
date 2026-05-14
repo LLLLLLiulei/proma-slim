@@ -28,6 +28,7 @@ interface CmsBrowserDialogProps {
   onOpenChange: (open: boolean) => void
   requestContext?: PageBuilderCmsSelectionRequestContext
   confirming?: boolean
+  workspaceId?: string | null
 }
 
 export type CmsBrowserDialogSelection = PageBuilderCmsSelectionResult
@@ -78,7 +79,9 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
     onOpenChange,
     requestContext,
     confirming = false,
+    workspaceId,
   } = props
+  const normalizedWorkspaceId = workspaceId?.trim() ?? ''
   const resolvedCmsDataUnavailableReason = cmsDataUnavailableReason?.trim() || null
   const {
     activeTab,
@@ -100,7 +103,10 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
     retryCatalogDetail,
     retryCatalogs,
     retryContents,
-  } = useCmsBrowserState({ open: open && resolvedCmsDataUnavailableReason === null })
+  } = useCmsBrowserState({
+    open: open && resolvedCmsDataUnavailableReason === null,
+    workspaceId: normalizedWorkspaceId || null,
+  })
   const [checkedCatalogIds, setCheckedCatalogIds] = React.useState<string[]>([])
   const [checkedContentIds, setCheckedContentIds] = React.useState<string[]>([])
   const [checkedContentItemsById, setCheckedContentItemsById] = React.useState<Record<string, PageBuilderCmsContentSummary>>({})
@@ -220,6 +226,11 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
     setCheckedCatalogIds([])
     clearCheckedContents()
   }, [clearCheckedContents])
+
+  React.useEffect(() => {
+    clearCheckedSelections()
+    setContentTreeCatalogId(undefined)
+  }, [clearCheckedSelections, normalizedWorkspaceId])
 
   const handleSelectContentCatalog = React.useCallback((catalogId: string) => {
     if (catalogId !== currentContentCatalogId) {
@@ -557,6 +568,7 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
                 <CmsCatalogDetailPanel
                   onRetry={retryCatalogDetail}
                   state={catalogDetailState}
+                  workspaceId={workspaceId}
                 />
               </div>
             </div>
@@ -583,6 +595,7 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
                   state={currentContentCatalogId
                     ? contentsState
                     : emptyContentsState}
+                  workspaceId={workspaceId}
                 />
               </div>
             </div>

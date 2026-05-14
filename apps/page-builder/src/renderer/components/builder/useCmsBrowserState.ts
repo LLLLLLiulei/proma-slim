@@ -18,6 +18,7 @@ export interface CmsAsyncState<T> {
 
 interface UseCmsBrowserStateOptions {
   open: boolean
+  workspaceId?: string | null
 }
 
 interface UseCmsBrowserStateResult {
@@ -88,6 +89,7 @@ function resolveDefaultSiteId(sites: PageBuilderCmsSiteSummary[]): string | null
 
 export function useCmsBrowserState(options: UseCmsBrowserStateOptions): UseCmsBrowserStateResult {
   const { open } = options
+  const workspaceId = options.workspaceId?.trim() ?? ''
   const [activeTab, setActiveTabState] = React.useState<CmsBrowserTab>('catalogs')
   const [sitesState, setSitesState] = React.useState<CmsAsyncState<PageBuilderCmsSiteSummary[]>>(() => createIdleState())
   const [catalogsState, setCatalogsState] = React.useState<CmsAsyncState<PageBuilderCmsCatalogList>>(() => createIdleState())
@@ -102,6 +104,7 @@ export function useCmsBrowserState(options: UseCmsBrowserStateOptions): UseCmsBr
   const catalogsRequestVersionRef = React.useRef(0)
   const catalogDetailRequestVersionRef = React.useRef(0)
   const contentsRequestVersionRef = React.useRef(0)
+  const previousWorkspaceIdRef = React.useRef(workspaceId)
 
   const resetSiteScopedState = React.useCallback(() => {
     catalogsRequestVersionRef.current += 1
@@ -138,7 +141,9 @@ export function useCmsBrowserState(options: UseCmsBrowserStateOptions): UseCmsBr
     const requestVersion = ++sitesRequestVersionRef.current
 
     try {
-      const result = await api.listPageBuilderCmsSites()
+      const result = workspaceId
+        ? await api.listPageBuilderCmsSites({ workspaceId })
+        : await api.listPageBuilderCmsSites()
       if (requestVersion !== sitesRequestVersionRef.current) {
         return
       }
@@ -164,7 +169,7 @@ export function useCmsBrowserState(options: UseCmsBrowserStateOptions): UseCmsBr
         errorMessage: toErrorMessage(error, '加载 CMS 站点失败'),
       })
     }
-  }, [open, sitesState.status])
+  }, [open, sitesState.status, workspaceId])
 
   const ensureCatalogsLoaded = React.useCallback(async (siteId: string, force = false) => {
     if (!open) return
@@ -180,7 +185,9 @@ export function useCmsBrowserState(options: UseCmsBrowserStateOptions): UseCmsBr
     const requestVersion = ++catalogsRequestVersionRef.current
 
     try {
-      const result = await api.listPageBuilderCmsCatalogs({ siteId })
+      const result = workspaceId
+        ? await api.listPageBuilderCmsCatalogs({ siteId }, { workspaceId })
+        : await api.listPageBuilderCmsCatalogs({ siteId })
       if (requestVersion !== catalogsRequestVersionRef.current) {
         return
       }
@@ -202,7 +209,7 @@ export function useCmsBrowserState(options: UseCmsBrowserStateOptions): UseCmsBr
         errorMessage: toErrorMessage(error, '加载 CMS 栏目失败'),
       })
     }
-  }, [catalogsState.status, open])
+  }, [catalogsState.status, open, workspaceId])
 
   const ensureContentsLoaded = React.useCallback(async (
     siteId: string,
@@ -221,7 +228,10 @@ export function useCmsBrowserState(options: UseCmsBrowserStateOptions): UseCmsBr
     const requestVersion = ++contentsRequestVersionRef.current
 
     try {
-      const result = await api.listPageBuilderCmsContents({ siteId, catalogId, pageIndex, pageSize })
+      const query = { siteId, catalogId, pageIndex, pageSize }
+      const result = workspaceId
+        ? await api.listPageBuilderCmsContents(query, { workspaceId })
+        : await api.listPageBuilderCmsContents(query)
       if (requestVersion !== contentsRequestVersionRef.current) {
         return
       }
@@ -240,7 +250,7 @@ export function useCmsBrowserState(options: UseCmsBrowserStateOptions): UseCmsBr
         errorMessage: toErrorMessage(error, '加载 CMS 内容失败'),
       })
     }
-  }, [open])
+  }, [open, workspaceId])
 
   const ensureCatalogDetailLoaded = React.useCallback(async (siteId: string, catalogId: string, _force = false) => {
     if (!open) return
@@ -253,7 +263,9 @@ export function useCmsBrowserState(options: UseCmsBrowserStateOptions): UseCmsBr
     const requestVersion = ++catalogDetailRequestVersionRef.current
 
     try {
-      const result = await api.getPageBuilderCmsCatalogDetail(catalogId, siteId)
+      const result = workspaceId
+        ? await api.getPageBuilderCmsCatalogDetail(catalogId, siteId, { workspaceId })
+        : await api.getPageBuilderCmsCatalogDetail(catalogId, siteId)
       if (requestVersion !== catalogDetailRequestVersionRef.current) {
         return
       }
@@ -272,7 +284,16 @@ export function useCmsBrowserState(options: UseCmsBrowserStateOptions): UseCmsBr
         errorMessage: toErrorMessage(error, '加载 CMS 栏目详情失败'),
       })
     }
-  }, [open])
+  }, [open, workspaceId])
+
+  React.useEffect(() => {
+    if (previousWorkspaceIdRef.current === workspaceId) {
+      return
+    }
+
+    previousWorkspaceIdRef.current = workspaceId
+    resetAllState()
+  }, [resetAllState, workspaceId])
 
   React.useEffect(() => {
     if (!open) {
