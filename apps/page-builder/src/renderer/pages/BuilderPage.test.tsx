@@ -789,6 +789,7 @@ describe('BuilderPage', () => {
       acquirePageBuilderEditLock,
       getCmsBuilderContext,
       getLastAgentViewProps,
+      getLastCmsBrowserDialogProps,
       listSessions,
       listWorkspaces,
     } = await loadBuilderPage({
@@ -822,6 +823,48 @@ describe('BuilderPage', () => {
     expect(getLastAgentViewProps()).toMatchObject({
       sessionId: session.id,
       initialUserMessage: null,
+    })
+    expect(getLastCmsBrowserDialogProps()).toMatchObject({
+      cmsDataUnavailableReason: expect.stringContaining('CMS 集成模式'),
+    })
+  })
+
+  test('keeps the CMS browser dialog on legacy standalone loading in standalone mode', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const { BuilderPage, getLastCmsBrowserDialogProps } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      mockPreviewPane: true,
+      mockCmsBrowserDialog: true,
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(getLastCmsBrowserDialogProps()).toMatchObject({
+      cmsDataUnavailableReason: null,
     })
   })
 

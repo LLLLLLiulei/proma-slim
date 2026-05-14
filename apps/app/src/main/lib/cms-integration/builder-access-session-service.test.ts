@@ -128,4 +128,77 @@ describe('builder access session service', () => {
     expect(store.get('access-1')).toBeNull()
     expect(store.get('access-2')).toBeTruthy()
   })
+
+  test('renews an existing access session without changing the signed cookie value', () => {
+    let now = 1000
+    const service = createBuilderAccessSessionService({
+      now: () => now,
+      randomUUID: () => 'access-1',
+      signingSecret: 'secret',
+      ttlMs: 2000,
+      store: new InMemoryBuilderAccessSessionStore(),
+    })
+
+    const created = service.create({
+      projectId: 'pbp_1',
+      workspaceId: 'workspace-1',
+      sessionId: 'session-1',
+      basePath: '',
+      isSecure: false,
+    })
+    const originalCookieValue = created.cookie.match(/ai_page_builder_access=([^;]+)/)?.[1]
+
+    now = 2500
+    const renewed = service.renew(created.accessId, {
+      basePath: '/pagebuilder',
+      isSecure: true,
+    })
+
+    expect(renewed?.access).toMatchObject({
+      accessId: 'access-1',
+      expiresAt: 4500,
+    })
+    expect(renewed?.cookie).toContain(`ai_page_builder_access=${originalCookieValue}`)
+    expect(renewed?.cookie).toContain('Path=/pagebuilder')
+    expect(renewed?.cookie).toContain('Max-Age=2')
+    expect(renewed?.cookie).toContain('Secure')
+    expect(service.validate(renewed?.cookie, {
+      workspaceId: 'workspace-1',
+      sessionId: 'session-1',
+    })).toMatchObject({ valid: true })
+  })
+
+  test('does not renew missing or expired access sessions', () => {
+    let now = 1000
+    const service = createBuilderAccessSessionService({
+      now: () => now,
+      randomUUID: () => 'access-1',
+      signingSecret: 'secret',
+      ttlMs: 10,
+      store: new InMemoryBuilderAccessSessionStore(),
+    })
+
+    const created = service.create({
+      projectId: 'pbp_1',
+      workspaceId: 'workspace-1',
+      sessionId: 'session-1',
+      basePath: '',
+      isSecure: false,
+    })
+
+    expect(service.renew('missing-access', {
+      basePath: '',
+      isSecure: false,
+    })).toBeNull()
+
+    now = 1011
+    expect(service.renew(created.accessId, {
+      basePath: '',
+      isSecure: false,
+    })).toBeNull()
+    expect(service.validate(created.cookie, {
+      workspaceId: 'workspace-1',
+      sessionId: 'session-1',
+    })).toMatchObject({ valid: false, code: 'builder_access_required' })
+  })
 })

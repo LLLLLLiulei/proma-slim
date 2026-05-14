@@ -132,6 +132,10 @@ export class AgentAskUserService {
     return sessionId
   }
 
+  getPendingAskUserSessionId(requestId: string): string | null {
+    return this.pendingRequests.get(requestId)?.request.sessionId ?? null
+  }
+
   /**
    * 清除指定会话的所有待处理 AskUser 请求
    */

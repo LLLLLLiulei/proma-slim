@@ -35,6 +35,11 @@ import { noContent, readJsonBody } from '../responses'
 import type { HttpAppEnv } from '../types'
 import { sessionMiddleware } from '../middleware/session'
 import { assertPageBuilderEditLockForWorkspace } from '../page-builder-edit-lock-auth'
+import {
+  assertCmsBuilderApiAvailableInCmsMode,
+  createCmsBuilderAccessMiddleware,
+} from '../../lib/cms-integration/cms-builder-access-middleware'
+import { builderAccessMismatch } from '../../lib/cms-integration/cms-integration-errors'
 
 export const sessionRoutes = new Hono<HttpAppEnv>()
 
@@ -125,18 +130,43 @@ function resolveRequestOrigin(request: Request): string | undefined {
 }
 
 sessionRoutes.get('/', (c) => {
+  assertCmsBuilderApiAvailableInCmsMode('CMS 集成模式下不可读取全量 session 列表')
   return c.json(listAgentSessions())
 })
 
 sessionRoutes.post('/', async (c) => {
+  assertCmsBuilderApiAvailableInCmsMode('CMS 集成模式下不可从浏览器本地创建 session')
   const body = await readJsonBody<{ title?: string; workspaceId?: string }>(c.req.raw)
   return c.json(createAgentSession(body.title, undefined, body.workspaceId), 201)
 })
 
 sessionRoutes.use('/:sessionId', sessionMiddleware)
 sessionRoutes.use('/:sessionId/*', sessionMiddleware)
+sessionRoutes.use('/:sessionId', async (c, next) => {
+  if (c.req.method === 'DELETE') {
+    assertCmsBuilderApiAvailableInCmsMode('CMS 集成模式下不可删除 project binding 关联的 session')
+  }
+  await next()
+})
+sessionRoutes.use('/:sessionId/*', async (c, next) => {
+  if (c.req.method === 'POST' && new URL(c.req.raw.url).pathname.endsWith('/move-workspace')) {
+    assertCmsBuilderApiAvailableInCmsMode('CMS 集成模式下不可迁移 project binding 关联的 session')
+  }
+  await next()
+})
+sessionRoutes.use('/:sessionId', createCmsBuilderAccessMiddleware({
+  workspaceId: (c) => c.var.sessionMeta.workspaceId,
+  sessionId: (c) => c.var.sessionMeta.id,
+  requireOrigin: (c) => c.req.method === 'POST' || c.req.method === 'PATCH',
+}))
+sessionRoutes.use('/:sessionId/*', createCmsBuilderAccessMiddleware({
+  workspaceId: (c) => c.var.sessionMeta.workspaceId,
+  sessionId: (c) => c.var.sessionMeta.id,
+  requireOrigin: (c) => c.req.method === 'POST' || c.req.method === 'PATCH',
+}))
 
 sessionRoutes.delete('/:sessionId', (c) => {
+  assertCmsBuilderApiAvailableInCmsMode('CMS 集成模式下不可删除 project binding 关联的 session')
   if (isAgentSessionActive(c.var.sessionMeta.id)) {
     stopAgent(c.var.sessionMeta.id)
   }
@@ -191,6 +221,7 @@ sessionRoutes.get('/:sessionId/attachments/:attachmentId/content', (c) => {
 })
 
 sessionRoutes.post('/:sessionId/move-workspace', async (c) => {
+  assertCmsBuilderApiAvailableInCmsMode('CMS 集成模式下不可迁移 project binding 关联的 session')
   const body = await readJsonBody<{ workspaceId?: string; targetWorkspaceId?: string }>(c.req.raw)
   const targetWorkspaceId = body.workspaceId ?? body.targetWorkspaceId
   if (!targetWorkspaceId) {
@@ -208,6 +239,11 @@ sessionRoutes.post('/:sessionId/stop', (c) => {
 
 sessionRoutes.post('/:sessionId/permission-respond', async (c) => {
   const body = await readJsonBody<PermissionResponse>(c.req.raw)
+  assertPendingRequestBelongsToSession(
+    permissionService.getPendingPermissionSessionId(body.requestId),
+    c.var.sessionMeta.id,
+    `权限请求不存在: ${body.requestId}`,
+  )
   const resolvedSessionId = permissionService.respondToPermission(
     body.requestId,
     body.behavior,
@@ -223,6 +259,11 @@ sessionRoutes.post('/:sessionId/permission-respond', async (c) => {
 
 sessionRoutes.post('/:sessionId/ask-user-respond', async (c) => {
   const body = await readJsonBody<AskUserResponse>(c.req.raw)
+  assertPendingRequestBelongsToSession(
+    askUserService.getPendingAskUserSessionId(body.requestId),
+    c.var.sessionMeta.id,
+    `AskUser 请求不存在: ${body.requestId}`,
+  )
   const resolvedSessionId = askUserService.respondToAskUser(body.requestId, body.answers)
 
   if (!resolvedSessionId) {
@@ -245,6 +286,16 @@ sessionRoutes.post('/:sessionId/send', async (c) => {
     c.var.sessionMeta.id,
     c.var.sessionMeta.workspaceId,
   )
+  const cmsBuilderAccess = c.var.cmsBuilderAccess
+  if (cmsBuilderAccess) {
+    const requestedWorkspaceId = typeof body.workspaceId === 'string' ? body.workspaceId.trim() : ''
+    if (requestedWorkspaceId && requestedWorkspaceId !== cmsBuilderAccess.workspaceId) {
+      throw builderAccessMismatch('当前消息请求的 workspace 与 CMS access session 不匹配，请从 CMS 重新进入')
+    }
+
+    body.workspaceId = cmsBuilderAccess.workspaceId
+  }
+
   const requestTrace = c.var.diagnostic.requestTrace
   const turnTrace = createTurnTraceContext({
     requestId: requestTrace.requestId,
@@ -301,3 +352,17 @@ sessionRoutes.post('/:sessionId/send', async (c) => {
     throw error
   }
 })
+
+function assertPendingRequestBelongsToSession(
+  pendingSessionId: string | null,
+  sessionId: string,
+  notFoundMessage: string,
+): void {
+  if (!pendingSessionId) {
+    throw new HttpError(404, notFoundMessage)
+  }
+
+  if (pendingSessionId !== sessionId) {
+    throw new HttpError(403, '当前响应请求不属于 URL 中的会话')
+  }
+}

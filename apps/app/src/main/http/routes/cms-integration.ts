@@ -14,8 +14,6 @@ import {
   resolveCmsHandoffCookieSecure,
 } from '../../lib/cms-integration/cms-integration-config-helpers'
 import {
-  builderAccessMismatch,
-  builderAccessRequired,
   CmsIntegrationError,
   cmsProjectNotFound,
   handoffExpired,
@@ -31,6 +29,7 @@ import {
 import type { CmsIntegratedProjectBinding } from '../../lib/cms-integration/cms-project-binding-store'
 import { getSharedCmsProjectBindingStore } from '../../lib/cms-integration/cms-project-binding-store'
 import { validateCmsLogin } from '../../lib/cms-integration/cms-login-validator'
+import { createCmsBuilderAccessMiddleware } from '../../lib/cms-integration/cms-builder-access-middleware'
 import { deletePageBuilderProject } from '../../lib/page-builder-project-service'
 import { createAgentWorkspace, getAgentWorkspace } from '../../lib/workspace-service'
 import { getWorkspacePreviewState } from '../../lib/workspace-preview-service'
@@ -213,23 +212,16 @@ cmsIntegrationRoutes.get('/handoffs/:handoffId/open', async (c) => {
   })
 })
 
+cmsIntegrationRoutes.use('/builder-context', createCmsBuilderAccessMiddleware({
+  workspaceId: (c) => readRequiredQuery(c.req.query('workspaceId'), 'workspaceId'),
+  sessionId: (c) => readRequiredQuery(c.req.query('sessionId'), 'sessionId'),
+}))
+
 cmsIntegrationRoutes.get('/builder-context', (c) => {
   const config = resolveCmsIntegrationConfig()
   assertCmsIntegrationModeEnabled(config)
 
-  const workspaceId = c.req.query('workspaceId')?.trim() ?? ''
-  const sessionId = c.req.query('sessionId')?.trim() ?? ''
-  if (!workspaceId || !sessionId) {
-    throw invalidCmsRequest('workspaceId 和 sessionId 不能为空')
-  }
-
-  const accessSessionService = getSharedBuilderAccessSessionService(config.accessSessionTtlMs)
-  const validation = accessSessionService.validate(c.req.header('cookie'), { workspaceId, sessionId })
-  if (!validation.valid) {
-    throw validation.code === 'builder_access_mismatch' ? builderAccessMismatch() : builderAccessRequired()
-  }
-
-  const access = validation.access
+  const access = c.var.cmsBuilderAccess
   const binding = getSharedCmsProjectBindingStore().findByProjectId(access?.projectId ?? '')
   const internals = binding ? resolveBindingInternals(binding) : null
   if (!access || !binding || !doesBindingMatchSession(binding, access) || !internals) {
@@ -245,6 +237,14 @@ cmsIntegrationRoutes.get('/builder-context', (c) => {
     },
   })
 })
+
+function readRequiredQuery(value: string | undefined, fieldName: string): string {
+  const normalized = value?.trim() ?? ''
+  if (!normalized) {
+    throw invalidCmsRequest(`${fieldName} 不能为空`)
+  }
+  return normalized
+}
 
 async function readProjectCreateBody(request: Request): Promise<{
   externalRecordId: string

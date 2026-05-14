@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
   builderAccessMismatch,
+  builderAccessOriginForbidden,
   builderAccessRequired,
   cmsProjectNotFound,
   handoffExpired,
@@ -35,6 +36,11 @@ describe('cms integration errors', () => {
       code: 'builder_access_mismatch',
       status: 403,
       message: '当前访问会话与目标工作区不匹配，请从 CMS 重新进入',
+    })
+    expect(builderAccessOriginForbidden()).toMatchObject({
+      code: 'builder_access_origin_forbidden',
+      status: 403,
+      message: '当前请求来源不可信，请从 CMS 页面重新进入 PageBuilder',
     })
   })
 

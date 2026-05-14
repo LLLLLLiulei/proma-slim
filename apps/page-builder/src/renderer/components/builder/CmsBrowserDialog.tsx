@@ -22,6 +22,7 @@ import { CmsContentList } from './CmsContentList'
 import { useCmsBrowserState } from './useCmsBrowserState'
 
 interface CmsBrowserDialogProps {
+  cmsDataUnavailableReason?: string | null
   open: boolean
   onConfirmSelection?: (selection: CmsBrowserDialogSelection) => void
   onOpenChange: (open: boolean) => void
@@ -71,12 +72,14 @@ function CatalogPanelState(props: {
 
 export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactElement {
   const {
+    cmsDataUnavailableReason,
     onConfirmSelection,
     open,
     onOpenChange,
     requestContext,
     confirming = false,
   } = props
+  const resolvedCmsDataUnavailableReason = cmsDataUnavailableReason?.trim() || null
   const {
     activeTab,
     sitesState,
@@ -97,7 +100,7 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
     retryCatalogDetail,
     retryCatalogs,
     retryContents,
-  } = useCmsBrowserState({ open })
+  } = useCmsBrowserState({ open: open && resolvedCmsDataUnavailableReason === null })
   const [checkedCatalogIds, setCheckedCatalogIds] = React.useState<string[]>([])
   const [checkedContentIds, setCheckedContentIds] = React.useState<string[]>([])
   const [checkedContentItemsById, setCheckedContentItemsById] = React.useState<Record<string, PageBuilderCmsContentSummary>>({})
@@ -158,6 +161,7 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
   )
   const selectedCatalogHasDirectChildren = Boolean(selectedCatalog && selectedCatalog.children.length > 0)
   const canConfirmSelection = !confirming
+    && resolvedCmsDataUnavailableReason === null
     && Boolean(requestContext?.targetBlock.selector)
     && Boolean(selectedSiteId)
     && (activeTab === 'catalogs'
@@ -479,6 +483,21 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
           </DialogDescription>
         </DialogHeader>
 
+        {resolvedCmsDataUnavailableReason ? (
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div className="min-h-0 flex-1 p-4">
+              <CatalogPanelState
+                description={resolvedCmsDataUnavailableReason}
+                message="CMS 浏览暂不可用"
+              />
+            </div>
+            <div className="flex items-center justify-end border-t border-border/70 px-4 py-2.5">
+              <Button onClick={() => onOpenChange(false)} size="sm" type="button" variant="outline">
+                关闭
+              </Button>
+            </div>
+          </div>
+        ) : (
         <Tabs
           className="flex min-h-0 flex-1 flex-col"
           onValueChange={(value) => setActiveTab(value as 'catalogs' | 'contents')}
@@ -588,6 +607,7 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
             </div>
           </div>
         </Tabs>
+        )}
       </DialogContent>
     </Dialog>
   )

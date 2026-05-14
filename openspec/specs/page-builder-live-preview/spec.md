@@ -126,7 +126,7 @@
 - **AND** 系统 SHALL NOT 生成指向 CMS 根路径 `/api/page-builder/cms/assets` 的浏览器 URL
 
 ### Requirement: CMS 集成模式下 workspace preview 必须校验 Builder Access Session
-系统 SHALL 在 CMS 集成模式下对 workspace preview HTML 和静态子资源执行最小 Builder Access Session 校验，防止未通过 CMS handoff 的浏览器直接访问 preview URL。
+系统 SHALL 在 CMS 集成模式下通过统一 CMS Builder Access middleware 对 workspace preview HTML 和静态子资源执行 Builder Access Session 校验，防止未通过 CMS handoff 的浏览器直接访问 preview URL。
 
 #### Scenario: standalone 模式 preview 行为保持不变
 - **WHEN** `AI_PAGE_BUILDER_INTEGRATION_MODE` 未设置为 `cms` 且请求 `GET /api/workspaces/:workspaceId/preview/`
@@ -153,6 +153,10 @@
 - **WHEN** `AI_PAGE_BUILDER_INTEGRATION_MODE=cms` 且浏览器携带匹配 workspace 的有效 `ai_page_builder_access` Cookie 请求 preview 下的 CSS、JS、图片或其他静态子资源
 - **THEN** 系统 SHALL 返回对应 preview 静态子资源
 - **AND** 系统 SHALL NOT 因普通静态资源请求缺少 `Origin` header 而拒绝
+
+#### Scenario: CMS 模式 preview 成功响应刷新 access session
+- **WHEN** CMS 模式下 workspace preview HTML 或静态子资源请求通过 Builder Access Session 校验并成功返回
+- **THEN** 系统 SHALL 按统一受保护 API 规则滑动续期 Builder Access Session
 
 ### Requirement: CMS preview handoff 打开的预览必须是非编辑态预览
 系统 SHALL 区分 Builder 页面编辑态 preview 与 CMS preview handoff 打开的预览，CMS preview handoff 不得启用编辑态 bridge、overlay 或 inline edit 能力。

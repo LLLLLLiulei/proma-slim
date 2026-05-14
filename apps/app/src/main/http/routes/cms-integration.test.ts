@@ -2,7 +2,13 @@ import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import {
+  PAGE_BUILDER_EDIT_HOLDER_HEADER,
+  PAGE_BUILDER_EDIT_LOCK_HEADER,
+} from '../page-builder-edit-lock-auth'
 import { getAgentSessionMessages, listAgentSessions, updateAgentSessionMeta } from '../../lib/agent-session-manager'
+import { askUserService } from '../../lib/agent-ask-user-service'
+import { permissionService } from '../../lib/agent-permission-service'
 import { resetCmsIntegrationTestState } from './cms-integration'
 import { getSharedCmsProjectBindingStore } from '../../lib/cms-integration/cms-project-binding-store'
 import { listAgentWorkspaces } from '../../lib/workspace-service'
@@ -533,6 +539,420 @@ describe('cms integration routes', () => {
     }))
     expect(mismatchedContext.status).toBe(403)
     expect(await mismatchedContext.json()).toMatchObject({ code: 'builder_access_mismatch' })
+  })
+
+  test('protects CMS mode session workspace and page-builder project APIs', async () => {
+    enableCmsIntegration(configDir)
+    globalThis.fetch = createLoginFetchMock() as unknown as typeof fetch
+    const app = createApp()
+
+    const primary = await createBoundCmsProject(app, {
+      externalRecordId: 'cms-protected-api-1',
+      projectName: 'CMS Protected API 1',
+    })
+    const secondary = await createBoundCmsProject(app, {
+      externalRecordId: 'cms-protected-api-2',
+      projectName: 'CMS Protected API 2',
+    })
+
+    const handoffResponse = await createHandoff(app, primary.projectId, { target: 'builder' })
+    const handoff = await handoffResponse.json() as { openUrl: string }
+    const accessCookie = (await consumeOpenUrl(app, handoff.openUrl)).headers.get('set-cookie')
+    expect(accessCookie).toContain('ai_page_builder_access=')
+
+    const sessionList = await app.fetch(new Request('http://localhost/api/sessions'))
+    expect(sessionList.status).toBe(403)
+    expect(await sessionList.json()).toMatchObject({ code: 'builder_access_mismatch' })
+
+    const sessionCreate = await app.fetch(new Request('http://localhost/api/sessions', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ title: 'Bypass', workspaceId: primary.binding.workspaceId }),
+    }))
+    expect(sessionCreate.status).toBe(403)
+    expect(await sessionCreate.json()).toMatchObject({ code: 'builder_access_mismatch' })
+
+    const missingMessages = await app.fetch(new Request(`http://localhost/api/sessions/${primary.binding.primarySessionId}/messages`))
+    expect(missingMessages.status).toBe(401)
+    expect(await missingMessages.json()).toMatchObject({ code: 'builder_access_required' })
+
+    const missingAttachment = await app.fetch(new Request(`http://localhost/api/sessions/${primary.binding.primarySessionId}/attachments/missing/content`))
+    expect(missingAttachment.status).toBe(401)
+    expect(await missingAttachment.json()).toMatchObject({ code: 'builder_access_required' })
+
+    const mismatchedMessages = await app.fetch(new Request(`http://localhost/api/sessions/${secondary.binding.primarySessionId}/messages`, {
+      headers: { cookie: accessCookie! },
+    }))
+    expect(mismatchedMessages.status).toBe(403)
+    expect(await mismatchedMessages.json()).toMatchObject({ code: 'builder_access_mismatch' })
+
+    const messages = await app.fetch(new Request(`http://localhost/api/sessions/${primary.binding.primarySessionId}/messages`, {
+      headers: { cookie: accessCookie! },
+    }))
+    expect(messages.status).toBe(200)
+    expect(messages.headers.get('set-cookie')).toContain('ai_page_builder_access=')
+
+    const stopMissingOrigin = await app.fetch(new Request(`http://localhost/api/sessions/${primary.binding.primarySessionId}/stop`, {
+      method: 'POST',
+      headers: { cookie: accessCookie! },
+    }))
+    expect(stopMissingOrigin.status).toBe(403)
+    expect(await stopMissingOrigin.json()).toMatchObject({ code: 'builder_access_origin_forbidden' })
+
+    const stopWithOrigin = await app.fetch(new Request(`http://localhost/api/sessions/${primary.binding.primarySessionId}/stop`, {
+      method: 'POST',
+      headers: {
+        cookie: accessCookie!,
+        origin: 'https://builder.example.com',
+      },
+    }))
+    expect(stopWithOrigin.status).toBe(204)
+    expect(stopWithOrigin.headers.get('set-cookie')).toContain('ai_page_builder_access=')
+
+    const activity = await app.fetch(new Request(`http://localhost/api/sessions/${primary.binding.primarySessionId}/activity`, {
+      headers: { cookie: accessCookie! },
+    }))
+    expect(activity.status).toBe(200)
+    expect(activity.headers.get('set-cookie')).toContain('ai_page_builder_access=')
+
+    const sessionPatchMissingOrigin = await app.fetch(new Request(`http://localhost/api/sessions/${primary.binding.primarySessionId}`, {
+      method: 'PATCH',
+      headers: {
+        cookie: accessCookie!,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ title: 'Renamed Session' }),
+    }))
+    expect(sessionPatchMissingOrigin.status).toBe(403)
+    expect(await sessionPatchMissingOrigin.json()).toMatchObject({ code: 'builder_access_origin_forbidden' })
+
+    const sendMissingOrigin = await app.fetch(new Request(`http://localhost/api/sessions/${primary.binding.primarySessionId}/send`, {
+      method: 'POST',
+      headers: {
+        cookie: accessCookie!,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ userMessage: 'hello' }),
+    }))
+    expect(sendMissingOrigin.status).toBe(403)
+    expect(await sendMissingOrigin.json()).toMatchObject({ code: 'builder_access_origin_forbidden' })
+
+    const sessionDelete = await app.fetch(new Request(`http://localhost/api/sessions/${primary.binding.primarySessionId}`, {
+      method: 'DELETE',
+    }))
+    expect(sessionDelete.status).toBe(403)
+    expect(await sessionDelete.json()).toMatchObject({ code: 'builder_access_mismatch' })
+
+    const sessionMove = await app.fetch(new Request(`http://localhost/api/sessions/${primary.binding.primarySessionId}/move-workspace`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ workspaceId: secondary.binding.workspaceId }),
+    }))
+    expect(sessionMove.status).toBe(403)
+    expect(await sessionMove.json()).toMatchObject({ code: 'builder_access_mismatch' })
+
+    const workspaceList = await app.fetch(new Request('http://localhost/api/workspaces'))
+    expect(workspaceList.status).toBe(403)
+    expect(await workspaceList.json()).toMatchObject({ code: 'builder_access_mismatch' })
+
+    const workspaceCreate = await app.fetch(new Request('http://localhost/api/workspaces', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Bypass Workspace', template: 'page-builder' }),
+    }))
+    expect(workspaceCreate.status).toBe(403)
+    expect(await workspaceCreate.json()).toMatchObject({ code: 'builder_access_mismatch' })
+
+    const missingCapabilities = await app.fetch(new Request(`http://localhost/api/workspaces/${primary.binding.workspaceId}/capabilities`))
+    expect(missingCapabilities.status).toBe(401)
+    expect(await missingCapabilities.json()).toMatchObject({ code: 'builder_access_required' })
+
+    const mismatchedCapabilities = await app.fetch(new Request(`http://localhost/api/workspaces/${secondary.binding.workspaceId}/capabilities`, {
+      headers: { cookie: accessCookie! },
+    }))
+    expect(mismatchedCapabilities.status).toBe(403)
+    expect(await mismatchedCapabilities.json()).toMatchObject({ code: 'builder_access_mismatch' })
+
+    const capabilities = await app.fetch(new Request(`http://localhost/api/workspaces/${primary.binding.workspaceId}/capabilities`, {
+      headers: { cookie: accessCookie! },
+    }))
+    expect(capabilities.status).toBe(200)
+    expect(capabilities.headers.get('set-cookie')).toContain('ai_page_builder_access=')
+
+    const directoryContext = await app.fetch(new Request(`http://localhost/api/workspaces/${primary.binding.workspaceId}/directory-context`, {
+      headers: { cookie: accessCookie! },
+    }))
+    expect(directoryContext.status).toBe(200)
+
+    const previewState = await app.fetch(new Request(`http://localhost/api/workspaces/${primary.binding.workspaceId}/preview-state`, {
+      headers: { cookie: accessCookie! },
+    }))
+    expect(previewState.status).toBe(200)
+
+    const fileSearch = await app.fetch(new Request(`http://localhost/api/workspaces/${primary.binding.workspaceId}/file-search?q=index`, {
+      headers: { cookie: accessCookie! },
+    }))
+    expect(fileSearch.status).toBe(200)
+
+    const workspacePatchMissingOrigin = await app.fetch(new Request(`http://localhost/api/workspaces/${primary.binding.workspaceId}`, {
+      method: 'PATCH',
+      headers: {
+        cookie: accessCookie!,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ name: 'Renamed' }),
+    }))
+    expect(workspacePatchMissingOrigin.status).toBe(403)
+    expect(await workspacePatchMissingOrigin.json()).toMatchObject({ code: 'builder_access_origin_forbidden' })
+
+    const workspacePatchWithoutEditLock = await app.fetch(new Request(`http://localhost/api/workspaces/${primary.binding.workspaceId}`, {
+      method: 'PATCH',
+      headers: {
+        cookie: accessCookie!,
+        origin: 'https://builder.example.com',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ name: 'Renamed' }),
+    }))
+    expect(workspacePatchWithoutEditLock.status).toBe(409)
+    expect(await workspacePatchWithoutEditLock.json()).toMatchObject({ error: expect.stringContaining('编辑锁') })
+    expect(workspacePatchWithoutEditLock.headers.get('set-cookie')).toBeNull()
+
+    const workspaceDelete = await app.fetch(new Request(`http://localhost/api/workspaces/${primary.binding.workspaceId}`, {
+      method: 'DELETE',
+    }))
+    expect(workspaceDelete.status).toBe(403)
+    expect(await workspaceDelete.json()).toMatchObject({ code: 'builder_access_mismatch' })
+
+    const cmsTargetSnapshotMissingOrigin = await app.fetch(new Request(`http://localhost/api/workspaces/${primary.binding.workspaceId}/page-builder/cms-target-snapshot`, {
+      method: 'POST',
+      headers: {
+        cookie: accessCookie!,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ targetSelection: { kind: 'block' } }),
+    }))
+    expect(cmsTargetSnapshotMissingOrigin.status).toBe(403)
+    expect(await cmsTargetSnapshotMissingOrigin.json()).toMatchObject({ code: 'builder_access_origin_forbidden' })
+
+    const exportJobMissingOrigin = await app.fetch(new Request(`http://localhost/api/workspaces/${primary.binding.workspaceId}/page-builder/export-static-jobs`, {
+      method: 'POST',
+      headers: {
+        cookie: accessCookie!,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ downloadCmsRemoteAssets: true }),
+    }))
+    expect(exportJobMissingOrigin.status).toBe(403)
+    expect(await exportJobMissingOrigin.json()).toMatchObject({ code: 'builder_access_origin_forbidden' })
+
+    const exportJobStatusMissingAccess = await app.fetch(new Request(`http://localhost/api/workspaces/${primary.binding.workspaceId}/page-builder/export-static-jobs/missing-job`))
+    expect(exportJobStatusMissingAccess.status).toBe(401)
+    expect(await exportJobStatusMissingAccess.json()).toMatchObject({ code: 'builder_access_required' })
+
+    const exportJobDownloadMissingAccess = await app.fetch(new Request(`http://localhost/api/workspaces/${primary.binding.workspaceId}/page-builder/export-static-jobs/missing-job/download`))
+    expect(exportJobDownloadMissingAccess.status).toBe(401)
+    expect(await exportJobDownloadMissingAccess.json()).toMatchObject({ code: 'builder_access_required' })
+
+    const projects = await app.fetch(new Request('http://localhost/api/page-builder/projects'))
+    expect(projects.status).toBe(403)
+    expect(await projects.json()).toMatchObject({ code: 'builder_access_mismatch' })
+
+    const projectDelete = await app.fetch(new Request(`http://localhost/api/page-builder/projects/${primary.binding.workspaceId}`, {
+      method: 'DELETE',
+    }))
+    expect(projectDelete.status).toBe(403)
+    expect(await projectDelete.json()).toMatchObject({ code: 'builder_access_mismatch' })
+
+    const editLockMissingOrigin = await app.fetch(new Request(`http://localhost/api/page-builder/projects/${primary.binding.workspaceId}/edit-lock`, {
+      method: 'POST',
+      headers: {
+        cookie: accessCookie!,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ holderId: 'cms-holder' }),
+    }))
+    expect(editLockMissingOrigin.status).toBe(403)
+    expect(await editLockMissingOrigin.json()).toMatchObject({ code: 'builder_access_origin_forbidden' })
+
+    const editLock = await app.fetch(new Request(`http://localhost/api/page-builder/projects/${primary.binding.workspaceId}/edit-lock`, {
+      method: 'POST',
+      headers: {
+        cookie: accessCookie!,
+        origin: 'https://builder.example.com',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ holderId: 'cms-holder' }),
+    }))
+    expect(editLock.status).toBe(201)
+    expect(editLock.headers.get('set-cookie')).toContain('ai_page_builder_access=')
+    const lease = await editLock.json() as { lockId: string; holderId: string }
+
+    const sendMismatchedWorkspace = await app.fetch(new Request(`http://localhost/api/sessions/${primary.binding.primarySessionId}/send`, {
+      method: 'POST',
+      headers: {
+        cookie: accessCookie!,
+        origin: 'https://builder.example.com',
+        'content-type': 'application/json',
+        [PAGE_BUILDER_EDIT_LOCK_HEADER]: lease.lockId,
+        [PAGE_BUILDER_EDIT_HOLDER_HEADER]: lease.holderId,
+      },
+      body: JSON.stringify({
+        userMessage: ' ',
+        workspaceId: secondary.binding.workspaceId,
+      }),
+    }))
+    expect(sendMismatchedWorkspace.status).toBe(403)
+    expect(await sendMismatchedWorkspace.json()).toMatchObject({ code: 'builder_access_mismatch' })
+
+    const autoHandoffMismatchedSession = await app.fetch(new Request(`http://localhost/api/workspaces/${primary.binding.workspaceId}/page-builder/cms-auto-handoff`, {
+      method: 'POST',
+      headers: {
+        cookie: accessCookie!,
+        origin: 'https://builder.example.com',
+        'content-type': 'application/json',
+        [PAGE_BUILDER_EDIT_LOCK_HEADER]: lease.lockId,
+        [PAGE_BUILDER_EDIT_HOLDER_HEADER]: lease.holderId,
+      },
+      body: JSON.stringify({
+        sessionId: secondary.binding.primarySessionId,
+        selection: null,
+      }),
+    }))
+    expect(autoHandoffMismatchedSession.status).toBe(403)
+    expect(await autoHandoffMismatchedSession.json()).toMatchObject({ code: 'builder_access_mismatch' })
+
+    const editLockStatus = await app.fetch(new Request(`http://localhost/api/page-builder/projects/${primary.binding.workspaceId}/edit-lock/${lease.lockId}`, {
+      headers: {
+        cookie: accessCookie!,
+      },
+    }))
+    expect(editLockStatus.status).toBe(200)
+    expect(editLockStatus.headers.get('set-cookie')).toContain('ai_page_builder_access=')
+
+    const editLockRenewMissingOrigin = await app.fetch(new Request(`http://localhost/api/page-builder/projects/${primary.binding.workspaceId}/edit-lock/${lease.lockId}/renew`, {
+      method: 'POST',
+      headers: {
+        cookie: accessCookie!,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ holderId: lease.holderId }),
+    }))
+    expect(editLockRenewMissingOrigin.status).toBe(403)
+    expect(await editLockRenewMissingOrigin.json()).toMatchObject({ code: 'builder_access_origin_forbidden' })
+
+    const cmsSites = await app.fetch(new Request('http://localhost/api/page-builder/cms/sites'))
+    expect(cmsSites.status).toBe(403)
+    expect(await cmsSites.json()).toMatchObject({ code: 'builder_access_mismatch' })
+
+    for (const path of [
+      '/api/page-builder/cms/catalogs',
+      '/api/page-builder/cms/catalogs/100',
+      '/api/page-builder/cms/contents?catalogId=100',
+      '/api/page-builder/cms/assets?url=https%3A%2F%2Fcms.example.com%2Fasset.png',
+    ]) {
+      const response = await app.fetch(new Request(`http://localhost${path}`))
+      expect(response.status).toBe(403)
+      expect(await response.json()).toMatchObject({ code: 'builder_access_mismatch' })
+    }
+
+    const bridgeScript = await app.fetch(new Request('http://localhost/api/page-builder/preview-bridge.js'))
+    expect(bridgeScript.status).toBe(200)
+    expect(await bridgeScript.text()).not.toContain('ai_page_builder_access')
+
+    const renderingPreviewScript = await app.fetch(new Request('http://localhost/api/page-builder/cms-rendering-preview.js'))
+    expect(renderingPreviewScript.status).toBe(200)
+    expect(await renderingPreviewScript.text()).not.toContain('ai_page_builder_access')
+
+    const renderingVueScript = await app.fetch(new Request('http://localhost/api/page-builder/cms-rendering-vue.js'))
+    expect(renderingVueScript.status).toBe(200)
+    expect(await renderingVueScript.text()).not.toContain('ai_page_builder_access')
+  })
+
+  test('rejects CMS mode permission and ask-user responses for another session requestId', async () => {
+    enableCmsIntegration(configDir)
+    globalThis.fetch = createLoginFetchMock() as unknown as typeof fetch
+    const app = createApp()
+
+    const primary = await createBoundCmsProject(app, {
+      externalRecordId: 'cms-request-owner-1',
+      projectName: 'CMS Request Owner 1',
+    })
+    const secondary = await createBoundCmsProject(app, {
+      externalRecordId: 'cms-request-owner-2',
+      projectName: 'CMS Request Owner 2',
+    })
+    const handoffResponse = await createHandoff(app, primary.projectId, { target: 'builder' })
+    const handoff = await handoffResponse.json() as { openUrl: string }
+    const accessCookie = (await consumeOpenUrl(app, handoff.openUrl)).headers.get('set-cookie')
+    expect(accessCookie).toContain('ai_page_builder_access=')
+
+    let permissionRequestId = ''
+    const permissionPromise = permissionService.createCanUseTool(
+      secondary.binding.primarySessionId,
+      'supervised',
+      (request) => {
+        permissionRequestId = request.requestId
+      },
+    )('Write', { file_path: 'index.html' }, {
+      signal: new AbortController().signal,
+      toolUseID: 'tool-use-1',
+    })
+
+    expect(permissionRequestId).toBeTruthy()
+    const permissionResponse = await app.fetch(new Request(`http://localhost/api/sessions/${primary.binding.primarySessionId}/permission-respond`, {
+      method: 'POST',
+      headers: {
+        cookie: accessCookie!,
+        origin: 'https://builder.example.com',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        requestId: permissionRequestId,
+        behavior: 'allow',
+        alwaysAllow: false,
+      }),
+    }))
+    expect(permissionResponse.status).toBe(403)
+    expect(await permissionResponse.json()).toMatchObject({ error: '当前响应请求不属于 URL 中的会话' })
+
+    let askUserRequestId = ''
+    const askUserPromise = askUserService.handleAskUserQuestion(
+      secondary.binding.primarySessionId,
+      {
+        questions: [
+          {
+            question: '继续吗？',
+            header: '确认',
+            options: [{ label: '继续', description: '继续执行' }],
+          },
+        ],
+      },
+      new AbortController().signal,
+      (request) => {
+        askUserRequestId = request.requestId
+      },
+    )
+
+    expect(askUserRequestId).toBeTruthy()
+    const askUserResponse = await app.fetch(new Request(`http://localhost/api/sessions/${primary.binding.primarySessionId}/ask-user-respond`, {
+      method: 'POST',
+      headers: {
+        cookie: accessCookie!,
+        origin: 'https://builder.example.com',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        requestId: askUserRequestId,
+        answers: { '0': '继续' },
+      }),
+    }))
+    expect(askUserResponse.status).toBe(403)
+    expect(await askUserResponse.json()).toMatchObject({ error: '当前响应请求不属于 URL 中的会话' })
+
+    permissionService.clearSessionPending(secondary.binding.primarySessionId)
+    askUserService.clearSessionPending(secondary.binding.primarySessionId)
+    await Promise.all([permissionPromise, askUserPromise])
   })
 
   test('builder context returns minimal public fields without internal session metadata', async () => {

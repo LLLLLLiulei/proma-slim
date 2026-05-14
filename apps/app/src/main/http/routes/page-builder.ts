@@ -12,10 +12,15 @@ import {
 } from '../../lib/page-builder-edit-lock-service'
 import { readPageBuilderPreviewBridgeScript } from '../../lib/page-builder-preview-bridge'
 import { getAgentWorkspace } from '../../lib/workspace-service'
+import {
+  assertCmsBuilderApiAvailableInCmsMode,
+  createCmsBuilderAccessMiddleware,
+} from '../../lib/cms-integration/cms-builder-access-middleware'
 import { HttpError } from '../errors'
 import { json, noContent } from '../responses'
+import type { HttpAppEnv } from '../types'
 
-export const pageBuilderRoutes = new Hono()
+export const pageBuilderRoutes = new Hono<HttpAppEnv>()
 
 pageBuilderRoutes.get('/preview-bridge.js', async () => {
   return new Response(await readPageBuilderPreviewBridgeScript(), {
@@ -45,10 +50,12 @@ pageBuilderRoutes.get('/cms-rendering-vue.js', () => {
 })
 
 pageBuilderRoutes.get('/projects', (c) => {
+  assertCmsBuilderApiAvailableInCmsMode('CMS 集成模式下不可读取全量 page-builder 项目列表')
   return c.json(listPageBuilderProjects())
 })
 
 pageBuilderRoutes.delete('/projects/:workspaceId', (c) => {
+  assertCmsBuilderApiAvailableInCmsMode('CMS 集成模式下不可删除 project binding 关联的 page-builder 项目')
   try {
     deletePageBuilderProject(c.req.param('workspaceId'))
   } catch (error) {
@@ -63,6 +70,15 @@ pageBuilderRoutes.delete('/projects/:workspaceId', (c) => {
 
   return noContent()
 })
+
+pageBuilderRoutes.use('/projects/:workspaceId/edit-lock', createCmsBuilderAccessMiddleware({
+  workspaceId: (c) => c.req.param('workspaceId'),
+  requireOrigin: (c) => c.req.method !== 'GET',
+}))
+pageBuilderRoutes.use('/projects/:workspaceId/edit-lock/*', createCmsBuilderAccessMiddleware({
+  workspaceId: (c) => c.req.param('workspaceId'),
+  requireOrigin: (c) => c.req.method !== 'GET',
+}))
 
 pageBuilderRoutes.post('/projects/:workspaceId/edit-lock', async (c) => {
   const workspace = getPageBuilderWorkspaceOrThrow(c.req.param('workspaceId'))
@@ -121,6 +137,7 @@ pageBuilderRoutes.post('/projects/:workspaceId/edit-lock/:lockId/release', async
 })
 
 pageBuilderRoutes.get('/cms/sites', async (c) => {
+  assertCmsBuilderApiAvailableInCmsMode('CMS 集成模式下旧全局 CMS browser API 不可用')
   try {
     const gateway = createCmsGateway()
     return noStoreJson(c.json(await gateway.listSites()))
@@ -130,6 +147,7 @@ pageBuilderRoutes.get('/cms/sites', async (c) => {
 })
 
 pageBuilderRoutes.get('/cms/catalogs', async (c) => {
+  assertCmsBuilderApiAvailableInCmsMode('CMS 集成模式下旧全局 CMS browser API 不可用')
   const ids = readOrderedIdsQuery(c.req.query('ids'))
   const contentType = readOptionalStringQuery(c.req.query('contentType'))
   const searchKeyword = readOptionalStringQuery(c.req.query('searchKeyword'))
@@ -152,6 +170,7 @@ pageBuilderRoutes.get('/cms/catalogs', async (c) => {
 })
 
 pageBuilderRoutes.get('/cms/catalogs/:catalogId', async (c) => {
+  assertCmsBuilderApiAvailableInCmsMode('CMS 集成模式下旧全局 CMS browser API 不可用')
   const catalogId = readOptionalStringQuery(c.req.param('catalogId'))
   if (!catalogId) {
     throw new HttpError(400, 'catalogId 不能为空')
@@ -169,6 +188,7 @@ pageBuilderRoutes.get('/cms/catalogs/:catalogId', async (c) => {
 })
 
 pageBuilderRoutes.get('/cms/contents', async (c) => {
+  assertCmsBuilderApiAvailableInCmsMode('CMS 集成模式下旧全局 CMS browser API 不可用')
   const ids = readOrderedIdsQuery(c.req.query('ids'))
   const catalogId = readOptionalStringQuery(c.req.query('catalogId'))
 
@@ -202,6 +222,7 @@ pageBuilderRoutes.get('/cms/contents', async (c) => {
 })
 
 pageBuilderRoutes.get('/cms/assets', async (c) => {
+  assertCmsBuilderApiAvailableInCmsMode('CMS 集成模式下旧全局 CMS browser API 不可用')
   const assetUrl = readOptionalStringQuery(c.req.query('url'))
   if (!assetUrl) {
     throw new HttpError(400, 'url 不能为空')

@@ -25,12 +25,10 @@ import {
   getWorkspacePreviewState,
 } from '../../lib/workspace-preview-service'
 import {
-  builderAccessMismatch,
-  builderAccessRequired,
-  toCmsIntegrationErrorResponse,
-} from '../../lib/cms-integration/cms-integration-errors'
-import { getSharedBuilderAccessSessionService } from '../../lib/cms-integration/cms-integration-runtime'
-import { resolveCmsIntegrationConfig } from '../../lib/cms-integration/cms-integration-config'
+  assertCmsBuilderApiAvailableInCmsMode,
+  createCmsBuilderAccessMiddleware,
+} from '../../lib/cms-integration/cms-builder-access-middleware'
+import { builderAccessMismatch } from '../../lib/cms-integration/cms-integration-errors'
 import {
   PageBuilderBlockDeletionError,
   savePageBuilderBlockDeletion,
@@ -70,10 +68,12 @@ function getWorkspacePreviewRequestPath(url: string, workspaceId: string): strin
 }
 
 workspaceRoutes.get('/', (c) => {
+  assertCmsBuilderApiAvailableInCmsMode('CMS 集成模式下不可读取全量 workspace 列表')
   return c.json(listAgentWorkspaces())
 })
 
 workspaceRoutes.post('/', async (c) => {
+  assertCmsBuilderApiAvailableInCmsMode('CMS 集成模式下不可从浏览器本地创建 workspace')
   const body = await readJsonBody<{ name?: string; template?: string }>(c.req.raw)
   if (!body.name || !body.name.trim()) {
     throw new HttpError(400, '工作区名称不能为空')
@@ -95,6 +95,20 @@ workspaceRoutes.post('/', async (c) => {
 
 workspaceRoutes.use('/:workspaceId', workspaceMiddleware)
 workspaceRoutes.use('/:workspaceId/*', workspaceMiddleware)
+workspaceRoutes.use('/:workspaceId', async (c, next) => {
+  if (c.req.method === 'DELETE') {
+    assertCmsBuilderApiAvailableInCmsMode('CMS 集成模式下不可删除 project binding 关联的 workspace')
+  }
+  await next()
+})
+workspaceRoutes.use('/:workspaceId', createCmsBuilderAccessMiddleware({
+  workspaceId: (c) => c.var.workspace.id,
+  requireOrigin: (c) => c.req.method === 'PATCH',
+}))
+workspaceRoutes.use('/:workspaceId/*', createCmsBuilderAccessMiddleware({
+  workspaceId: (c) => c.var.workspace.id,
+  requireOrigin: (c) => c.req.method !== 'GET',
+}))
 
 workspaceRoutes.patch('/:workspaceId', async (c) => {
   assertPageBuilderEditLockForWorkspace(c.var.workspace, c.req.raw)
@@ -108,6 +122,7 @@ workspaceRoutes.patch('/:workspaceId', async (c) => {
 })
 
 workspaceRoutes.delete('/:workspaceId', (c) => {
+  assertCmsBuilderApiAvailableInCmsMode('CMS 集成模式下不可删除 project binding 关联的 workspace')
   if (c.var.workspace.slug === DEFAULT_WORKSPACE_SLUG) {
     throw new HttpError(409, '默认工作区不可删除')
   }
@@ -167,6 +182,10 @@ workspaceRoutes.post('/:workspaceId/page-builder/cms-auto-handoff', async (c) =>
   const sessionId = typeof body.sessionId === 'string' ? body.sessionId.trim() : ''
   if (!sessionId) {
     throw new HttpError(400, 'sessionId 不能为空')
+  }
+  const cmsBuilderAccess = c.var.cmsBuilderAccess
+  if (cmsBuilderAccess && sessionId !== cmsBuilderAccess.sessionId) {
+    throw builderAccessMismatch('当前 CMS handoff 请求的 session 与 CMS access session 不匹配，请从 CMS 重新进入')
   }
 
   const selection = readPageBuilderCmsSelectionResult(body.selection)
@@ -318,22 +337,6 @@ workspaceRoutes.get('/:workspaceId/page-builder/export-static-jobs/:jobId/downlo
 })
 
 const handleWorkspacePreview = (c: { req: { raw: Request }; var: { workspace: HttpAppEnv['Variables']['workspace'] } }) => {
-  const cmsConfig = resolveCmsIntegrationConfig()
-  if (cmsConfig.enabled) {
-    const validation = getSharedBuilderAccessSessionService(cmsConfig.accessSessionTtlMs).validate(
-      c.req.raw.headers.get('cookie'),
-      { workspaceId: c.var.workspace.id },
-    )
-
-    if (!validation.valid) {
-      return toCmsIntegrationErrorResponse(
-        validation.code === 'builder_access_mismatch'
-          ? builderAccessMismatch()
-          : builderAccessRequired(),
-      )
-    }
-  }
-
   const url = new URL(c.req.raw.url)
   const requestPath = getWorkspacePreviewRequestPath(c.req.raw.url, c.var.workspace.id)
   const enablePageBuilderBridge = url.searchParams.get('page-builder-bridge') === '1'

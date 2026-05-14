@@ -432,6 +432,31 @@ afterEach(() => {
 })
 
 describe('CmsBrowserDialog', () => {
+  test('shows unavailable state without calling legacy CMS browser APIs when CMS data is unavailable', async () => {
+    const { CmsBrowserDialog, listSites, listCatalogs, getCatalogDetail, listContents } = await loadCmsBrowserDialog()
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <CmsBrowserDialog
+          cmsDataUnavailableReason="CMS 集成模式下暂不支持旧版 CMS 浏览"
+          open
+          onOpenChange={() => {}}
+        />,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    const json = JSON.stringify(renderer.toJSON())
+    expect(json).toContain('CMS 浏览暂不可用')
+    expect(json).toContain('CMS 集成模式下暂不支持旧版 CMS 浏览')
+    expect(listSites).not.toHaveBeenCalled()
+    expect(listCatalogs).not.toHaveBeenCalled()
+    expect(getCatalogDetail).not.toHaveBeenCalled()
+    expect(listContents).not.toHaveBeenCalled()
+  })
+
   test('loads catalogs on open and uses the first available catalog when the user switches to contents without a prior selection', async () => {
     const { CmsBrowserDialog, listCatalogs, listContents, getLastTreeProps } = await loadCmsBrowserDialog()
 

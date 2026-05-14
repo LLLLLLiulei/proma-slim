@@ -7,6 +7,10 @@ import {
   shouldSkipHttpAccessLogging,
 } from '../lib/diagnostic-logging'
 import { HttpError } from './errors'
+import {
+  CmsIntegrationError,
+  toCmsIntegrationErrorResponse,
+} from '../lib/cms-integration/cms-integration-errors'
 import type { HttpAppOptions } from './static-handler'
 import { serveStatic } from './static-handler'
 import { json } from './responses'
@@ -113,6 +117,15 @@ export function createHttpApp(options: HttpAppOptions) {
         phase: 'route_error',
         error: serializeDiagnosticError(error),
       }, 'HTTP API 路由处理失败')
+    }
+
+    if (error instanceof CmsIntegrationError) {
+      const response = toCmsIntegrationErrorResponse(error)
+      const requestId = c.var?.diagnostic?.requestTrace.requestId
+      if (requestId) {
+        response.headers.set('x-request-id', requestId)
+      }
+      return response
     }
 
     if (error instanceof HttpError) {

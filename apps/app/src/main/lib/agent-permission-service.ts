@@ -234,6 +234,10 @@ export class AgentPermissionService {
     return sessionId
   }
 
+  getPendingPermissionSessionId(requestId: string): string | null {
+    return this.pendingPermissions.get(requestId)?.request.sessionId ?? null
+  }
+
   /**
    * 清除指定会话的所有待处理请求（会话结束或中止时调用）
    */

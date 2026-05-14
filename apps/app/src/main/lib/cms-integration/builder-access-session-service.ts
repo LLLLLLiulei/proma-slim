@@ -107,6 +107,11 @@ export interface CreateBuilderAccessSessionResult extends BuilderAccessSessionRe
   cookie: string
 }
 
+export interface RenewBuilderAccessSessionResult {
+  access: BuilderAccessSessionRecord
+  cookie: string
+}
+
 export interface BuilderAccessValidationResult {
   valid: boolean
   code?: 'builder_access_required' | 'builder_access_mismatch'
@@ -234,6 +239,45 @@ export class BuilderAccessSessionService {
     return { valid: true, access: record }
   }
 
+  renew(
+    accessId: string,
+    options: {
+      basePath: string
+      isSecure: boolean
+    },
+  ): RenewBuilderAccessSessionResult | null {
+    const normalizedAccessId = accessId.trim()
+    if (!normalizedAccessId) {
+      return null
+    }
+
+    const record = this.store.get(normalizedAccessId)
+    if (!record) {
+      return null
+    }
+
+    const now = this.now()
+    if (record.expiresAt <= now) {
+      this.store.delete(normalizedAccessId)
+      return null
+    }
+
+    const renewed: StoredBuilderAccessSession = {
+      ...record,
+      expiresAt: now + this.ttlMs,
+    }
+    this.store.set(renewed)
+
+    return {
+      access: toPublicRecord(renewed),
+      cookie: buildSetCookie(renewed.cookieValue, {
+        basePath: options.basePath,
+        isSecure: options.isSecure,
+        maxAgeMs: this.ttlMs,
+      }),
+    }
+  }
+
   get(accessId: string): BuilderAccessSessionRecord | null {
     const record = this.store.get(accessId)
     if (!record) {
@@ -245,15 +289,7 @@ export class BuilderAccessSessionService {
       return null
     }
 
-    return {
-      accessId: record.accessId,
-      projectId: record.projectId,
-      workspaceId: record.workspaceId,
-      sessionId: record.sessionId,
-      createdAt: record.createdAt,
-      expiresAt: record.expiresAt,
-      userSummary: record.userSummary ? { ...record.userSummary } : null,
-    }
+    return toPublicRecord(record)
   }
 
   peek(accessId: string): BuilderAccessSessionRecord | null {
@@ -368,6 +404,18 @@ function normalizeOptionalId(value: string | undefined): string | undefined {
 function cloneStoredRecord(record: StoredBuilderAccessSession): StoredBuilderAccessSession {
   return {
     ...record,
+    userSummary: record.userSummary ? { ...record.userSummary } : null,
+  }
+}
+
+function toPublicRecord(record: StoredBuilderAccessSession): BuilderAccessSessionRecord {
+  return {
+    accessId: record.accessId,
+    projectId: record.projectId,
+    workspaceId: record.workspaceId,
+    sessionId: record.sessionId,
+    createdAt: record.createdAt,
+    expiresAt: record.expiresAt,
     userSummary: record.userSummary ? { ...record.userSummary } : null,
   }
 }
