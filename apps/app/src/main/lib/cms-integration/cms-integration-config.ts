@@ -12,6 +12,7 @@ export interface CmsIntegrationConfig {
   publicOrigin: string | null
   handoffTtlMs: number
   accessSessionTtlMs: number
+  syncExportTimeoutMs: number
 }
 
 export interface CmsIntegrationStatus {
@@ -96,6 +97,7 @@ export function resolveCmsIntegrationConfig(env: CmsIntegrationEnv = process.env
       env.AI_PAGE_BUILDER_ACCESS_SESSION_TTL_MS,
       DEFAULT_ACCESS_SESSION_TTL_MS,
     ),
+    syncExportTimeoutMs: readOptionalPositiveInteger(env.AI_PAGE_BUILDER_SYNC_EXPORT_TIMEOUT_MS, 0),
   }
 }
 

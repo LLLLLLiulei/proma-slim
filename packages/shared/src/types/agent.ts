@@ -73,7 +73,7 @@ export type PageBuilderProjectEditState =
   | { status: 'available' }
   | {
       status: 'locked'
-      reason: 'editor' | 'agent'
+      reason: 'editor' | 'agent' | 'export'
       expiresAt?: number
     }
 

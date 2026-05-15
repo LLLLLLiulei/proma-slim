@@ -29,6 +29,7 @@ import {
 import type { CmsIntegratedProjectBinding } from '../../lib/cms-integration/cms-project-binding-store'
 import { getSharedCmsProjectBindingStore } from '../../lib/cms-integration/cms-project-binding-store'
 import { validateCmsLogin } from '../../lib/cms-integration/cms-login-validator'
+import { exportCmsProjectStaticPackage } from '../../lib/cms-integration/cms-sync-export-service'
 import { createCmsBuilderAccessMiddleware } from '../../lib/cms-integration/cms-builder-access-middleware'
 import { deletePageBuilderProject } from '../../lib/page-builder-project-service'
 import { createAgentWorkspace, getAgentWorkspace } from '../../lib/workspace-service'
@@ -45,6 +46,10 @@ interface CmsProjectCreateBody {
 interface CmsHandoffCreateBody {
   target?: unknown
   openMode?: unknown
+}
+
+interface CmsSyncExportBody {
+  downloadCmsRemoteAssets?: unknown
 }
 
 export const cmsIntegrationRoutes = new Hono<HttpAppEnv>()
@@ -162,6 +167,40 @@ cmsIntegrationRoutes.post('/projects/:projectId/handoffs', async (c) => {
     expiresAt: created.expiresAt,
     target,
     openMode,
+  })
+})
+
+cmsIntegrationRoutes.post('/projects/:projectId/export', async (c) => {
+  const config = resolveCmsIntegrationConfig()
+  assertCmsIntegrationModeEnabled(config)
+  assertCmsIntegrationSecretConfigured(config)
+  assertIntegrationSecret(c.req.raw, config)
+
+  const projectId = c.req.param('projectId').trim()
+  if (!projectId) {
+    throw cmsProjectNotFound()
+  }
+
+  const body = await readOptionalJsonBody<CmsSyncExportBody>(c.req.raw)
+  const downloadCmsRemoteAssets = normalizeOptionalBoolean(body.downloadCmsRemoteAssets, 'downloadCmsRemoteAssets')
+
+  await validateCmsLogin({
+    cmsBaseUrl: config.cmsBaseUrl,
+    cmsCookie: c.req.header('x-cms-cookie'),
+  })
+
+  const artifact = await exportCmsProjectStaticPackage({
+    projectId,
+    ...(downloadCmsRemoteAssets === undefined ? {} : { downloadCmsRemoteAssets }),
+    timeoutMs: config.syncExportTimeoutMs,
+  })
+
+  return new Response(Bun.file(artifact.filePath), {
+    headers: {
+      'cache-control': 'private, no-store',
+      'content-disposition': `attachment; filename="${artifact.fallbackFileName}"; filename*=UTF-8''${encodeURIComponent(artifact.fileName)}`,
+      'content-type': 'application/zip',
+    },
   })
 })
 
@@ -315,6 +354,16 @@ function normalizeHandoffOpenMode(value: unknown): 'iframe' | 'window' {
     return value
   }
   throw invalidCmsRequest('openMode 只能是 iframe 或 window')
+}
+
+function normalizeOptionalBoolean(value: unknown, fieldName: string): boolean | undefined {
+  if (value === undefined) {
+    return undefined
+  }
+  if (typeof value === 'boolean') {
+    return value
+  }
+  throw invalidCmsRequest(`${fieldName} 必须是 boolean`)
 }
 
 function withBasePath(basePath: string, pathname: string): string {

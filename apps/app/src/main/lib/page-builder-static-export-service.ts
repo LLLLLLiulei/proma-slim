@@ -56,7 +56,7 @@ class RemoteFetchError extends Error {
 
 export class PageBuilderStaticExportServiceError extends Error {
   constructor(
-    readonly code: 'entry-missing' | 'job-missing' | 'job-not-ready',
+    readonly code: 'entry-missing' | 'job-missing' | 'job-not-ready' | 'export-active' | 'export-failed',
     message: string,
   ) {
     super(message)
@@ -85,6 +85,42 @@ interface StoredJob {
   promise: Promise<void> | null
 }
 
+export interface PageBuilderStaticExportArtifact {
+  fileName: string
+  fallbackFileName: string
+  filePath: string
+  reportPath: string
+  reportSummary: PageBuilderStaticExportReportSummary
+}
+
+type ExportActivity =
+  | {
+    kind: 'job'
+    jobId: string
+  }
+  | {
+    kind: 'sync'
+    runId: string
+  }
+
+interface ExportRunInput {
+  artifactId: string
+  workspace: AgentWorkspace
+  options: Required<PageBuilderStaticExportJobCreateOptions>
+  downloadFileName: string
+  downloadFileNameFallback: string
+  packagePath: string
+  reportPath: string
+  onPhase?: (phase: PageBuilderStaticExportJobPhase) => void
+}
+
+class PageBuilderStaticExportRunError extends Error {
+  constructor(message: string, readonly report: PageBuilderStaticExportReport) {
+    super(message)
+    this.name = 'PageBuilderStaticExportRunError'
+  }
+}
+
 interface ExportReportCollector {
   localizedResources: PageBuilderStaticExportLocalizedResource[]
   retainedExternalLinks: PageBuilderStaticExportRetainedExternalLink[]
@@ -106,6 +142,7 @@ interface ExportContext {
   cmsBaseUrl: string | null
   downloadCmsRemoteAssets: boolean
   cmsRuntimeClient: ReturnType<typeof createServerCmsClient>
+  onPhase?: (phase: PageBuilderStaticExportJobPhase) => void
 }
 
 type ResolvedRenderableReference =
@@ -124,7 +161,7 @@ type ResolvedRenderableReference =
 
 export class PageBuilderStaticExportService {
   private readonly jobsById = new Map<string, StoredJob>()
-  private readonly activeJobsByWorkspaceId = new Map<string, string>()
+  private readonly activeExportsByWorkspaceId = new Map<string, ExportActivity>()
   private readonly fetchFn: typeof fetch
   private readonly cmsGatewayFactory?: () => CmsAssetGateway | null
   private readonly cmsQueryAdapterFactory?: () => CmsQueryAdapter | null
@@ -146,18 +183,19 @@ export class PageBuilderStaticExportService {
     this.cleanupExpiredJobs()
     const normalizedOptions = normalizePageBuilderStaticExportJobCreateOptions(options)
 
-    const activeJobId = this.activeJobsByWorkspaceId.get(workspace.id)
-    if (activeJobId) {
-      const activeJob = this.jobsById.get(activeJobId)
+    const activeExport = this.activeExportsByWorkspaceId.get(workspace.id)
+    if (activeExport) {
+      if (activeExport.kind !== 'job') {
+        throw new PageBuilderStaticExportServiceError('export-active', '当前项目正在导出中，请稍后再试')
+      }
+
+      const activeJob = this.jobsById.get(activeExport.jobId)
       if (activeJob) {
         return activeJob.snapshot
       }
     }
 
-    const entryPath = join(getWorkspaceFilesDir(workspace.slug), 'index.html')
-    if (!existsSync(entryPath)) {
-      throw new PageBuilderStaticExportServiceError('entry-missing', '当前项目没有可导出的页面产物')
-    }
+    this.assertExportEntryExists(workspace)
 
     const jobId = this.randomUUID()
     const snapshot = this.createSnapshot(jobId, 'running', 'copying')
@@ -176,10 +214,48 @@ export class PageBuilderStaticExportService {
     }
 
     this.jobsById.set(jobId, storedJob)
-    this.activeJobsByWorkspaceId.set(workspace.id, jobId)
+    this.activeExportsByWorkspaceId.set(workspace.id, { kind: 'job', jobId })
     storedJob.promise = this.runJob(storedJob, workspace)
 
     return storedJob.snapshot
+  }
+
+  isWorkspaceExportActive(workspaceId: string): boolean {
+    return this.activeExportsByWorkspaceId.has(workspaceId)
+  }
+
+  async exportWorkspaceStaticPackage(
+    workspace: AgentWorkspace,
+    options: PageBuilderStaticExportJobCreateOptions = {},
+  ): Promise<PageBuilderStaticExportArtifact> {
+    this.cleanupExpiredJobs()
+    const normalizedOptions = normalizePageBuilderStaticExportJobCreateOptions(options)
+
+    if (this.activeExportsByWorkspaceId.has(workspace.id)) {
+      throw new PageBuilderStaticExportServiceError('export-active', '当前项目正在导出中，请稍后再试')
+    }
+
+    this.assertExportEntryExists(workspace)
+
+    const exportId = this.randomUUID()
+    const exportTimestamp = this.now()
+    const runInput = this.createExportRunInput(workspace, exportId, exportTimestamp, normalizedOptions)
+    this.activeExportsByWorkspaceId.set(workspace.id, { kind: 'sync', runId: exportId })
+
+    try {
+      return await this.runExportCore(runInput)
+    } catch (error) {
+      if (error instanceof PageBuilderStaticExportRunError) {
+        throw new PageBuilderStaticExportServiceError('export-failed', error.message)
+      }
+
+      throw error
+    } finally {
+      const active = this.activeExportsByWorkspaceId.get(workspace.id)
+      if (active?.kind === 'sync' && active.runId === exportId) {
+        this.activeExportsByWorkspaceId.delete(workspace.id)
+      }
+    }
   }
 
   getJob(workspaceId: string, jobId: string): PageBuilderStaticExportJob | null {
@@ -247,10 +323,68 @@ export class PageBuilderStaticExportService {
   }
 
   private async runJob(job: StoredJob, workspace: AgentWorkspace): Promise<void> {
-    const jobId = job.snapshot.jobId
-    const jobDir = dirname(job.packagePath)
-    const stagingDir = getPageBuilderStaticExportStagingDir(jobId)
-    const workspaceFilesDir = getWorkspaceFilesDir(workspace.slug)
+    try {
+      const artifact = await this.runExportCore({
+        artifactId: job.snapshot.jobId,
+        workspace,
+        options: job.options,
+        downloadFileName: job.downloadFileName,
+        downloadFileNameFallback: job.downloadFileNameFallback,
+        packagePath: job.packagePath,
+        reportPath: job.reportPath,
+        onPhase: (phase) => {
+          if (job.snapshot.status === 'running' && job.snapshot.phase !== phase) {
+            this.updateSnapshot(job, { phase })
+          }
+        },
+      })
+
+      this.updateSnapshot(job, {
+        status: 'completed',
+        phase: 'completed',
+        downloadUrl: buildDownloadUrl(workspace.id, job.snapshot.jobId),
+        reportSummary: artifact.reportSummary,
+        errorMessage: null,
+        failure: null,
+      })
+    } catch (error) {
+      const failure = normalizeExportRunFailure(error)
+
+      this.updateSnapshot(job, {
+        status: 'failed',
+        errorMessage: failure.message,
+        failure: failure.report?.failures[0] ?? null,
+        reportSummary: failure.report?.summary ?? null,
+      })
+    } finally {
+      const active = this.activeExportsByWorkspaceId.get(workspace.id)
+      if (active?.kind === 'job' && active.jobId === job.snapshot.jobId) {
+        this.activeExportsByWorkspaceId.delete(workspace.id)
+      }
+    }
+  }
+
+  private createExportRunInput(
+    workspace: AgentWorkspace,
+    artifactId: string,
+    exportTimestamp: number,
+    options: Required<PageBuilderStaticExportJobCreateOptions>,
+  ): ExportRunInput {
+    return {
+      artifactId,
+      workspace,
+      options,
+      downloadFileName: buildPageBuilderStaticExportDownloadFileName(workspace.name, exportTimestamp),
+      downloadFileNameFallback: buildExportDownloadFallbackFileName(workspace.slug, exportTimestamp),
+      packagePath: getPageBuilderStaticExportPackagePath(artifactId),
+      reportPath: getPageBuilderStaticExportReportPath(artifactId),
+    }
+  }
+
+  private async runExportCore(input: ExportRunInput): Promise<PageBuilderStaticExportArtifact> {
+    const jobDir = dirname(input.packagePath)
+    const stagingDir = getPageBuilderStaticExportStagingDir(input.artifactId)
+    const workspaceFilesDir = getWorkspaceFilesDir(input.workspace.slug)
     const exportedAssetsDir = join(stagingDir, 'assets', 'exported')
     const collector: ExportReportCollector = {
       localizedResources: [],
@@ -264,48 +398,48 @@ export class PageBuilderStaticExportService {
       rmSync(jobDir, { recursive: true, force: true })
       mkdirSync(exportedAssetsDir, { recursive: true })
 
-      this.updateSnapshot(job, { status: 'running', phase: 'copying' })
+      input.onPhase?.('copying')
       cpSync(workspaceFilesDir, stagingDir, { recursive: true })
 
       const cmsGateway = this.resolveCmsGateway()
       const cmsQueryAdapter = this.resolveCmsQueryAdapter()
       const cmsBaseUrl = resolvePageBuilderCmsConfig()?.baseUrl ?? null
       const context: ExportContext = {
-        workspace,
+        workspace: input.workspace,
         workspaceFilesDir,
         stagingDir,
         exportedAssetsDir,
         collector,
-      localizedByUrl: new Map(),
-      processedCssFiles: new Set(),
-      fetchFn: this.fetchFn,
-      cmsGateway,
-      cmsBaseUrl,
-      downloadCmsRemoteAssets: job.options.downloadCmsRemoteAssets,
-      cmsRuntimeClient: createServerCmsClient({
-        adapter: createStaticExportCmsAdapter(cmsQueryAdapter),
-      }),
+        localizedByUrl: new Map(),
+        processedCssFiles: new Set(),
+        fetchFn: this.fetchFn,
+        cmsGateway,
+        cmsBaseUrl,
+        downloadCmsRemoteAssets: input.options.downloadCmsRemoteAssets,
+        cmsRuntimeClient: createServerCmsClient({
+          adapter: createStaticExportCmsAdapter(cmsQueryAdapter),
+        }),
+        onPhase: input.onPhase,
       }
 
-      this.updateSnapshot(job, { phase: 'scanning' })
+      input.onPhase?.('scanning')
       for (const htmlFilePath of collectFiles(stagingDir, (filePath) => /\.html?$/i.test(filePath))) {
         await this.processHtmlFile(htmlFilePath, context)
       }
 
       const report = this.createReport(context)
-      writeReportArtifacts(report, stagingDir, job.reportPath)
+      writeReportArtifacts(report, stagingDir, input.reportPath)
 
-      this.updateSnapshot(job, { phase: 'packaging' })
-      writeFileSync(job.packagePath, buildZipArchive(stagingDir))
+      input.onPhase?.('packaging')
+      writeFileSync(input.packagePath, buildZipArchive(stagingDir))
 
-      this.updateSnapshot(job, {
-        status: 'completed',
-        phase: 'completed',
-        downloadUrl: buildDownloadUrl(workspace.id, jobId),
+      return {
+        fileName: input.downloadFileName,
+        fallbackFileName: input.downloadFileNameFallback,
+        filePath: input.packagePath,
+        reportPath: input.reportPath,
         reportSummary: report.summary,
-        errorMessage: null,
-        failure: null,
-      })
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       if (collector.failures.length === 0) {
@@ -316,7 +450,7 @@ export class PageBuilderStaticExportService {
       }
 
       const report = this.createReport({
-        workspace,
+        workspace: input.workspace,
         workspaceFilesDir,
         stagingDir,
         exportedAssetsDir,
@@ -326,22 +460,15 @@ export class PageBuilderStaticExportService {
         fetchFn: this.fetchFn,
         cmsGateway: null,
         cmsBaseUrl: null,
-        downloadCmsRemoteAssets: job.options.downloadCmsRemoteAssets,
+        downloadCmsRemoteAssets: input.options.downloadCmsRemoteAssets,
         cmsRuntimeClient: createServerCmsClient({
           adapter: createStaticExportCmsAdapter(null),
         }),
       })
-      mkdirSync(dirname(job.reportPath), { recursive: true })
-      writeFileSync(job.reportPath, JSON.stringify(report, null, 2), 'utf-8')
+      mkdirSync(dirname(input.reportPath), { recursive: true })
+      writeFileSync(input.reportPath, JSON.stringify(report, null, 2), 'utf-8')
 
-      this.updateSnapshot(job, {
-        status: 'failed',
-        errorMessage: message,
-        failure: report.failures[0] ?? null,
-        reportSummary: report.summary,
-      })
-    } finally {
-      this.activeJobsByWorkspaceId.delete(workspace.id)
+      throw new PageBuilderStaticExportRunError(message, report)
     }
   }
 
@@ -737,11 +864,11 @@ export class PageBuilderStaticExportService {
 
   private async fetchRemoteResource(resourceUrl: string, context: ExportContext): Promise<Response> {
     if (context.cmsGateway && isCmsResourceUrl(resourceUrl, context.cmsBaseUrl)) {
-      this.updateSnapshotForPhase('downloading')
+      context.onPhase?.('downloading')
       return await context.cmsGateway.fetchAsset(resourceUrl)
     }
 
-    this.updateSnapshotForPhase('downloading')
+    context.onPhase?.('downloading')
     return await fetchWithoutLimits(context.fetchFn, resourceUrl)
   }
 
@@ -761,19 +888,6 @@ export class PageBuilderStaticExportService {
     })
   }
 
-  private updateSnapshotForPhase(phase: PageBuilderStaticExportJobPhase): void {
-    for (const activeJobId of this.activeJobsByWorkspaceId.values()) {
-      const job = this.jobsById.get(activeJobId)
-      if (!job || job.snapshot.status !== 'running') {
-        continue
-      }
-
-      if (job.snapshot.phase !== phase) {
-        this.updateSnapshot(job, { phase })
-      }
-    }
-  }
-
   private cleanupExpiredJobs(): void {
     const now = this.now()
     for (const [jobId, job] of this.jobsById.entries()) {
@@ -782,7 +896,19 @@ export class PageBuilderStaticExportService {
       }
     }
 
-    cleanupExpiredPageBuilderStaticExportDirs(this.jobsById.keys(), now)
+    const activeArtifactIds = new Set(this.jobsById.keys())
+    for (const active of this.activeExportsByWorkspaceId.values()) {
+      activeArtifactIds.add(active.kind === 'job' ? active.jobId : active.runId)
+    }
+
+    cleanupExpiredPageBuilderStaticExportDirs(activeArtifactIds, now)
+  }
+
+  private assertExportEntryExists(workspace: AgentWorkspace): void {
+    const entryPath = join(getWorkspaceFilesDir(workspace.slug), 'index.html')
+    if (!existsSync(entryPath)) {
+      throw new PageBuilderStaticExportServiceError('entry-missing', '当前项目没有可导出的页面产物')
+    }
   }
 }
 
@@ -1026,6 +1152,23 @@ function createReportSummary(collector: ExportReportCollector): PageBuilderStati
     unsupportedRuntimeDependencyCount: dedupeBySerialized(collector.unsupportedRuntimeDependencies).length,
     failureCount: dedupeBySerialized(collector.failures).length,
     hasWarnings: collector.warnings.length > 0 || collector.unsupportedRuntimeDependencies.length > 0,
+  }
+}
+
+function normalizeExportRunFailure(error: unknown): {
+  message: string
+  report: PageBuilderStaticExportReport | null
+} {
+  if (error instanceof PageBuilderStaticExportRunError) {
+    return {
+      message: error.message,
+      report: error.report,
+    }
+  }
+
+  return {
+    message: error instanceof Error ? error.message : String(error),
+    report: null,
   }
 }
 

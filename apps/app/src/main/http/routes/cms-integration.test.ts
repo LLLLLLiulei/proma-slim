@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { strFromU8, unzipSync } from 'fflate'
 import {
   PAGE_BUILDER_CMS_SELECTION_RESULT_VERSION,
 } from '@ai-page-builder/shared'
@@ -24,6 +25,7 @@ const ORIGINAL_ENV = {
   AI_PAGE_BUILDER_CMS_BASE_URL: process.env.AI_PAGE_BUILDER_CMS_BASE_URL,
   AI_PAGE_BUILDER_BASE_PATH: process.env.AI_PAGE_BUILDER_BASE_PATH,
   AI_PAGE_BUILDER_PUBLIC_ORIGIN: process.env.AI_PAGE_BUILDER_PUBLIC_ORIGIN,
+  AI_PAGE_BUILDER_SYNC_EXPORT_TIMEOUT_MS: process.env.AI_PAGE_BUILDER_SYNC_EXPORT_TIMEOUT_MS,
   PROMA_CMS_BASE_URL: process.env.PROMA_CMS_BASE_URL,
   PROMA_CMS_USERNAME: process.env.PROMA_CMS_USERNAME,
   PROMA_CMS_PASSWORD: process.env.PROMA_CMS_PASSWORD,
@@ -195,6 +197,27 @@ async function createHandoff(app: ReturnType<typeof createApp>, projectId: strin
   }))
 
   return response
+}
+
+async function exportCmsProject(app: ReturnType<typeof createApp>, projectId: string, options: {
+  body?: unknown
+  secret?: string
+  cmsCookie?: string
+  includeContentType?: boolean
+} = {}) {
+  const headers: Record<string, string> = {
+    authorization: `Bearer ${options.secret ?? 'integration-secret'}`,
+    'x-cms-cookie': options.cmsCookie ?? 'JSESSIONID=abc',
+  }
+  if (options.includeContentType ?? options.body !== undefined) {
+    headers['content-type'] = 'application/json'
+  }
+
+  return app.fetch(new Request(`http://localhost/api/integrations/cms/projects/${projectId}/export`, {
+    method: 'POST',
+    headers,
+    ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
+  }))
 }
 
 async function consumeOpenUrl(app: ReturnType<typeof createApp>, openUrl: string) {
@@ -397,6 +420,273 @@ describe('cms integration routes', () => {
     const expiredPayload = await expiredRetry.json() as Record<string, unknown>
     expect(expiredPayload).toMatchObject({ code: 'cms_login_expired' })
     expect(expiredPayload.projectId).toBeUndefined()
+  })
+
+  test('POST /api/integrations/cms/projects/:projectId/export returns a static ZIP without builder access session', async () => {
+    enableCmsIntegration(configDir)
+    globalThis.fetch = createLoginFetchMock() as unknown as typeof fetch
+    const app = createApp()
+    const { projectId, binding } = await createBoundCmsProject(app, {
+      externalRecordId: 'cms-sync-export-success',
+      projectName: 'CMS Sync Export',
+    })
+    createPreviewFiles(configDir, binding)
+
+    const response = await exportCmsProject(app, projectId)
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toContain('application/zip')
+    expect(response.headers.get('content-disposition')).toContain('attachment;')
+    expect(response.headers.get('set-cookie')).toBeNull()
+    const entries = unzipSync(new Uint8Array(await response.arrayBuffer()))
+    expect(strFromU8(entries['index.html']!)).toContain('<h1>CMS Preview</h1>')
+    const report = JSON.parse(strFromU8(entries['export-report.json']!)) as {
+      entryFile: string
+      summary: { failureCount: number }
+    }
+    expect(report.entryFile).toBe('index.html')
+    expect(report.summary.failureCount).toBe(0)
+  })
+
+  test('POST /api/integrations/cms/projects/:projectId/export rejects standalone, auth, login, project, and payload failures structurally', async () => {
+    const standaloneApp = createApp()
+    const standalone = await exportCmsProject(standaloneApp, 'missing-project')
+    expect(standalone.status).toBe(401)
+    expect(await standalone.json()).toMatchObject({ code: 'integration_unauthorized' })
+
+    enableCmsIntegration(configDir)
+    globalThis.fetch = createLoginFetchMock() as unknown as typeof fetch
+    const app = createApp()
+    const { projectId } = await createBoundCmsProject(app, {
+      externalRecordId: 'cms-sync-export-rejections',
+    })
+
+    const badSecret = await exportCmsProject(app, projectId, { secret: 'wrong' })
+    expect(badSecret.status).toBe(401)
+    expect(await badSecret.json()).toMatchObject({ code: 'integration_unauthorized' })
+
+    const missingCookie = await app.fetch(new Request(`http://localhost/api/integrations/cms/projects/${projectId}/export`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer integration-secret' },
+    }))
+    expect(missingCookie.status).toBe(400)
+    expect(await missingCookie.json()).toMatchObject({ code: 'invalid_request' })
+
+    const expiredCookie = await exportCmsProject(app, projectId, { cmsCookie: 'expired' })
+    expect(expiredCookie.status).toBe(401)
+    expect(await expiredCookie.json()).toMatchObject({ code: 'cms_login_expired' })
+
+    const missingProject = await exportCmsProject(app, 'missing-project')
+    expect(missingProject.status).toBe(404)
+    expect(await missingProject.json()).toMatchObject({ code: 'project_not_found' })
+
+    const invalidOption = await exportCmsProject(app, projectId, {
+      body: { downloadCmsRemoteAssets: 'no' },
+    })
+    expect(invalidOption.status).toBe(400)
+    expect(await invalidOption.json()).toMatchObject({ code: 'invalid_request' })
+
+    const nullOption = await exportCmsProject(app, projectId, {
+      body: { downloadCmsRemoteAssets: null },
+    })
+    expect(nullOption.status).toBe(400)
+    expect(await nullOption.json()).toMatchObject({ code: 'invalid_request' })
+
+    const stale = await createBoundCmsProject(app, {
+      externalRecordId: 'cms-sync-export-stale-binding',
+    })
+    rebindCmsProject(configDir, stale.projectId, {
+      workspaceId: 'missing-workspace',
+      primarySessionId: 'missing-session',
+    })
+    const missingInternals = await exportCmsProject(app, stale.projectId)
+    expect(missingInternals.status).toBe(404)
+    expect(await missingInternals.json()).toMatchObject({ code: 'project_not_found' })
+
+    globalThis.fetch = mock(async () => jsonResponse({ status: 0 }, 500)) as unknown as typeof fetch
+    const loginUnavailable = await exportCmsProject(app, projectId)
+    expect(loginUnavailable.status).toBe(502)
+    expect(await loginUnavailable.json()).toMatchObject({ code: 'cms_login_unavailable' })
+  })
+
+  test('POST /api/integrations/cms/projects/:projectId/export passes explicit CMS remote asset option to export core', async () => {
+    enableCmsIntegration(configDir)
+    globalThis.fetch = createLoginFetchMock() as unknown as typeof fetch
+    const app = createApp()
+    const { projectId, binding } = await createBoundCmsProject(app, {
+      externalRecordId: 'cms-sync-export-option',
+    })
+    createPreviewFiles(configDir, binding)
+    const {
+      pageBuilderStaticExportService,
+    } = await import('../../lib/page-builder-static-export-service')
+    const originalExport = pageBuilderStaticExportService.exportWorkspaceStaticPackage.bind(pageBuilderStaticExportService)
+    const calls: Array<{ workspaceId: string; downloadCmsRemoteAssets: boolean | undefined }> = []
+    const packagePath = join(configDir, 'captured-sync-export.zip')
+    writeFileSync(packagePath, new Uint8Array([80, 75, 5, 6, ...new Array(18).fill(0)]))
+
+    pageBuilderStaticExportService.exportWorkspaceStaticPackage = (async (workspace, options) => {
+      calls.push({
+        workspaceId: workspace.id,
+        downloadCmsRemoteAssets: options?.downloadCmsRemoteAssets,
+      })
+      return {
+        fileName: 'captured.zip',
+        fallbackFileName: 'captured.zip',
+        filePath: packagePath,
+        reportPath: join(configDir, 'captured-report.json'),
+        reportSummary: {
+          localizedResourceCount: 0,
+          retainedExternalLinkCount: 0,
+          warningCount: 0,
+          unsupportedRuntimeDependencyCount: 0,
+          failureCount: 0,
+          hasWarnings: false,
+        },
+      }
+    }) as typeof pageBuilderStaticExportService.exportWorkspaceStaticPackage
+
+    try {
+      const response = await exportCmsProject(app, projectId, {
+        body: { downloadCmsRemoteAssets: false },
+      })
+      expect(response.status).toBe(200)
+      expect(calls).toEqual([{
+        workspaceId: binding.workspaceId,
+        downloadCmsRemoteAssets: false,
+      }])
+    } finally {
+      pageBuilderStaticExportService.exportWorkspaceStaticPackage = originalExport
+    }
+  })
+
+  test('POST /api/integrations/cms/projects/:projectId/export returns project_busy for unsafe workspace states', async () => {
+    enableCmsIntegration(configDir)
+    globalThis.fetch = createLoginFetchMock() as unknown as typeof fetch
+    const app = createApp()
+    const { projectId, binding } = await createBoundCmsProject(app, {
+      externalRecordId: 'cms-sync-export-busy',
+    })
+
+    const missingIndex = await exportCmsProject(app, projectId)
+    expect(missingIndex.status).toBe(409)
+    expect(await missingIndex.json()).toMatchObject({ code: 'project_busy' })
+
+    createPreviewFiles(configDir, binding)
+    const {
+      pageBuilderEditLockService,
+    } = await import('../../lib/page-builder-edit-lock-service')
+    pageBuilderEditLockService.acquire(binding.workspaceId, { holderId: 'test-holder' })
+
+    const locked = await exportCmsProject(app, projectId)
+    expect(locked.status).toBe(409)
+    expect(await locked.json()).toMatchObject({ code: 'project_busy' })
+
+    const activeExportProject = await createBoundCmsProject(app, {
+      externalRecordId: 'cms-sync-export-active-export',
+    })
+    createPreviewFiles(configDir, activeExportProject.binding)
+    const {
+      pageBuilderStaticExportService,
+    } = await import('../../lib/page-builder-static-export-service')
+    const originalIsWorkspaceExportActive = pageBuilderStaticExportService.isWorkspaceExportActive.bind(pageBuilderStaticExportService)
+    pageBuilderStaticExportService.isWorkspaceExportActive = ((workspaceId) => (
+      workspaceId === activeExportProject.binding.workspaceId || originalIsWorkspaceExportActive(workspaceId)
+    )) as typeof pageBuilderStaticExportService.isWorkspaceExportActive
+
+    try {
+      const activeExport = await exportCmsProject(app, activeExportProject.projectId)
+      expect(activeExport.status).toBe(409)
+      expect(await activeExport.json()).toMatchObject({ code: 'project_busy' })
+    } finally {
+      pageBuilderStaticExportService.isWorkspaceExportActive = originalIsWorkspaceExportActive
+    }
+
+    const activeAgentProject = await createBoundCmsProject(app, {
+      externalRecordId: 'cms-sync-export-active-agent',
+    })
+    createPreviewFiles(configDir, activeAgentProject.binding)
+    const { PageBuilderEditLockConflictError } = await import('../../lib/page-builder-edit-lock-service')
+    const originalAssertProjectAvailable = pageBuilderEditLockService.assertProjectAvailable.bind(pageBuilderEditLockService)
+    pageBuilderEditLockService.assertProjectAvailable = ((workspaceId) => {
+      if (workspaceId === activeAgentProject.binding.workspaceId) {
+        throw new PageBuilderEditLockConflictError(
+          'agent-busy',
+          { status: 'locked', reason: 'agent' },
+          '该项目正在构建中，请稍后再试',
+        )
+      }
+      return originalAssertProjectAvailable(workspaceId)
+    }) as typeof pageBuilderEditLockService.assertProjectAvailable
+
+    try {
+      const activeAgent = await exportCmsProject(app, activeAgentProject.projectId)
+      expect(activeAgent.status).toBe(409)
+      expect(await activeAgent.json()).toMatchObject({ code: 'project_busy' })
+    } finally {
+      pageBuilderEditLockService.assertProjectAvailable = originalAssertProjectAvailable
+    }
+  })
+
+  test('POST /api/integrations/cms/projects/:projectId/export maps export failures and explicit soft timeout', async () => {
+    enableCmsIntegration(configDir)
+    globalThis.fetch = createLoginFetchMock() as unknown as typeof fetch
+    const app = createApp()
+    const { projectId, binding } = await createBoundCmsProject(app, {
+      externalRecordId: 'cms-sync-export-failure',
+    })
+    createPreviewFiles(configDir, binding)
+    const {
+      PageBuilderStaticExportServiceError,
+      pageBuilderStaticExportService,
+    } = await import('../../lib/page-builder-static-export-service')
+    const originalExport = pageBuilderStaticExportService.exportWorkspaceStaticPackage.bind(pageBuilderStaticExportService)
+
+    pageBuilderStaticExportService.exportWorkspaceStaticPackage = (async () => {
+      throw new PageBuilderStaticExportServiceError('export-failed', 'upstream failed')
+    }) as typeof pageBuilderStaticExportService.exportWorkspaceStaticPackage
+
+    try {
+      const failed = await exportCmsProject(app, projectId)
+      expect(failed.status).toBe(502)
+      expect(await failed.json()).toMatchObject({ code: 'export_upstream_failed' })
+    } finally {
+      pageBuilderStaticExportService.exportWorkspaceStaticPackage = originalExport
+    }
+
+    process.env.AI_PAGE_BUILDER_SYNC_EXPORT_TIMEOUT_MS = '1'
+    let releaseExport!: () => void
+    const timeoutPackagePath = join(configDir, 'timeout-sync-export.zip')
+    writeFileSync(timeoutPackagePath, new Uint8Array([80, 75, 5, 6, ...new Array(18).fill(0)]))
+    pageBuilderStaticExportService.exportWorkspaceStaticPackage = (async () => {
+      await new Promise<void>((resolve) => {
+        releaseExport = resolve
+      })
+      return {
+        fileName: 'timeout.zip',
+        fallbackFileName: 'timeout.zip',
+        filePath: timeoutPackagePath,
+        reportPath: join(configDir, 'timeout-report.json'),
+        reportSummary: {
+          localizedResourceCount: 0,
+          retainedExternalLinkCount: 0,
+          warningCount: 0,
+          unsupportedRuntimeDependencyCount: 0,
+          failureCount: 0,
+          hasWarnings: false,
+        },
+      }
+    }) as typeof pageBuilderStaticExportService.exportWorkspaceStaticPackage
+
+    try {
+      const timedOut = await exportCmsProject(app, projectId)
+      expect(timedOut.status).toBe(504)
+      expect(await timedOut.json()).toMatchObject({ code: 'export_timeout' })
+      releaseExport()
+      await Promise.resolve()
+    } finally {
+      pageBuilderStaticExportService.exportWorkspaceStaticPackage = originalExport
+    }
   })
 
   test('standalone workspace/session/page-builder APIs keep their existing behavior', async () => {

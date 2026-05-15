@@ -107,4 +107,24 @@ describe('PageBuilderHistoryCard', () => {
     expect(editButton).toBeDefined()
     expect(editButton!.props.disabled).not.toBe(true)
   })
+
+  test('renders export-busy projects with a distinct lock label', () => {
+    const project = createProject({
+      editState: {
+        status: 'locked',
+        reason: 'export',
+      },
+    })
+
+    const renderer = create(
+      <PageBuilderHistoryCard
+        onDelete={() => {}}
+        onEdit={async () => {}}
+        onPreview={() => {}}
+        project={project}
+      />,
+    )
+
+    expect(JSON.stringify(renderer.toJSON())).toContain('正在导出')
+  })
 })

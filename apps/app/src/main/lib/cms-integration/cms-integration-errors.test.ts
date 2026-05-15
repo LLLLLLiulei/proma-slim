@@ -4,9 +4,12 @@ import {
   builderAccessOriginForbidden,
   builderAccessRequired,
   cmsProjectNotFound,
+  cmsSyncExportTimeout,
+  cmsSyncExportUpstreamFailed,
   handoffExpired,
   invalidCmsRequest,
   previewNotReady,
+  projectBusy,
   toCmsIntegrationErrorResponse,
 } from './cms-integration-errors'
 
@@ -41,6 +44,21 @@ describe('cms integration errors', () => {
       code: 'builder_access_origin_forbidden',
       status: 403,
       message: '当前请求来源不可信，请从 CMS 页面重新进入 PageBuilder',
+    })
+    expect(projectBusy()).toMatchObject({
+      code: 'project_busy',
+      status: 409,
+      message: '项目正在编辑、构建或导出中，请稍后再试',
+    })
+    expect(cmsSyncExportUpstreamFailed()).toMatchObject({
+      code: 'export_upstream_failed',
+      status: 502,
+      message: '同步导出依赖资源请求失败，请稍后再试',
+    })
+    expect(cmsSyncExportTimeout()).toMatchObject({
+      code: 'export_timeout',
+      status: 504,
+      message: '同步导出超时，请稍后再试',
     })
   })
 

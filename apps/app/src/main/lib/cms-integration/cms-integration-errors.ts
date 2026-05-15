@@ -7,6 +7,9 @@ export type CmsIntegrationErrorCode =
   | 'project_not_found'
   | 'handoff_expired'
   | 'preview_not_ready'
+  | 'project_busy'
+  | 'export_upstream_failed'
+  | 'export_timeout'
   | 'builder_access_required'
   | 'builder_access_mismatch'
   | 'builder_access_origin_forbidden'
@@ -20,6 +23,9 @@ const DEFAULT_MESSAGES: Record<CmsIntegrationErrorCode, string> = {
   project_not_found: 'CMS 项目不存在',
   handoff_expired: 'CMS handoff 已失效，请重新从 CMS 进入',
   preview_not_ready: '当前项目尚未生成可预览内容，请先完成预览构建',
+  project_busy: '项目正在编辑、构建或导出中，请稍后再试',
+  export_upstream_failed: '同步导出依赖资源请求失败，请稍后再试',
+  export_timeout: '同步导出超时，请稍后再试',
   builder_access_required: '请先通过 CMS handoff 重新进入 PageBuilder',
   builder_access_mismatch: '当前访问会话与目标工作区不匹配，请从 CMS 重新进入',
   builder_access_origin_forbidden: '当前请求来源不可信，请从 CMS 页面重新进入 PageBuilder',
@@ -76,6 +82,18 @@ export function handoffExpired(message?: string): CmsIntegrationError {
 
 export function previewNotReady(message?: string): CmsIntegrationError {
   return new CmsIntegrationError('preview_not_ready', 409, message)
+}
+
+export function projectBusy(message?: string): CmsIntegrationError {
+  return new CmsIntegrationError('project_busy', 409, message)
+}
+
+export function cmsSyncExportUpstreamFailed(message?: string): CmsIntegrationError {
+  return new CmsIntegrationError('export_upstream_failed', 502, message)
+}
+
+export function cmsSyncExportTimeout(message?: string): CmsIntegrationError {
+  return new CmsIntegrationError('export_timeout', 504, message)
 }
 
 export function builderAccessRequired(message?: string): CmsIntegrationError {

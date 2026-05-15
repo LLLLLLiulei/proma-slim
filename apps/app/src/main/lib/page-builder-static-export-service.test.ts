@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { createAgentWorkspace } from './workspace-service'
@@ -132,6 +132,240 @@ describe('page-builder static export service', () => {
 
     expect(finishedJob.status).toBe('completed')
     expect(finishedJob.downloadUrl).toBe(`/pagebuilder/api/workspaces/${workspace.id}/page-builder/export-static-jobs/job-base-path/download`)
+  })
+
+  test('exports a workspace package through the shared core without creating a browser job', async () => {
+    const workspace = createAgentWorkspace('Static Export Shared Core', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(
+      join(workspaceFilesDir, 'index.html'),
+      '<!doctype html><html><body><h1>Shared Core</h1></body></html>',
+      'utf-8',
+    )
+
+    const {
+      PageBuilderStaticExportService,
+    } = await import('./page-builder-static-export-service')
+    const service = new PageBuilderStaticExportService({
+      randomUUID: () => 'sync-shared-core',
+    })
+
+    const artifact = await service.exportWorkspaceStaticPackage(workspace)
+
+    expect(service.getJob(workspace.id, 'sync-shared-core')).toBeNull()
+    expect(existsSync(artifact.filePath)).toBe(true)
+    expect(existsSync(artifact.reportPath)).toBe(true)
+    expect(artifact.reportSummary.failureCount).toBe(0)
+    expect(artifact.fileName).toEndWith('.zip')
+    expect(artifact.fallbackFileName).toEndWith('.zip')
+    expect(service.isWorkspaceExportActive(workspace.id)).toBe(false)
+  })
+
+  test('keeps active sync export artifacts during TTL cleanup', async () => {
+    const workspace = createAgentWorkspace('Static Export Active Sync Cleanup', { template: 'page-builder' })
+    const cleanupTriggerWorkspace = createAgentWorkspace('Static Export Cleanup Trigger', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+    const cleanupTriggerFilesDir = join(homedir(), '.proma', 'agent-workspaces', cleanupTriggerWorkspace.slug, 'workspace-files')
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    mkdirSync(cleanupTriggerFilesDir, { recursive: true })
+    writeFileSync(
+      join(workspaceFilesDir, 'index.html'),
+      '<!doctype html><html><body><img src="https://cdn.example.com/active-sync.png"></body></html>',
+      'utf-8',
+    )
+    writeFileSync(
+      join(cleanupTriggerFilesDir, 'index.html'),
+      '<!doctype html><html><body><h1>Cleanup Trigger</h1></body></html>',
+      'utf-8',
+    )
+
+    let now = Date.now()
+    const pendingFetch: { release: (() => void) | null } = { release: null }
+    let fetchStarted = false
+    const fetchMock = mock(async () => {
+      fetchStarted = true
+      await new Promise<void>((resolve) => {
+        pendingFetch.release = resolve
+      })
+      return new Response('image', {
+        status: 200,
+        headers: { 'content-type': 'image/png' },
+      })
+    })
+
+    const {
+      PageBuilderStaticExportService,
+    } = await import('./page-builder-static-export-service')
+    const {
+      getPageBuilderStaticExportJobDir,
+      getPageBuilderStaticExportStagingDir,
+      getPageBuilderStaticExportTtlMs,
+    } = await import('./page-builder-static-export-paths')
+    const service = new PageBuilderStaticExportService({
+      fetchFn: fetchMock as unknown as typeof fetch,
+      now: () => now,
+      randomUUID: (() => {
+        const ids = ['sync-active-cleanup', 'cleanup-trigger-job']
+        return () => ids.shift() ?? 'unexpected-export-id'
+      })(),
+    })
+
+    const exportPromise = service.exportWorkspaceStaticPackage(workspace)
+    for (let attempt = 0; attempt < 20 && !fetchStarted; attempt += 1) {
+      await Promise.resolve()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    }
+
+    expect(fetchStarted).toBe(true)
+    expect(service.isWorkspaceExportActive(workspace.id)).toBe(true)
+
+    const ttlMs = getPageBuilderStaticExportTtlMs()
+    const staleTimestamp = new Date(now - ttlMs - 1)
+    utimesSync(getPageBuilderStaticExportJobDir('sync-active-cleanup'), staleTimestamp, staleTimestamp)
+    now += ttlMs + 1
+
+    let cleanupTriggerJobId: string | null = null
+    try {
+      cleanupTriggerJobId = service.createJob(cleanupTriggerWorkspace).jobId
+      expect(existsSync(join(getPageBuilderStaticExportStagingDir('sync-active-cleanup'), 'index.html'))).toBe(true)
+    } finally {
+      pendingFetch.release?.()
+      await exportPromise.catch(() => undefined)
+      if (cleanupTriggerJobId) {
+        await waitForTerminalJob(service, cleanupTriggerWorkspace.id, cleanupTriggerJobId)
+      }
+    }
+  })
+
+  test('keeps browser duplicate jobs compatible but rejects sync export while the workspace is exporting', async () => {
+    const workspace = createAgentWorkspace('Static Export Activity Guard', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(
+      join(workspaceFilesDir, 'index.html'),
+      '<!doctype html><html><body><img src="https://cdn.example.com/pending.png"></body></html>',
+      'utf-8',
+    )
+
+    let releaseFetch!: () => void
+    const fetchMock = mock(async () => {
+      await new Promise<void>((resolve) => {
+        releaseFetch = resolve
+      })
+      return new Response('image', {
+        status: 200,
+        headers: { 'content-type': 'image/png' },
+      })
+    })
+
+    const {
+      PageBuilderStaticExportService,
+      PageBuilderStaticExportServiceError,
+    } = await import('./page-builder-static-export-service')
+    const service = new PageBuilderStaticExportService({
+      fetchFn: fetchMock as unknown as typeof fetch,
+      randomUUID: () => 'job-activity-guard',
+    })
+
+    const firstJob = service.createJob(workspace)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(service.isWorkspaceExportActive(workspace.id)).toBe(true)
+    expect(service.createJob(workspace).jobId).toBe(firstJob.jobId)
+    await expect(service.exportWorkspaceStaticPackage(workspace)).rejects.toMatchObject({
+      name: 'PageBuilderStaticExportServiceError',
+      code: 'export-active',
+    } satisfies Partial<InstanceType<typeof PageBuilderStaticExportServiceError>>)
+
+    releaseFetch()
+    const finishedJob = await waitForTerminalJob(service, workspace.id, firstJob.jobId)
+    expect(finishedJob.status).toBe('completed')
+    expect(service.isWorkspaceExportActive(workspace.id)).toBe(false)
+  })
+
+  test('download phase updates only the current export job', async () => {
+    process.env.PROMA_CMS_BASE_URL = 'https://cms.example.com/manager/'
+    process.env.PROMA_CMS_SITE_ID = '14'
+    process.env.PROMA_CMS_USERNAME = 'test-user'
+    process.env.PROMA_CMS_PASSWORD = 'test-pass'
+
+    const blockedWorkspace = createAgentWorkspace('Static Export Blocked CMS Island', { template: 'page-builder' })
+    const downloadingWorkspace = createAgentWorkspace('Static Export Downloading Asset', { template: 'page-builder' })
+    const blockedDir = join(homedir(), '.proma', 'agent-workspaces', blockedWorkspace.slug, 'workspace-files')
+    const downloadingDir = join(homedir(), '.proma', 'agent-workspaces', downloadingWorkspace.slug, 'workspace-files')
+
+    mkdirSync(blockedDir, { recursive: true })
+    mkdirSync(downloadingDir, { recursive: true })
+    writeFileSync(
+      join(blockedDir, 'index.html'),
+      `<html><body>
+        <cms-content site-id="14" catalog-id="news" page-index="0" page-size="1">
+          <template v-slot:default="{ items }"><article>{{ items[0]?.title }}</article></template>
+        </cms-content>
+      </body></html>`,
+      'utf-8',
+    )
+    writeFileSync(
+      join(downloadingDir, 'index.html'),
+      '<!doctype html><html><body><img src="https://cdn.example.com/downloading.png"></body></html>',
+      'utf-8',
+    )
+
+    let releaseCmsQuery!: () => void
+    let cmsQueryStarted = false
+    const fetchMock = mock(async () => new Response('image', {
+      status: 200,
+      headers: { 'content-type': 'image/png' },
+    }))
+
+    const {
+      PageBuilderStaticExportService,
+    } = await import('./page-builder-static-export-service')
+    const service = new PageBuilderStaticExportService({
+      fetchFn: fetchMock as unknown as typeof fetch,
+      cmsQueryAdapterFactory: () => ({
+        async listCatalogs() {
+          return { items: [], tree: [] }
+        },
+        async listContents() {
+          cmsQueryStarted = true
+          await new Promise<void>((resolve) => {
+            releaseCmsQuery = resolve
+          })
+          return {
+            pageIndex: 0,
+            pageSize: 1,
+            total: 0,
+            totalPages: 0,
+            items: [],
+          }
+        },
+      }),
+      randomUUID: (() => {
+        const ids = ['job-blocked', 'job-downloading']
+        return () => ids.shift() ?? 'unexpected-job'
+      })(),
+    })
+
+    const blockedJob = service.createJob(blockedWorkspace)
+    for (let attempt = 0; attempt < 20 && !cmsQueryStarted; attempt += 1) {
+      await Promise.resolve()
+    }
+    expect(service.getJob(blockedWorkspace.id, blockedJob.jobId)?.phase).toBe('scanning')
+
+    const downloadingJob = service.createJob(downloadingWorkspace)
+    const downloaded = await waitForTerminalJob(service, downloadingWorkspace.id, downloadingJob.jobId)
+    expect(downloaded.status).toBe('completed')
+    expect(service.getJob(blockedWorkspace.id, blockedJob.jobId)?.phase).toBe('scanning')
+
+    releaseCmsQuery()
+    const unblocked = await waitForTerminalJob(service, blockedWorkspace.id, blockedJob.jobId)
+    expect(unblocked.status).toBe('completed')
   })
 
   test('localizes supported remote assets, uses the CMS gateway, and records warnings plus unsupported runtime dependencies', async () => {

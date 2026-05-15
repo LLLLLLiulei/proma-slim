@@ -11,6 +11,7 @@ function createService(options: {
   now?: number
   ids?: string[]
   agentActive?: boolean
+  exportActive?: boolean
 } = {}) {
   let now = options.now ?? 1_000
   const ids = [...(options.ids ?? ['lock-1', 'holder-generated'])]
@@ -24,6 +25,7 @@ function createService(options: {
       return id
     },
     isWorkspaceAgentActive: () => options.agentActive ?? false,
+    isWorkspaceExportActive: () => options.exportActive ?? false,
   })
 
   return {
@@ -158,5 +160,30 @@ describe('page builder edit lock service', () => {
 
     expect(() => service.acquire('workspace-1', { holderId: 'holder-1' }))
       .toThrow(PageBuilderEditLockConflictError)
+  })
+
+  test('active static export marks the workspace busy and blocks acquisition until it finishes', () => {
+    let exportActive = true
+    const guardedService = new PageBuilderEditLockService({
+      now: () => 1_000,
+      randomUUID: () => 'lock-1',
+      isWorkspaceExportActive: () => exportActive,
+    })
+
+    expect(guardedService.getEditState('workspace-1')).toEqual({
+      status: 'locked',
+      reason: 'export',
+    })
+
+    expect(() => guardedService.acquire('workspace-1', { holderId: 'holder-1' }))
+      .toThrow(PageBuilderEditLockConflictError)
+
+    exportActive = false
+    expect(guardedService.getEditState('workspace-1')).toEqual({ status: 'available' })
+    expect(guardedService.acquire('workspace-1', { holderId: 'holder-1' })).toMatchObject({
+      workspaceId: 'workspace-1',
+      lockId: 'lock-1',
+      holderId: 'holder-1',
+    })
   })
 })

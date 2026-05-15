@@ -9,12 +9,13 @@ import type {
 } from '@ai-page-builder/shared'
 import { listAgentSessions } from './agent-session-manager'
 import { isAgentSessionActive } from './agent-service'
+import { pageBuilderStaticExportService } from './page-builder-static-export-service'
 
 export const PAGE_BUILDER_EDIT_LOCK_HEARTBEAT_INTERVAL_MS = 15_000
 export const PAGE_BUILDER_EDIT_LOCK_TTL_MS = 60_000
 export const PAGE_BUILDER_EDIT_LOCK_RELEASE_GRACE_MS = 5_000
 
-type PageBuilderEditLockConflictCode = 'locked' | 'agent-busy' | 'invalid'
+type PageBuilderEditLockConflictCode = 'locked' | 'agent-busy' | 'export-busy' | 'invalid'
 
 interface StoredPageBuilderEditLock {
   workspaceId: string
@@ -66,6 +67,7 @@ interface PageBuilderEditLockServiceOptions {
   now?: () => number
   randomUUID?: () => string
   isWorkspaceAgentActive?: (workspaceId: string) => boolean
+  isWorkspaceExportActive?: (workspaceId: string) => boolean
 }
 
 export class PageBuilderEditLockService {
@@ -73,12 +75,14 @@ export class PageBuilderEditLockService {
   private readonly now: () => number
   private readonly randomUUID: () => string
   private readonly isWorkspaceAgentActive: (workspaceId: string) => boolean
+  private readonly isWorkspaceExportActive: (workspaceId: string) => boolean
 
   constructor(options: PageBuilderEditLockServiceOptions = {}) {
     this.store = options.store ?? new InMemoryPageBuilderEditLockStore()
     this.now = options.now ?? Date.now
     this.randomUUID = options.randomUUID ?? nodeRandomUUID
     this.isWorkspaceAgentActive = options.isWorkspaceAgentActive ?? (() => false)
+    this.isWorkspaceExportActive = options.isWorkspaceExportActive ?? (() => false)
   }
 
   acquire(
@@ -100,6 +104,14 @@ export class PageBuilderEditLockService {
         'agent-busy',
         { status: 'locked', reason: 'agent' },
         '该项目正在构建中，请稍后再试',
+      )
+    }
+
+    if (this.isWorkspaceExportActive(normalizedWorkspaceId)) {
+      throw new PageBuilderEditLockConflictError(
+        'export-busy',
+        { status: 'locked', reason: 'export' },
+        '该项目正在导出中，请稍后再试',
       )
     }
 
@@ -227,6 +239,10 @@ export class PageBuilderEditLockService {
       return { status: 'locked', reason: 'agent' }
     }
 
+    if (this.isWorkspaceExportActive(normalizedWorkspaceId)) {
+      return { status: 'locked', reason: 'export' }
+    }
+
     return { status: 'available' }
   }
 
@@ -237,10 +253,12 @@ export class PageBuilderEditLockService {
     }
 
     throw new PageBuilderEditLockConflictError(
-      editState.reason === 'agent' ? 'agent-busy' : 'locked',
+      editState.reason === 'agent' ? 'agent-busy' : editState.reason === 'export' ? 'export-busy' : 'locked',
       editState,
       editState.reason === 'agent'
         ? '该项目正在构建中，请稍后再试'
+        : editState.reason === 'export'
+          ? '该项目正在导出中，请稍后再试'
         : '该项目当前有其他编辑会话正在进行，请稍后再试',
     )
   }
@@ -269,6 +287,7 @@ export function isPageBuilderWorkspaceAgentActive(workspaceId: string): boolean 
 
 export const pageBuilderEditLockService = new PageBuilderEditLockService({
   isWorkspaceAgentActive: isPageBuilderWorkspaceAgentActive,
+  isWorkspaceExportActive: (workspaceId) => pageBuilderStaticExportService.isWorkspaceExportActive(workspaceId),
 })
 
 function normalizeRequiredId(value: string): string {
