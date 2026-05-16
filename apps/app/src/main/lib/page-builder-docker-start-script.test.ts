@@ -36,4 +36,13 @@ describe('page-builder docker start script', () => {
     expect(script).toContain('docker compose \\')
     expect(script).toContain('up -d --no-build server playwright web')
   })
+
+  test('start script reports the runtime public URL with base path when configured', () => {
+    const script = readRepoFile('../../../../../build/start-page-builder.sh')
+
+    expect(script).toContain('BASE_PATH="$(awk -F= \'/^AI_PAGE_BUILDER_BASE_PATH=/{print $2}\' "${ENV_FILE}" | tail -n 1)"')
+    expect(script).toContain('BASE_PATH="${BASE_PATH%/}"')
+    expect(script).toContain('PUBLIC_URL="http://localhost:${PORT}${BASE_PATH}/"')
+    expect(script).toContain('Page Builder is available at ${PUBLIC_URL}')
+  })
 })

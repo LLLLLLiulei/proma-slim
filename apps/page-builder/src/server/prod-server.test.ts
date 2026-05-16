@@ -288,4 +288,79 @@ describe('page-builder production server', () => {
     expect(forwardedHost).toBe('builder.example.com')
     expect(forwardedProto).toBe('https')
   })
+
+  test('preserves trusted forwarded host proto and integration headers through the base path proxy', async () => {
+    const distDir = createTempDistDir()
+    tempDirs.push(distDir)
+
+    let forwardedHost = ''
+    let forwardedProto = ''
+    let authorization = ''
+    let cmsCookie = ''
+    const handler = createPageBuilderProdFetchHandler({
+      distDir,
+      appOrigin: 'http://app:3000',
+      publicBasePath: '/pagebuilder',
+      fetchImpl: async (request) => {
+        forwardedHost = request.headers.get('x-forwarded-host') ?? ''
+        forwardedProto = request.headers.get('x-forwarded-proto') ?? ''
+        authorization = request.headers.get('authorization') ?? ''
+        cmsCookie = request.headers.get('x-cms-cookie') ?? ''
+        return new Response(null, {
+          status: 204,
+          headers: {
+            'set-cookie': 'ai_page_builder_access=token; Secure; Path=/pagebuilder',
+          },
+        })
+      },
+    })
+
+    const response = await handler(new Request('http://web:3333/pagebuilder/api/integrations/cms/projects', {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer integration-secret',
+        'x-cms-cookie': 'CurrentSite=1; ZUSID=abc',
+        'x-forwarded-host': 'cms.example.com',
+        'x-forwarded-proto': 'https',
+      },
+    }))
+
+    expect(response.status).toBe(204)
+    expect(forwardedHost).toBe('cms.example.com')
+    expect(forwardedProto).toBe('https')
+    expect(authorization).toBe('Bearer integration-secret')
+    expect(cmsCookie).toBe('CurrentSite=1; ZUSID=abc')
+  })
+
+  test('does not follow upstream redirects for CMS handoff open responses', async () => {
+    const distDir = createTempDistDir()
+    tempDirs.push(distDir)
+
+    let proxiedRedirectMode = ''
+    let proxiedRedirectInit: RequestRedirect | undefined
+    const handler = createPageBuilderProdFetchHandler({
+      distDir,
+      appOrigin: 'http://app:3000',
+      publicBasePath: '/pagebuilder',
+      fetchImpl: async (request, init) => {
+        proxiedRedirectMode = request.redirect
+        proxiedRedirectInit = init?.redirect
+        return new Response(null, {
+          status: 302,
+          headers: {
+            location: '/pagebuilder/builder/workspace-1/session-1',
+            'set-cookie': 'ai_page_builder_access=token; Path=/pagebuilder',
+          },
+        })
+      },
+    })
+
+    const response = await handler(new Request('http://localhost/pagebuilder/api/integrations/cms/handoffs/handoff-1/open'))
+
+    expect(proxiedRedirectMode).toBe('manual')
+    expect(proxiedRedirectInit).toBe('manual')
+    expect(response.status).toBe(302)
+    expect(response.headers.get('location')).toBe('/pagebuilder/builder/workspace-1/session-1')
+    expect(response.headers.get('set-cookie')).toBe('ai_page_builder_access=token; Path=/pagebuilder')
+  })
 })

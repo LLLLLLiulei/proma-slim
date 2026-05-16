@@ -1,4 +1,4 @@
-import { createHmac, randomUUID as nodeRandomUUID, timingSafeEqual } from 'node:crypto'
+import { createHash, createHmac, randomUUID as nodeRandomUUID, timingSafeEqual } from 'node:crypto'
 import {
   builderAccessRequired,
 } from './cms-integration-errors'
@@ -6,6 +6,8 @@ import {
 export const ACCESS_COOKIE_NAME = 'ai_page_builder_access'
 export const ACCESS_SESSION_DEFAULT_TTL_MS = 72 * 60 * 60 * 1000
 const DEFAULT_SIGNING_SECRET = nodeRandomUUID()
+const SCOPED_ACCESS_COOKIE_PREFIX = `${ACCESS_COOKIE_NAME}_`
+const ACCESS_COOKIE_WORKSPACE_HASH_LENGTH = 16
 
 export interface BuilderAccessSessionRecord {
   accessId: string
@@ -168,6 +170,7 @@ export class BuilderAccessSessionService {
       expiresAt: record.expiresAt,
       userSummary: record.userSummary,
       cookie: buildSetCookie(record.cookieValue, {
+        cookieName: getWorkspaceAccessCookieName(record.workspaceId),
         basePath: input.basePath,
         isSecure: input.isSecure,
         maxAgeMs: this.ttlMs,
@@ -175,8 +178,8 @@ export class BuilderAccessSessionService {
     }
   }
 
-  readFromCookie(cookieInput: string | null | undefined): BuilderAccessSessionRecord | null {
-    const cookieValue = extractCookieValue(cookieInput)
+  readFromCookie(cookieInput: string | null | undefined, workspaceId?: string): BuilderAccessSessionRecord | null {
+    const cookieValue = extractCookieValue(cookieInput, workspaceId)
     if (!cookieValue) {
       return null
     }
@@ -202,7 +205,7 @@ export class BuilderAccessSessionService {
       sessionId?: string
     },
   ): BuilderAccessValidationResult {
-    const cookieValue = extractCookieValue(cookieInput)
+    const cookieValue = extractCookieValue(cookieInput, input.workspaceId)
     if (!cookieValue) {
       return { valid: false, code: 'builder_access_required' }
     }
@@ -271,6 +274,7 @@ export class BuilderAccessSessionService {
     return {
       access: toPublicRecord(renewed),
       cookie: buildSetCookie(renewed.cookieValue, {
+        cookieName: getWorkspaceAccessCookieName(renewed.workspaceId),
         basePath: options.basePath,
         isSecure: options.isSecure,
         maxAgeMs: this.ttlMs,
@@ -332,6 +336,7 @@ function verifySignedAccessId(value: string, signingSecret: string): string | nu
 function buildSetCookie(
   cookieValue: string,
   options: {
+    cookieName: string
     basePath: string
     isSecure: boolean
     maxAgeMs: number
@@ -340,7 +345,7 @@ function buildSetCookie(
   const maxAgeSeconds = Math.max(0, Math.floor(options.maxAgeMs / 1000))
   const path = normalizeCookiePath(options.basePath)
   const attributes = [
-    `${ACCESS_COOKIE_NAME}=${cookieValue}`,
+    `${options.cookieName}=${cookieValue}`,
     'HttpOnly',
     'SameSite=Lax',
     `Path=${path}`,
@@ -363,23 +368,66 @@ function normalizeCookiePath(basePath: string): string {
   return normalized.replace(/\/+$/, '') || '/'
 }
 
-function extractCookieValue(cookieInput: string | null | undefined): string | null {
+function extractCookieValue(cookieInput: string | null | undefined, workspaceId?: string): string | null {
   const raw = cookieInput?.trim()
   if (!raw) {
     return null
   }
 
-  const direct = raw.match(new RegExp(`(?:^|;\\s*)${ACCESS_COOKIE_NAME}=([^;]+)`))
-  if (direct?.[1]) {
-    return direct[1].trim()
+  const cookies = parseCookiePairs(raw)
+  const scopedCookieName = workspaceId?.trim()
+    ? getWorkspaceAccessCookieName(workspaceId)
+    : null
+  if (scopedCookieName) {
+    const scoped = findCookieValue(cookies, scopedCookieName)
+    if (scoped) {
+      return scoped
+    }
   }
 
-  const firstPart = raw.split(';', 1)[0]?.trim()
-  if (firstPart?.startsWith(`${ACCESS_COOKIE_NAME}=`)) {
-    return firstPart.slice(`${ACCESS_COOKIE_NAME}=`.length).trim() || null
+  const legacy = findCookieValue(cookies, ACCESS_COOKIE_NAME)
+  if (legacy) {
+    return legacy
   }
 
-  return null
+  const firstScoped = cookies.find(([name, value]) => name.startsWith(SCOPED_ACCESS_COOKIE_PREFIX) && value)
+  return firstScoped?.[1] ?? null
+}
+
+function parseCookiePairs(raw: string): Array<[string, string]> {
+  const pairs: Array<[string, string]> = []
+  for (const part of raw.split(';')) {
+    const trimmed = part.trim()
+    if (!trimmed) {
+      continue
+    }
+
+    const separatorIndex = trimmed.indexOf('=')
+    if (separatorIndex <= 0) {
+      continue
+    }
+
+    const name = trimmed.slice(0, separatorIndex).trim()
+    const value = trimmed.slice(separatorIndex + 1).trim()
+    if (name && value) {
+      pairs.push([name, value])
+    }
+  }
+
+  return pairs
+}
+
+function findCookieValue(cookies: Array<[string, string]>, name: string): string | null {
+  return cookies.find(([cookieName, value]) => cookieName === name && value)?.[1] ?? null
+}
+
+function getWorkspaceAccessCookieName(workspaceId: string): string {
+  const normalizedWorkspaceId = normalizeRequiredId(workspaceId)
+  const workspaceHash = createHash('sha256')
+    .update(normalizedWorkspaceId)
+    .digest('base64url')
+    .slice(0, ACCESS_COOKIE_WORKSPACE_HASH_LENGTH)
+  return `${SCOPED_ACCESS_COOKIE_PREFIX}${workspaceHash}`
 }
 
 function parseAccessCookieValue(value: string): string | null {

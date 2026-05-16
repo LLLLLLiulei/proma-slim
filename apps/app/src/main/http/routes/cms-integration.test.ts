@@ -199,6 +199,16 @@ async function createHandoff(app: ReturnType<typeof createApp>, projectId: strin
   return response
 }
 
+function expectWorkspaceScopedAccessCookie(setCookie: string | null) {
+  expect(setCookie).toBeTruthy()
+  expect(setCookie!.split('=', 1)[0]).toStartWith('ai_page_builder_access_')
+}
+
+function readSetCookiePair(setCookie: string | null): string {
+  expect(setCookie).toBeTruthy()
+  return setCookie!.split(';', 1)[0]!
+}
+
 async function exportCmsProject(app: ReturnType<typeof createApp>, projectId: string, options: {
   body?: unknown
   secret?: string
@@ -766,7 +776,7 @@ describe('cms integration routes', () => {
     }))
     expect(openResponse.status).toBe(302)
     expect(openResponse.headers.get('location')).toBe(`/pagebuilder/builder/${binding!.workspaceId}/${binding!.primarySessionId}`)
-    expect(openResponse.headers.get('set-cookie')).toContain('ai_page_builder_access=')
+    expectWorkspaceScopedAccessCookie(openResponse.headers.get('set-cookie'))
     expect(openResponse.headers.get('set-cookie')).toContain('Path=/pagebuilder')
     expect(openResponse.headers.get('set-cookie')).toContain('HttpOnly')
     expect(openResponse.headers.get('set-cookie')).toContain('SameSite=Lax')
@@ -780,6 +790,58 @@ describe('cms integration routes', () => {
     const thirdOpenResponse = await consumeOpenUrl(app, handoff.openUrl)
     expect(thirdOpenResponse.status).toBe(410)
     expect(await thirdOpenResponse.json()).toMatchObject({ code: 'handoff_expired' })
+  })
+
+  test('keeps multiple CMS handoff access sessions valid in the same browser cookie jar', async () => {
+    enableCmsIntegration(configDir)
+    const fetchMock = createLoginFetchMock()
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+    const app = createApp()
+
+    const first = await createBoundCmsProject(app, {
+      externalRecordId: 'cms-multi-access-1',
+      projectName: 'CMS Multi Access 1',
+    })
+    const second = await createBoundCmsProject(app, {
+      externalRecordId: 'cms-multi-access-2',
+      projectName: 'CMS Multi Access 2',
+    })
+
+    const firstHandoffResponse = await createHandoff(app, first.projectId, { target: 'builder' })
+    const secondHandoffResponse = await createHandoff(app, second.projectId, { target: 'builder' })
+    expect(firstHandoffResponse.status).toBe(200)
+    expect(secondHandoffResponse.status).toBe(200)
+    const firstHandoff = await firstHandoffResponse.json() as { openUrl: string }
+    const secondHandoff = await secondHandoffResponse.json() as { openUrl: string }
+
+    const firstOpen = await consumeOpenUrl(app, firstHandoff.openUrl)
+    const secondOpen = await consumeOpenUrl(app, secondHandoff.openUrl)
+    expect(firstOpen.status).toBe(302)
+    expect(secondOpen.status).toBe(302)
+    const firstCookiePair = readSetCookiePair(firstOpen.headers.get('set-cookie'))
+    const secondCookiePair = readSetCookiePair(secondOpen.headers.get('set-cookie'))
+    expect(firstCookiePair.split('=', 1)[0]).not.toBe(secondCookiePair.split('=', 1)[0])
+    const browserCookieHeader = `${firstCookiePair}; ${secondCookiePair}`
+
+    const firstContext = await app.fetch(new Request(
+      `http://localhost/api/integrations/cms/builder-context?workspaceId=${first.binding.workspaceId}&sessionId=${first.binding.primarySessionId}`,
+      { headers: { cookie: browserCookieHeader } },
+    ))
+    expect(firstContext.status).toBe(200)
+    expect(await firstContext.json()).toMatchObject({
+      workspace: { id: first.binding.workspaceId },
+      session: { id: first.binding.primarySessionId },
+    })
+
+    const secondContext = await app.fetch(new Request(
+      `http://localhost/api/integrations/cms/builder-context?workspaceId=${second.binding.workspaceId}&sessionId=${second.binding.primarySessionId}`,
+      { headers: { cookie: browserCookieHeader } },
+    ))
+    expect(secondContext.status).toBe(200)
+    expect(await secondContext.json()).toMatchObject({
+      workspace: { id: second.binding.workspaceId },
+      session: { id: second.binding.primarySessionId },
+    })
   })
 
   test('returns handoff_expired for an unknown handoff open request', async () => {
@@ -825,7 +887,7 @@ describe('cms integration routes', () => {
     expect(openResponse.headers.get('location')).toBe(`/pagebuilder/api/workspaces/${primary.binding.workspaceId}/preview/`)
     expect(openResponse.headers.get('location')).not.toContain('page-builder-bridge=1')
     const accessCookie = openResponse.headers.get('set-cookie')
-    expect(accessCookie).toContain('ai_page_builder_access=')
+    expectWorkspaceScopedAccessCookie(accessCookie)
 
     const unauthenticatedPreview = await app.fetch(new Request(`http://localhost/api/workspaces/${primary.binding.workspaceId}/preview/`))
     expect(unauthenticatedPreview.status).toBe(401)
@@ -896,7 +958,7 @@ describe('cms integration routes', () => {
     const handoffResponse = await createHandoff(app, primary.projectId, { target: 'builder' })
     const handoff = await handoffResponse.json() as { openUrl: string }
     const accessCookie = (await consumeOpenUrl(app, handoff.openUrl)).headers.get('set-cookie')
-    expect(accessCookie).toContain('ai_page_builder_access=')
+    expectWorkspaceScopedAccessCookie(accessCookie)
 
     const sessionList = await app.fetch(new Request('http://localhost/api/sessions'))
     expect(sessionList.status).toBe(403)
@@ -928,7 +990,7 @@ describe('cms integration routes', () => {
       headers: { cookie: accessCookie! },
     }))
     expect(messages.status).toBe(200)
-    expect(messages.headers.get('set-cookie')).toContain('ai_page_builder_access=')
+    expectWorkspaceScopedAccessCookie(messages.headers.get('set-cookie'))
 
     const stopMissingOrigin = await app.fetch(new Request(`http://localhost/api/sessions/${primary.binding.primarySessionId}/stop`, {
       method: 'POST',
@@ -945,13 +1007,13 @@ describe('cms integration routes', () => {
       },
     }))
     expect(stopWithOrigin.status).toBe(204)
-    expect(stopWithOrigin.headers.get('set-cookie')).toContain('ai_page_builder_access=')
+    expectWorkspaceScopedAccessCookie(stopWithOrigin.headers.get('set-cookie'))
 
     const activity = await app.fetch(new Request(`http://localhost/api/sessions/${primary.binding.primarySessionId}/activity`, {
       headers: { cookie: accessCookie! },
     }))
     expect(activity.status).toBe(200)
-    expect(activity.headers.get('set-cookie')).toContain('ai_page_builder_access=')
+    expectWorkspaceScopedAccessCookie(activity.headers.get('set-cookie'))
 
     const sessionPatchMissingOrigin = await app.fetch(new Request(`http://localhost/api/sessions/${primary.binding.primarySessionId}`, {
       method: 'PATCH',
@@ -1015,7 +1077,7 @@ describe('cms integration routes', () => {
       headers: { cookie: accessCookie! },
     }))
     expect(capabilities.status).toBe(200)
-    expect(capabilities.headers.get('set-cookie')).toContain('ai_page_builder_access=')
+    expectWorkspaceScopedAccessCookie(capabilities.headers.get('set-cookie'))
 
     const directoryContext = await app.fetch(new Request(`http://localhost/api/workspaces/${primary.binding.workspaceId}/directory-context`, {
       headers: { cookie: accessCookie! },
@@ -1123,7 +1185,7 @@ describe('cms integration routes', () => {
       body: JSON.stringify({ holderId: 'cms-holder' }),
     }))
     expect(editLock.status).toBe(201)
-    expect(editLock.headers.get('set-cookie')).toContain('ai_page_builder_access=')
+    expectWorkspaceScopedAccessCookie(editLock.headers.get('set-cookie'))
     const lease = await editLock.json() as { lockId: string; holderId: string }
 
     const sendMismatchedWorkspace = await app.fetch(new Request(`http://localhost/api/sessions/${primary.binding.primarySessionId}/send`, {
@@ -1183,7 +1245,7 @@ describe('cms integration routes', () => {
       },
     }))
     expect(editLockStatus.status).toBe(200)
-    expect(editLockStatus.headers.get('set-cookie')).toContain('ai_page_builder_access=')
+    expectWorkspaceScopedAccessCookie(editLockStatus.headers.get('set-cookie'))
 
     const editLockRenewMissingOrigin = await app.fetch(new Request(`http://localhost/api/page-builder/projects/${primary.binding.workspaceId}/edit-lock/${lease.lockId}/renew`, {
       method: 'POST',
@@ -1296,7 +1358,7 @@ describe('cms integration routes', () => {
     const handoffResponse = await createHandoff(app, primary.projectId, { target: 'builder' })
     const handoff = await handoffResponse.json() as { openUrl: string }
     const accessCookie = (await consumeOpenUrl(app, handoff.openUrl)).headers.get('set-cookie')
-    expect(accessCookie).toContain('ai_page_builder_access=')
+    expectWorkspaceScopedAccessCookie(accessCookie)
 
     const countCmsGatewayCalls = () => fetchMock.mock.calls
       .filter(([input]) => String(input).startsWith('https://demo.zving.com/manager/api/'))
@@ -1341,7 +1403,7 @@ describe('cms integration routes', () => {
     }))
     expect(sites.status).toBe(200)
     expect(sites.headers.get('cache-control')).toBe('no-store')
-    expect(sites.headers.get('set-cookie')).toContain('ai_page_builder_access=')
+    expectWorkspaceScopedAccessCookie(sites.headers.get('set-cookie'))
     expect(await sites.json()).toEqual([
       expect.objectContaining({ id: '14', name: '绑定站点' }),
     ])
@@ -1360,7 +1422,7 @@ describe('cms integration routes', () => {
     expect(asset.status).toBe(200)
     expect(asset.headers.get('cache-control')).toBe('private, no-store')
     expect(asset.headers.get('content-type')).toBe('image/jpeg')
-    expect(asset.headers.get('set-cookie')).toContain('ai_page_builder_access=')
+    expectWorkspaceScopedAccessCookie(asset.headers.get('set-cookie'))
     expect(await asset.text()).toBe('image-bytes')
   })
 
@@ -1380,7 +1442,7 @@ describe('cms integration routes', () => {
     const handoffResponse = await createHandoff(app, primary.projectId, { target: 'builder' })
     const handoff = await handoffResponse.json() as { openUrl: string }
     const accessCookie = (await consumeOpenUrl(app, handoff.openUrl)).headers.get('set-cookie')
-    expect(accessCookie).toContain('ai_page_builder_access=')
+    expectWorkspaceScopedAccessCookie(accessCookie)
 
     let permissionRequestId = ''
     const permissionPromise = permissionService.createCanUseTool(

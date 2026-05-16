@@ -57,6 +57,15 @@ function createAccessCookie(input?: { workspaceId?: string; sessionId?: string }
   }).cookie
 }
 
+function readSetCookiePair(setCookie: string): string {
+  return setCookie.split(';', 1)[0]!
+}
+
+function expectWorkspaceScopedAccessCookie(setCookie: string | null) {
+  expect(setCookie).toBeTruthy()
+  expect(setCookie!.split('=', 1)[0]).toStartWith('ai_page_builder_access_')
+}
+
 function createTestApp(options?: { requireOrigin?: boolean; sessionScoped?: boolean }) {
   const app = new Hono<HttpAppEnv>()
   app.onError((error) => {
@@ -125,9 +134,34 @@ describe('cms builder access middleware', () => {
       projectId: 'pbp_1',
       userName: 'cms-user',
     })
-    expect(matched.headers.get('set-cookie')).toContain('ai_page_builder_access=')
+    expectWorkspaceScopedAccessCookie(matched.headers.get('set-cookie'))
     expect(matched.headers.get('set-cookie')).toContain('Path=/pagebuilder')
     expect(matched.headers.get('set-cookie')).toContain('Secure')
+  })
+
+  test('accepts multiple workspace-scoped access cookies in the same browser', async () => {
+    const app = createTestApp({ sessionScoped: true })
+    const firstCookie = createAccessCookie({ workspaceId: 'workspace-1', sessionId: 'session-1' })
+    const secondCookie = createAccessCookie({ workspaceId: 'workspace-2', sessionId: 'session-1' })
+    const browserCookieHeader = `${readSetCookiePair(firstCookie)}; ${readSetCookiePair(secondCookie)}`
+
+    const first = await app.fetch(new Request('http://localhost/workspaces/workspace-1/read', {
+      headers: { cookie: browserCookieHeader },
+    }))
+    expect(first.status).toBe(200)
+    expect(await first.json()).toMatchObject({
+      workspaceId: 'workspace-1',
+      sessionId: 'session-1',
+    })
+
+    const second = await app.fetch(new Request('http://localhost/workspaces/workspace-2/read', {
+      headers: { cookie: browserCookieHeader },
+    }))
+    expect(second.status).toBe(200)
+    expect(await second.json()).toMatchObject({
+      workspaceId: 'workspace-2',
+      sessionId: 'session-1',
+    })
   })
 
   test('rejects invalid expired and session-mismatched access cookies', async () => {
@@ -189,7 +223,7 @@ describe('cms builder access middleware', () => {
       },
     }))
     expect(refererAllowed.status).toBe(200)
-    expect(refererAllowed.headers.get('set-cookie')).toContain('ai_page_builder_access=')
+    expectWorkspaceScopedAccessCookie(refererAllowed.headers.get('set-cookie'))
   })
 
   test('fails closed for state changes when public origin is missing', async () => {

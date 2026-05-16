@@ -14,7 +14,7 @@ export interface PageBuilderProdServerOptions {
   distDir: string
   appOrigin: string
   publicBasePath?: string | null
-  fetchImpl?: (request: Request) => Promise<Response>
+  fetchImpl?: (request: Request, init?: RequestInit) => Promise<Response>
 }
 
 function normalizeStaticPath(distDir: string, pathname: string): string {
@@ -43,15 +43,24 @@ function isStaticAssetRequest(pathname: string): boolean {
 async function proxyApiRequest(
   request: Request,
   appOrigin: string,
-  fetchImpl: (request: Request) => Promise<Response>,
+  fetchImpl: (request: Request, init?: RequestInit) => Promise<Response>,
   upstreamPathname?: string,
 ): Promise<Response> {
   const requestUrl = new URL(request.url)
   const targetUrl = new URL(`${upstreamPathname ?? requestUrl.pathname}${requestUrl.search}`, appOrigin)
-  const proxiedRequest = new Request(targetUrl, request)
-  proxiedRequest.headers.set('x-forwarded-host', requestUrl.host)
-  proxiedRequest.headers.set('x-forwarded-proto', requestUrl.protocol.replace(/:$/, ''))
-  return fetchImpl(proxiedRequest)
+  const proxiedRequest = new Request(targetUrl, {
+    method: request.method,
+    headers: request.headers,
+    body: request.body,
+    redirect: 'manual',
+    signal: request.signal,
+  })
+  const forwardedHost = request.headers.get('x-forwarded-host')?.trim() || requestUrl.host
+  const forwardedProto = request.headers.get('x-forwarded-proto')?.split(',')[0]?.trim()
+    || requestUrl.protocol.replace(/:$/, '')
+  proxiedRequest.headers.set('x-forwarded-host', forwardedHost)
+  proxiedRequest.headers.set('x-forwarded-proto', forwardedProto)
+  return fetchImpl(proxiedRequest, { redirect: 'manual' })
 }
 
 function staticFileResponse(filePath: string): Response {
@@ -104,7 +113,7 @@ async function indexHtmlResponse(filePath: string, publicBasePath: string): Prom
 }
 
 export function createPageBuilderProdFetchHandler(options: PageBuilderProdServerOptions) {
-  const fetchImpl = options.fetchImpl ?? ((request: Request) => fetch(request))
+  const fetchImpl = options.fetchImpl ?? ((request: Request, init?: RequestInit) => fetch(request, init))
   const normalizedDistDir = resolve(options.distDir)
   const publicBasePath = normalizePageBuilderPublicBasePath(options.publicBasePath)
 

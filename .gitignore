@@ -50,6 +50,7 @@ node_modules*
 .tmp/
 
 .tmp-proma-test/
+build/.cms-verify-data/
 prompt.txt
 .superpowers/
 .playwright-mcp/

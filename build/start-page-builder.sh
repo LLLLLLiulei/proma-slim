@@ -96,9 +96,28 @@ PORT="$(awk -F= '/^PAGE_BUILDER_PORT=/{print $2}' "${ENV_FILE}" | tail -n 1)"
 if [ -z "${PORT}" ]; then
   PORT="3333"
 fi
+PORT="${PORT%\"}"
+PORT="${PORT#\"}"
+
+BASE_PATH="$(awk -F= '/^AI_PAGE_BUILDER_BASE_PATH=/{print $2}' "${ENV_FILE}" | tail -n 1)"
+BASE_PATH="${BASE_PATH%\"}"
+BASE_PATH="${BASE_PATH#\"}"
+BASE_PATH="${BASE_PATH%\'}"
+BASE_PATH="${BASE_PATH#\'}"
+if [ -n "${BASE_PATH}" ] && [ "${BASE_PATH}" != "/" ]; then
+  case "${BASE_PATH}" in
+    /*) ;;
+    *) BASE_PATH="/${BASE_PATH}" ;;
+  esac
+  BASE_PATH="${BASE_PATH%/}"
+else
+  BASE_PATH=""
+fi
+
+PUBLIC_URL="http://localhost:${PORT}${BASE_PATH}/"
 
 if [ -n "${PLATFORM}" ]; then
-  echo "Page Builder is available at http://localhost:${PORT}/ (platform: ${PLATFORM})"
+  echo "Page Builder is available at ${PUBLIC_URL} (platform: ${PLATFORM})"
 else
-  echo "Page Builder is available at http://localhost:${PORT}/"
+  echo "Page Builder is available at ${PUBLIC_URL}"
 fi
