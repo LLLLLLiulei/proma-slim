@@ -12,8 +12,8 @@ services:
       AI_PAGE_BUILDER_CONFIG_DIR: /home/bun/.ai-page-builder
       AI_PAGE_BUILDER_SDK_HOME: /home/bun/.ai-page-builder/sdk-config
       AI_PAGE_BUILDER_RUNTIME_ENV: docker
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-cms-verify-dummy-key}
-      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
+      ANTHROPIC_API_KEY: ${AI_PAGE_BUILDER_ANTHROPIC_API_KEY:-cms-verify-dummy-key}
+      ANTHROPIC_BASE_URL: ${AI_PAGE_BUILDER_ANTHROPIC_BASE_URL:-}
       AI_PAGE_BUILDER_INTEGRATION_MODE: cms
       AI_PAGE_BUILDER_INTEGRATION_SECRET: ${AI_PAGE_BUILDER_INTEGRATION_SECRET:-cms-verify-secret}
       AI_PAGE_BUILDER_CMS_BASE_URL: http://nginx:8080/manager

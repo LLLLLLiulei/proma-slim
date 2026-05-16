@@ -12,8 +12,8 @@ services:
       AI_PAGE_BUILDER_CONFIG_DIR: /home/bun/.ai-page-builder
       AI_PAGE_BUILDER_SDK_HOME: /home/bun/.ai-page-builder/sdk-config
       AI_PAGE_BUILDER_RUNTIME_ENV: docker
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?Set ANTHROPIC_API_KEY in build/.env or your shell}
-      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
+      ANTHROPIC_API_KEY: ${AI_PAGE_BUILDER_ANTHROPIC_API_KEY:?Set AI_PAGE_BUILDER_ANTHROPIC_API_KEY in build/.env.standalone.example, build/.env.cms.example, or your shell}
+      ANTHROPIC_BASE_URL: ${AI_PAGE_BUILDER_ANTHROPIC_BASE_URL:-}
       AI_PAGE_BUILDER_INTEGRATION_MODE: ${AI_PAGE_BUILDER_INTEGRATION_MODE:-}
       AI_PAGE_BUILDER_INTEGRATION_SECRET: ${AI_PAGE_BUILDER_INTEGRATION_SECRET:-}
       AI_PAGE_BUILDER_CMS_BASE_URL: ${AI_PAGE_BUILDER_CMS_BASE_URL:-}
@@ -28,7 +28,7 @@ services:
       AI_PAGE_BUILDER_BASE_PATH: ${AI_PAGE_BUILDER_BASE_PATH:-}
     volumes:
       - type: bind
-        source: ${HOME:?Set HOME in your shell}/.ai-page-builder
+        source: ${AI_PAGE_BUILDER_HOST_DATA_DIR:-${HOME:?Set HOME in your shell}/.ai-page-builder}
         target: /home/bun/.ai-page-builder
     expose:
       - "8888"
@@ -40,7 +40,7 @@ services:
     ipc: host
     volumes:
       - type: bind
-        source: ${HOME:?Set HOME in your shell}/.ai-page-builder
+        source: ${AI_PAGE_BUILDER_HOST_DATA_DIR:-${HOME:?Set HOME in your shell}/.ai-page-builder}
         target: /home/bun/.ai-page-builder
     command:
       - sh

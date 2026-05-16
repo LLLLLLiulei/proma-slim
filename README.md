@@ -162,20 +162,22 @@ bun run dev:page-builder
 推荐使用仓库内置脚本：
 
 ```bash
-cp build/.env.example build/.env
-# 编辑 build/.env，至少填写 ANTHROPIC_API_KEY
+# 独立运行模式
 ./build/start-page-builder.sh
+
+# CMS 集成模式
+./build/start-page-builder.sh --env-file build/.env.cms.example
 ```
 
 也可以直接运行 Compose：
 
 ```bash
-docker compose --env-file build/.env -f build/docker-compose.yml up -d --build server playwright web
+docker compose --env-file build/.env.standalone.example -f build/docker-compose.yml up -d --build server playwright web
 ```
 
 默认访问：`http://localhost:3333`
 
-Compose 会把宿主机 `${HOME}/.ai-page-builder` 挂载到 `server` 和 `playwright` 容器的 `/home/bun/.ai-page-builder`，用于保存会话、工作区、skills、导出文件和 SDK 配置。
+Compose 会把宿主机 `${AI_PAGE_BUILDER_HOST_DATA_DIR}` 挂载到 `server` 和 `playwright` 容器的 `/home/bun/.ai-page-builder`，用于保存会话、工作区、skills、导出文件和 SDK 配置。未设置时默认使用 `${HOME}/.ai-page-builder`。
 
 如需指定跨平台镜像构建：
 
@@ -236,6 +238,8 @@ Compose 会把宿主机 `${HOME}/.ai-page-builder` 挂载到 `server` 和 `playw
 
 | 变量 | 说明 |
 | --- | --- |
+| `AI_PAGE_BUILDER_ANTHROPIC_API_KEY` | Docker 部署时注入给容器内 `ANTHROPIC_API_KEY` 的大模型密钥，避免被宿主机同名变量覆盖 |
+| `AI_PAGE_BUILDER_ANTHROPIC_BASE_URL` | Docker 部署时注入给容器内 `ANTHROPIC_BASE_URL` 的兼容接口地址 |
 | `PAGE_BUILDER_PORT` | Docker `web` 容器对外端口，默认 `3333` |
 | `AI_PAGE_BUILDER_BASE_PATH` | Page Builder 公开基础路径，例如 `/pagebuilder`；留空表示根路径部署 |
 | `AI_PAGE_BUILDER_SERVER_ORIGIN` | Page Builder 生产 web server 代理 `/api` 的后端 origin，默认 Docker 内部 `http://server:8888` |

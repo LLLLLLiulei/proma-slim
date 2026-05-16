@@ -7,15 +7,19 @@ function readRepoFile(relativePath: string): string {
 }
 
 describe('page-builder docker start script', () => {
-  test('start script builds and starts the default page-builder services with build env defaults', () => {
+  test('start script builds and starts the default page-builder services with standalone env defaults', () => {
     const script = readRepoFile('../../../../../build/start-page-builder.sh')
 
     expect(script).toContain('#!/usr/bin/env bash')
     expect(script).toContain('set -euo pipefail')
-    expect(script).toContain('ENV_FILE="${SCRIPT_DIR}/.env"')
+    expect(script).toContain('ENV_FILE="${SCRIPT_DIR}/.env.standalone.example"')
     expect(script).toContain('COMPOSE_FILE="${SCRIPT_DIR}/docker-compose.yml"')
+    expect(script).toContain('--env-file)')
+    expect(script).toContain('--env-file=*)')
+    expect(script).toContain('if [ -f "${REPO_ROOT}/${ENV_FILE}" ]; then')
+    expect(script).toContain('ENV_FILE="${SCRIPT_DIR}/${ENV_FILE}"')
     expect(script).toContain('docker compose version >/dev/null 2>&1')
-    expect(script).toContain('build/.env is missing')
+    expect(script).toContain('Use build/.env.standalone.example or build/.env.cms.example')
     expect(script).toContain('docker compose \\')
     expect(script).toContain('--env-file "${ENV_FILE}" \\')
     expect(script).toContain('-f "${COMPOSE_FILE}" \\')

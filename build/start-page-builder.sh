@@ -3,22 +3,35 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
-ENV_FILE="${SCRIPT_DIR}/.env"
+ENV_FILE="${SCRIPT_DIR}/.env.standalone.example"
 COMPOSE_FILE="${SCRIPT_DIR}/docker-compose.yml"
 PLATFORM=""
 
 usage() {
   cat <<'EOF'
-Usage: ./build/start-page-builder.sh [--platform <platform>]
+Usage: ./build/start-page-builder.sh [--env-file <file>] [--platform <platform>]
 
 Examples:
   ./build/start-page-builder.sh
+  ./build/start-page-builder.sh --env-file build/.env.cms.example
   ./build/start-page-builder.sh --platform linux/amd64
 EOF
 }
 
 while [ $# -gt 0 ]; do
   case "$1" in
+    --env-file)
+      shift
+      if [ $# -eq 0 ]; then
+        echo "--env-file requires a value." >&2
+        usage >&2
+        exit 1
+      fi
+      ENV_FILE="$1"
+      ;;
+    --env-file=*)
+      ENV_FILE="${1#*=}"
+      ;;
     --platform)
       shift
       if [ $# -eq 0 ]; then
@@ -44,6 +57,17 @@ while [ $# -gt 0 ]; do
   shift
 done
 
+case "${ENV_FILE}" in
+  /*) ;;
+  *)
+    if [ -f "${REPO_ROOT}/${ENV_FILE}" ]; then
+      ENV_FILE="${REPO_ROOT}/${ENV_FILE}"
+    else
+      ENV_FILE="${SCRIPT_DIR}/${ENV_FILE}"
+    fi
+    ;;
+esac
+
 if ! command -v docker >/dev/null 2>&1; then
   echo "docker is not installed or not on PATH." >&2
   exit 1
@@ -55,7 +79,7 @@ if ! docker compose version >/dev/null 2>&1; then
 fi
 
 if [ ! -f "${ENV_FILE}" ]; then
-  echo "build/.env is missing. Copy build/.env.example to build/.env and fill in ANTHROPIC_API_KEY first." >&2
+  echo "env file is missing: ${ENV_FILE}. Use build/.env.standalone.example or build/.env.cms.example." >&2
   exit 1
 fi
 
