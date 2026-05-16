@@ -19,7 +19,7 @@ describe('cms integration config', () => {
       integrationSecret: null,
       publicOrigin: null,
       handoffTtlMs: 120000,
-      accessSessionTtlMs: 259200000,
+      accessSessionTtlMs: 28800000,
       syncExportTimeoutMs: 0,
     })
     expect(buildCmsIntegrationStatus(config)).toEqual({
@@ -106,7 +106,7 @@ describe('cms integration config', () => {
       integrationSecret: 'secret-value',
       publicOrigin: null,
       handoffTtlMs: 120000,
-      accessSessionTtlMs: 259200000,
+      accessSessionTtlMs: 28800000,
       syncExportTimeoutMs: 0,
     })
   })

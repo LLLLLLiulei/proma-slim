@@ -25,7 +25,7 @@ export interface CmsIntegrationStatus {
 type CmsIntegrationEnv = Record<string, string | undefined>
 
 const DEFAULT_HANDOFF_TTL_MS = 2 * 60 * 1000
-const DEFAULT_ACCESS_SESSION_TTL_MS = 72 * 60 * 60 * 1000
+const DEFAULT_ACCESS_SESSION_TTL_MS = 8 * 60 * 60 * 1000
 
 function normalizeIntegrationMode(value: string | undefined): CmsIntegrationMode {
   return value?.trim().toLowerCase() === 'cms' ? 'cms' : 'standalone'

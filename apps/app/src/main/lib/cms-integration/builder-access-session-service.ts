@@ -4,7 +4,7 @@ import {
 } from './cms-integration-errors'
 
 export const ACCESS_COOKIE_NAME = 'ai_page_builder_access'
-export const ACCESS_SESSION_DEFAULT_TTL_MS = 72 * 60 * 60 * 1000
+export const ACCESS_SESSION_DEFAULT_TTL_MS = 8 * 60 * 60 * 1000
 const DEFAULT_SIGNING_SECRET = nodeRandomUUID()
 const SCOPED_ACCESS_COOKIE_PREFIX = `${ACCESS_COOKIE_NAME}_`
 const ACCESS_COOKIE_WORKSPACE_HASH_LENGTH = 16

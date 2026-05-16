@@ -44,7 +44,7 @@ describe('builder access session service', () => {
     expect(session.cookie).toContain('HttpOnly')
     expect(session.cookie).toContain('SameSite=Lax')
     expect(session.cookie).toContain('Path=/pagebuilder')
-    expect(session.cookie).toContain('Max-Age=259200')
+    expect(session.cookie).toContain('Max-Age=28800')
     expect(session.cookie).toContain('Secure')
     expect(session.cookie).not.toContain('Domain=')
   })
