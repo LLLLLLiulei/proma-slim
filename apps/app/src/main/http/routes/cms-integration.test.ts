@@ -1273,16 +1273,31 @@ describe('cms integration routes', () => {
       expect(await response.json()).toMatchObject({ code: 'builder_access_mismatch' })
     }
 
-    const bridgeScript = await app.fetch(new Request('http://localhost/api/page-builder/preview-bridge.js'))
+    const bridgeScript = await app.fetch(new Request('http://localhost/api/page-builder/preview-bridge.js', {
+      headers: {
+        origin: 'null',
+      },
+    }))
     expect(bridgeScript.status).toBe(200)
+    expect(bridgeScript.headers.get('access-control-allow-origin')).toBe('*')
     expect(await bridgeScript.text()).not.toContain('ai_page_builder_access')
 
-    const renderingPreviewScript = await app.fetch(new Request('http://localhost/api/page-builder/cms-rendering-preview.js'))
+    const renderingPreviewScript = await app.fetch(new Request('http://localhost/api/page-builder/cms-rendering-preview.js', {
+      headers: {
+        origin: 'null',
+      },
+    }))
     expect(renderingPreviewScript.status).toBe(200)
+    expect(renderingPreviewScript.headers.get('access-control-allow-origin')).toBe('*')
     expect(await renderingPreviewScript.text()).not.toContain('ai_page_builder_access')
 
-    const renderingVueScript = await app.fetch(new Request('http://localhost/api/page-builder/cms-rendering-vue.js'))
+    const renderingVueScript = await app.fetch(new Request('http://localhost/api/page-builder/cms-rendering-vue.js', {
+      headers: {
+        origin: 'null',
+      },
+    }))
     expect(renderingVueScript.status).toBe(200)
+    expect(renderingVueScript.headers.get('access-control-allow-origin')).toBe('*')
     expect(await renderingVueScript.text()).not.toContain('ai_page_builder_access')
   })
 

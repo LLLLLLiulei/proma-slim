@@ -27,30 +27,27 @@ import {
 
 export const pageBuilderRoutes = new Hono<HttpAppEnv>()
 
+const previewScriptHeaders = {
+  'access-control-allow-origin': '*',
+  'cache-control': 'no-store',
+  'content-type': 'application/javascript; charset=utf-8',
+} as const
+
 pageBuilderRoutes.get('/preview-bridge.js', async () => {
   return new Response(await readPageBuilderPreviewBridgeScript(), {
-    headers: {
-      'cache-control': 'no-store',
-      'content-type': 'application/javascript; charset=utf-8',
-    },
+    headers: previewScriptHeaders,
   })
 })
 
 pageBuilderRoutes.get('/cms-rendering-preview.js', async () => {
   return new Response(await readPageBuilderCmsRenderingPreviewScript(), {
-    headers: {
-      'cache-control': 'no-store',
-      'content-type': 'application/javascript; charset=utf-8',
-    },
+    headers: previewScriptHeaders,
   })
 })
 
 pageBuilderRoutes.get('/cms-rendering-vue.js', () => {
   return new Response(readPageBuilderCmsRenderingVueScript(), {
-    headers: {
-      'cache-control': 'no-store',
-      'content-type': 'application/javascript; charset=utf-8',
-    },
+    headers: previewScriptHeaders,
   })
 })
 

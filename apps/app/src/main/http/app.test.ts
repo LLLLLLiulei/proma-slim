@@ -765,16 +765,26 @@ describe('createHttpApp', () => {
   test('page-builder routes serve CMS rendering preview assets', async () => {
     const app = createApp()
 
-    const previewResponse = await app.fetch(new Request('http://localhost/api/page-builder/cms-rendering-preview.js'))
+    const previewResponse = await app.fetch(new Request('http://localhost/api/page-builder/cms-rendering-preview.js', {
+      headers: {
+        origin: 'null',
+      },
+    }))
     expect(previewResponse.status).toBe(200)
     expect(previewResponse.headers.get('content-type')).toContain('application/javascript')
+    expect(previewResponse.headers.get('access-control-allow-origin')).toBe('*')
     const previewScript = await previewResponse.text()
     expect(previewScript).toContain('proma:cms-rendering-ready')
     expect(previewScript).toContain('__PROMA_CMS_RENDERING_PREVIEW__')
 
-    const vueResponse = await app.fetch(new Request('http://localhost/api/page-builder/cms-rendering-vue.js'))
+    const vueResponse = await app.fetch(new Request('http://localhost/api/page-builder/cms-rendering-vue.js', {
+      headers: {
+        origin: 'null',
+      },
+    }))
     expect(vueResponse.status).toBe(200)
     expect(vueResponse.headers.get('content-type')).toContain('application/javascript')
+    expect(vueResponse.headers.get('access-control-allow-origin')).toBe('*')
     const vueScript = await vueResponse.text()
     expect(vueScript).toContain('createApp')
   })
