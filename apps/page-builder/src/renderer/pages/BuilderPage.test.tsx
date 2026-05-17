@@ -830,7 +830,7 @@ describe('BuilderPage', () => {
     })
   })
 
-  test('keeps the CMS browser dialog on legacy standalone loading in standalone mode', async () => {
+  test('disables CMS browser entry and dialog in standalone mode', async () => {
     installWindowHarness()
     const workspace: AgentWorkspace = {
       id: 'workspace-1',
@@ -847,7 +847,7 @@ describe('BuilderPage', () => {
       updatedAt: 1,
     }
 
-    const { BuilderPage, getLastCmsBrowserDialogProps } = await loadBuilderPage({
+    const { BuilderPage, getLastCmsBrowserDialogProps, getLastPreviewPaneProps } = await loadBuilderPage({
       sessions: [session],
       workspaces: [workspace],
       mockPreviewPane: true,
@@ -864,8 +864,12 @@ describe('BuilderPage', () => {
       await Promise.resolve()
     })
 
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      onRequestOpenCmsBrowser: undefined,
+    })
     expect(getLastCmsBrowserDialogProps()).toMatchObject({
-      cmsDataUnavailableReason: null,
+      open: false,
+      workspaceId: null,
     })
   })
 
@@ -3377,6 +3381,7 @@ describe('BuilderPage', () => {
     } = await loadBuilderPage({
       sessions: [session],
       workspaces: [workspace],
+      getCmsIntegrationStatusImpl: async () => ({ integrationMode: 'cms', enabled: true }),
       mockPreviewPane: true,
       mockCmsBrowserDialog: true,
     })
@@ -3469,6 +3474,7 @@ describe('BuilderPage', () => {
     } = await loadBuilderPage({
       sessions: [session],
       workspaces: [workspace],
+      getCmsIntegrationStatusImpl: async () => ({ integrationMode: 'cms', enabled: true }),
       mockPreviewPane: true,
       mockCmsBrowserDialog: true,
     })
@@ -4168,6 +4174,7 @@ describe('BuilderPage', () => {
     } = await loadBuilderPage({
       sessions: [session],
       workspaces: [workspace],
+      getCmsIntegrationStatusImpl: async () => ({ integrationMode: 'cms', enabled: true }),
       createPageBuilderCmsAutoHandoffImpl: createPageBuilderCmsAutoHandoff,
       mockCmsBrowserDialog: true,
       mockPreviewPane: true,
@@ -4300,6 +4307,7 @@ describe('BuilderPage', () => {
     } = await loadBuilderPage({
       sessions: [session],
       workspaces: [workspace],
+      getCmsIntegrationStatusImpl: async () => ({ integrationMode: 'cms', enabled: true }),
       createPageBuilderCmsAutoHandoffImpl: createPageBuilderCmsAutoHandoff,
       mockCmsBrowserDialog: true,
       mockPreviewPane: true,
@@ -4384,6 +4392,7 @@ describe('BuilderPage', () => {
     } = await loadBuilderPage({
       sessions: [session],
       workspaces: [workspace],
+      getCmsIntegrationStatusImpl: async () => ({ integrationMode: 'cms', enabled: true }),
       mockCmsBrowserDialog: true,
       mockPreviewPane: true,
     })
@@ -4451,6 +4460,7 @@ describe('BuilderPage', () => {
     } = await loadBuilderPage({
       sessions: [session],
       workspaces: [workspace],
+      getCmsIntegrationStatusImpl: async () => ({ integrationMode: 'cms', enabled: true }),
       mockCmsBrowserDialog: true,
       mockPreviewPane: true,
     })
@@ -4524,6 +4534,7 @@ describe('BuilderPage', () => {
     } = await loadBuilderPage({
       sessions: [session],
       workspaces: [workspace],
+      getCmsIntegrationStatusImpl: async () => ({ integrationMode: 'cms', enabled: true }),
       mockCmsBrowserDialog: true,
       mockPreviewPane: true,
     })

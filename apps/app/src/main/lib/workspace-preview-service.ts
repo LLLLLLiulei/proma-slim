@@ -19,6 +19,8 @@ import {
 } from './page-builder-preview-bridge'
 import { buildPageBuilderPublicUrl } from './page-builder-public-url'
 import { resolvePageBuilderCmsConfig } from './page-builder-cms-config'
+import { resolveCmsIntegrationConfig } from './cms-integration/cms-integration-config'
+import { removePageBuilderStandaloneCmsArtifacts } from './page-builder-standalone-cms-cleanup'
 import {
   PAGE_BUILDER_HTML_SRCSET_ATTRIBUTES,
   PAGE_BUILDER_HTML_URL_ATTRIBUTES,
@@ -104,7 +106,9 @@ export function getWorkspacePreviewState(workspace: AgentWorkspace): WorkspacePr
   collectRevisionEntries(rootDir, rootDir, revisionEntries)
   revisionEntries.sort((left, right) => left.localeCompare(right))
   const sourceHtml = readFileSync(entryPath, 'utf-8')
-  const hasCmsRendering = workspace.template === 'page-builder'
+  const cmsIntegrationEnabled = resolveCmsIntegrationConfig().enabled
+  const hasCmsRendering = cmsIntegrationEnabled
+    && workspace.template === 'page-builder'
     && detectCmsRenderingUsage(sourceHtml).hasCmsRendering
 
   return {
@@ -223,6 +227,10 @@ function injectWorkspaceCmsRenderingPreview(
 ): string {
   if (workspace.template !== 'page-builder') {
     return sourceHtml
+  }
+
+  if (!resolveCmsIntegrationConfig().enabled) {
+    return removePageBuilderStandaloneCmsArtifacts(sourceHtml)
   }
 
   return injectCmsRenderingPreview(sourceHtml, {

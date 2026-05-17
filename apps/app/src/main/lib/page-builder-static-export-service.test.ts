@@ -6,6 +6,7 @@ import { createAgentWorkspace } from './workspace-service'
 
 const originalFetch = globalThis.fetch
 const CMS_ENV_KEYS = [
+  'AI_PAGE_BUILDER_INTEGRATION_MODE',
   'AI_PAGE_BUILDER_BASE_PATH',
   'PROMA_CMS_BASE_URL',
   'PROMA_CMS_SITE_ID',
@@ -14,6 +15,7 @@ const CMS_ENV_KEYS = [
 ] as const
 
 const originalCmsEnv = {
+  AI_PAGE_BUILDER_INTEGRATION_MODE: process.env.AI_PAGE_BUILDER_INTEGRATION_MODE,
   AI_PAGE_BUILDER_BASE_PATH: process.env.AI_PAGE_BUILDER_BASE_PATH,
   PROMA_CMS_BASE_URL: process.env.PROMA_CMS_BASE_URL,
   PROMA_CMS_SITE_ID: process.env.PROMA_CMS_SITE_ID,
@@ -289,6 +291,7 @@ describe('page-builder static export service', () => {
   })
 
   test('download phase updates only the current export job', async () => {
+    process.env.AI_PAGE_BUILDER_INTEGRATION_MODE = 'cms'
     process.env.PROMA_CMS_BASE_URL = 'https://cms.example.com/manager/'
     process.env.PROMA_CMS_SITE_ID = '14'
     process.env.PROMA_CMS_USERNAME = 'test-user'
@@ -775,6 +778,7 @@ describe('page-builder static export service', () => {
   })
 
   test('renders CMS islands before resource localization so SSR-generated cms image urls are exported', async () => {
+    process.env.AI_PAGE_BUILDER_INTEGRATION_MODE = 'cms'
     process.env.PROMA_CMS_BASE_URL = 'https://cms.example.com/manager/'
     process.env.PROMA_CMS_SITE_ID = '14'
     process.env.PROMA_CMS_USERNAME = 'test-user'
@@ -881,7 +885,84 @@ describe('page-builder static export service', () => {
     expect(fetchAsset).toHaveBeenCalledTimes(1)
   })
 
+  test('removes CMS regions during standalone export without calling CMS adapters', async () => {
+    process.env.AI_PAGE_BUILDER_INTEGRATION_MODE = 'standalone'
+    const workspace = createAgentWorkspace('Standalone Static Export CMS Cleanup', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(
+      join(workspaceFilesDir, 'index.html'),
+      `<!doctype html>
+      <html>
+        <body>
+          <section id="before">before</section>
+          <cms-content catalog-id="news" data-proma-cms-source-id="cms-src-news">
+            <template v-slot:default="{ items }">
+              <article data-proma-cms-island-id="legacy">{{ items[0]?.title }}</article>
+            </template>
+          </cms-content>
+          <div data-proma-cms-island-source-selector="#legacy">legacy attrs</div>
+          <script data-proma-cms-rendering-config="true">window.__PROMA_CMS_RENDERING_PREVIEW__ = { hasCmsRendering: true };</script>
+          <script type="module" src="/api/page-builder/cms-rendering-preview.js" data-proma-cms-rendering-loader="true"></script>
+          <section id="after">after</section>
+        </body>
+      </html>`,
+      'utf-8',
+    )
+
+    const fetchAsset = mock(async () => {
+      throw new Error('fetchAsset should not be called')
+    })
+    const listContents = mock(async () => {
+      throw new Error('listContents should not be called')
+    })
+
+    const {
+      PageBuilderStaticExportService,
+    } = await import('./page-builder-static-export-service')
+    const {
+      getPageBuilderStaticExportStagingDir,
+    } = await import('./page-builder-static-export-paths')
+
+    const service = new PageBuilderStaticExportService({
+      cmsGatewayFactory: () => ({
+        fetchAsset,
+      }),
+      cmsQueryAdapterFactory: () => ({
+        async listCatalogs() {
+          return {
+            items: [],
+            tree: [],
+          }
+        },
+        listContents,
+      }),
+      randomUUID: () => 'job-standalone-cms-cleanup',
+    })
+
+    const createdJob = service.createJob(workspace)
+    const finishedJob = await waitForTerminalJob(service, workspace.id, createdJob.jobId)
+
+    expect(finishedJob.status).toBe('completed')
+    expect(fetchAsset).toHaveBeenCalledTimes(0)
+    expect(listContents).toHaveBeenCalledTimes(0)
+
+    const stagedHtml = readFileSync(join(getPageBuilderStaticExportStagingDir(createdJob.jobId), 'index.html'), 'utf-8')
+    expect(stagedHtml).toContain('id="before"')
+    expect(stagedHtml).toContain('id="after"')
+    expect(stagedHtml).toContain('legacy attrs')
+    expect(stagedHtml).not.toContain('<cms-content')
+    expect(stagedHtml).not.toContain('catalog-id="news"')
+    expect(stagedHtml).not.toContain('items[0]?.title')
+    expect(stagedHtml).not.toContain('data-proma-cms-')
+    expect(stagedHtml).not.toContain('data-proma-cms-rendering-')
+    expect(stagedHtml).not.toContain('/api/page-builder/cms-rendering-preview.js')
+    expect(stagedHtml).not.toContain('__PROMA_CMS_RENDERING_PREVIEW__')
+  })
+
   test('renders fixed-id CMS islands in order and falls back to empty when all ids are invalid', async () => {
+    process.env.AI_PAGE_BUILDER_INTEGRATION_MODE = 'cms'
     const workspace = createAgentWorkspace('Static Export CMS Fixed Ids', { template: 'page-builder' })
     const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
 
@@ -1000,6 +1081,7 @@ describe('page-builder static export service', () => {
   })
 
   test('fails export with a structured CMS island failure when island prefetch fails', async () => {
+    process.env.AI_PAGE_BUILDER_INTEGRATION_MODE = 'cms'
     const workspace = createAgentWorkspace('Static Export CMS Islands Failure', { template: 'page-builder' })
     const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
 

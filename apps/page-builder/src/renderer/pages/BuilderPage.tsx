@@ -356,6 +356,7 @@ export function BuilderPage({
   const [selectedTargetSelection, setSelectedTargetSelection] = React.useState<PageBuilderTargetSelection | null>(null)
   const [selectedTargetDisplayLabel, setSelectedTargetDisplayLabel] = React.useState<string | null>(null)
   const [pendingDeleteSelector, setPendingDeleteSelector] = React.useState<string | null>(null)
+  const [cmsIntegrationEnabled, setCmsIntegrationEnabled] = React.useState(false)
   const [cmsBrowserOpen, setCmsBrowserOpen] = React.useState(false)
   const [cmsDataUnavailableReason, setCmsDataUnavailableReason] = React.useState<string | null>(null)
   const [cmsBrowserWorkspaceId, setCmsBrowserWorkspaceId] = React.useState<string | null>(null)
@@ -444,6 +445,8 @@ export function BuilderPage({
     setEditLockRequired(false)
     setEditLockLease(null)
     setEditLockLostMessage(null)
+    setCmsIntegrationEnabled(false)
+    setCmsBrowserOpen(false)
     setCmsDataUnavailableReason(null)
     setCmsBrowserWorkspaceId(null)
 
@@ -459,7 +462,10 @@ export function BuilderPage({
       return
     }
 
-    if (isCmsIntegrationEnabled(integrationStatus)) {
+    const nextCmsIntegrationEnabled = isCmsIntegrationEnabled(integrationStatus)
+    setCmsIntegrationEnabled(nextCmsIntegrationEnabled)
+
+    if (nextCmsIntegrationEnabled) {
       let context: CmsBuilderContext
       try {
         context = await api.getCmsBuilderContext(workspaceId, sessionId)
@@ -1457,7 +1463,7 @@ export function BuilderPage({
           onInlineTextSaveRequest={handleInlineTextSaveRequest}
           onRequestDeleteBlock={handleRequestDeleteBlock}
           onRequestExportStatic={handleRequestExportStatic}
-          onRequestOpenCmsBrowser={() => {
+          onRequestOpenCmsBrowser={cmsIntegrationEnabled ? () => {
             if (isAgentStreaming || !editingEnabled) {
               if (!editingEnabled) {
                 toast.error(editLockLostMessage ?? EDIT_LOCK_LOST_MESSAGE)
@@ -1467,7 +1473,7 @@ export function BuilderPage({
 
             setCmsSelectionEntryPoint('block-toolbar')
             setCmsBrowserOpen(true)
-          }}
+          } : undefined}
           onRequestReplaceImage={handleRequestReplaceImage}
           onSelectionEvent={handleSelectionEvent}
           previewUrl={previewUrl}
@@ -1633,8 +1639,8 @@ export function BuilderPage({
         cmsDataUnavailableReason={cmsDataUnavailableReason}
         confirming={cmsAutoHandoffRequest !== null}
         onConfirmSelection={handleCmsSelectionConfirm}
-        onOpenChange={setCmsBrowserOpen}
-        open={cmsBrowserOpen}
+        onOpenChange={cmsIntegrationEnabled ? setCmsBrowserOpen : () => setCmsBrowserOpen(false)}
+        open={cmsIntegrationEnabled && cmsBrowserOpen}
         requestContext={cmsSelectionRequestContext}
         workspaceId={cmsBrowserWorkspaceId}
       />

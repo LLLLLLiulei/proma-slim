@@ -302,6 +302,7 @@ describe('PreviewPane', () => {
     await act(async () => {
       renderer = create(
         <PreviewPane
+          onRequestOpenCmsBrowser={mock(() => {})}
           previewUrl="https://example.com/preview?v=rev-1"
           selectionModeEnabled={true}
         />,
@@ -431,6 +432,7 @@ describe('PreviewPane', () => {
     await act(async () => {
       renderer.update(
         <PreviewPane
+          onRequestOpenCmsBrowser={mock(() => {})}
           previewUrl="https://example.com/preview?v=rev-1"
           selectionModeEnabled={false}
         />,
@@ -466,6 +468,7 @@ describe('PreviewPane', () => {
     await act(async () => {
       renderer = create(
         <PreviewPane
+          onRequestOpenCmsBrowser={mock(() => {})}
           previewUrl="https://example.com/preview?v=rev-1"
           selectionModeEnabled={true}
         />,
@@ -532,6 +535,7 @@ describe('PreviewPane', () => {
     await act(async () => {
       renderer = create(
         <PreviewPane
+          onRequestOpenCmsBrowser={mock(() => {})}
           previewUrl="https://example.com/preview?v=rev-1"
           selectionModeEnabled={true}
         />,
@@ -710,6 +714,97 @@ describe('PreviewPane', () => {
 
     expect(onRequestDeleteBlock).toHaveBeenCalledTimes(1)
     expect(onRequestDeleteBlock).toHaveBeenCalledWith('#hero')
+  })
+
+  test('hides the CMS action for selected blocks when CMS browsing is unavailable', async () => {
+    const listeners = new Map<string, Set<(event: unknown) => void>>()
+    const iframeWindow = {
+      postMessage: mock(() => {}),
+    }
+    const onRequestDeleteBlock = mock(() => {})
+
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: {
+        addEventListener(type: string, listener: (event: unknown) => void) {
+          const bucket = listeners.get(type) ?? new Set()
+          bucket.add(listener)
+          listeners.set(type, bucket)
+        },
+        removeEventListener(type: string, listener: (event: unknown) => void) {
+          listeners.get(type)?.delete(listener)
+        },
+        open: mock(() => {}),
+      },
+    })
+
+    const { PreviewPane } = await loadPreviewPane()
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <PreviewPane
+          onRequestDeleteBlock={onRequestDeleteBlock}
+          previewUrl="https://example.com/preview?v=rev-1"
+          selectionModeEnabled={true}
+        />,
+        {
+          createNodeMock(element) {
+            if (element.type === 'iframe') {
+              return { contentWindow: iframeWindow }
+            }
+
+            if (
+              element.type === 'div'
+              && typeof element.props.className === 'string'
+              && element.props.className.includes('rounded-xl border border-border/70 bg-background')
+            ) {
+              return {
+                getBoundingClientRect() {
+                  return {
+                    top: 0,
+                    left: 0,
+                    width: 960,
+                    height: 640,
+                    right: 960,
+                    bottom: 640,
+                  }
+                },
+              }
+            }
+
+            return {}
+          },
+        },
+      )
+    })
+
+    await act(async () => {
+      const messageHandler = [...(listeners.get('message') ?? [])][0]
+      messageHandler?.({
+        source: iframeWindow,
+        data: {
+          source: PAGE_BUILDER_PREVIEW_BRIDGE_SOURCE,
+          type: 'selected',
+          selector: '#hero',
+          displayLabel: 'Hero',
+          targetSelection: createBlockTargetSelection('#hero'),
+          rect: {
+            top: 120,
+            left: 80,
+            right: 380,
+            bottom: 260,
+            width: 300,
+            height: 140,
+          },
+        },
+      })
+    })
+
+    expect(renderer.root.findAll((node) =>
+      node.type === 'button'
+      && node.props['aria-label'] === '从 CMS 选择数据'
+    )).toHaveLength(0)
+    expect(findButton(renderer, '删除')).toBeTruthy()
   })
 
   test('renders a replace-image action only when the selected block declares replaceImage capability', async () => {
@@ -1137,6 +1232,7 @@ describe('PreviewPane', () => {
     await act(async () => {
       renderer = create(
         <PreviewPane
+          onRequestOpenCmsBrowser={mock(() => {})}
           previewUrl="https://example.com/preview?v=rev-1"
           selectionModeEnabled={true}
         />,
@@ -1217,6 +1313,7 @@ describe('PreviewPane', () => {
     await act(async () => {
       renderer = create(
         <PreviewPane
+          onRequestOpenCmsBrowser={mock(() => {})}
           previewUrl="https://example.com/preview?v=rev-1"
           selectionModeEnabled={true}
         />,

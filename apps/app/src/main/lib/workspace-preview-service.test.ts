@@ -7,6 +7,7 @@ import { createWorkspacePreviewResponse, getWorkspacePreviewState } from './work
 import { createAgentWorkspace } from './workspace-service'
 
 const CMS_ENV_KEYS = [
+  'AI_PAGE_BUILDER_INTEGRATION_MODE',
   'AI_PAGE_BUILDER_BASE_PATH',
   'PROMA_CMS_BASE_URL',
   'PROMA_CMS_SITE_ID',
@@ -15,6 +16,7 @@ const CMS_ENV_KEYS = [
 ] as const
 
 const originalCmsEnv = {
+  AI_PAGE_BUILDER_INTEGRATION_MODE: process.env.AI_PAGE_BUILDER_INTEGRATION_MODE,
   AI_PAGE_BUILDER_BASE_PATH: process.env.AI_PAGE_BUILDER_BASE_PATH,
   PROMA_CMS_BASE_URL: process.env.PROMA_CMS_BASE_URL,
   PROMA_CMS_SITE_ID: process.env.PROMA_CMS_SITE_ID,
@@ -80,6 +82,7 @@ describe('workspace preview service', () => {
   })
 
   test('reports CMS preview metadata and injects CMS rendering assets before the bridge', async () => {
+    process.env.AI_PAGE_BUILDER_INTEGRATION_MODE = 'cms'
     const workspace = createAgentWorkspace('CMS Preview State', { template: 'page-builder' })
     const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
 
@@ -109,7 +112,51 @@ describe('workspace preview service', () => {
     expect(bridgeAssetIndex).toBeGreaterThan(previewAssetIndex)
   })
 
+  test('removes CMS regions from standalone preview html instead of injecting CMS runtime', async () => {
+    process.env.AI_PAGE_BUILDER_INTEGRATION_MODE = 'standalone'
+    const workspace = createAgentWorkspace('Standalone CMS Cleanup Preview', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(
+      join(workspaceFilesDir, 'index.html'),
+      `<!doctype html><html><body>
+        <section id="before">before</section>
+        <cms-content catalog-id="news" data-proma-cms-source-id="cms-src-news">
+          <template v-slot:default="{ items }">
+            <article data-proma-cms-island-id="legacy">{{ items[0]?.title }}</article>
+          </template>
+        </cms-content>
+        <div data-proma-cms-island-id="legacy-root">legacy attrs</div>
+        <script data-proma-cms-rendering-config="true">window.__PROMA_CMS_RENDERING_PREVIEW__ = { hasCmsRendering: true };</script>
+        <script type="module" src="/api/page-builder/cms-rendering-preview.js" data-proma-cms-rendering-loader="true"></script>
+        <section id="after">after</section>
+      </body></html>`,
+      'utf-8',
+    )
+
+    const state = getWorkspacePreviewState(workspace)
+    expect(state.hasCmsRendering).toBe(false)
+    expect(state.requiresSameOrigin).toBe(false)
+
+    const response = createWorkspacePreviewResponse(workspace, '/', { enablePageBuilderBridge: true })
+    const html = await response.text()
+
+    expect(html).toContain('id="before"')
+    expect(html).toContain('id="after"')
+    expect(html).toContain('legacy attrs')
+    expect(html).not.toContain('<cms-content')
+    expect(html).not.toContain('catalog-id="news"')
+    expect(html).not.toContain('items[0]?.title')
+    expect(html).not.toContain('data-proma-cms-')
+    expect(html).not.toContain('data-proma-cms-rendering-')
+    expect(html).not.toContain('/api/page-builder/cms-rendering-preview.js')
+    expect(html).not.toContain('__PROMA_CMS_RENDERING_PREVIEW__')
+    expect(html).toContain(getPageBuilderPreviewBridgeAssetUrl())
+  })
+
   test('injects the configured public base path into CMS preview runtime requests', async () => {
+    process.env.AI_PAGE_BUILDER_INTEGRATION_MODE = 'cms'
     process.env.AI_PAGE_BUILDER_BASE_PATH = '/pagebuilder'
     const workspace = createAgentWorkspace('CMS Preview State With Base Path', { template: 'page-builder' })
     const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')

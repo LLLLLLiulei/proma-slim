@@ -32,6 +32,8 @@ import {
   resolveCmsAssetUrl,
 } from './page-builder-asset-reference-utils'
 import { resolvePageBuilderCmsConfig } from './page-builder-cms-config'
+import { resolveCmsIntegrationConfig } from './cms-integration/cms-integration-config'
+import { removePageBuilderStandaloneCmsArtifacts } from './page-builder-standalone-cms-cleanup'
 import {
   cleanupExpiredPageBuilderStaticExportDirs,
   getPageBuilderStaticExportPackagePath,
@@ -141,6 +143,7 @@ interface ExportContext {
   cmsGateway: CmsAssetGateway | null
   cmsBaseUrl: string | null
   downloadCmsRemoteAssets: boolean
+  cmsIntegrationEnabled: boolean
   cmsRuntimeClient: ReturnType<typeof createServerCmsClient>
   onPhase?: (phase: PageBuilderStaticExportJobPhase) => void
 }
@@ -401,8 +404,9 @@ export class PageBuilderStaticExportService {
       input.onPhase?.('copying')
       cpSync(workspaceFilesDir, stagingDir, { recursive: true })
 
+      const cmsIntegrationEnabled = resolveCmsIntegrationConfig().enabled
       const cmsGateway = this.resolveCmsGateway()
-      const cmsQueryAdapter = this.resolveCmsQueryAdapter()
+      const cmsQueryAdapter = cmsIntegrationEnabled ? this.resolveCmsQueryAdapter() : null
       const cmsBaseUrl = resolvePageBuilderCmsConfig()?.baseUrl ?? null
       const context: ExportContext = {
         workspace: input.workspace,
@@ -416,6 +420,7 @@ export class PageBuilderStaticExportService {
         cmsGateway,
         cmsBaseUrl,
         downloadCmsRemoteAssets: input.options.downloadCmsRemoteAssets,
+        cmsIntegrationEnabled,
         cmsRuntimeClient: createServerCmsClient({
           adapter: createStaticExportCmsAdapter(cmsQueryAdapter),
         }),
@@ -461,6 +466,7 @@ export class PageBuilderStaticExportService {
         cmsGateway: null,
         cmsBaseUrl: null,
         downloadCmsRemoteAssets: input.options.downloadCmsRemoteAssets,
+        cmsIntegrationEnabled: false,
         cmsRuntimeClient: createServerCmsClient({
           adapter: createStaticExportCmsAdapter(null),
         }),
@@ -507,7 +513,9 @@ export class PageBuilderStaticExportService {
 
   private async processHtmlFile(filePath: string, context: ExportContext): Promise<void> {
     const sourceHtml = readFileSync(filePath, 'utf-8')
-    const renderedHtml = await this.renderCmsIslandsForExport(sourceHtml, context)
+    const renderedHtml = context.cmsIntegrationEnabled
+      ? await this.renderCmsIslandsForExport(sourceHtml, context)
+      : removePageBuilderStandaloneCmsArtifacts(sourceHtml)
     const { document } = parseHTML(renderedHtml)
     let changed = renderedHtml !== sourceHtml
 

@@ -495,10 +495,12 @@ export function PreviewPane({
                           if (interactionLocked) return
                           onRequestDeleteBlock?.(selectedAnchor.selector)
                         }}
-                        onOpenCms={() => {
-                          if (interactionLocked) return
-                          onRequestOpenCmsBrowser?.()
-                        }}
+                        onOpenCms={onRequestOpenCmsBrowser
+                          ? () => {
+                              if (interactionLocked) return
+                              onRequestOpenCmsBrowser()
+                            }
+                          : undefined}
                         onReplaceImage={selectedImageTargetDescriptor
                           ? () => {
                               if (interactionLocked) return

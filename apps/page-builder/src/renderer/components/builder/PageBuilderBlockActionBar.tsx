@@ -15,7 +15,7 @@ export function PageBuilderBlockActionBar({
   actionsDisabled?: boolean
   className?: string
   onDelete?: () => void
-  onOpenCms: () => void
+  onOpenCms?: () => void
   onReplaceImage?: () => void
   replaceImageDisabled?: boolean
   style?: React.CSSProperties
@@ -42,18 +42,20 @@ export function PageBuilderBlockActionBar({
           替换图片
         </Button>
       ) : null}
-      <Button
-        aria-label="从 CMS 选择数据"
-        className="h-7 shrink-0 justify-start rounded-sm px-2 text-[11px] font-medium text-foreground shadow-none hover:bg-muted/70"
-        disabled={actionsDisabled}
-        onClick={onOpenCms}
-        size="sm"
-        type="button"
-        variant="ghost"
-      >
-        <Database className="size-3.25" />
-        从 CMS 选择数据
-      </Button>
+      {onOpenCms ? (
+        <Button
+          aria-label="从 CMS 选择数据"
+          className="h-7 shrink-0 justify-start rounded-sm px-2 text-[11px] font-medium text-foreground shadow-none hover:bg-muted/70"
+          disabled={actionsDisabled}
+          onClick={onOpenCms}
+          size="sm"
+          type="button"
+          variant="ghost"
+        >
+          <Database className="size-3.25" />
+          从 CMS 选择数据
+        </Button>
+      ) : null}
       <Button
         aria-label="删除"
         className="h-7 shrink-0 justify-start rounded-sm px-2 text-[11px] font-medium text-destructive shadow-none hover:bg-muted/70 hover:text-destructive"
