@@ -112,6 +112,27 @@ describe('workspace preview service', () => {
     expect(bridgeAssetIndex).toBeGreaterThan(previewAssetIndex)
   })
 
+  test('requires same-origin sandbox when preview html contains CMS asset proxy resources', () => {
+    process.env.AI_PAGE_BUILDER_INTEGRATION_MODE = 'cms'
+    process.env.PROMA_CMS_BASE_URL = 'https://demo.zving.com/manager/'
+    process.env.PROMA_CMS_USERNAME = 'test-user'
+    process.env.PROMA_CMS_PASSWORD = 'test-pass'
+    const workspace = createAgentWorkspace('CMS Asset Proxy Same Origin Preview', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(
+      join(workspaceFilesDir, 'index.html'),
+      '<!doctype html><html><body><img src="https://demo.zving.com/manager/preview/news/upload/resources/image/banner.jpg"></body></html>',
+      'utf-8',
+    )
+
+    const state = getWorkspacePreviewState(workspace)
+
+    expect(state.hasCmsRendering).toBe(false)
+    expect(state.requiresSameOrigin).toBe(true)
+  })
+
   test('removes CMS regions from standalone preview html instead of injecting CMS runtime', async () => {
     process.env.AI_PAGE_BUILDER_INTEGRATION_MODE = 'standalone'
     const workspace = createAgentWorkspace('Standalone CMS Cleanup Preview', { template: 'page-builder' })

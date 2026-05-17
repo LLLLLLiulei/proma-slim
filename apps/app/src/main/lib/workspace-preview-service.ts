@@ -110,13 +110,16 @@ export function getWorkspacePreviewState(workspace: AgentWorkspace): WorkspacePr
   const hasCmsRendering = cmsIntegrationEnabled
     && workspace.template === 'page-builder'
     && detectCmsRenderingUsage(sourceHtml).hasCmsRendering
+  const hasCmsAssetProxyResources = cmsIntegrationEnabled
+    && workspace.template === 'page-builder'
+    && hasPreviewCmsAssetProxyResources(workspace, sourceHtml)
 
   return {
     hasPreview: true,
     entryUrl: buildPageBuilderPublicUrl(`/api/workspaces/${encodeURIComponent(workspace.id)}/preview/`),
     revision: createHash('sha1').update(revisionEntries.join('\n')).digest('hex'),
     hasCmsRendering,
-    requiresSameOrigin: hasCmsRendering,
+    requiresSameOrigin: hasCmsRendering || hasCmsAssetProxyResources,
   }
 }
 
@@ -219,6 +222,62 @@ function rewritePreviewHtmlCmsAssetUrls(workspace: AgentWorkspace, sourceHtml: s
   }
 
   return changed ? serializeDocument(sourceHtml, document) : sourceHtml
+}
+
+function hasPreviewCmsAssetProxyResources(workspace: AgentWorkspace, sourceHtml: string): boolean {
+  const cmsConfig = resolvePageBuilderCmsConfig()
+  if (!cmsConfig) {
+    return false
+  }
+
+  const { document } = parseHTML(sourceHtml)
+
+  for (const element of Array.from(document.querySelectorAll('*'))) {
+    for (const attribute of PAGE_BUILDER_HTML_URL_ATTRIBUTES) {
+      const currentValue = element.getAttribute(attribute)
+      if (!currentValue || !shouldRewritePreviewAttributeUrl(element, attribute, currentValue)) {
+        continue
+      }
+
+      if (rewriteCmsAssetUrl(cmsConfig.baseUrl, workspace.id, currentValue) !== currentValue) {
+        return true
+      }
+    }
+
+    for (const attribute of PAGE_BUILDER_HTML_SRCSET_ATTRIBUTES) {
+      const currentValue = element.getAttribute(attribute)
+      if (!currentValue || !shouldRewritePreviewAttributeUrl(element, attribute, currentValue)) {
+        continue
+      }
+
+      const nextValue = rewriteSrcsetValue(currentValue, (rawUrl) => rewriteCmsAssetUrl(cmsConfig.baseUrl, workspace.id, rawUrl))
+      if (nextValue !== currentValue) {
+        return true
+      }
+    }
+
+    const styleValue = element.getAttribute('style')
+    if (styleValue) {
+      const nextStyleValue = rewriteCssUrlFunctions(styleValue, (rawUrl) => rewriteCmsAssetUrl(cmsConfig.baseUrl, workspace.id, rawUrl))
+      if (nextStyleValue !== styleValue) {
+        return true
+      }
+    }
+  }
+
+  for (const styleElement of Array.from(document.querySelectorAll('style'))) {
+    const currentCssText = styleElement.textContent
+    if (!currentCssText) {
+      continue
+    }
+
+    const nextCssText = rewriteCssUrlFunctions(currentCssText, (rawUrl) => rewriteCmsAssetUrl(cmsConfig.baseUrl, workspace.id, rawUrl))
+    if (nextCssText !== currentCssText) {
+      return true
+    }
+  }
+
+  return false
 }
 
 function injectWorkspaceCmsRenderingPreview(
