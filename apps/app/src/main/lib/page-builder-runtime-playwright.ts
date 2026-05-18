@@ -1,4 +1,5 @@
 import type { McpServerEntry } from '@ai-page-builder/shared'
+import { stripPageBuilderPublicBasePath } from '@ai-page-builder/shared'
 import { readWorkspaceTemplateMcpConfig } from './workspace-template-service'
 
 type EnvSource = Record<string, string | undefined>
@@ -23,6 +24,16 @@ function resolveAbsolutePreviewUrl(
     return new URL(previewPath, `${origin}/`).toString()
   } catch {
     return null
+  }
+}
+
+function stripConfiguredPublicBasePath(previewPath: string, env: EnvSource): string {
+  try {
+    const parsed = new URL(previewPath, 'http://page-builder.local')
+    const pathname = stripPageBuilderPublicBasePath(parsed.pathname, env.AI_PAGE_BUILDER_BASE_PATH)
+    return `${pathname}${parsed.search}${parsed.hash}`
+  } catch {
+    return previewPath
   }
 }
 
@@ -71,7 +82,10 @@ export function resolvePageBuilderInternalPreviewUrl(
   previewPath: string | null,
   env: EnvSource = process.env,
 ): string | null {
-  return resolveAbsolutePreviewUrl(previewPath, resolvePageBuilderInternalAppOrigin(env))
+  return resolveAbsolutePreviewUrl(
+    previewPath ? stripConfiguredPublicBasePath(previewPath, env) : null,
+    resolvePageBuilderInternalAppOrigin(env),
+  )
 }
 
 export function resolvePageBuilderBrowserPreviewUrl(

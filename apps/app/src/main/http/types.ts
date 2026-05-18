@@ -17,7 +17,8 @@ export interface HttpAppEnv {
   Variables: {
     sessionMeta: AgentSessionMeta
     workspace: AgentWorkspace
-    cmsBuilderAccess: BuilderAccessSessionRecord
+    cmsBuilderAccess?: BuilderAccessSessionRecord
+    cmsBuilderInternalReadonlyAccess?: boolean
     diagnostic: HttpRequestDiagnosticState
   }
 }

@@ -52,7 +52,7 @@ import {
   PageBuilderStaticExportServiceError,
   pageBuilderStaticExportService,
 } from '../../lib/page-builder-static-export-service'
-import { listAgentSessions } from '../../lib/agent-session-manager'
+import { getAgentSessionMeta, listAgentSessions } from '../../lib/agent-session-manager'
 import { HttpError } from '../errors'
 import { json, noContent, readJsonBody } from '../responses'
 import type { HttpAppEnv } from '../types'
@@ -82,7 +82,9 @@ function resolveCmsWorkspaceBrowserScope(c: { var: HttpAppEnv['Variables'] }): P
     return {}
   }
 
-  const binding = resolveCmsProjectBindingForWorkspace(c)
+  const binding = c.var.cmsBuilderInternalReadonlyAccess
+    ? resolveCmsProjectBindingForInternalWorkspace(c.var.workspace)
+    : resolveCmsProjectBindingForWorkspace(c)
   return {
     siteId: binding.siteId,
     filterSitesToSiteId: binding.siteId,
@@ -106,6 +108,20 @@ function resolveCmsProjectBindingForWorkspace(c: { var: HttpAppEnv['Variables'] 
     || binding.primarySessionId !== access.sessionId
   ) {
     throw builderAccessMismatch('当前 CMS access session 与 project binding 不匹配，请从 CMS 重新进入')
+  }
+
+  return binding
+}
+
+function resolveCmsProjectBindingForInternalWorkspace(workspace: HttpAppEnv['Variables']['workspace']): CmsIntegratedProjectBinding {
+  const binding = getSharedCmsProjectBindingStore().readAll().find((entry) => entry.workspaceId === workspace.id)
+  if (!binding) {
+    throw cmsProjectNotFound()
+  }
+
+  const session = getAgentSessionMeta(binding.primarySessionId)
+  if (workspace.template !== 'page-builder' || !session || session.workspaceId !== workspace.id) {
+    throw cmsProjectNotFound()
   }
 
   return binding

@@ -17,6 +17,7 @@ const ORIGINAL_ENV = {
   AI_PAGE_BUILDER_INTEGRATION_MODE: process.env.AI_PAGE_BUILDER_INTEGRATION_MODE,
   AI_PAGE_BUILDER_PUBLIC_ORIGIN: process.env.AI_PAGE_BUILDER_PUBLIC_ORIGIN,
   AI_PAGE_BUILDER_BASE_PATH: process.env.AI_PAGE_BUILDER_BASE_PATH,
+  AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN: process.env.AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN,
   AI_PAGE_BUILDER_ACCESS_SESSION_TTL_MS: process.env.AI_PAGE_BUILDER_ACCESS_SESSION_TTL_MS,
 }
 
@@ -90,6 +91,26 @@ function createTestApp(options?: { requireOrigin?: boolean; sessionScoped?: bool
   return app
 }
 
+function createInternalPreviewTestApp() {
+  const app = new Hono<HttpAppEnv>()
+  app.onError((error) => {
+    if (error instanceof CmsIntegrationError) {
+      return toCmsIntegrationErrorResponse(error)
+    }
+    throw error
+  })
+  app.use('/api/workspaces/:workspaceId/*', createCmsBuilderAccessMiddleware({
+    workspaceId: (c) => c.req.param('workspaceId'),
+    requireOrigin: (c) => c.req.method !== 'GET',
+  }))
+  app.get('/api/workspaces/:workspaceId/preview/', (c) => c.json({
+    accessMounted: Boolean(c.var.cmsBuilderAccess),
+    internalReadonlyAccess: c.var.cmsBuilderInternalReadonlyAccess === true,
+  }))
+  app.post('/api/workspaces/:workspaceId/preview/', (c) => c.json({ ok: true }))
+  return app
+}
+
 describe('cms builder access middleware', () => {
   beforeEach(() => {
     enableCmsMode()
@@ -137,6 +158,40 @@ describe('cms builder access middleware', () => {
     expectWorkspaceScopedAccessCookie(matched.headers.get('set-cookie'))
     expect(matched.headers.get('set-cookie')).toContain('Path=/pagebuilder')
     expect(matched.headers.get('set-cookie')).toContain('Secure')
+  })
+
+  test('bypasses access cookie only for internal readonly preview GET requests', async () => {
+    enableCmsMode({
+      AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN: 'http://server:8888',
+    })
+    const app = createInternalPreviewTestApp()
+
+    const internalPreview = await app.fetch(new Request('http://server:8888/api/workspaces/workspace-1/preview/'))
+    expect(internalPreview.status).toBe(200)
+    expect(await internalPreview.json()).toEqual({
+      accessMounted: false,
+      internalReadonlyAccess: true,
+    })
+    expect(internalPreview.headers.get('set-cookie')).toBeNull()
+
+    const externalPreview = await app.fetch(new Request('https://builder.example.com/api/workspaces/workspace-1/preview/'))
+    expect(externalPreview.status).toBe(401)
+    expect(await externalPreview.json()).toMatchObject({ code: 'builder_access_required' })
+
+    const internalPost = await app.fetch(new Request('http://server:8888/api/workspaces/workspace-1/preview/', {
+      method: 'POST',
+    }))
+    expect(internalPost.status).toBe(401)
+    expect(await internalPost.json()).toMatchObject({ code: 'builder_access_required' })
+
+    const proxiedInternalPreview = await app.fetch(new Request('http://server:8888/api/workspaces/workspace-1/preview/', {
+      headers: {
+        'x-forwarded-host': 'localhost.var123.cn',
+        'x-forwarded-proto': 'http',
+      },
+    }))
+    expect(proxiedInternalPreview.status).toBe(401)
+    expect(await proxiedInternalPreview.json()).toMatchObject({ code: 'builder_access_required' })
   })
 
   test('accepts multiple workspace-scoped access cookies in the same browser', async () => {

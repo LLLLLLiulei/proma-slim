@@ -15,8 +15,15 @@ import {
   getSharedBuilderAccessSessionService,
 } from './cms-integration-runtime'
 import type { HttpAppEnv } from '../../http/types'
+import { resolvePageBuilderInternalAppOrigin } from '../page-builder-runtime-playwright'
 
 type CmsBuilderAccessResolver = (c: Context<HttpAppEnv>) => string | undefined
+
+const INTERNAL_READONLY_PREVIEW_PATH_PATTERNS = [
+  /^\/api\/workspaces\/[^/]+\/preview(?:\/|$)/,
+  /^\/api\/workspaces\/[^/]+\/page-builder\/cms\/(?:sites|contents|assets)$/,
+  /^\/api\/workspaces\/[^/]+\/page-builder\/cms\/catalogs(?:\/[^/]+)?$/,
+] as const
 
 export interface CmsBuilderAccessMiddlewareOptions {
   workspaceId: string | CmsBuilderAccessResolver
@@ -35,6 +42,15 @@ export const createCmsBuilderAccessMiddleware = (options: CmsBuilderAccessMiddle
     const workspaceId = resolveOptionValue(c, options.workspaceId)
     if (!workspaceId) {
       throw builderAccessMismatch('当前请求缺少 workspace 上下文，请从 CMS 重新进入')
+    }
+
+    if (isInternalReadonlyPreviewRequest(c)) {
+      c.set('cmsBuilderInternalReadonlyAccess', true)
+      if (c.var.diagnostic) {
+        c.var.diagnostic.resource.workspaceId = workspaceId
+      }
+      await next()
+      return
     }
 
     const sessionId = resolveOptionValue(c, options.sessionId)
@@ -79,6 +95,36 @@ export const createCmsBuilderAccessMiddleware = (options: CmsBuilderAccessMiddle
       c.set('cmsBuilderAccess', renewed.access)
     }
   })
+}
+
+function isInternalReadonlyPreviewRequest(c: Context<HttpAppEnv>): boolean {
+  if (c.req.method !== 'GET') {
+    return false
+  }
+
+  const internalOrigin = resolvePageBuilderInternalAppOrigin()
+  if (!internalOrigin) {
+    return false
+  }
+
+  // 只有直连 server 的内部请求才允许走只读例外。
+  // 经过 web/nginx 代理的 public 请求会携带 x-forwarded-host，不应被识别为内部访问。
+  if (c.req.header('x-forwarded-host')?.trim()) {
+    return false
+  }
+
+  let requestUrl: URL
+  try {
+    requestUrl = new URL(c.req.url)
+  } catch {
+    return false
+  }
+
+  if (requestUrl.origin !== internalOrigin) {
+    return false
+  }
+
+  return INTERNAL_READONLY_PREVIEW_PATH_PATTERNS.some((pattern) => pattern.test(requestUrl.pathname))
 }
 
 export function assertCmsBuilderApiAvailableInCmsMode(message?: string): void {

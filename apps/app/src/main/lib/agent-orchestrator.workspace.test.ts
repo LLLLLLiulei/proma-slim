@@ -116,6 +116,7 @@ describe('AgentOrchestrator workspace runtime', () => {
   let originalPlaywrightMcpUrl: string | undefined
   let originalInternalAppOrigin: string | undefined
   let originalRuntimeEnv: string | undefined
+  let originalPageBuilderBasePath: string | undefined
 
   beforeEach(() => {
     configDir = mkdtempSync(join(tmpdir(), 'proma-orchestrator-workspace-'))
@@ -134,6 +135,7 @@ describe('AgentOrchestrator workspace runtime', () => {
     originalPlaywrightMcpUrl = process.env.AI_PAGE_BUILDER_PLAYWRIGHT_MCP_URL
     originalInternalAppOrigin = process.env.AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN
     originalRuntimeEnv = process.env.AI_PAGE_BUILDER_RUNTIME_ENV
+    originalPageBuilderBasePath = process.env.AI_PAGE_BUILDER_BASE_PATH
     process.env.ANTHROPIC_API_KEY = 'test-api-key'
     process.env.ANTHROPIC_BASE_URL = 'https://api.anthropic.com'
   })
@@ -195,6 +197,11 @@ describe('AgentOrchestrator workspace runtime', () => {
       delete process.env.AI_PAGE_BUILDER_RUNTIME_ENV
     } else {
       process.env.AI_PAGE_BUILDER_RUNTIME_ENV = originalRuntimeEnv
+    }
+    if (originalPageBuilderBasePath === undefined) {
+      delete process.env.AI_PAGE_BUILDER_BASE_PATH
+    } else {
+      process.env.AI_PAGE_BUILDER_BASE_PATH = originalPageBuilderBasePath
     }
     rmSync(configDir, { recursive: true, force: true })
     rmSync(claudeHomeDir, { recursive: true, force: true })
@@ -773,6 +780,7 @@ describe('AgentOrchestrator workspace runtime', () => {
   test('injects an internal preview url into the page-builder prompt when docker playwright runtime is active', async () => {
     process.env.AI_PAGE_BUILDER_PLAYWRIGHT_MCP_URL = 'http://playwright:8931/mcp'
     process.env.AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN = 'http://server:8888'
+    process.env.AI_PAGE_BUILDER_BASE_PATH = '/pagebuilder'
 
     const adapter = new RecordingAdapter()
     const orchestrator = new AgentOrchestrator(adapter, new AgentEventBus())
@@ -801,6 +809,7 @@ describe('AgentOrchestrator workspace runtime', () => {
 
     expect(adapter.lastInput?.prompt).toContain('<page_builder_browser_preview_url>')
     expect(adapter.lastInput?.prompt).toContain(`http://server:8888/api/workspaces/${workspace.id}/preview/`)
+    expect(adapter.lastInput?.prompt).not.toContain(`http://server:8888/pagebuilder/api/workspaces/${workspace.id}/preview/`)
     expect(adapter.lastInput?.prompt).toContain('<page_builder_runtime_playwright>docker-http</page_builder_runtime_playwright>')
     expect(adapter.lastInput?.prompt).toContain('不要对 workspace 文件使用 file:// URL')
     expect(adapter.lastInput?.prompt).toContain('不要自行拼接、猜测或改写 preview URL')

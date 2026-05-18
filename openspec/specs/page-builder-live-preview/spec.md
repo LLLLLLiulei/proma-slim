@@ -131,7 +131,7 @@
 - **AND** 系统 SHALL NOT 生成无 workspace 上下文的 `/api/page-builder/cms/assets` 预览资源 URL
 
 ### Requirement: CMS 集成模式下 workspace preview 必须校验 Builder Access Session
-系统 SHALL 在 CMS 集成模式下通过统一 CMS Builder Access middleware 对 workspace preview HTML 和静态子资源执行 Builder Access Session 校验，防止未通过 CMS handoff 的浏览器直接访问 preview URL。
+系统 SHALL 在 CMS 集成模式下通过统一 CMS Builder Access middleware 对 workspace preview HTML 和静态子资源执行 Builder Access Session 校验，防止未通过 CMS handoff 的浏览器直接访问 preview URL。来自 `AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN` 且未经过 public web/nginx 代理的 Docker Playwright 内部只读预览 GET 请求 SHALL 作为 Agent 诊断例外被允许访问，不要求 `ai_page_builder_access` Cookie；该例外 SHALL NOT 扩展到非 GET、非 preview allowlist 路径或任何状态变更 API。
 
 #### Scenario: standalone 模式 preview 行为保持不变
 - **WHEN** `AI_PAGE_BUILDER_INTEGRATION_MODE` 未设置为 `cms` 且请求 `GET /api/workspaces/:workspaceId/preview/`
@@ -162,6 +162,25 @@
 #### Scenario: CMS 模式 preview 成功响应刷新 access session
 - **WHEN** CMS 模式下 workspace preview HTML 或静态子资源请求通过 Builder Access Session 校验并成功返回
 - **THEN** 系统 SHALL 按统一受保护 API 规则滑动续期 Builder Access Session
+
+#### Scenario: CMS 模式内部 Docker Playwright 无 access cookie 访问 preview 被允许
+- **WHEN** `AI_PAGE_BUILDER_INTEGRATION_MODE=cms`，请求 URL origin 等于 `AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN`，且请求 `GET /api/workspaces/:workspaceId/preview/` 没有有效 `ai_page_builder_access` Cookie
+- **AND** 请求未携带 `X-Forwarded-Host`
+- **THEN** 系统 SHALL 返回 workspace preview HTML
+- **AND** 系统 SHALL NOT 因缺少 `ai_page_builder_access` Cookie 返回 `builder_access_required`
+
+#### Scenario: CMS 模式内部 Docker Playwright 访问 preview 静态子资源被允许
+- **WHEN** `AI_PAGE_BUILDER_INTEGRATION_MODE=cms`，请求 URL origin 等于 `AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN`，且请求 `GET /api/workspaces/:workspaceId/preview/*` 下的 CSS、JS、图片或其他静态子资源没有有效 `ai_page_builder_access` Cookie
+- **AND** 请求未携带 `X-Forwarded-Host`
+- **THEN** 系统 SHALL 返回对应 preview 静态子资源
+- **AND** 系统 SHALL NOT 因普通静态资源请求缺少 `Origin` header 而拒绝
+
+#### Scenario: CMS 模式经 public 代理转发的 internal-origin preview 不走内部例外
+- **WHEN** `AI_PAGE_BUILDER_INTEGRATION_MODE=cms`，请求 URL origin 等于 `AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN`，但请求携带 `X-Forwarded-Host`
+- **AND** 请求没有有效 `ai_page_builder_access` Cookie
+- **THEN** 系统 SHALL NOT 将该请求识别为 Docker Playwright 内部只读预览请求
+- **AND** 系统 SHALL 返回 `401`
+- **AND** 响应 SHALL 表示 `code: "builder_access_required"`
 
 ### Requirement: CMS preview handoff 打开的预览必须是非编辑态预览
 系统 SHALL 区分 Builder 页面编辑态 preview 与 CMS preview handoff 打开的预览，CMS preview handoff 不得启用编辑态 bridge、overlay 或 inline edit 能力。

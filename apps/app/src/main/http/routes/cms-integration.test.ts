@@ -15,7 +15,7 @@ import { askUserService } from '../../lib/agent-ask-user-service'
 import { permissionService } from '../../lib/agent-permission-service'
 import { resetCmsIntegrationTestState } from './cms-integration'
 import { getSharedCmsProjectBindingStore } from '../../lib/cms-integration/cms-project-binding-store'
-import { listAgentWorkspaces } from '../../lib/workspace-service'
+import { createAgentWorkspace, listAgentWorkspaces } from '../../lib/workspace-service'
 import { createHttpApp } from '../app'
 
 const ORIGINAL_ENV = {
@@ -25,6 +25,7 @@ const ORIGINAL_ENV = {
   AI_PAGE_BUILDER_CMS_BASE_URL: process.env.AI_PAGE_BUILDER_CMS_BASE_URL,
   AI_PAGE_BUILDER_BASE_PATH: process.env.AI_PAGE_BUILDER_BASE_PATH,
   AI_PAGE_BUILDER_PUBLIC_ORIGIN: process.env.AI_PAGE_BUILDER_PUBLIC_ORIGIN,
+  AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN: process.env.AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN,
   AI_PAGE_BUILDER_SYNC_EXPORT_TIMEOUT_MS: process.env.AI_PAGE_BUILDER_SYNC_EXPORT_TIMEOUT_MS,
   PROMA_CMS_BASE_URL: process.env.PROMA_CMS_BASE_URL,
   PROMA_CMS_USERNAME: process.env.PROMA_CMS_USERNAME,
@@ -859,7 +860,9 @@ describe('cms integration routes', () => {
   })
 
   test('cms preview handoff protects preview access and exposes builder context with the shared access cookie', async () => {
-    enableCmsIntegration(configDir)
+    enableCmsIntegration(configDir, {
+      AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN: 'http://server:8888',
+    })
     const fetchMock = createLoginFetchMock()
     globalThis.fetch = fetchMock as unknown as typeof fetch
     const app = createApp()
@@ -892,6 +895,16 @@ describe('cms integration routes', () => {
     const unauthenticatedPreview = await app.fetch(new Request(`http://localhost/api/workspaces/${primary.binding.workspaceId}/preview/`))
     expect(unauthenticatedPreview.status).toBe(401)
     expect(await unauthenticatedPreview.json()).toMatchObject({ code: 'builder_access_required' })
+
+    const internalPreview = await app.fetch(new Request(`http://server:8888/api/workspaces/${primary.binding.workspaceId}/preview/`))
+    expect(internalPreview.status).toBe(200)
+    expect(internalPreview.headers.get('set-cookie')).toBeNull()
+    expect(await internalPreview.text()).toContain('<h1>CMS Preview</h1>')
+
+    const internalPreviewAsset = await app.fetch(new Request(`http://server:8888/api/workspaces/${primary.binding.workspaceId}/preview/assets/app.js`))
+    expect(internalPreviewAsset.status).toBe(200)
+    expect(internalPreviewAsset.headers.get('set-cookie')).toBeNull()
+    expect(await internalPreviewAsset.text()).toContain('console.log("preview")')
 
     const mismatchedPreview = await app.fetch(new Request(`http://localhost/api/workspaces/${secondary.binding.workspaceId}/preview/`, {
       headers: { cookie: accessCookie! },
@@ -939,6 +952,51 @@ describe('cms integration routes', () => {
     }))
     expect(mismatchedContext.status).toBe(403)
     expect(await mismatchedContext.json()).toMatchObject({ code: 'builder_access_mismatch' })
+  })
+
+  test('does not treat internal origin as access for non-preview protected APIs', async () => {
+    enableCmsIntegration(configDir, {
+      AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN: 'http://server:8888',
+    })
+    globalThis.fetch = createLoginFetchMock() as unknown as typeof fetch
+    const app = createApp()
+
+    const created = await createBoundCmsProject(app, {
+      externalRecordId: 'cms-internal-origin-non-preview',
+      projectName: 'CMS Internal Origin Non Preview',
+    })
+
+    const protectedRequests = [
+      new Request(`http://server:8888/api/sessions/${created.binding.primarySessionId}/messages`),
+      new Request(`http://server:8888/api/sessions/${created.binding.primarySessionId}/send`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ message: 'test' }),
+      }),
+      new Request(`http://server:8888/api/workspaces/${created.binding.workspaceId}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Renamed' }),
+      }),
+      new Request(`http://server:8888/api/workspaces/${created.binding.workspaceId}/page-builder/cms-auto-handoff`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({}),
+      }),
+      new Request(`http://server:8888/api/workspaces/${created.binding.workspaceId}/page-builder/export-static-jobs`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({}),
+      }),
+      new Request(`http://server:8888/api/integrations/cms/builder-context?workspaceId=${created.binding.workspaceId}&sessionId=${created.binding.primarySessionId}`),
+    ]
+
+    for (const request of protectedRequests) {
+      const response = await app.fetch(request)
+      expect(response.status).toBe(401)
+      expect(await response.json()).toMatchObject({ code: 'builder_access_required' })
+      expect(response.headers.get('set-cookie')).toBeNull()
+    }
   })
 
   test('protects CMS mode session workspace and page-builder project APIs', async () => {
@@ -1302,7 +1360,9 @@ describe('cms integration routes', () => {
   })
 
   test('scopes CMS browser data APIs to the builder workspace project binding', async () => {
-    enableCmsIntegration(configDir)
+    enableCmsIntegration(configDir, {
+      AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN: 'http://server:8888',
+    })
     process.env.PROMA_CMS_BASE_URL = 'https://demo.zving.com/manager/'
     process.env.PROMA_CMS_USERNAME = 'test-user'
     process.env.PROMA_CMS_PASSWORD = 'test-pass'
@@ -1351,7 +1411,51 @@ describe('cms integration routes', () => {
       if (url === 'https://demo.zving.com/manager/api/catalogsTree?siteID=14') {
         return jsonResponse({
           status: 1,
-          data: [],
+          data: [
+            {
+              id: 101,
+              name: '新闻',
+              parentId: 0,
+              siteID: 14,
+              path: 'news/',
+              children: [],
+            },
+          ],
+        })
+      }
+
+      if (url === 'https://demo.zving.com/manager/api/catalogs?siteID=14&level=All&pageIndex=0&pageSize=500') {
+        return jsonResponse({
+          status: 1,
+          total: 1,
+          data: [
+            {
+              id: 101,
+              name: '新闻',
+              parentId: 0,
+              siteID: 14,
+              path: 'news/',
+            },
+          ],
+        })
+      }
+
+      if (url === 'https://demo.zving.com/manager/api/catalogs/101/contents?siteID=14&pageIndex=0&pageSize=20&loadextend=true') {
+        return jsonResponse({
+          status: 1,
+          data: {
+            pageIndex: 0,
+            pageSize: 20,
+            total: 1,
+            data: [
+              {
+                id: 501,
+                catalogID: 101,
+                title: '新闻内容',
+                summary: 'CMS 内容摘要',
+              },
+            ],
+          },
         })
       }
 
@@ -1389,6 +1493,58 @@ describe('cms integration routes', () => {
     expect(missingAssetAccess.status).toBe(401)
     expect(await missingAssetAccess.json()).toMatchObject({ code: 'builder_access_required' })
     expect(countCmsGatewayCalls()).toBe(beforeMissingAccess)
+
+    const internalSites = await app.fetch(new Request(`http://server:8888/api/workspaces/${primary.binding.workspaceId}/page-builder/cms/sites`))
+    expect(internalSites.status).toBe(200)
+    expect(internalSites.headers.get('cache-control')).toBe('no-store')
+    expect(internalSites.headers.get('set-cookie')).toBeNull()
+    expect(await internalSites.json()).toEqual([
+      expect.objectContaining({ id: '14', name: '绑定站点' }),
+    ])
+
+    const internalCatalogs = await app.fetch(new Request(`http://server:8888/api/workspaces/${primary.binding.workspaceId}/page-builder/cms/catalogs`))
+    expect(internalCatalogs.status).toBe(200)
+    expect(internalCatalogs.headers.get('cache-control')).toBe('no-store')
+    expect(internalCatalogs.headers.get('set-cookie')).toBeNull()
+    const internalCatalogsBody = await internalCatalogs.json() as { items: Array<{ id: string }>; tree: Array<{ id: string }> }
+    expect(internalCatalogsBody.items).toEqual([expect.objectContaining({ id: '101' })])
+    expect(internalCatalogsBody.tree).toEqual([expect.objectContaining({ id: '101' })])
+
+    const internalCatalogDetail = await app.fetch(new Request(`http://server:8888/api/workspaces/${primary.binding.workspaceId}/page-builder/cms/catalogs/101`))
+    expect(internalCatalogDetail.status).toBe(200)
+    expect(internalCatalogDetail.headers.get('cache-control')).toBe('no-store')
+    expect(internalCatalogDetail.headers.get('set-cookie')).toBeNull()
+    expect(await internalCatalogDetail.json()).toMatchObject({ id: '101', name: '新闻' })
+
+    const internalContents = await app.fetch(new Request(`http://server:8888/api/workspaces/${primary.binding.workspaceId}/page-builder/cms/contents?catalogId=101`))
+    expect(internalContents.status).toBe(200)
+    expect(internalContents.headers.get('cache-control')).toBe('no-store')
+    expect(internalContents.headers.get('set-cookie')).toBeNull()
+    expect(await internalContents.json()).toMatchObject({
+      items: [
+        expect.objectContaining({ id: '501', title: '新闻内容' }),
+      ],
+    })
+
+    const internalAsset = await app.fetch(new Request(`http://server:8888/api/workspaces/${primary.binding.workspaceId}/page-builder/cms/assets?url=${encodeURIComponent('https://demo.zving.com/manager/preview/news/upload/resources/image/banner.jpg')}`))
+    expect(internalAsset.status).toBe(200)
+    expect(internalAsset.headers.get('cache-control')).toBe('private, no-store')
+    expect(internalAsset.headers.get('content-type')).toBe('image/jpeg')
+    expect(internalAsset.headers.get('set-cookie')).toBeNull()
+    expect(await internalAsset.text()).toBe('image-bytes')
+
+    const unboundWorkspace = createAgentWorkspace('Unbound CMS Workspace', { template: 'page-builder' })
+    const beforeMissingBinding = countCmsGatewayCalls()
+    const missingInternalBinding = await app.fetch(new Request(`http://server:8888/api/workspaces/${unboundWorkspace.id}/page-builder/cms/sites`))
+    expect(missingInternalBinding.status).toBe(404)
+    expect(await missingInternalBinding.json()).toMatchObject({ code: 'project_not_found' })
+    expect(countCmsGatewayCalls()).toBe(beforeMissingBinding)
+
+    const beforeInternalSiteMismatch = countCmsGatewayCalls()
+    const internalSiteMismatch = await app.fetch(new Request(`http://server:8888/api/workspaces/${primary.binding.workspaceId}/page-builder/cms/catalogs?siteId=99`))
+    expect(internalSiteMismatch.status).toBe(403)
+    expect(await internalSiteMismatch.json()).toMatchObject({ code: 'builder_access_mismatch' })
+    expect(countCmsGatewayCalls()).toBe(beforeInternalSiteMismatch)
 
     const beforeWorkspaceMismatch = countCmsGatewayCalls()
     const workspaceMismatch = await app.fetch(new Request(`http://localhost/api/workspaces/${secondary.binding.workspaceId}/page-builder/cms/sites`, {
@@ -1428,7 +1584,9 @@ describe('cms integration routes', () => {
     }))
     expect(catalogs.status).toBe(200)
     expect(catalogs.headers.get('cache-control')).toBe('no-store')
-    expect(await catalogs.json()).toEqual({ items: [], tree: [] })
+    const catalogsBody = await catalogs.json() as { items: Array<{ id: string }>; tree: Array<{ id: string }> }
+    expect(catalogsBody.items).toEqual([expect.objectContaining({ id: '101' })])
+    expect(catalogsBody.tree).toEqual([expect.objectContaining({ id: '101' })])
     expect(fetchMock.mock.calls.some(([input]) => String(input) === 'https://demo.zving.com/manager/api/catalogsTree?siteID=14')).toBe(true)
 
     const asset = await app.fetch(new Request(`http://localhost/api/workspaces/${primary.binding.workspaceId}/page-builder/cms/assets?url=${encodeURIComponent('https://demo.zving.com/manager/preview/news/upload/resources/image/banner.jpg')}`, {
@@ -1439,6 +1597,16 @@ describe('cms integration routes', () => {
     expect(asset.headers.get('content-type')).toBe('image/jpeg')
     expectWorkspaceScopedAccessCookie(asset.headers.get('set-cookie'))
     expect(await asset.text()).toBe('image-bytes')
+
+    rebindCmsProject(configDir, primary.projectId, {
+      workspaceId: primary.binding.workspaceId,
+      primarySessionId: 'missing-session',
+    })
+    const beforeMissingInternalResource = countCmsGatewayCalls()
+    const missingInternalResource = await app.fetch(new Request(`http://server:8888/api/workspaces/${primary.binding.workspaceId}/page-builder/cms/sites`))
+    expect(missingInternalResource.status).toBe(404)
+    expect(await missingInternalResource.json()).toMatchObject({ code: 'project_not_found' })
+    expect(countCmsGatewayCalls()).toBe(beforeMissingInternalResource)
   })
 
   test('rejects CMS mode permission and ask-user responses for another session requestId', async () => {
