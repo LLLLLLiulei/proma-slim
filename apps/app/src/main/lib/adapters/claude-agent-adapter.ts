@@ -374,20 +374,6 @@ function buildCompactionLocalCommandError(stderr: string): TypedError {
 /** 活跃的 AbortController 映射（sessionId → controller） */
 const activeControllers = new Map<string, AbortController>()
 
-function isSdkAbortError(error: unknown): boolean {
-  if (!(error instanceof Error)) {
-    return false
-  }
-
-  const code = (error as { code?: unknown }).code
-  const message = error.message.toLowerCase()
-
-  return error.name === 'AbortError'
-    || code === 'ERR_ABORTED'
-    || message === 'operation aborted'
-    || message.includes('operation was aborted')
-}
-
 export class ClaudeAgentAdapter implements AgentProviderAdapter {
 
   abort(sessionId: string): void {
@@ -1000,12 +986,6 @@ export class ClaudeAgentAdapter implements AgentProviderAdapter {
           parentToolUseId: pendingParentToolUseId.value || undefined,
         }
       }
-    } catch (error) {
-      if (controller.signal.aborted && isSdkAbortError(error)) {
-        return
-      }
-
-      throw error
     } finally {
       activeControllers.delete(options.sessionId)
     }
