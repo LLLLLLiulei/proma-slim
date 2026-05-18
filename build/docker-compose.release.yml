@@ -4,6 +4,7 @@ services:
   server:
     container_name: page-builder-server
     image: ccr.ccs.tencentyun.com/ai-page-builder/page-builder-server:${PAGE_BUILDER_IMAGE_TAG:-latest}
+    restart: unless-stopped
     environment:
       PORT: 8888
       AI_PAGE_BUILDER_CONFIG_DIR: /home/bun/.ai-page-builder
@@ -33,6 +34,7 @@ services:
   playwright:
     container_name: page-builder-playwright
     image: ${AI_PAGE_BUILDER_PLAYWRIGHT_IMAGE:-ccr.ccs.tencentyun.com/ai-page-builder/page-builder-playwright:v1.57.0-jammy}
+    restart: unless-stopped
     init: true
     ipc: host
     volumes:
@@ -55,6 +57,7 @@ services:
   web:
     container_name: page-builder-web
     image: ccr.ccs.tencentyun.com/ai-page-builder/page-builder-web:${PAGE_BUILDER_IMAGE_TAG:-latest}
+    restart: unless-stopped
     depends_on:
       - server
     environment:
