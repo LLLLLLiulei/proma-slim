@@ -32,6 +32,37 @@ class ThrowingAdapter implements AgentProviderAdapter {
   dispose(): void {}
 }
 
+class AbortAfterStopAdapter implements AgentProviderAdapter {
+  private abortResolve: (() => void) | null = null
+  private aborted = false
+  private startedResolve: (() => void) | null = null
+  readonly started = new Promise<void>((resolve) => {
+    this.startedResolve = resolve
+  })
+
+  async *query(_input: AgentQueryInput): AsyncIterable<AgentEvent> {
+    this.startedResolve?.()
+    yield { type: 'status_notice', level: 'info', message: 'stream started' }
+
+    if (this.aborted) {
+      throw new Error('Operation aborted')
+    }
+
+    await new Promise<void>((resolve) => {
+      this.abortResolve = resolve
+    })
+
+    throw new Error('Operation aborted')
+  }
+
+  abort(): void {
+    this.aborted = true
+    this.abortResolve?.()
+  }
+
+  dispose(): void {}
+}
+
 class CompactRecoveryAdapter implements AgentProviderAdapter {
   readonly calls: Array<{
     prompt: string
@@ -302,6 +333,39 @@ describe('AgentOrchestrator friendly error handling', () => {
     expect(persistedStatus?.content).toBe(LOGIN_CONFIGURATION_ERROR_MESSAGE)
     expect(persistedStatus?.errorDetails?.some((detail) => detail.includes('Not logged in. Please run /login to authenticate.'))).toBe(true)
     expect(persistedStatus?.errorOriginal).toContain('Not logged in. Please run /login to authenticate.')
+  })
+
+  test('treats Operation aborted after manual stop as a completed cancellation', async () => {
+    const adapter = new AbortAfterStopAdapter()
+    const orchestrator = new AgentOrchestrator(adapter, new AgentEventBus())
+    const session = createAgentSession('Manual stop abort session')
+    const onErrorMessages: string[] = []
+    let completed = false
+
+    const sendPromise = orchestrator.sendMessage(
+      {
+        sessionId: session.id,
+        userMessage: 'start then stop',
+        channelId: '',
+      },
+      {
+        onError: (message) => {
+          onErrorMessages.push(message)
+        },
+        onComplete: () => {
+          completed = true
+        },
+        onTitleUpdated: () => {},
+      },
+    )
+
+    await adapter.started
+    orchestrator.stop(session.id)
+
+    await expect(sendPromise).resolves.toBeUndefined()
+    expect(onErrorMessages).toEqual([])
+    expect(completed).toBe(true)
+    expect(orchestrator.isActive(session.id)).toBe(false)
   })
 
   test('auto-compacts and retries when a catch-path context-window-limit error is raised', async () => {

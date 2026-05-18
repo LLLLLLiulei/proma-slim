@@ -364,6 +364,56 @@ describe('ClaudeAgentAdapter SDK option pass-through', () => {
     ))).toBe(false)
   })
 
+  test('treats SDK Operation aborted after adapter abort as a normal stream end', async () => {
+    mock.module('@anthropic-ai/claude-agent-sdk', () => ({
+      query: async function* (input: { options: { abortController: AbortController } }) {
+        yield {
+          type: 'auth_status',
+          isAuthenticating: true,
+          output: ['Streaming before abort'],
+        }
+
+        await new Promise<void>((resolve) => {
+          input.options.abortController.signal.addEventListener('abort', () => resolve(), { once: true })
+        })
+
+        throw new Error('Operation aborted')
+      },
+    }))
+
+    const { ClaudeAgentAdapter } = await import('./claude-agent-adapter')
+    const adapter = new ClaudeAgentAdapter()
+    const iterator = adapter.query({
+      sessionId: 'session-operation-aborted',
+      prompt: 'Abort this stream',
+      cwd: '/tmp/workspace/session-operation-aborted',
+      sdkCliPath: '/tmp/claude.js',
+      executable: { type: 'node', path: '/usr/bin/node' },
+      executableArgs: [],
+      env: {},
+      sdkPermissionMode: 'default',
+      allowDangerouslySkipPermissions: false,
+      systemPrompt: { type: 'preset', preset: 'claude_code', append: '' },
+    } as ClaudeAgentQueryOptions)[Symbol.asyncIterator]()
+
+    await expect(iterator.next()).resolves.toEqual({
+      done: false,
+      value: {
+        type: 'status_notice',
+        level: 'info',
+        message: 'Streaming before abort',
+      },
+    })
+
+    const abortedNext = iterator.next()
+    adapter.abort('session-operation-aborted')
+
+    await expect(abortedNext).resolves.toEqual({
+      done: true,
+      value: undefined,
+    })
+  })
+
   test('surfaces compact local-command stderr as a detailed typed error', async () => {
     const compactStderr = 'Error: Error during compaction: Error: API Error: 429 {"error":{"code":"1302","message":"您的账户已达到速率限制，请您控制请求频率"},"request_id":"202604231622388829f546b90b407b"}'
 
