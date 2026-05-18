@@ -32,7 +32,7 @@ services:
 
   playwright:
     container_name: page-builder-playwright
-    image: ${AI_PAGE_BUILDER_PLAYWRIGHT_IMAGE:-mcr.microsoft.com/playwright:v1.57.0-jammy}
+    image: ${AI_PAGE_BUILDER_PLAYWRIGHT_IMAGE:-ccr.ccs.tencentyun.com/ai-page-builder/page-builder-playwright:v1.57.0-jammy}
     init: true
     ipc: host
     volumes:
