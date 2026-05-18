@@ -3,6 +3,34 @@ const basePath = normalizeBasePath(process.env.PAGE_BUILDER_BASE_PATH || '/pageb
 const integrationSecret = process.env.PAGE_BUILDER_INTEGRATION_SECRET || 'cms-verify-secret'
 const cmsCookie = process.env.CMS_VERIFY_COOKIE || 'CurrentSite=1; ZUSID=cms-verify'
 
+const mockCatalog = {
+  id: 101,
+  parentID: 0,
+  innerCode: '001001',
+  status: '20',
+  name: 'CMS Verify News',
+  alias: 'cms_verify_news',
+  contentType: 'Article',
+  contentTypeName: '文章',
+  info: 'CMS verify catalog',
+  path: 'news/',
+  link: 'http://nginx:8080/manager/news/',
+  logoFile: 'assets/banner.txt',
+  siteID: 1,
+  hasChild: false,
+  total: 1,
+}
+
+const mockContent = {
+  id: 501,
+  catalogID: 101,
+  title: 'CMS Verify Content',
+  summary: 'Content item for PageBuilder CMS verify mode',
+  logoFile: 'assets/banner.txt',
+  publishUrl: 'http://nginx:8080/manager/news/501.html',
+  addTime: '2026-05-17 10:00:00',
+}
+
 function normalizeBasePath(value: string): string {
   const trimmed = value.trim()
   if (!trimmed || trimmed === '/') return ''
@@ -140,11 +168,31 @@ async function handleRequest(request: Request): Promise<Response> {
   }
 
   if (url.pathname === '/manager/api/catalogsTree') {
-    return json({ status: 1, data: [] })
+    return json({ status: 1, data: [mockCatalog] })
   }
 
   if (url.pathname === '/manager/api/catalogs') {
-    return json({ status: 1, data: [], total: 0 })
+    if (url.searchParams.get('id') === '999') {
+      return json({ status: 1, data: [] })
+    }
+
+    if (url.searchParams.has('id')) {
+      return json({ status: 1, data: mockCatalog })
+    }
+
+    return json({ status: 1, data: [mockCatalog], total: 1 })
+  }
+
+  if (url.pathname === '/manager/api/catalogs/101/contents') {
+    return json({
+      status: 1,
+      data: {
+        pageIndex: Number(url.searchParams.get('pageIndex') || '0'),
+        pageSize: Number(url.searchParams.get('pageSize') || '20'),
+        total: 1,
+        data: [mockContent],
+      },
+    })
   }
 
   if (url.pathname === '/manager/assets/banner.txt') {
