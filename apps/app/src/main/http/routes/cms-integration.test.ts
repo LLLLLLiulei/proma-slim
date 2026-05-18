@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { strFromU8, unzipSync } from 'fflate'
@@ -14,6 +14,18 @@ import { getAgentSessionMessages, listAgentSessions, updateAgentSessionMeta } fr
 import { askUserService } from '../../lib/agent-ask-user-service'
 import { permissionService } from '../../lib/agent-permission-service'
 import { resetCmsIntegrationTestState } from './cms-integration'
+import {
+  getSharedCmsHandoffService,
+  resetCmsIntegrationRuntimeState,
+  setCmsIntegrationRuntimeStoresForTest,
+} from '../../lib/cms-integration/cms-integration-runtime'
+import {
+  InMemoryBuilderAccessSessionStore,
+  InMemoryCmsHandoffStore,
+  type BuilderAccessSessionStore,
+  type CmsHandoffStore,
+} from '../../lib/cms-integration/cms-runtime-store'
+import type { CmsHandoffRecord } from '../../lib/cms-integration/cms-handoff-service'
 import { getSharedCmsProjectBindingStore } from '../../lib/cms-integration/cms-project-binding-store'
 import { createAgentWorkspace, listAgentWorkspaces } from '../../lib/workspace-service'
 import { createHttpApp } from '../app'
@@ -27,6 +39,7 @@ const ORIGINAL_ENV = {
   AI_PAGE_BUILDER_PUBLIC_ORIGIN: process.env.AI_PAGE_BUILDER_PUBLIC_ORIGIN,
   AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN: process.env.AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN,
   AI_PAGE_BUILDER_SYNC_EXPORT_TIMEOUT_MS: process.env.AI_PAGE_BUILDER_SYNC_EXPORT_TIMEOUT_MS,
+  AI_PAGE_BUILDER_ACCESS_SESSION_RENEW_THRESHOLD_MS: process.env.AI_PAGE_BUILDER_ACCESS_SESSION_RENEW_THRESHOLD_MS,
   PROMA_CMS_BASE_URL: process.env.PROMA_CMS_BASE_URL,
   PROMA_CMS_USERNAME: process.env.PROMA_CMS_USERNAME,
   PROMA_CMS_PASSWORD: process.env.PROMA_CMS_PASSWORD,
@@ -54,6 +67,7 @@ function enableCmsIntegration(configDir: string, overrides: Record<string, strin
   process.env.AI_PAGE_BUILDER_CMS_BASE_URL = 'https://cms.example.com/manager'
   process.env.AI_PAGE_BUILDER_BASE_PATH = '/pagebuilder'
   process.env.AI_PAGE_BUILDER_PUBLIC_ORIGIN = 'https://builder.example.com'
+  process.env.AI_PAGE_BUILDER_ACCESS_SESSION_RENEW_THRESHOLD_MS = '28800000'
   for (const [key, value] of Object.entries(overrides)) {
     if (value === undefined) {
       delete process.env[key]
@@ -210,6 +224,46 @@ function readSetCookiePair(setCookie: string | null): string {
   return setCookie!.split(';', 1)[0]!
 }
 
+class FailingConsumedHandoffStore extends InMemoryCmsHandoffStore {
+  override async set(record: CmsHandoffRecord): Promise<void> {
+    if (record.consumedAt !== undefined) {
+      throw new Error('handoff consumed persist failed')
+    }
+    await super.set(record)
+  }
+}
+
+class TrackingAccessSessionStore extends InMemoryBuilderAccessSessionStore {
+  readonly deletedIds: string[] = []
+
+  override async delete(accessId: string): Promise<void> {
+    this.deletedIds.push(accessId)
+    await super.delete(accessId)
+  }
+}
+
+function readTextTree(rootDir: string): string {
+  if (!existsSync(rootDir)) {
+    return ''
+  }
+
+  let content = ''
+  for (const entry of readdirSync(rootDir)) {
+    const entryPath = join(rootDir, entry)
+    const entryStat = statSync(entryPath)
+    if (entryStat.isDirectory()) {
+      content += `${readTextTree(entryPath)}\n`
+      continue
+    }
+
+    if (entryStat.isFile()) {
+      content += `${readFileSync(entryPath, 'utf-8')}\n`
+    }
+  }
+
+  return content
+}
+
 async function exportCmsProject(app: ReturnType<typeof createApp>, projectId: string, options: {
   body?: unknown
   secret?: string
@@ -250,12 +304,12 @@ describe('cms integration routes', () => {
     process.env.PROMA_CONFIG_DIR = configDir
   })
 
-  afterEach(() => {
+  afterEach(async () => {
+    await resetCmsIntegrationTestState()
     rmSync(configDir, { recursive: true, force: true })
     restoreEnv()
     globalThis.fetch = originalFetch
     mock.restore()
-    resetCmsIntegrationTestState()
   })
 
   test('GET /api/integrations/cms/status returns standalone mode by default', async () => {
@@ -791,6 +845,134 @@ describe('cms integration routes', () => {
     const thirdOpenResponse = await consumeOpenUrl(app, handoff.openUrl)
     expect(thirdOpenResponse.status).toBe(410)
     expect(await thirdOpenResponse.json()).toMatchObject({ code: 'handoff_expired' })
+  })
+
+  test('persists handoff and access session across runtime service recreation', async () => {
+    enableCmsIntegration(configDir)
+    globalThis.fetch = createLoginFetchMock() as unknown as typeof fetch
+    const app = createApp()
+
+    const created = await createBoundCmsProject(app, {
+      externalRecordId: 'cms-runtime-persist',
+      projectName: 'CMS Runtime Persist',
+    })
+    const handoffResponse = await createHandoff(app, created.projectId, { target: 'builder' })
+    const handoff = await handoffResponse.json() as { openUrl: string }
+
+    await resetCmsIntegrationRuntimeState({ clearStore: false })
+    const openResponse = await consumeOpenUrl(app, handoff.openUrl)
+    expect(openResponse.status).toBe(302)
+    const accessCookie = openResponse.headers.get('set-cookie')
+    expectWorkspaceScopedAccessCookie(accessCookie)
+
+    await resetCmsIntegrationRuntimeState({ clearStore: false })
+    const contextResponse = await app.fetch(new Request(
+      `http://localhost/api/integrations/cms/builder-context?workspaceId=${created.binding.workspaceId}&sessionId=${created.binding.primarySessionId}`,
+      { headers: { cookie: accessCookie! } },
+    ))
+    expect(contextResponse.status).toBe(200)
+    expect(await contextResponse.json()).toMatchObject({
+      projectId: created.projectId,
+      workspace: { id: created.binding.workspaceId },
+      session: { id: created.binding.primarySessionId },
+    })
+
+    await resetCmsIntegrationRuntimeState({ clearStore: false })
+    const repeatedOpenResponse = await consumeOpenUrl(app, handoff.openUrl)
+    expect(repeatedOpenResponse.status).toBe(410)
+    expect(await repeatedOpenResponse.json()).toMatchObject({ code: 'handoff_expired' })
+  })
+
+  test('concurrent open requests for the same handoff only issue one access cookie', async () => {
+    enableCmsIntegration(configDir)
+    globalThis.fetch = createLoginFetchMock() as unknown as typeof fetch
+    const app = createApp()
+
+    const created = await createBoundCmsProject(app, {
+      externalRecordId: 'cms-concurrent-open',
+      projectName: 'CMS Concurrent Open',
+    })
+    const handoffResponse = await createHandoff(app, created.projectId, { target: 'builder' })
+    const handoff = await handoffResponse.json() as { openUrl: string }
+
+    const results = await Promise.all([
+      consumeOpenUrl(app, handoff.openUrl),
+      consumeOpenUrl(app, handoff.openUrl),
+      consumeOpenUrl(app, handoff.openUrl),
+    ])
+    const successful = results.filter((response) => response.status === 302)
+    const rejected = results.filter((response) => response.status === 410)
+
+    expect(successful).toHaveLength(1)
+    expect(rejected).toHaveLength(2)
+    expectWorkspaceScopedAccessCookie(successful[0]!.headers.get('set-cookie'))
+    for (const response of rejected) {
+      expect(response.headers.get('set-cookie')).toBeNull()
+      expect(await response.json()).toMatchObject({ code: 'handoff_expired' })
+    }
+  })
+
+  test('does not return access cookie and cleans up access session when handoff consumed persistence fails', async () => {
+    enableCmsIntegration(configDir)
+    globalThis.fetch = createLoginFetchMock() as unknown as typeof fetch
+    const app = createApp()
+
+    const created = await createBoundCmsProject(app, {
+      externalRecordId: 'cms-consumed-write-failure',
+      projectName: 'CMS Consumed Write Failure',
+    })
+    const handoffResponse = await createHandoff(app, created.projectId, { target: 'builder' })
+    const handoff = await handoffResponse.json() as { handoffId: string; openUrl: string }
+    const persistedHandoff = await getSharedCmsHandoffService().peek(handoff.handoffId)
+    expect(persistedHandoff).toBeTruthy()
+
+    const failingHandoffStore = new FailingConsumedHandoffStore()
+    await failingHandoffStore.set(persistedHandoff!)
+    const accessSessionStore = new TrackingAccessSessionStore()
+    setCmsIntegrationRuntimeStoresForTest({
+      handoffStore: failingHandoffStore,
+      accessSessionStore,
+    })
+
+    const openResponse = await consumeOpenUrl(app, handoff.openUrl)
+    expect(openResponse.status).toBe(500)
+    expect(openResponse.headers.get('set-cookie')).toBeNull()
+    expect(accessSessionStore.deletedIds).toHaveLength(1)
+    expect(await accessSessionStore.get(accessSessionStore.deletedIds[0]!)).toBeNull()
+    const failedPersistedHandoff = await failingHandoffStore.get(handoff.handoffId)
+    expect(failedPersistedHandoff).toMatchObject({
+      handoffId: handoff.handoffId,
+    })
+    expect(failedPersistedHandoff?.consumedAt).toBeUndefined()
+  })
+
+  test('persists access token in runtime files without raw CMS or server secrets', async () => {
+    enableCmsIntegration(configDir)
+    globalThis.fetch = createLoginFetchMock() as unknown as typeof fetch
+    const app = createApp()
+
+    const created = await createBoundCmsProject(app, {
+      externalRecordId: 'cms-sensitive-file-check',
+      projectName: 'CMS Sensitive File Check',
+    })
+    const handoffResponse = await createHandoff(app, created.projectId, { target: 'builder' })
+    const handoff = await handoffResponse.json() as { openUrl: string }
+    const openResponse = await consumeOpenUrl(app, handoff.openUrl)
+    expect(openResponse.status).toBe(302)
+    const accessCookiePair = readSetCookiePair(openResponse.headers.get('set-cookie'))
+    const accessToken = accessCookiePair.slice(accessCookiePair.indexOf('=') + 1)
+    expect(accessToken).toBeTruthy()
+
+    const runtimeDir = join(configDir, 'integrations', 'cms', 'runtime')
+    expect(existsSync(runtimeDir)).toBe(true)
+    const runtimeFiles = readTextTree(runtimeDir)
+    expect(runtimeFiles).toContain(accessToken)
+    expect(runtimeFiles).toContain(created.projectId)
+    expect(runtimeFiles).toContain(created.binding.workspaceId)
+    expect(runtimeFiles).toContain(created.binding.primarySessionId)
+    expect(runtimeFiles).not.toContain('JSESSIONID')
+    expect(runtimeFiles).not.toContain('integration-secret')
+    expect(runtimeFiles).not.toContain('Authorization')
   })
 
   test('keeps multiple CMS handoff access sessions valid in the same browser cookie jar', async () => {

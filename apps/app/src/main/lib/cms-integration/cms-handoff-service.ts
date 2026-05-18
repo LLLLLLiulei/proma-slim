@@ -3,6 +3,14 @@ import {
   handoffExpired,
   invalidCmsRequest,
 } from './cms-integration-errors'
+import {
+  InMemoryCmsHandoffStore,
+  type CmsHandoffStore,
+} from './cms-runtime-store'
+
+export {
+  InMemoryCmsHandoffStore,
+}
 
 export const CMS_HANDOFF_DEFAULT_TTL_MS = 2 * 60 * 1000
 
@@ -25,38 +33,6 @@ export interface CmsHandoffRecord {
   createdAt: number
   expiresAt: number
   consumedAt?: number
-}
-
-export class InMemoryCmsHandoffStore {
-  private readonly handoffs = new Map<string, CmsHandoffRecord>()
-
-  get(handoffId: string): CmsHandoffRecord | null {
-    const record = this.handoffs.get(handoffId)
-    return record ? { ...record, userSummary: record.userSummary ? { ...record.userSummary } : null } : null
-  }
-
-  set(record: CmsHandoffRecord): void {
-    this.handoffs.set(record.handoffId, {
-      ...record,
-      userSummary: record.userSummary ? { ...record.userSummary } : null,
-    })
-  }
-
-  delete(handoffId: string): void {
-    this.handoffs.delete(handoffId)
-  }
-
-  pruneExpired(now: number): void {
-    for (const [handoffId, record] of this.handoffs) {
-      if (record.expiresAt <= now) {
-        this.handoffs.delete(handoffId)
-      }
-    }
-  }
-
-  clear(): void {
-    this.handoffs.clear()
-  }
 }
 
 export interface CmsHandoffCreateInput {
@@ -86,14 +62,14 @@ interface CmsHandoffServiceOptions {
   now?: () => number
   randomUUID?: () => string
   ttlMs?: number
-  store?: InMemoryCmsHandoffStore
+  store?: CmsHandoffStore
 }
 
 export class CmsHandoffService {
   private readonly now: () => number
   private readonly randomUUID: () => string
   private readonly ttlMs: number
-  private readonly store: InMemoryCmsHandoffStore
+  private readonly store: CmsHandoffStore
 
   constructor(options: CmsHandoffServiceOptions = {}) {
     this.now = options.now ?? Date.now
@@ -102,11 +78,11 @@ export class CmsHandoffService {
     this.store = options.store ?? new InMemoryCmsHandoffStore()
   }
 
-  create(input: CmsHandoffCreateInput): CmsHandoffCreateResult {
+  async create(input: CmsHandoffCreateInput): Promise<CmsHandoffCreateResult> {
     const target = normalizeTarget(input.target)
     const openMode = normalizeOpenMode(input.openMode)
     const now = this.now()
-    this.store.pruneExpired(now)
+    await this.store.pruneExpired(now)
     const record: CmsHandoffRecord = {
       handoffId: this.randomUUID(),
       projectId: normalizeRequiredId(input.projectId),
@@ -119,7 +95,7 @@ export class CmsHandoffService {
       expiresAt: now + this.ttlMs,
     }
 
-    this.store.set(record)
+    await this.store.set(record)
 
     return {
       handoffId: record.handoffId,
@@ -132,44 +108,54 @@ export class CmsHandoffService {
     }
   }
 
-  consume(handoffId: string): CmsHandoffConsumedRecord {
-    const normalizedHandoffId = normalizeRequiredId(handoffId)
-    const record = this.store.get(normalizedHandoffId)
-    if (!record) {
-      throw handoffExpired()
-    }
-
-    const now = this.now()
-    if (record.expiresAt <= now) {
-      this.store.delete(normalizedHandoffId)
-      throw handoffExpired()
-    }
-
-    if (record.consumedAt !== undefined) {
-      throw handoffExpired()
-    }
-
-    const consumed: CmsHandoffConsumedRecord = {
-      ...record,
-      consumedAt: now,
-    }
-    this.store.set(consumed)
-    return consumed
+  async consume(handoffId: string): Promise<CmsHandoffConsumedRecord> {
+    return this.consumeWith(handoffId, async () => undefined).then(({ consumed }) => consumed)
   }
 
-  peek(handoffId: string): CmsHandoffRecord | null {
+  async consumeWith<T>(
+    handoffId: string,
+    callback: (record: CmsHandoffRecord) => Promise<T> | T,
+  ): Promise<{ consumed: CmsHandoffConsumedRecord; result: T }> {
+    const normalizedHandoffId = normalizeRequiredId(handoffId)
+    return this.store.withHandoffConsumeLock(normalizedHandoffId, async () => {
+      const record = await this.store.get(normalizedHandoffId)
+      if (!record) {
+        throw handoffExpired()
+      }
+
+      const now = this.now()
+      if (record.expiresAt <= now) {
+        await this.store.delete(normalizedHandoffId)
+        throw handoffExpired()
+      }
+
+      if (record.consumedAt !== undefined) {
+        throw handoffExpired()
+      }
+
+      const result = await callback({ ...record, userSummary: record.userSummary ? { ...record.userSummary } : null })
+      const consumed: CmsHandoffConsumedRecord = {
+        ...record,
+        consumedAt: now,
+      }
+      await this.store.set(consumed)
+      return { consumed, result }
+    })
+  }
+
+  async peek(handoffId: string): Promise<CmsHandoffRecord | null> {
     const normalizedHandoffId = normalizeRequiredId(handoffId)
     return this.store.get(normalizedHandoffId)
   }
 
-  get(handoffId: string): CmsHandoffRecord | null {
-    const record = this.store.get(handoffId)
+  async get(handoffId: string): Promise<CmsHandoffRecord | null> {
+    const record = await this.store.get(handoffId)
     if (!record) {
       return null
     }
 
     if (record.expiresAt <= this.now()) {
-      this.store.delete(handoffId)
+      await this.store.delete(handoffId)
       return null
     }
 

@@ -54,8 +54,8 @@ interface CmsSyncExportBody {
 
 export const cmsIntegrationRoutes = new Hono<HttpAppEnv>()
 
-export function resetCmsIntegrationTestState(): void {
-  resetCmsIntegrationRuntimeState()
+export async function resetCmsIntegrationTestState(): Promise<void> {
+  await resetCmsIntegrationRuntimeState()
 }
 
 cmsIntegrationRoutes.onError((error) => {
@@ -148,7 +148,7 @@ cmsIntegrationRoutes.post('/projects/:projectId/handoffs', async (c) => {
 
   const handoffService = getSharedCmsHandoffService(config.handoffTtlMs)
 
-  const created = handoffService.create({
+  const created = await handoffService.create({
     projectId: binding.projectId,
     workspaceId: binding.workspaceId,
     sessionId: binding.primarySessionId,
@@ -214,39 +214,59 @@ cmsIntegrationRoutes.get('/handoffs/:handoffId/open', async (c) => {
   }
 
   const handoffService = getSharedCmsHandoffService(config.handoffTtlMs)
-  const handoff = handoffService.peek(handoffId)
+  const handoff = await handoffService.peek(handoffId)
   if (!handoff) {
     throw new CmsIntegrationError('handoff_expired', 404)
   }
 
-  const consumed = handoffService.consume(handoffId)
-  const binding = getSharedCmsProjectBindingStore().findByProjectId(consumed.projectId)
-  if (!binding || !doesBindingMatchSession(binding, consumed) || !isBindingInternalResourceAvailable(binding)) {
-    throw cmsProjectNotFound()
+  const accessSessionService = getSharedBuilderAccessSessionService({
+    ttlMs: config.accessSessionTtlMs,
+    renewThresholdMs: config.accessSessionRenewThresholdMs,
+  })
+  let createdAccessId: string | null = null
+  let accessCookie: string | null = null
+  let location: string | null = null
+
+  try {
+    await handoffService.consumeWith(handoffId, async (record) => {
+      const binding = getSharedCmsProjectBindingStore().findByProjectId(record.projectId)
+      if (!binding || !doesBindingMatchSession(binding, record) || !isBindingInternalResourceAvailable(binding)) {
+        throw cmsProjectNotFound()
+      }
+
+      const access = await accessSessionService.create({
+        projectId: record.projectId,
+        workspaceId: record.workspaceId,
+        sessionId: record.sessionId,
+        basePath: config.basePath,
+        isSecure: resolveCmsHandoffCookieSecure(
+          config.publicOrigin ?? 'http://localhost',
+          c.req.header('x-forwarded-proto'),
+        ),
+        userSummary: record.userSummary,
+      })
+      createdAccessId = access.accessId
+      accessCookie = access.cookie
+      location = record.target === 'preview'
+        ? withBasePath(config.basePath, `/api/workspaces/${encodeURIComponent(record.workspaceId)}/preview/`)
+        : withBasePath(config.basePath, `/builder/${encodeURIComponent(record.workspaceId)}/${encodeURIComponent(record.sessionId)}`)
+    })
+  } catch (error) {
+    if (createdAccessId) {
+      await accessSessionService.delete(createdAccessId)
+    }
+    throw error
   }
 
-  const accessSessionService = getSharedBuilderAccessSessionService(config.accessSessionTtlMs)
-  const access = accessSessionService.create({
-    projectId: consumed.projectId,
-    workspaceId: consumed.workspaceId,
-    sessionId: consumed.sessionId,
-    basePath: config.basePath,
-    isSecure: resolveCmsHandoffCookieSecure(
-      config.publicOrigin ?? 'http://localhost',
-      c.req.header('x-forwarded-proto'),
-    ),
-    userSummary: consumed.userSummary,
-  })
-
-  const location = consumed.target === 'preview'
-    ? withBasePath(config.basePath, `/api/workspaces/${encodeURIComponent(consumed.workspaceId)}/preview/`)
-    : withBasePath(config.basePath, `/builder/${encodeURIComponent(consumed.workspaceId)}/${encodeURIComponent(consumed.sessionId)}`)
+  if (!accessCookie || !location) {
+    throw handoffExpired()
+  }
 
   return new Response(null, {
     status: 302,
     headers: {
       location,
-      'set-cookie': access.cookie,
+      'set-cookie': accessCookie,
     },
   })
 })

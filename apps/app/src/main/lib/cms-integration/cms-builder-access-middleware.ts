@@ -54,8 +54,11 @@ export const createCmsBuilderAccessMiddleware = (options: CmsBuilderAccessMiddle
     }
 
     const sessionId = resolveOptionValue(c, options.sessionId)
-    const accessSessionService = getSharedBuilderAccessSessionService(config.accessSessionTtlMs)
-    const validation = accessSessionService.validate(c.req.header('cookie'), {
+    const accessSessionService = getSharedBuilderAccessSessionService({
+      ttlMs: config.accessSessionTtlMs,
+      renewThresholdMs: config.accessSessionRenewThresholdMs,
+    })
+    const validation = await accessSessionService.validate(c.req.header('cookie'), {
       workspaceId,
       ...(sessionId ? { sessionId } : {}),
     })
@@ -82,7 +85,7 @@ export const createCmsBuilderAccessMiddleware = (options: CmsBuilderAccessMiddle
       return
     }
 
-    const renewed = accessSessionService.renew(validation.access.accessId, {
+    const renewed = await accessSessionService.renew(validation.access.accessId, {
       basePath: config.basePath,
       isSecure: resolveCmsHandoffCookieSecure(
         config.publicOrigin ?? 'http://localhost',

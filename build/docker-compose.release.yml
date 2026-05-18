@@ -18,6 +18,7 @@ services:
       AI_PAGE_BUILDER_PUBLIC_ORIGIN: ${AI_PAGE_BUILDER_PUBLIC_ORIGIN:-}
       AI_PAGE_BUILDER_HANDOFF_TTL_MS: ${AI_PAGE_BUILDER_HANDOFF_TTL_MS:-}
       AI_PAGE_BUILDER_ACCESS_SESSION_TTL_MS: ${AI_PAGE_BUILDER_ACCESS_SESSION_TTL_MS:-}
+      AI_PAGE_BUILDER_ACCESS_SESSION_RENEW_THRESHOLD_MS: ${AI_PAGE_BUILDER_ACCESS_SESSION_RENEW_THRESHOLD_MS:-}
       AI_PAGE_BUILDER_SYNC_EXPORT_TIMEOUT_MS: ${AI_PAGE_BUILDER_SYNC_EXPORT_TIMEOUT_MS:-0}
       AI_PAGE_BUILDER_CMS_USERNAME: ${AI_PAGE_BUILDER_CMS_USERNAME:-}
       AI_PAGE_BUILDER_CMS_PASSWORD: ${AI_PAGE_BUILDER_CMS_PASSWORD:-}
@@ -33,7 +34,7 @@ services:
 
   playwright:
     container_name: page-builder-playwright
-    image: ${AI_PAGE_BUILDER_PLAYWRIGHT_IMAGE:-ccr.ccs.tencentyun.com/ai-page-builder/page-builder-playwright:v1.57.0-jammy}
+    image: ${AI_PAGE_BUILDER_PLAYWRIGHT_IMAGE:-mcr.microsoft.com/playwright:v1.57.0-jammy}
     restart: unless-stopped
     init: true
     ipc: host
@@ -45,7 +46,7 @@ services:
       - sh
       - -lc
       - >-
-        PLAYWRIGHT_EXECUTABLE_PATH="$(find /ms-playwright/chromium-* -path '*chrome-linux/chrome' | head -1)";
+        PLAYWRIGHT_EXECUTABLE_PATH="$(find /ms-playwright/chromium-* \( -path '*chrome-linux/chrome' -o -path '*chrome-linux64/chrome' \) | head -1)";
         if [ -z "$$PLAYWRIGHT_EXECUTABLE_PATH" ]; then
           echo "Chromium executable not found under /ms-playwright" >&2;
           exit 1;

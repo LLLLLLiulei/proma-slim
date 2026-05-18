@@ -17,15 +17,14 @@ function readSetCookiePair(setCookie: string): { name: string; value: string; pa
 }
 
 describe('builder access session service', () => {
-  test('creates signed access cookies with path, ttl and secure handling', () => {
+  test('creates bearer access cookies with path, ttl and secure handling', async () => {
     const service = createBuilderAccessSessionService({
       now: () => 1000,
       randomUUID: () => 'access-1',
-      signingSecret: 'secret',
       store: new InMemoryBuilderAccessSessionStore(),
     })
 
-    const session = service.create({
+    const session = await service.create({
       projectId: 'pbp_1',
       workspaceId: 'workspace-1',
       sessionId: 'session-1',
@@ -40,7 +39,9 @@ describe('builder access session service', () => {
       sessionId: 'session-1',
       expiresAt: 1000 + ACCESS_SESSION_DEFAULT_TTL_MS,
     })
-    expect(readSetCookiePair(session.cookie).name).toStartWith(`${ACCESS_COOKIE_NAME}_`)
+    const cookiePair = readSetCookiePair(session.cookie)
+    expect(cookiePair.name).toStartWith(`${ACCESS_COOKIE_NAME}_`)
+    expect(cookiePair.value).toBe('access-1')
     expect(session.cookie).toContain('HttpOnly')
     expect(session.cookie).toContain('SameSite=Lax')
     expect(session.cookie).toContain('Path=/pagebuilder')
@@ -49,15 +50,14 @@ describe('builder access session service', () => {
     expect(session.cookie).not.toContain('Domain=')
   })
 
-  test('accepts root base path and rejects tampered access cookies', () => {
+  test('accepts root base path and rejects tampered access cookies', async () => {
     const service = createBuilderAccessSessionService({
       now: () => 1000,
       randomUUID: () => 'access-1',
-      signingSecret: 'secret',
       store: new InMemoryBuilderAccessSessionStore(),
     })
 
-    const created = service.create({
+    const created = await service.create({
       projectId: 'pbp_1',
       workspaceId: 'workspace-1',
       sessionId: 'session-1',
@@ -67,26 +67,25 @@ describe('builder access session service', () => {
 
     expect(created.cookie).toContain('Path=/')
     expect(created.cookie).not.toContain('Secure')
-    expect(service.readFromCookie(created.cookie)).toMatchObject({
+    expect(await service.readFromCookie(created.cookie)).toMatchObject({
       accessId: 'access-1',
       workspaceId: 'workspace-1',
     })
-    expect(service.validate(`${ACCESS_COOKIE_NAME}=${readSetCookiePair(created.cookie).value}`, {
+    expect(await service.validate(`${ACCESS_COOKIE_NAME}=${readSetCookiePair(created.cookie).value}`, {
       workspaceId: 'workspace-1',
       sessionId: 'session-1',
     })).toMatchObject({ valid: true })
-    expect(service.readFromCookie(`${ACCESS_COOKIE_NAME}=tampered.signature`)).toBeNull()
+    expect(await service.readFromCookie(`${ACCESS_COOKIE_NAME}=missing-access`)).toBeNull()
   })
 
-  test('matches workspace and session access checks', () => {
+  test('matches workspace and session access checks', async () => {
     const service = createBuilderAccessSessionService({
       now: () => 1000,
       randomUUID: () => 'access-1',
-      signingSecret: 'secret',
       store: new InMemoryBuilderAccessSessionStore(),
     })
 
-    const access = service.create({
+    const access = await service.create({
       projectId: 'pbp_1',
       workspaceId: 'workspace-1',
       sessionId: 'session-1',
@@ -94,40 +93,39 @@ describe('builder access session service', () => {
       isSecure: false,
     })
 
-    expect(service.validate(access.cookie, {
+    expect(await service.validate(access.cookie, {
       workspaceId: 'workspace-1',
       sessionId: 'session-1',
     })).toMatchObject({ valid: true })
-    expect(service.validate(access.cookie, {
+    expect(await service.validate(access.cookie, {
       workspaceId: 'workspace-1',
     })).toMatchObject({ valid: true })
-    expect(service.validate(access.cookie, {
+    expect(await service.validate(access.cookie, {
       workspaceId: 'workspace-2',
       sessionId: 'session-1',
     })).toMatchObject({ valid: false, code: 'builder_access_mismatch' })
-    expect(service.validate(access.cookie, {
+    expect(await service.validate(access.cookie, {
       workspaceId: 'workspace-1',
       sessionId: 'session-2',
     })).toMatchObject({ valid: false, code: 'builder_access_mismatch' })
   })
 
-  test('keeps multiple workspace access cookies valid in the same browser cookie header', () => {
+  test('keeps multiple workspace access cookies valid in the same browser cookie header', async () => {
     const ids = ['access-1', 'access-2']
     const service = createBuilderAccessSessionService({
       now: () => 1000,
       randomUUID: () => ids.shift()!,
-      signingSecret: 'secret',
       store: new InMemoryBuilderAccessSessionStore(),
     })
 
-    const first = service.create({
+    const first = await service.create({
       projectId: 'pbp_1',
       workspaceId: 'workspace-1',
       sessionId: 'session-1',
       basePath: '/pagebuilder',
       isSecure: false,
     })
-    const second = service.create({
+    const second = await service.create({
       projectId: 'pbp_2',
       workspaceId: 'workspace-2',
       sessionId: 'session-2',
@@ -143,33 +141,32 @@ describe('builder access session service', () => {
     expect(firstCookieName).not.toBe(secondCookieName)
     expect(firstCookieName).toStartWith(`${ACCESS_COOKIE_NAME}_`)
     expect(secondCookieName).toStartWith(`${ACCESS_COOKIE_NAME}_`)
-    expect(service.validate(browserCookieHeader, {
+    expect(await service.validate(browserCookieHeader, {
       workspaceId: 'workspace-1',
       sessionId: 'session-1',
     })).toMatchObject({ valid: true, access: { accessId: 'access-1' } })
-    expect(service.validate(browserCookieHeader, {
+    expect(await service.validate(browserCookieHeader, {
       workspaceId: 'workspace-2',
       sessionId: 'session-2',
     })).toMatchObject({ valid: true, access: { accessId: 'access-2' } })
-    expect(service.validate(firstCookiePair, {
+    expect(await service.validate(firstCookiePair, {
       workspaceId: 'workspace-2',
       sessionId: 'session-2',
     })).toMatchObject({ valid: false, code: 'builder_access_mismatch' })
   })
 
-  test('prunes expired access sessions when creating new sessions', () => {
+  test('prunes expired access sessions when creating new sessions', async () => {
     let now = 1000
     const ids = ['access-1', 'access-2']
     const store = new InMemoryBuilderAccessSessionStore()
     const service = createBuilderAccessSessionService({
       now: () => now,
       randomUUID: () => ids.shift()!,
-      signingSecret: 'secret',
       ttlMs: 10,
       store,
     })
 
-    service.create({
+    await service.create({
       projectId: 'pbp_1',
       workspaceId: 'workspace-1',
       sessionId: 'session-1',
@@ -177,7 +174,7 @@ describe('builder access session service', () => {
       isSecure: false,
     })
     now = 1011
-    service.create({
+    await service.create({
       projectId: 'pbp_2',
       workspaceId: 'workspace-2',
       sessionId: 'session-2',
@@ -185,21 +182,20 @@ describe('builder access session service', () => {
       isSecure: false,
     })
 
-    expect(store.get('access-1')).toBeNull()
-    expect(store.get('access-2')).toBeTruthy()
+    expect(await store.get('access-1')).toBeNull()
+    expect(await store.get('access-2')).toBeTruthy()
   })
 
-  test('renews an existing access session without changing the signed cookie value', () => {
+  test('renews an existing access session without changing the bearer cookie value', async () => {
     let now = 1000
     const service = createBuilderAccessSessionService({
       now: () => now,
       randomUUID: () => 'access-1',
-      signingSecret: 'secret',
       ttlMs: 2000,
       store: new InMemoryBuilderAccessSessionStore(),
     })
 
-    const created = service.create({
+    const created = await service.create({
       projectId: 'pbp_1',
       workspaceId: 'workspace-1',
       sessionId: 'session-1',
@@ -209,7 +205,7 @@ describe('builder access session service', () => {
     const originalCookie = readSetCookiePair(created.cookie)
 
     now = 2500
-    const renewed = service.renew(created.accessId, {
+    const renewed = await service.renew(created.accessId, {
       basePath: '/pagebuilder',
       isSecure: true,
     })
@@ -222,23 +218,23 @@ describe('builder access session service', () => {
     expect(renewed?.cookie).toContain('Path=/pagebuilder')
     expect(renewed?.cookie).toContain('Max-Age=2')
     expect(renewed?.cookie).toContain('Secure')
-    expect(service.validate(renewed?.cookie, {
+    expect(await service.validate(renewed?.cookie, {
       workspaceId: 'workspace-1',
       sessionId: 'session-1',
     })).toMatchObject({ valid: true })
   })
 
-  test('does not renew missing or expired access sessions', () => {
+  test('does not renew missing expired or far-from-expiry access sessions', async () => {
     let now = 1000
     const service = createBuilderAccessSessionService({
       now: () => now,
       randomUUID: () => 'access-1',
-      signingSecret: 'secret',
       ttlMs: 10,
+      renewThresholdMs: 5,
       store: new InMemoryBuilderAccessSessionStore(),
     })
 
-    const created = service.create({
+    const created = await service.create({
       projectId: 'pbp_1',
       workspaceId: 'workspace-1',
       sessionId: 'session-1',
@@ -246,19 +242,90 @@ describe('builder access session service', () => {
       isSecure: false,
     })
 
-    expect(service.renew('missing-access', {
+    expect(await service.renew('missing-access', {
+      basePath: '',
+      isSecure: false,
+    })).toBeNull()
+    expect(await service.renew(created.accessId, {
       basePath: '',
       isSecure: false,
     })).toBeNull()
 
     now = 1011
-    expect(service.renew(created.accessId, {
+    expect(await service.renew(created.accessId, {
       basePath: '',
       isSecure: false,
     })).toBeNull()
-    expect(service.validate(created.cookie, {
+    expect(await service.validate(created.cookie, {
       workspaceId: 'workspace-1',
       sessionId: 'session-1',
     })).toMatchObject({ valid: false, code: 'builder_access_required' })
+  })
+
+  test('stores access token as accessId and validates after service recreation', async () => {
+    const store = new InMemoryBuilderAccessSessionStore()
+    const first = createBuilderAccessSessionService({
+      now: () => 1000,
+      randomUUID: () => 'access-1',
+      store,
+    })
+
+    const created = await first.create({
+      projectId: 'pbp_1',
+      workspaceId: 'workspace-1',
+      sessionId: 'session-1',
+      basePath: '',
+      isSecure: false,
+    })
+    const cookiePair = readSetCookiePair(created.cookie)
+    expect(cookiePair.value).toBe('access-1')
+
+    const stored = await store.get('access-1')
+    expect(stored).toMatchObject({ accessId: 'access-1' })
+
+    const second = createBuilderAccessSessionService({
+      now: () => 1000,
+      store,
+    })
+    expect(await second.validate(created.cookie, {
+      workspaceId: 'workspace-1',
+      sessionId: 'session-1',
+    })).toMatchObject({ valid: true })
+
+    expect(await second.validate(`${cookiePair.name}=missing-access`, {
+      workspaceId: 'workspace-1',
+      sessionId: 'session-1',
+    })).toMatchObject({ valid: false, code: 'builder_access_required' })
+  })
+
+  test('serializes concurrent renewals for the same access session', async () => {
+    let now = 1000
+    const service = createBuilderAccessSessionService({
+      now: () => now,
+      randomUUID: () => 'access-1',
+      ttlMs: 100,
+      renewThresholdMs: 100,
+      store: new InMemoryBuilderAccessSessionStore(),
+    })
+    const created = await service.create({
+      projectId: 'pbp_1',
+      workspaceId: 'workspace-1',
+      sessionId: 'session-1',
+      basePath: '',
+      isSecure: false,
+    })
+
+    const firstRenew = service.renew(created.accessId, {
+      basePath: '',
+      isSecure: false,
+    })
+    now = 1050
+    const secondRenew = service.renew(created.accessId, {
+      basePath: '',
+      isSecure: false,
+    })
+
+    await Promise.all([firstRenew, secondRenew])
+    expect(await service.get(created.accessId)).toMatchObject({ expiresAt: 1150 })
   })
 })

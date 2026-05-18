@@ -1,5 +1,6 @@
 import { normalizePageBuilderPublicBasePath } from '@ai-page-builder/shared'
 import { cmsIntegrationUnauthorized } from './cms-integration-errors'
+import { ACCESS_SESSION_RENEW_THRESHOLD_DEFAULT_MS } from './builder-access-session-service'
 
 export type CmsIntegrationMode = 'standalone' | 'cms'
 
@@ -12,6 +13,7 @@ export interface CmsIntegrationConfig {
   publicOrigin: string | null
   handoffTtlMs: number
   accessSessionTtlMs: number
+  accessSessionRenewThresholdMs: number
   syncExportTimeoutMs: number
 }
 
@@ -96,6 +98,10 @@ export function resolveCmsIntegrationConfig(env: CmsIntegrationEnv = process.env
     accessSessionTtlMs: readOptionalPositiveInteger(
       env.AI_PAGE_BUILDER_ACCESS_SESSION_TTL_MS,
       DEFAULT_ACCESS_SESSION_TTL_MS,
+    ),
+    accessSessionRenewThresholdMs: readOptionalPositiveInteger(
+      env.AI_PAGE_BUILDER_ACCESS_SESSION_RENEW_THRESHOLD_MS,
+      ACCESS_SESSION_RENEW_THRESHOLD_DEFAULT_MS,
     ),
     syncExportTimeoutMs: readOptionalPositiveInteger(env.AI_PAGE_BUILDER_SYNC_EXPORT_TIMEOUT_MS, 0),
   }

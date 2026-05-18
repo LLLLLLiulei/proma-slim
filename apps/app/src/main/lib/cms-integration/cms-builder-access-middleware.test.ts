@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { Hono } from 'hono'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import {
   createCmsBuilderAccessMiddleware,
 } from './cms-builder-access-middleware'
@@ -19,6 +22,8 @@ const ORIGINAL_ENV = {
   AI_PAGE_BUILDER_BASE_PATH: process.env.AI_PAGE_BUILDER_BASE_PATH,
   AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN: process.env.AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN,
   AI_PAGE_BUILDER_ACCESS_SESSION_TTL_MS: process.env.AI_PAGE_BUILDER_ACCESS_SESSION_TTL_MS,
+  AI_PAGE_BUILDER_ACCESS_SESSION_RENEW_THRESHOLD_MS: process.env.AI_PAGE_BUILDER_ACCESS_SESSION_RENEW_THRESHOLD_MS,
+  PROMA_CONFIG_DIR: process.env.PROMA_CONFIG_DIR,
 }
 
 function restoreEnv() {
@@ -36,6 +41,7 @@ function enableCmsMode(overrides: Record<string, string | undefined> = {}) {
   process.env.AI_PAGE_BUILDER_PUBLIC_ORIGIN = 'https://builder.example.com'
   process.env.AI_PAGE_BUILDER_BASE_PATH = '/pagebuilder'
   process.env.AI_PAGE_BUILDER_ACCESS_SESSION_TTL_MS = '2000'
+  process.env.AI_PAGE_BUILDER_ACCESS_SESSION_RENEW_THRESHOLD_MS = '3600000'
 
   for (const [key, value] of Object.entries(overrides)) {
     if (value === undefined) {
@@ -46,16 +52,19 @@ function enableCmsMode(overrides: Record<string, string | undefined> = {}) {
   }
 }
 
-function createAccessCookie(input?: { workspaceId?: string; sessionId?: string }) {
+async function createAccessCookie(input?: { workspaceId?: string; sessionId?: string }) {
   const ttlMs = Number(process.env.AI_PAGE_BUILDER_ACCESS_SESSION_TTL_MS ?? '2000')
-  return getSharedBuilderAccessSessionService(Number.isFinite(ttlMs) && ttlMs > 0 ? ttlMs : 2000).create({
+  return (await getSharedBuilderAccessSessionService({
+    ttlMs: Number.isFinite(ttlMs) && ttlMs > 0 ? ttlMs : 2000,
+    renewThresholdMs: Number(process.env.AI_PAGE_BUILDER_ACCESS_SESSION_RENEW_THRESHOLD_MS ?? '3600000'),
+  }).create({
     projectId: 'pbp_1',
     workspaceId: input?.workspaceId ?? 'workspace-1',
     sessionId: input?.sessionId ?? 'session-1',
     basePath: '/pagebuilder',
     isSecure: true,
     userSummary: { userName: 'cms-user' },
-  }).cookie
+  })).cookie
 }
 
 function readSetCookiePair(setCookie: string): string {
@@ -112,13 +121,18 @@ function createInternalPreviewTestApp() {
 }
 
 describe('cms builder access middleware', () => {
+  let configDir: string
+
   beforeEach(() => {
+    configDir = mkdtempSync(join(tmpdir(), 'proma-cms-access-'))
+    process.env.PROMA_CONFIG_DIR = configDir
     enableCmsMode()
   })
 
-  afterEach(() => {
+  afterEach(async () => {
+    await resetCmsIntegrationRuntimeState()
+    rmSync(configDir, { recursive: true, force: true })
     restoreEnv()
-    resetCmsIntegrationRuntimeState()
   })
 
   test('passes through without access cookie outside CMS mode', async () => {
@@ -133,7 +147,7 @@ describe('cms builder access middleware', () => {
 
   test('requires a matching access cookie and mounts the access context', async () => {
     const app = createTestApp({ sessionScoped: true })
-    const accessCookie = createAccessCookie()
+    const accessCookie = await createAccessCookie()
 
     const missing = await app.fetch(new Request('http://localhost/workspaces/workspace-1/read'))
     expect(missing.status).toBe(401)
@@ -196,8 +210,8 @@ describe('cms builder access middleware', () => {
 
   test('accepts multiple workspace-scoped access cookies in the same browser', async () => {
     const app = createTestApp({ sessionScoped: true })
-    const firstCookie = createAccessCookie({ workspaceId: 'workspace-1', sessionId: 'session-1' })
-    const secondCookie = createAccessCookie({ workspaceId: 'workspace-2', sessionId: 'session-1' })
+    const firstCookie = await createAccessCookie({ workspaceId: 'workspace-1', sessionId: 'session-1' })
+    const secondCookie = await createAccessCookie({ workspaceId: 'workspace-2', sessionId: 'session-1' })
     const browserCookieHeader = `${readSetCookiePair(firstCookie)}; ${readSetCookiePair(secondCookie)}`
 
     const first = await app.fetch(new Request('http://localhost/workspaces/workspace-1/read', {
@@ -221,7 +235,7 @@ describe('cms builder access middleware', () => {
 
   test('rejects invalid expired and session-mismatched access cookies', async () => {
     const app = createTestApp({ sessionScoped: true })
-    const sessionMismatchedCookie = createAccessCookie({ sessionId: 'other-session' })
+    const sessionMismatchedCookie = await createAccessCookie({ sessionId: 'other-session' })
 
     const invalidSignature = await app.fetch(new Request('http://localhost/workspaces/workspace-1/read', {
       headers: { cookie: 'ai_page_builder_access=bad.signature' },
@@ -235,9 +249,9 @@ describe('cms builder access middleware', () => {
     expect(sessionMismatched.status).toBe(403)
     expect(await sessionMismatched.json()).toMatchObject({ code: 'builder_access_mismatch' })
 
-    resetCmsIntegrationRuntimeState()
+    await resetCmsIntegrationRuntimeState()
     enableCmsMode({ AI_PAGE_BUILDER_ACCESS_SESSION_TTL_MS: '1' })
-    const expiredCookie = createAccessCookie()
+    const expiredCookie = await createAccessCookie()
     await new Promise((resolve) => setTimeout(resolve, 5))
 
     const expired = await createTestApp({ sessionScoped: true }).fetch(new Request('http://localhost/workspaces/workspace-1/read', {
@@ -250,7 +264,7 @@ describe('cms builder access middleware', () => {
 
   test('checks Origin or Referer only for configured state-changing APIs', async () => {
     const app = createTestApp({ requireOrigin: true })
-    const accessCookie = createAccessCookie()
+    const accessCookie = await createAccessCookie()
 
     const missingOrigin = await app.fetch(new Request('http://localhost/workspaces/workspace-1/write', {
       method: 'POST',
@@ -284,7 +298,7 @@ describe('cms builder access middleware', () => {
   test('fails closed for state changes when public origin is missing', async () => {
     enableCmsMode({ AI_PAGE_BUILDER_PUBLIC_ORIGIN: undefined })
     const app = createTestApp({ requireOrigin: true })
-    const accessCookie = createAccessCookie()
+    const accessCookie = await createAccessCookie()
 
     const response = await app.fetch(new Request('http://localhost/workspaces/workspace-1/write', {
       method: 'POST',
@@ -301,7 +315,7 @@ describe('cms builder access middleware', () => {
   test('fails closed for state changes when public origin is invalid', async () => {
     enableCmsMode({ AI_PAGE_BUILDER_PUBLIC_ORIGIN: 'https://builder.example.com/pagebuilder' })
     const app = createTestApp({ requireOrigin: true })
-    const accessCookie = createAccessCookie()
+    const accessCookie = await createAccessCookie()
 
     const response = await app.fetch(new Request('http://localhost/workspaces/workspace-1/write', {
       method: 'POST',
@@ -318,7 +332,7 @@ describe('cms builder access middleware', () => {
 
   test('does not renew access sessions when downstream business logic fails', async () => {
     const app = createTestApp({ requireOrigin: true })
-    const accessCookie = createAccessCookie()
+    const accessCookie = await createAccessCookie()
 
     const response = await app.fetch(new Request('http://localhost/workspaces/workspace-1/fail', {
       method: 'POST',

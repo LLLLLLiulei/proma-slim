@@ -24,7 +24,7 @@ describe('page-builder docker assets', () => {
     expect(compose).not.toContain('ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL')
     expect(compose).toContain('AI_PAGE_BUILDER_PLAYWRIGHT_MCP_URL: ${AI_PAGE_BUILDER_PLAYWRIGHT_MCP_URL:-http://playwright:8931/mcp}')
     expect(compose).toContain('AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN: ${AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN:-http://server:8888}')
-    expect(compose).toContain("PLAYWRIGHT_EXECUTABLE_PATH=\"$(find /ms-playwright/chromium-* -path '*chrome-linux/chrome' | head -1)\"")
+    expect(compose).toContain("PLAYWRIGHT_EXECUTABLE_PATH=\"$(find /ms-playwright/chromium-* \\( -path '*chrome-linux/chrome' -o -path '*chrome-linux64/chrome' \\) | head -1)\"")
     expect(compose).toContain('if [ -z "$$PLAYWRIGHT_EXECUTABLE_PATH" ]; then')
     expect(compose).toContain('--executable-path "$$PLAYWRIGHT_EXECUTABLE_PATH"')
     expect(compose).not.toContain('\n    profiles:\n      - playwright\n')
@@ -48,8 +48,18 @@ describe('page-builder docker assets', () => {
     expect(envExample).toContain('AI_PAGE_BUILDER_PUBLIC_ORIGIN=')
     expect(envExample).toContain('AI_PAGE_BUILDER_HANDOFF_TTL_MS=')
     expect(envExample).toContain('AI_PAGE_BUILDER_ACCESS_SESSION_TTL_MS=')
+    expect(envExample).toContain('AI_PAGE_BUILDER_ACCESS_SESSION_RENEW_THRESHOLD_MS=')
     expect(envExample).toContain('AI_PAGE_BUILDER_SYNC_EXPORT_TIMEOUT_MS=0')
     expect(envExample).toContain('AI_PAGE_BUILDER_HOST_DATA_DIR=')
+  })
+
+  test('docker assets explain CMS runtime store persistence inputs', () => {
+    const cmsEnvExample = readRepoFile('../../../../../build/.env.cms.example')
+
+    expect(cmsEnvExample).toContain('AI_PAGE_BUILDER_ACCESS_SESSION_RENEW_THRESHOLD_MS=')
+    expect(cmsEnvExample).toContain('integrations/cms/runtime')
+    expect(cmsEnvExample).toContain('单 server 实例')
+    expect(cmsEnvExample).toContain('默认文件 runtime store 只支持单 server 实例语义')
   })
 
   test('docker assets expose page-builder public base path as runtime configuration', () => {
@@ -71,6 +81,8 @@ describe('page-builder docker assets', () => {
     expect(cmsEnvExample).toContain('AI_PAGE_BUILDER_PUBLIC_ORIGIN=')
     expect(cmsEnvExample).toContain('AI_PAGE_BUILDER_HANDOFF_TTL_MS=')
     expect(cmsEnvExample).toContain('AI_PAGE_BUILDER_ACCESS_SESSION_TTL_MS=')
+    expect(cmsEnvExample).toContain('AI_PAGE_BUILDER_ACCESS_SESSION_RENEW_THRESHOLD_MS=')
+    expect(cmsEnvExample).toContain('文件 runtime store')
     expect(cmsEnvExample).toContain('AI_PAGE_BUILDER_HOST_DATA_DIR=')
 
     expect(dockerfile).not.toContain('ARG AI_PAGE_BUILDER_BASE_PATH=')
@@ -83,12 +95,14 @@ describe('page-builder docker assets', () => {
     expect(compose).toContain('AI_PAGE_BUILDER_PUBLIC_ORIGIN: ${AI_PAGE_BUILDER_PUBLIC_ORIGIN:-}')
     expect(compose).toContain('AI_PAGE_BUILDER_HANDOFF_TTL_MS: ${AI_PAGE_BUILDER_HANDOFF_TTL_MS:-}')
     expect(compose).toContain('AI_PAGE_BUILDER_ACCESS_SESSION_TTL_MS: ${AI_PAGE_BUILDER_ACCESS_SESSION_TTL_MS:-}')
+    expect(compose).toContain('AI_PAGE_BUILDER_ACCESS_SESSION_RENEW_THRESHOLD_MS: ${AI_PAGE_BUILDER_ACCESS_SESSION_RENEW_THRESHOLD_MS:-}')
     expect(compose).toContain('AI_PAGE_BUILDER_SYNC_EXPORT_TIMEOUT_MS: ${AI_PAGE_BUILDER_SYNC_EXPORT_TIMEOUT_MS:-0}')
     expect(compose).toContain('source: ${AI_PAGE_BUILDER_HOST_DATA_DIR:-${HOME:?Set HOME in your shell}/.ai-page-builder}')
     expect(serverBlock).toContain('AI_PAGE_BUILDER_BASE_PATH: ${AI_PAGE_BUILDER_BASE_PATH:-}')
     expect(serverBlock).toContain('AI_PAGE_BUILDER_PUBLIC_ORIGIN: ${AI_PAGE_BUILDER_PUBLIC_ORIGIN:-}')
     expect(serverBlock).toContain('AI_PAGE_BUILDER_HANDOFF_TTL_MS: ${AI_PAGE_BUILDER_HANDOFF_TTL_MS:-}')
     expect(serverBlock).toContain('AI_PAGE_BUILDER_ACCESS_SESSION_TTL_MS: ${AI_PAGE_BUILDER_ACCESS_SESSION_TTL_MS:-}')
+    expect(serverBlock).toContain('AI_PAGE_BUILDER_ACCESS_SESSION_RENEW_THRESHOLD_MS: ${AI_PAGE_BUILDER_ACCESS_SESSION_RENEW_THRESHOLD_MS:-}')
     expect(serverBlock).toContain('AI_PAGE_BUILDER_SYNC_EXPORT_TIMEOUT_MS: ${AI_PAGE_BUILDER_SYNC_EXPORT_TIMEOUT_MS:-0}')
     expect(webBlock).toContain('AI_PAGE_BUILDER_BASE_PATH: ${AI_PAGE_BUILDER_BASE_PATH:-}')
     expect(webBlock).not.toContain('args:')
@@ -119,6 +133,7 @@ describe('page-builder docker assets', () => {
     expect(verifyCompose).not.toContain('ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL')
     expect(verifyCompose).toContain('AI_PAGE_BUILDER_CMS_BASE_URL: http://nginx:8080/manager')
     expect(verifyCompose).toContain('AI_PAGE_BUILDER_BASE_PATH: /pagebuilder')
+    expect(verifyCompose).toContain('AI_PAGE_BUILDER_ACCESS_SESSION_RENEW_THRESHOLD_MS: ${AI_PAGE_BUILDER_ACCESS_SESSION_RENEW_THRESHOLD_MS:-3600000}')
     expect(verifyCompose).toContain('AI_PAGE_BUILDER_SYNC_EXPORT_TIMEOUT_MS: ${AI_PAGE_BUILDER_SYNC_EXPORT_TIMEOUT_MS:-30000}')
     expect(verifyCompose).toContain('source: ./.cms-verify-data')
     expect(verifyCompose).toContain('source: ./cms-mock')
@@ -138,7 +153,7 @@ describe('page-builder docker assets', () => {
     expect(smokeTest).not.toContain('/api/page-builder/cms/assets?url=')
   })
 
-  test('release compose uses remote Tencent CCR images without local builds', () => {
+  test('release compose uses remote images without local builds', () => {
     const releaseCompose = readRepoFile('../../../../../build/docker-compose.release.yml')
     const serverBlock = readComposeServiceBlock(releaseCompose, 'server')
     const webBlock = readComposeServiceBlock(releaseCompose, 'web')
@@ -149,11 +164,12 @@ describe('page-builder docker assets', () => {
     expect(releaseCompose).not.toContain('dockerfile:')
     expect(serverBlock).toContain('image: ccr.ccs.tencentyun.com/ai-page-builder/page-builder-server:${PAGE_BUILDER_IMAGE_TAG:-latest}')
     expect(webBlock).toContain('image: ccr.ccs.tencentyun.com/ai-page-builder/page-builder-web:${PAGE_BUILDER_IMAGE_TAG:-latest}')
-    expect(playwrightBlock).toContain('image: ${AI_PAGE_BUILDER_PLAYWRIGHT_IMAGE:-ccr.ccs.tencentyun.com/ai-page-builder/page-builder-playwright:v1.57.0-jammy}')
+    expect(playwrightBlock).toContain('image: ${AI_PAGE_BUILDER_PLAYWRIGHT_IMAGE:-mcr.microsoft.com/playwright:v1.57.0-jammy}')
     expect(serverBlock).toContain('restart: unless-stopped')
     expect(webBlock).toContain('restart: unless-stopped')
     expect(playwrightBlock).toContain('restart: unless-stopped')
     expect(serverBlock).toContain('ANTHROPIC_API_KEY: ${AI_PAGE_BUILDER_ANTHROPIC_API_KEY:?Set AI_PAGE_BUILDER_ANTHROPIC_API_KEY}')
+    expect(serverBlock).toContain('AI_PAGE_BUILDER_ACCESS_SESSION_RENEW_THRESHOLD_MS: ${AI_PAGE_BUILDER_ACCESS_SESSION_RENEW_THRESHOLD_MS:-}')
     expect(serverBlock).toContain('AI_PAGE_BUILDER_PLAYWRIGHT_MCP_URL: ${AI_PAGE_BUILDER_PLAYWRIGHT_MCP_URL:-http://playwright:8931/mcp}')
     expect(serverBlock).toContain('source: ${AI_PAGE_BUILDER_HOST_DATA_DIR:-${HOME:?Set HOME in your shell}/.ai-page-builder}')
     expect(webBlock).toContain('AI_PAGE_BUILDER_SERVER_ORIGIN: http://server:8888')

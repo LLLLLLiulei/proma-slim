@@ -20,6 +20,7 @@ describe('cms integration config', () => {
       publicOrigin: null,
       handoffTtlMs: 120000,
       accessSessionTtlMs: 28800000,
+      accessSessionRenewThresholdMs: 3600000,
       syncExportTimeoutMs: 0,
     })
     expect(buildCmsIntegrationStatus(config)).toEqual({
@@ -37,6 +38,7 @@ describe('cms integration config', () => {
       AI_PAGE_BUILDER_PUBLIC_ORIGIN: 'https://builder.example.com/',
       AI_PAGE_BUILDER_HANDOFF_TTL_MS: '300000',
       AI_PAGE_BUILDER_ACCESS_SESSION_TTL_MS: '86400000',
+      AI_PAGE_BUILDER_ACCESS_SESSION_RENEW_THRESHOLD_MS: '600000',
       AI_PAGE_BUILDER_SYNC_EXPORT_TIMEOUT_MS: '45000',
     })
 
@@ -49,6 +51,7 @@ describe('cms integration config', () => {
       publicOrigin: 'https://builder.example.com',
       handoffTtlMs: 300000,
       accessSessionTtlMs: 86400000,
+      accessSessionRenewThresholdMs: 600000,
       syncExportTimeoutMs: 45000,
     })
     expect(buildCmsIntegrationStatus(config)).toEqual({
@@ -95,6 +98,7 @@ describe('cms integration config', () => {
       AI_PAGE_BUILDER_PUBLIC_ORIGIN: '   ',
       AI_PAGE_BUILDER_HANDOFF_TTL_MS: '',
       AI_PAGE_BUILDER_ACCESS_SESSION_TTL_MS: 'not-a-number',
+      AI_PAGE_BUILDER_ACCESS_SESSION_RENEW_THRESHOLD_MS: '-1',
       AI_PAGE_BUILDER_SYNC_EXPORT_TIMEOUT_MS: 'not-a-number',
     })
 
@@ -107,6 +111,7 @@ describe('cms integration config', () => {
       publicOrigin: null,
       handoffTtlMs: 120000,
       accessSessionTtlMs: 28800000,
+      accessSessionRenewThresholdMs: 3600000,
       syncExportTimeoutMs: 0,
     })
   })

@@ -1,11 +1,19 @@
-import { createHash, createHmac, randomUUID as nodeRandomUUID, timingSafeEqual } from 'node:crypto'
+import { createHash, randomUUID as nodeRandomUUID } from 'node:crypto'
 import {
   builderAccessRequired,
 } from './cms-integration-errors'
+import {
+  InMemoryBuilderAccessSessionStore,
+  type BuilderAccessSessionStore,
+} from './cms-runtime-store'
+
+export {
+  InMemoryBuilderAccessSessionStore,
+}
 
 export const ACCESS_COOKIE_NAME = 'ai_page_builder_access'
 export const ACCESS_SESSION_DEFAULT_TTL_MS = 8 * 60 * 60 * 1000
-const DEFAULT_SIGNING_SECRET = nodeRandomUUID()
+export const ACCESS_SESSION_RENEW_THRESHOLD_DEFAULT_MS = 60 * 60 * 1000
 const SCOPED_ACCESS_COOKIE_PREFIX = `${ACCESS_COOKIE_NAME}_`
 const ACCESS_COOKIE_WORKSPACE_HASH_LENGTH = 16
 
@@ -22,78 +30,6 @@ export interface BuilderAccessSessionRecord {
     roleType?: string
     isAdminUser?: boolean
   } | null
-}
-
-interface StoredBuilderAccessSession extends BuilderAccessSessionRecord {
-  cookieValue: string
-}
-
-export class InMemoryBuilderAccessSessionStore {
-  private readonly byAccessId = new Map<string, StoredBuilderAccessSession>()
-  private readonly byWorkspaceId = new Map<string, Set<string>>()
-  private readonly bySessionId = new Map<string, Set<string>>()
-
-  get(accessId: string): StoredBuilderAccessSession | null {
-    const record = this.byAccessId.get(accessId)
-    return record ? cloneStoredRecord(record) : null
-  }
-
-  set(record: StoredBuilderAccessSession): void {
-    this.delete(record.accessId)
-    this.byAccessId.set(record.accessId, cloneStoredRecord(record))
-    addIndexEntry(this.byWorkspaceId, record.workspaceId, record.accessId)
-    addIndexEntry(this.bySessionId, record.sessionId, record.accessId)
-  }
-
-  delete(accessId: string): void {
-    const existing = this.byAccessId.get(accessId)
-    if (!existing) {
-      return
-    }
-
-    this.byAccessId.delete(accessId)
-    removeIndexEntry(this.byWorkspaceId, existing.workspaceId, accessId)
-    removeIndexEntry(this.bySessionId, existing.sessionId, accessId)
-  }
-
-  pruneExpired(now: number): void {
-    for (const [accessId, record] of this.byAccessId) {
-      if (record.expiresAt <= now) {
-        this.delete(accessId)
-      }
-    }
-  }
-
-  listByWorkspaceId(workspaceId: string): StoredBuilderAccessSession[] {
-    return this.getIndexedRecords(this.byWorkspaceId, workspaceId)
-  }
-
-  listBySessionId(sessionId: string): StoredBuilderAccessSession[] {
-    return this.getIndexedRecords(this.bySessionId, sessionId)
-  }
-
-  clear(): void {
-    this.byAccessId.clear()
-    this.byWorkspaceId.clear()
-    this.bySessionId.clear()
-  }
-
-  private getIndexedRecords(index: Map<string, Set<string>>, key: string): StoredBuilderAccessSession[] {
-    const ids = index.get(key)
-    if (!ids) {
-      return []
-    }
-
-    const records: StoredBuilderAccessSession[] = []
-    for (const accessId of ids) {
-      const record = this.byAccessId.get(accessId)
-      if (record) {
-        records.push(cloneStoredRecord(record))
-      }
-    }
-
-    return records
-  }
 }
 
 export interface CreateBuilderAccessSessionInput {
@@ -124,31 +60,30 @@ interface BuilderAccessSessionServiceOptions {
   now?: () => number
   randomUUID?: () => string
   ttlMs?: number
-  signingSecret?: string
-  store?: InMemoryBuilderAccessSessionStore
+  renewThresholdMs?: number
+  store?: BuilderAccessSessionStore
 }
 
 export class BuilderAccessSessionService {
   private readonly now: () => number
   private readonly randomUUID: () => string
   private readonly ttlMs: number
-  private readonly signingSecret: string
-  private readonly store: InMemoryBuilderAccessSessionStore
+  private readonly renewThresholdMs: number
+  private readonly store: BuilderAccessSessionStore
 
   constructor(options: BuilderAccessSessionServiceOptions = {}) {
     this.now = options.now ?? Date.now
     this.randomUUID = options.randomUUID ?? nodeRandomUUID
     this.ttlMs = options.ttlMs ?? ACCESS_SESSION_DEFAULT_TTL_MS
-    this.signingSecret = options.signingSecret ?? DEFAULT_SIGNING_SECRET
+    this.renewThresholdMs = options.renewThresholdMs ?? ACCESS_SESSION_RENEW_THRESHOLD_DEFAULT_MS
     this.store = options.store ?? new InMemoryBuilderAccessSessionStore()
   }
 
-  create(input: CreateBuilderAccessSessionInput): CreateBuilderAccessSessionResult {
+  async create(input: CreateBuilderAccessSessionInput): Promise<CreateBuilderAccessSessionResult> {
     const now = this.now()
-    this.store.pruneExpired(now)
+    await this.store.pruneExpired(now)
     const accessId = this.randomUUID()
-    const cookieValue = signAccessId(accessId, this.signingSecret)
-    const record: StoredBuilderAccessSession = {
+    const record: BuilderAccessSessionRecord = {
       accessId,
       projectId: normalizeRequiredId(input.projectId),
       workspaceId: normalizeRequiredId(input.workspaceId),
@@ -156,10 +91,9 @@ export class BuilderAccessSessionService {
       createdAt: now,
       expiresAt: now + this.ttlMs,
       userSummary: input.userSummary ? { ...input.userSummary } : null,
-      cookieValue,
     }
 
-    this.store.set(record)
+    await this.store.set(record)
 
     return {
       accessId: record.accessId,
@@ -169,7 +103,7 @@ export class BuilderAccessSessionService {
       createdAt: record.createdAt,
       expiresAt: record.expiresAt,
       userSummary: record.userSummary,
-      cookie: buildSetCookie(record.cookieValue, {
+      cookie: buildSetCookie(accessId, {
         cookieName: getWorkspaceAccessCookieName(record.workspaceId),
         basePath: input.basePath,
         isSecure: input.isSecure,
@@ -178,55 +112,47 @@ export class BuilderAccessSessionService {
     }
   }
 
-  readFromCookie(cookieInput: string | null | undefined, workspaceId?: string): BuilderAccessSessionRecord | null {
+  async readFromCookie(
+    cookieInput: string | null | undefined,
+    workspaceId?: string,
+  ): Promise<BuilderAccessSessionRecord | null> {
     const cookieValue = extractCookieValue(cookieInput, workspaceId)
     if (!cookieValue) {
       return null
     }
 
-    const parsed = parseAccessCookieValue(cookieValue)
-    if (!parsed) {
-      return null
-    }
-
-    const accessId = verifySignedAccessId(parsed, this.signingSecret)
+    const accessId = parseAccessCookieValue(cookieValue)
     if (!accessId) {
       return null
     }
 
-    const record = this.get(accessId)
-    return record
+    return await this.get(accessId)
   }
 
-  validate(
+  async validate(
     cookieInput: string | null | undefined,
     input: {
       workspaceId: string
       sessionId?: string
     },
-  ): BuilderAccessValidationResult {
+  ): Promise<BuilderAccessValidationResult> {
     const cookieValue = extractCookieValue(cookieInput, input.workspaceId)
     if (!cookieValue) {
       return { valid: false, code: 'builder_access_required' }
     }
 
-    const parsed = parseAccessCookieValue(cookieValue)
-    if (!parsed) {
-      return { valid: false, code: 'builder_access_required' }
-    }
-
-    const accessId = verifySignedAccessId(parsed, this.signingSecret)
+    const accessId = parseAccessCookieValue(cookieValue)
     if (!accessId) {
       return { valid: false, code: 'builder_access_required' }
     }
 
-    const record = this.get(accessId)
+    const record = await this.get(accessId)
     if (!record) {
       return { valid: false, code: 'builder_access_required' }
     }
 
     if (record.expiresAt <= this.now()) {
-      this.store.delete(accessId)
+      await this.store.delete(accessId)
       return { valid: false, code: 'builder_access_required' }
     }
 
@@ -242,62 +168,75 @@ export class BuilderAccessSessionService {
     return { valid: true, access: record }
   }
 
-  renew(
+  async renew(
     accessId: string,
     options: {
       basePath: string
       isSecure: boolean
     },
-  ): RenewBuilderAccessSessionResult | null {
+  ): Promise<RenewBuilderAccessSessionResult | null> {
     const normalizedAccessId = accessId.trim()
     if (!normalizedAccessId) {
       return null
     }
 
-    const record = this.store.get(normalizedAccessId)
-    if (!record) {
-      return null
-    }
+    return this.store.withAccessSessionLock(normalizedAccessId, async () => {
+      const record = await this.store.get(normalizedAccessId)
+      if (!record) {
+        return null
+      }
 
-    const now = this.now()
-    if (record.expiresAt <= now) {
-      this.store.delete(normalizedAccessId)
-      return null
-    }
+      const now = this.now()
+      if (record.expiresAt <= now) {
+        await this.store.delete(normalizedAccessId)
+        return null
+      }
 
-    const renewed: StoredBuilderAccessSession = {
-      ...record,
-      expiresAt: now + this.ttlMs,
-    }
-    this.store.set(renewed)
+      if (record.expiresAt - now > this.renewThresholdMs) {
+        return null
+      }
 
-    return {
-      access: toPublicRecord(renewed),
-      cookie: buildSetCookie(renewed.cookieValue, {
-        cookieName: getWorkspaceAccessCookieName(renewed.workspaceId),
-        basePath: options.basePath,
-        isSecure: options.isSecure,
-        maxAgeMs: this.ttlMs,
-      }),
-    }
+      const renewed: BuilderAccessSessionRecord = {
+        ...record,
+        expiresAt: now + this.ttlMs,
+      }
+      await this.store.set(renewed)
+
+      return {
+        access: toPublicRecord(renewed),
+        cookie: buildSetCookie(renewed.accessId, {
+          cookieName: getWorkspaceAccessCookieName(renewed.workspaceId),
+          basePath: options.basePath,
+          isSecure: options.isSecure,
+          maxAgeMs: this.ttlMs,
+        }),
+      }
+    })
   }
 
-  get(accessId: string): BuilderAccessSessionRecord | null {
-    const record = this.store.get(accessId)
+  async get(accessId: string): Promise<BuilderAccessSessionRecord | null> {
+    const record = await this.store.get(accessId)
     if (!record) {
       return null
     }
 
     if (record.expiresAt <= this.now()) {
-      this.store.delete(accessId)
+      await this.store.delete(accessId)
       return null
     }
 
     return toPublicRecord(record)
   }
 
-  peek(accessId: string): BuilderAccessSessionRecord | null {
+  async peek(accessId: string): Promise<BuilderAccessSessionRecord | null> {
     return this.get(accessId)
+  }
+
+  async delete(accessId: string): Promise<void> {
+    const normalizedAccessId = accessId.trim()
+    if (normalizedAccessId) {
+      await this.store.delete(normalizedAccessId)
+    }
   }
 }
 
@@ -305,32 +244,6 @@ export function createBuilderAccessSessionService(
   options: BuilderAccessSessionServiceOptions = {},
 ): BuilderAccessSessionService {
   return new BuilderAccessSessionService(options)
-}
-
-function signAccessId(accessId: string, signingSecret: string): string {
-  const signature = createHmac('sha256', signingSecret).update(accessId).digest('base64url')
-  return `${accessId}.${signature}`
-}
-
-function verifySignedAccessId(value: string, signingSecret: string): string | null {
-  const parts = value.split('.')
-  if (parts.length !== 2) {
-    return null
-  }
-
-  const [accessId, signature] = parts as [string, string]
-  if (!accessId || !signature) {
-    return null
-  }
-
-  const expected = signAccessId(accessId, signingSecret)
-  const expectedBuffer = Buffer.from(expected)
-  const actualBuffer = Buffer.from(value)
-  if (expectedBuffer.length !== actualBuffer.length) {
-    return null
-  }
-
-  return timingSafeEqual(expectedBuffer, actualBuffer) ? accessId : null
 }
 
 function buildSetCookie(
@@ -449,14 +362,7 @@ function normalizeOptionalId(value: string | undefined): string | undefined {
   return normalized || undefined
 }
 
-function cloneStoredRecord(record: StoredBuilderAccessSession): StoredBuilderAccessSession {
-  return {
-    ...record,
-    userSummary: record.userSummary ? { ...record.userSummary } : null,
-  }
-}
-
-function toPublicRecord(record: StoredBuilderAccessSession): BuilderAccessSessionRecord {
+function toPublicRecord(record: BuilderAccessSessionRecord): BuilderAccessSessionRecord {
   return {
     accessId: record.accessId,
     projectId: record.projectId,
@@ -465,29 +371,5 @@ function toPublicRecord(record: StoredBuilderAccessSession): BuilderAccessSessio
     createdAt: record.createdAt,
     expiresAt: record.expiresAt,
     userSummary: record.userSummary ? { ...record.userSummary } : null,
-  }
-}
-
-function addIndexEntry(index: Map<string, Set<string>>, key: string, accessId: string): void {
-  const normalizedKey = key.trim()
-  if (!normalizedKey) {
-    return
-  }
-
-  const existing = index.get(normalizedKey) ?? new Set<string>()
-  existing.add(accessId)
-  index.set(normalizedKey, existing)
-}
-
-function removeIndexEntry(index: Map<string, Set<string>>, key: string, accessId: string): void {
-  const normalizedKey = key.trim()
-  const existing = index.get(normalizedKey)
-  if (!existing) {
-    return
-  }
-
-  existing.delete(accessId)
-  if (existing.size === 0) {
-    index.delete(normalizedKey)
   }
 }
