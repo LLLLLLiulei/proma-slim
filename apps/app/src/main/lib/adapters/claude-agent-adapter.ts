@@ -977,7 +977,7 @@ export class ClaudeAgentAdapter implements AgentProviderAdapter {
       }
 
       // 流结束时刷新 pendingText（修复静默丢弃问题）
-      if (pendingText.value) {
+      if (pendingText.value && !controller.signal.aborted) {
         yield {
           type: 'text_complete' as const,
           text: pendingText.value,
@@ -986,6 +986,12 @@ export class ClaudeAgentAdapter implements AgentProviderAdapter {
           parentToolUseId: pendingParentToolUseId.value || undefined,
         }
       }
+    } catch (error) {
+      if (controller.signal.aborted) {
+        return
+      }
+
+      throw error
     } finally {
       activeControllers.delete(options.sessionId)
     }

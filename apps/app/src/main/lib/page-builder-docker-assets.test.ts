@@ -111,6 +111,8 @@ describe('page-builder docker assets', () => {
     expect(verifyCompose).toContain('container_name: cms-verify-cms-mock')
     expect(verifyCompose).toContain('container_name: cms-verify-nginx')
     expect(verifyCompose).toContain('AI_PAGE_BUILDER_INTEGRATION_MODE: cms')
+    expect(verifyCompose).toContain('AI_PAGE_BUILDER_ANTHROPIC_API_KEY: ${AI_PAGE_BUILDER_ANTHROPIC_API_KEY:-cms-verify-dummy-key}')
+    expect(verifyCompose).toContain('AI_PAGE_BUILDER_ANTHROPIC_BASE_URL: ${AI_PAGE_BUILDER_ANTHROPIC_BASE_URL:-}')
     expect(verifyCompose).toContain('ANTHROPIC_API_KEY: ${AI_PAGE_BUILDER_ANTHROPIC_API_KEY:-cms-verify-dummy-key}')
     expect(verifyCompose).toContain('ANTHROPIC_BASE_URL: ${AI_PAGE_BUILDER_ANTHROPIC_BASE_URL:-}')
     expect(verifyCompose).not.toContain('ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY')

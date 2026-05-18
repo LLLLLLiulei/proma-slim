@@ -3,6 +3,7 @@ import { seedDefaultSkills } from './lib/config-paths'
 import { stopAllAgents } from './lib/agent-service'
 import { initializeRuntime } from './lib/runtime-init'
 import { logCurrentProcessEnvironment } from './lib/process-env-logging'
+import { registerProcessErrorHandlers } from './lib/process-error-handlers'
 
 let shuttingDown = false
 
@@ -25,6 +26,10 @@ function registerShutdownHandlers(server: ReturnType<typeof createHttpServer>): 
 }
 
 async function main(): Promise<void> {
+  registerProcessErrorHandlers({
+    stopAllAgents,
+  })
+
   await initializeRuntime()
   seedDefaultSkills()
   logCurrentProcessEnvironment()
