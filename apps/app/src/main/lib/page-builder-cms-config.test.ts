@@ -118,13 +118,17 @@ describe('resolvePageBuilderCmsConfig', () => {
     expect(config).toBeNull()
   })
 
-  test('returns null when baseUrl does not include /manager', () => {
+  test('accepts a valid CMS baseUrl without requiring a /manager suffix', () => {
     const config = resolvePageBuilderCmsConfig({
       PROMA_CMS_BASE_URL: 'https://demo.zving.com',
       PROMA_CMS_USERNAME: 'env-user',
       PROMA_CMS_PASSWORD: 'env-pass',
     })
 
-    expect(config).toBeNull()
+    expect(config).toEqual({
+      baseUrl: 'https://demo.zving.com',
+      username: 'env-user',
+      password: 'env-pass',
+    })
   })
 })

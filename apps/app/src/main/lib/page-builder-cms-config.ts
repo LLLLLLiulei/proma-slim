@@ -26,7 +26,7 @@ function normalizeBaseUrl(baseUrl: string): string | undefined {
     next.search = ''
     next.hash = ''
     next.pathname = next.pathname.replace(/\/+$/, '') || '/'
-    return next.pathname.endsWith('/manager') ? next.toString().replace(/\/+$/, '') : undefined
+    return next.toString().replace(/\/+$/, '')
   } catch {
     return undefined
   }
