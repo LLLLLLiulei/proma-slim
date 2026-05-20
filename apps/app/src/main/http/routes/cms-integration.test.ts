@@ -626,7 +626,7 @@ describe('cms integration routes', () => {
     }
   })
 
-  test('POST /api/integrations/cms/projects/:projectId/export returns project_busy for unsafe workspace states', async () => {
+  test('POST /api/integrations/cms/projects/:projectId/export ignores editing state but keeps export safety checks', async () => {
     enableCmsIntegration(configDir)
     globalThis.fetch = createLoginFetchMock() as unknown as typeof fetch
     const app = createApp()
@@ -639,34 +639,11 @@ describe('cms integration routes', () => {
     expect(await missingIndex.json()).toMatchObject({ code: 'project_busy' })
 
     createPreviewFiles(configDir, binding)
-    const {
-      pageBuilderEditLockService,
-    } = await import('../../lib/page-builder-edit-lock-service')
     pageBuilderEditLockService.acquire(binding.workspaceId, { holderId: 'test-holder' })
 
     const locked = await exportCmsProject(app, projectId)
-    expect(locked.status).toBe(409)
-    expect(await locked.json()).toMatchObject({ code: 'project_busy' })
-
-    const activeExportProject = await createBoundCmsProject(app, {
-      externalRecordId: 'cms-sync-export-active-export',
-    })
-    createPreviewFiles(configDir, activeExportProject.binding)
-    const {
-      pageBuilderStaticExportService,
-    } = await import('../../lib/page-builder-static-export-service')
-    const originalIsWorkspaceExportActive = pageBuilderStaticExportService.isWorkspaceExportActive.bind(pageBuilderStaticExportService)
-    pageBuilderStaticExportService.isWorkspaceExportActive = ((workspaceId) => (
-      workspaceId === activeExportProject.binding.workspaceId || originalIsWorkspaceExportActive(workspaceId)
-    )) as typeof pageBuilderStaticExportService.isWorkspaceExportActive
-
-    try {
-      const activeExport = await exportCmsProject(app, activeExportProject.projectId)
-      expect(activeExport.status).toBe(409)
-      expect(await activeExport.json()).toMatchObject({ code: 'project_busy' })
-    } finally {
-      pageBuilderStaticExportService.isWorkspaceExportActive = originalIsWorkspaceExportActive
-    }
+    expect(locked.status).toBe(200)
+    expect(locked.headers.get('content-type')).toContain('application/zip')
 
     const activeAgentProject = await createBoundCmsProject(app, {
       externalRecordId: 'cms-sync-export-active-agent',
@@ -687,10 +664,34 @@ describe('cms integration routes', () => {
 
     try {
       const activeAgent = await exportCmsProject(app, activeAgentProject.projectId)
-      expect(activeAgent.status).toBe(409)
-      expect(await activeAgent.json()).toMatchObject({ code: 'project_busy' })
+      expect(activeAgent.status).toBe(200)
+      expect(activeAgent.headers.get('content-type')).toContain('application/zip')
     } finally {
       pageBuilderEditLockService.assertProjectAvailable = originalAssertProjectAvailable
+    }
+
+    const activeExportProject = await createBoundCmsProject(app, {
+      externalRecordId: 'cms-sync-export-active-export',
+    })
+    createPreviewFiles(configDir, activeExportProject.binding)
+    const {
+      PageBuilderStaticExportServiceError,
+      pageBuilderStaticExportService,
+    } = await import('../../lib/page-builder-static-export-service')
+    const originalExportWorkspaceStaticPackage = pageBuilderStaticExportService.exportWorkspaceStaticPackage.bind(pageBuilderStaticExportService)
+    pageBuilderStaticExportService.exportWorkspaceStaticPackage = ((workspace, options) => {
+      if (workspace.id === activeExportProject.binding.workspaceId) {
+        return Promise.reject(new PageBuilderStaticExportServiceError('export-active', '当前项目正在导出中，请稍后再试'))
+      }
+      return originalExportWorkspaceStaticPackage(workspace, options)
+    }) as typeof pageBuilderStaticExportService.exportWorkspaceStaticPackage
+
+    try {
+      const activeExport = await exportCmsProject(app, activeExportProject.projectId)
+      expect(activeExport.status).toBe(409)
+      expect(await activeExport.json()).toMatchObject({ code: 'project_busy' })
+    } finally {
+      pageBuilderStaticExportService.exportWorkspaceStaticPackage = originalExportWorkspaceStaticPackage
     }
   })
 

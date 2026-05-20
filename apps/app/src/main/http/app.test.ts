@@ -617,11 +617,8 @@ describe('createHttpApp', () => {
     )
     writeFileSync(join(workspaceFilesDir, 'assets', 'site.css'), 'body { color: red; }', 'utf-8')
     writeFileSync(join(workspaceFilesDir, 'assets', 'hero.png'), 'hero-image', 'utf-8')
-    const editLockHeaders = await acquirePageBuilderEditLockHeaders(app, workspace.id)
-
     const createResponse = await app.fetch(new Request(`http://localhost/api/workspaces/${workspace.id}/page-builder/export-static-jobs`, {
       method: 'POST',
-      headers: editLockHeaders,
     }))
 
     expect(createResponse.status).toBe(202)

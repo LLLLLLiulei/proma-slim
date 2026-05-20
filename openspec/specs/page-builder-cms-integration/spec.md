@@ -722,20 +722,22 @@ PageBuilder renderer 在 CMS 集成模式下 SHALL 使用 CMS integration status
 - **AND** CMS 远程资源 SHALL 按现有离线静态导出规则保留或改写为 CMS 源站 URL
 - **AND** 导出报告 SHALL 记录被跳过的 CMS 远程资源 warning 和 retained external link 语义
 
-### Requirement: CMS 同步导出必须在项目不可安全发布时返回 project_busy
-系统 SHALL 在 CMS 同步导出前检查项目可用性；当项目正在编辑、Agent 正在运行、缺少导出入口、已有导出活动或其他不可安全发布状态时，系统 SHALL 返回结构化 `project_busy`，而不是返回旧包或半成品包。
+### Requirement: CMS 同步导出必须在缺少产物或导出并发时返回 project_busy
+系统 SHALL 在 CMS 同步导出前检查项目可用性；当缺少导出入口、已有导出活动或其他导出条件不满足时，系统 SHALL 返回结构化 `project_busy`，而不是返回旧包或半成品包。系统 SHALL NOT 因目标项目存在 edit lock 或活跃 Agent 而拒绝同步导出。
 
-#### Scenario: 有效编辑锁阻止 CMS 同步导出
+#### Scenario: 有效编辑锁不阻止 CMS 同步导出
 - **WHEN** 目标 page-builder workspace 存在有效 edit lock，且 CMS 请求同步导出该项目
-- **THEN** 系统 SHALL 返回 `409`
-- **AND** 响应 JSON SHALL 包含 `code: "project_busy"`
-- **AND** 系统 SHALL NOT 执行静态导出
+- **AND** 该项目存在可导出的 `workspace-files/index.html`
+- **AND** 同 workspace 没有正在运行的导出活动
+- **THEN** 系统 SHALL 执行静态导出
+- **AND** 成功时 SHALL 返回 `application/zip`
 
-#### Scenario: 活跃 Agent 阻止 CMS 同步导出
+#### Scenario: 活跃 Agent 不阻止 CMS 同步导出
 - **WHEN** 目标 page-builder workspace 存在活跃 Agent 运行，且 CMS 请求同步导出该项目
-- **THEN** 系统 SHALL 返回 `409`
-- **AND** 响应 JSON SHALL 包含 `code: "project_busy"`
-- **AND** 系统 SHALL NOT 返回 ZIP
+- **AND** 该项目存在可导出的 `workspace-files/index.html`
+- **AND** 同 workspace 没有正在运行的导出活动
+- **THEN** 系统 SHALL 执行静态导出
+- **AND** 成功时 SHALL 返回 `application/zip`
 
 #### Scenario: 缺少 index.html 时返回 project_busy
 - **WHEN** 目标 page-builder workspace 的 `workspace-files/index.html` 不存在，且 CMS 请求同步导出该项目

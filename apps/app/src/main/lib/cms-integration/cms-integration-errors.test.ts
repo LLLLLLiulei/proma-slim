@@ -48,7 +48,7 @@ describe('cms integration errors', () => {
     expect(projectBusy()).toMatchObject({
       code: 'project_busy',
       status: 409,
-      message: '项目正在编辑、构建或导出中，请稍后再试',
+      message: '项目正在导出或暂无可导出产物，请稍后再试',
     })
     expect(cmsSyncExportUpstreamFailed()).toMatchObject({
       code: 'export_upstream_failed',

@@ -901,11 +901,6 @@ export function BuilderPage({
   }, [workspaceId])
 
   const handleRequestExportStatic = React.useCallback(async (): Promise<void> => {
-    if (!editingEnabled) {
-      toast.error(editLockLostMessage ?? EDIT_LOCK_LOST_MESSAGE)
-      return
-    }
-
     if (!previewState?.hasPreview) {
       return
     }
@@ -916,7 +911,7 @@ export function BuilderPage({
 
     setDownloadCmsRemoteAssets(true)
     setStaticExportDialogOpen(true)
-  }, [editLockLostMessage, editingEnabled, previewState?.hasPreview, staticExportJob])
+  }, [previewState?.hasPreview, staticExportJob])
 
   const handleStaticExportDialogOpenChange = React.useCallback((open: boolean) => {
     if (!isCreatingStaticExportJob) {
@@ -943,17 +938,16 @@ export function BuilderPage({
       const options: PageBuilderStaticExportJobCreateOptions = {
         downloadCmsRemoteAssets,
       }
-      const job = await api.createPageBuilderStaticExportJob(workspaceId, options, editLockRequestOptions)
+      const job = await api.createPageBuilderStaticExportJob(workspaceId, options)
       setStaticExportJob(job)
       handleStaticExportSettled(job)
     } catch (error) {
       const message = error instanceof Error ? error.message : '静态包导出失败'
       console.error('[BuilderPage] 静态包导出失败:', error)
-      handlePageBuilderEditLockRejected(error)
       toast.error(message)
       setIsCreatingStaticExportJob(false)
     }
-  }, [downloadCmsRemoteAssets, editLockRequestOptions, handlePageBuilderEditLockRejected, handleStaticExportSettled, isCreatingStaticExportJob, previewState?.hasPreview, staticExportJob, workspaceId])
+  }, [downloadCmsRemoteAssets, handleStaticExportSettled, isCreatingStaticExportJob, previewState?.hasPreview, staticExportJob, workspaceId])
 
   React.useEffect(() => {
     if (typeof window === 'undefined') return

@@ -23,7 +23,7 @@ const DEFAULT_MESSAGES: Record<CmsIntegrationErrorCode, string> = {
   project_not_found: 'CMS 项目不存在',
   handoff_expired: 'CMS handoff 已失效，请重新从 CMS 进入',
   preview_not_ready: '当前项目尚未生成可预览内容，请先完成预览构建',
-  project_busy: '项目正在编辑、构建或导出中，请稍后再试',
+  project_busy: '项目正在导出或暂无可导出产物，请稍后再试',
   export_upstream_failed: '同步导出依赖资源请求失败，请稍后再试',
   export_timeout: '同步导出超时，请稍后再试',
   builder_access_required: '请先通过 CMS handoff 重新进入 PageBuilder',

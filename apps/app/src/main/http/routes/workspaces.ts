@@ -392,8 +392,6 @@ workspaceRoutes.post('/:workspaceId/page-builder/image', async (c) => {
 })
 
 workspaceRoutes.post('/:workspaceId/page-builder/export-static-jobs', async (c) => {
-  assertPageBuilderEditLockForWorkspace(c.var.workspace, c.req.raw)
-
   const payload = await readPageBuilderStaticExportJobCreatePayload(c.req.raw)
 
   try {

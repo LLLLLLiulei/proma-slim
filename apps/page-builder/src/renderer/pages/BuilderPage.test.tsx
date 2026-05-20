@@ -492,6 +492,7 @@ async function loadBuilderPage(options: {
 
   mock.module('@/lib/api', () => ({
     ApiError: MockApiError,
+    resolveApiUrl: (url: string) => url,
     api: {
       getCmsBuilderContext,
       getCmsIntegrationStatus,
@@ -1609,13 +1610,19 @@ describe('BuilderPage', () => {
       sessions: [session],
       workspaces: [workspace],
       mockPreviewPane: true,
+      previewStates: [{
+        hasPreview: true,
+        entryUrl: `/api/workspaces/${workspace.id}/preview/`,
+        revision: 'rev-1',
+      }],
       renewPageBuilderEditLockImpl: async () => {
         throw new Error('编辑锁已失效')
       },
     })
 
+    let renderer!: ReturnType<typeof create>
     await act(async () => {
-      create(
+      renderer = create(
         <Provider store={createStore()}>
           <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
         </Provider>,
@@ -1643,6 +1650,17 @@ describe('BuilderPage', () => {
     })).toEqual({
       handled: true,
     })
+
+    await act(async () => {
+      await (getLastPreviewPaneProps() as {
+        onRequestExportStatic?: () => Promise<void>
+      }).onRequestExportStatic?.()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(findButtonsByText(renderer, '确认导出')).toHaveLength(1)
+    expect(getToastError()).toHaveBeenCalledTimes(2)
   })
 
   test('blocks opening the cms browser after the edit lock is lost', async () => {
@@ -5507,11 +5525,6 @@ describe('BuilderPage', () => {
     expect(createPageBuilderStaticExportJob).toHaveBeenCalledTimes(1)
     expect(createPageBuilderStaticExportJob).toHaveBeenCalledWith(workspace.id, {
       downloadCmsRemoteAssets: true,
-    }, {
-      editLock: expect.objectContaining({
-        lockId: 'lock-acquired',
-        holderId: expect.any(String),
-      }),
     })
     expect(getLastPreviewPaneProps()).toMatchObject({
       exportStaticPending: true,
@@ -5715,11 +5728,6 @@ describe('BuilderPage', () => {
     expect(createPageBuilderStaticExportJob).toHaveBeenCalledTimes(1)
     expect(createPageBuilderStaticExportJob).toHaveBeenCalledWith(workspace.id, {
       downloadCmsRemoteAssets: false,
-    }, {
-      editLock: expect.objectContaining({
-        lockId: 'lock-acquired',
-        holderId: expect.any(String),
-      }),
     })
 
     expect(windowHarness.open).toHaveBeenCalledWith(
@@ -5817,11 +5825,6 @@ describe('BuilderPage', () => {
     expect(createPageBuilderStaticExportJob).toHaveBeenCalledTimes(1)
     expect(createPageBuilderStaticExportJob).toHaveBeenCalledWith(workspace.id, {
       downloadCmsRemoteAssets: true,
-    }, {
-      editLock: expect.objectContaining({
-        lockId: 'lock-acquired',
-        holderId: expect.any(String),
-      }),
     })
     expect(getToastError()).toHaveBeenCalledWith('关键图片下载失败')
   })
