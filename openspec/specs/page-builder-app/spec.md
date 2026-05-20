@@ -30,10 +30,26 @@
 - **THEN** 系统 SHALL 展示左侧预览面板和右侧对话面板的双栏布局，而不是展示 `apps/app` 的侧边栏与页签式工作台
 
 #### Scenario: Builder 页面进入时处理编辑锁上下文
-- **WHEN** 用户进入某个项目对应的 builder 页面
+- **WHEN** 用户进入某个项目对应的 builder 页面，且该页面不属于可恢复的 active Agent session
 - **THEN** 系统 SHALL 优先复用已有锁上下文或直接获取新的编辑锁
 - **AND** 系统 SHALL 在恢复 stored lock 时使用原有 `lockId` 与 `holderId` 续约
-- **AND** 系统 SHALL 在锁失效或被拒绝时禁用编辑能力并提示用户重新进入
+- **AND** 系统 SHALL 在锁失效或被真正的其他编辑者拒绝时禁用编辑能力并提示用户重新进入
+
+#### Scenario: Builder 页面重新进入同一 active session 时恢复执行态
+- **WHEN** 用户进入某个 builder URL，且该 URL 的 workspaceId 与 sessionId 对应仍在执行的 active Agent session，并且没有其他 session 持有该 workspace 的有效编辑锁
+- **THEN** 系统 SHALL 恢复该 active Agent session 的 builder 页面
+- **AND** 系统 SHALL 继续展示消息历史、流式状态和现有停止 Agent 操作
+- **AND** 系统 SHALL NOT 将该场景渲染为普通锁冲突或“正在构建中”的硬失败
+
+#### Scenario: Builder 页面命中非 active session 时切换到 active session
+- **WHEN** 用户进入某个 builder URL，但该 URL 的 sessionId 不是当前 workspace 下正在执行的 active Agent session，且该 workspace 存在另一个 active Agent session
+- **THEN** 系统 SHALL 自动切换到该 active Agent session 对应的 builder URL
+- **AND** 系统 SHALL 恢复该 active Agent session 的执行态
+
+#### Scenario: 关闭 Builder 页面不停止后台 Agent
+- **WHEN** 用户关闭或刷新 Builder 页面，且该页面的 Agent 会话仍在执行
+- **THEN** 系统 SHALL NOT 因页面关闭自动停止该 Agent 会话
+- **AND** 后续重新进入 SHALL 按 active session 恢复规则处理
 
 #### Scenario: 预览面板保持精简项目控制项
 - **WHEN** builder 页面渲染左侧预览面板

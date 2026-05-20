@@ -26,6 +26,8 @@ function toProjectSummary(
   latestSession: AgentSessionMeta | null,
 ): PageBuilderProjectSummary {
   const previewState = getWorkspacePreviewState(workspace)
+  const editState = pageBuilderEditLockService.getEditState(workspace.id)
+  const activeSessionId = pageBuilderEditLockService.getActiveAgentSessionId(workspace.id)
 
   return {
     workspaceId: workspace.id,
@@ -33,9 +35,10 @@ function toProjectSummary(
     workspaceSlug: workspace.slug,
     createdAt: workspace.createdAt,
     latestSessionId: latestSession?.id ?? null,
+    activeSessionId,
     lastActiveAt: latestSession?.updatedAt ?? workspace.updatedAt ?? workspace.createdAt,
     previewUrl: previewState.hasPreview ? previewState.entryUrl : null,
-    editState: pageBuilderEditLockService.getEditState(workspace.id),
+    editState,
   }
 }
 

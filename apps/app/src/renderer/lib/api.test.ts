@@ -552,6 +552,7 @@ describe('renderer api wrappers', () => {
       createdAt: 1,
       lastActiveAt: 2,
       latestSessionId: 'session-1',
+      activeSessionId: null,
       previewUrl: '/api/workspaces/workspace-1/preview/',
       editState: { status: 'available' },
     }

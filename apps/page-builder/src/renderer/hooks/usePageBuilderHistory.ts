@@ -36,7 +36,7 @@ export function usePageBuilderHistory() {
 
   const openProject = React.useCallback(async (project: PageBuilderProjectSummary): Promise<void> => {
     try {
-      let sessionId = project.latestSessionId
+      let sessionId = project.activeSessionId ?? project.latestSessionId
       if (!sessionId) {
         const session = await api.createSession(undefined, project.workspaceId)
         sessionId = session.id
@@ -45,6 +45,7 @@ export function usePageBuilderHistory() {
             ? {
                 ...entry,
                 latestSessionId: session.id,
+                activeSessionId: entry.activeSessionId ?? null,
                 lastActiveAt: session.updatedAt,
               }
             : entry

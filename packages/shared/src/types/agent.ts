@@ -63,6 +63,8 @@ export interface PageBuilderProjectSummary {
   lastActiveAt: number
   /** 最近会话 ID，不存在时为 null */
   latestSessionId: string | null
+  /** 当前仍在执行且可恢复的会话 ID，不存在时为 null */
+  activeSessionId: string | null
   /** 当前可用预览入口，不存在时为 null */
   previewUrl: string | null
   /** 当前编辑可用状态 */
@@ -73,8 +75,13 @@ export type PageBuilderProjectEditState =
   | { status: 'available' }
   | {
       status: 'locked'
-      reason: 'editor' | 'agent' | 'export'
+      reason: 'editor' | 'export'
       expiresAt?: number
+    }
+  | {
+      status: 'locked'
+      reason: 'agent'
+      activeSessionId?: string
     }
 
 export interface PageBuilderEditLockCredentials {

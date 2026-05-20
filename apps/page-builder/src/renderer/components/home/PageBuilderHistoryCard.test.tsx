@@ -12,6 +12,7 @@ function createProject(overrides: Partial<PageBuilderProjectSummary> = {}): Page
     createdAt: 1710000000000,
     lastActiveAt: 1710001000000,
     latestSessionId: 'session-1',
+    activeSessionId: null,
     previewUrl: '/api/workspaces/workspace-1/preview/',
     editState: { status: 'available' },
     ...overrides,
@@ -100,10 +101,35 @@ describe('PageBuilderHistoryCard', () => {
     const previewButton = renderer.root.findAllByType('button').find((button) => button.props['aria-label'] === '查看项目')
     const editButton = renderer.root.findAllByType('button').find((button) => button.props['aria-label'] === '编辑项目')
 
-    expect(JSON.stringify(renderer.toJSON())).toContain('正在构建')
+    expect(JSON.stringify(renderer.toJSON())).toContain('Agent 处理中')
     expect(JSON.stringify(renderer.toJSON())).toContain('暂无可查看预览')
     expect(previewButton).toBeDefined()
     expect(previewButton!.props.disabled).toBe(true)
+    expect(editButton).toBeDefined()
+    expect(editButton!.props.disabled).not.toBe(true)
+  })
+
+  test('renders active Agent projects with a recoverable lock label', () => {
+    const project = createProject({
+      editState: {
+        status: 'locked',
+        reason: 'agent',
+        activeSessionId: 'session-active',
+      },
+    })
+
+    const renderer = create(
+      <PageBuilderHistoryCard
+        onDelete={() => {}}
+        onEdit={async () => {}}
+        onPreview={() => {}}
+        project={project}
+      />,
+    )
+
+    const editButton = renderer.root.findAllByType('button').find((button) => button.props['aria-label'] === '编辑项目')
+
+    expect(JSON.stringify(renderer.toJSON())).toContain('Agent 处理中')
     expect(editButton).toBeDefined()
     expect(editButton!.props.disabled).not.toBe(true)
   })

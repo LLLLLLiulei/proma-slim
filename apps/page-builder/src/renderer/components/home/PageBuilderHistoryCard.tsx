@@ -28,7 +28,7 @@ function getProjectLockLabel(project: PageBuilderProjectSummary): string | null 
   }
 
   if (project.editState.reason === 'agent') {
-    return '正在构建'
+    return 'Agent 处理中'
   }
 
   if (project.editState.reason === 'export') {

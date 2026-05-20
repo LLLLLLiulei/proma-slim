@@ -63,19 +63,34 @@
 - **AND** the system SHALL keep the valid lock active for the current holder
 
 ### Requirement: Active Agent work MUST keep the project locked
-系统 SHALL treat a page-builder project as locked while any Agent session in that workspace is actively running, even when no browser edit lock is valid.
+系统 SHALL treat a page-builder project as locked while any Agent session in that workspace is actively running, even when no browser edit lock is valid; however, when the current page reopens the same active session and no other page instance or other session holds a valid edit lock for that workspace, the system SHALL treat the request as a recovery attempt rather than a fresh conflicting edit request.
 
-#### Scenario: Agent run blocks editing after page close
+#### Scenario: Agent run blocks unrelated editing after page close
 - **WHEN** a builder page is closed while an Agent run in the same page-builder workspace remains active
-- **THEN** the system SHALL report the project as locked
-- **AND** the system SHALL reject new edit access requests until the Agent run is no longer active
+- **THEN** the system SHALL report the project as locked for new unrelated editors
+- **AND** the system SHALL reject new edit access requests from other sessions until the Agent run is no longer active
+
+#### Scenario: Reopening the same active session is recoverable
+- **WHEN** the current builder page reopens the same workspaceId and sessionId that still corresponds to an active Agent run, and no other page instance or other session holds a valid edit lock for that workspace
+- **THEN** the system SHALL allow the page to recover that active session
+- **AND** the system SHALL NOT treat that request as a normal lock conflict
+
+#### Scenario: Reopened same-session lock may be replaced during recovery
+- **WHEN** the current builder page reopens the same active session while a stale same-session lock record is still present from the previous page instance
+- **THEN** the system SHALL allow the recovery flow to renew or replace that stale lock context
+- **AND** the system SHALL NOT treat the stale same-session lock as another editor
+
+#### Scenario: Non-active session with another active session remains blocked
+- **WHEN** a builder page reopens a sessionId that is not the active Agent session for that workspace, while another session in the same workspace is still active
+- **THEN** the system SHALL keep that non-active session blocked from becoming editable
+- **AND** the system SHALL direct the user toward the active session instead
 
 #### Scenario: Idle project becomes available
 - **WHEN** a page-builder workspace has no valid edit lock and no active Agent run
 - **THEN** the system SHALL report the project as available for editing
 
 ### Requirement: Page-builder editing operations MUST require a valid edit lock
-系统 SHALL reject page-builder editing operations unless the request presents the valid edit lock for the target workspace. Read-only requests and project deletion SHALL use their own availability rules instead of requiring edit-lock credentials.
+系统 SHALL reject page-builder editing operations unless the request presents the valid edit lock for the target workspace. Read-only requests and project deletion SHALL use their own availability rules instead of requiring edit-lock credentials. When a builder page is recovering the same active Agent session, the system SHALL allow the page to continue to use the restored lock context after recovery succeeds, and stale same-session lock records SHALL NOT be treated as a different editor.
 
 #### Scenario: Valid lock authorizes an editing operation
 - **WHEN** a page-builder editing operation includes the current `lockId` and `holderId` for the target workspace

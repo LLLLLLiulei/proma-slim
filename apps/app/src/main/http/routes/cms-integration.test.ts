@@ -19,6 +19,7 @@ import {
   resetCmsIntegrationRuntimeState,
   setCmsIntegrationRuntimeStoresForTest,
 } from '../../lib/cms-integration/cms-integration-runtime'
+import { pageBuilderEditLockService } from '../../lib/page-builder-edit-lock-service'
 import {
   InMemoryBuilderAccessSessionStore,
   InMemoryCmsHandoffStore,
@@ -845,6 +846,63 @@ describe('cms integration routes', () => {
     const thirdOpenResponse = await consumeOpenUrl(app, handoff.openUrl)
     expect(thirdOpenResponse.status).toBe(410)
     expect(await thirdOpenResponse.json()).toMatchObject({ code: 'handoff_expired' })
+  })
+
+  test('keeps cms builder handoff scoped to the primary session even when project edit state is recoverable', async () => {
+    enableCmsIntegration(configDir)
+    globalThis.fetch = createLoginFetchMock() as unknown as typeof fetch
+    const app = createApp()
+
+    const createdProject = await createBoundCmsProject(app, {
+      externalRecordId: 'cms-topic-active-session',
+      projectName: 'Topic Active Session',
+    })
+    const originalBinding = getSharedCmsProjectBindingStore().findByProjectId(createdProject.projectId)
+    expect(originalBinding).toBeTruthy()
+
+    const originalGetEditState = pageBuilderEditLockService.getEditState.bind(pageBuilderEditLockService)
+    pageBuilderEditLockService.getEditState = ((workspaceId: string) => (
+      workspaceId === originalBinding!.workspaceId
+        ? { status: 'locked', reason: 'agent', activeSessionId: 'active-session-from-edit-state' }
+        : originalGetEditState(workspaceId)
+    )) as typeof pageBuilderEditLockService.getEditState
+
+    try {
+      const handoffResponse = await app.fetch(new Request(`http://localhost/api/integrations/cms/projects/${createdProject.projectId}/handoffs`, {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer integration-secret',
+          'content-type': 'application/json',
+          'x-cms-cookie': 'JSESSIONID=abc',
+        },
+        body: JSON.stringify({}),
+      }))
+
+      expect(handoffResponse.status).toBe(200)
+      const handoff = await handoffResponse.json() as { openUrl: string }
+
+      const openResponse = await consumeOpenUrl(app, handoff.openUrl)
+      expect(openResponse.status).toBe(302)
+      expect(openResponse.headers.get('location')).toBe(`/pagebuilder/builder/${originalBinding!.workspaceId}/${originalBinding!.primarySessionId}`)
+      expectWorkspaceScopedAccessCookie(openResponse.headers.get('set-cookie'))
+      expect(openResponse.headers.get('set-cookie')).toContain('Path=/pagebuilder')
+
+      const activeContextResponse = await app.fetch(new Request(
+        `http://localhost/api/integrations/cms/builder-context?workspaceId=${originalBinding!.workspaceId}&sessionId=${originalBinding!.primarySessionId}`,
+        {
+          headers: {
+            cookie: openResponse.headers.get('set-cookie') ?? '',
+          },
+        },
+      ))
+      expect(activeContextResponse.status).toBe(200)
+      expect(await activeContextResponse.json()).toMatchObject({
+        workspace: { id: originalBinding!.workspaceId },
+        session: { id: originalBinding!.primarySessionId },
+      })
+    } finally {
+      pageBuilderEditLockService.getEditState = originalGetEditState as typeof pageBuilderEditLockService.getEditState
+    }
   })
 
   test('persists handoff and access session across runtime service recreation', async () => {

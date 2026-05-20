@@ -10,7 +10,7 @@ import {
 function createService(options: {
   now?: number
   ids?: string[]
-  agentActive?: boolean
+  activeAgentSessionId?: string | null
   exportActive?: boolean
 } = {}) {
   let now = options.now ?? 1_000
@@ -24,7 +24,7 @@ function createService(options: {
       }
       return id
     },
-    isWorkspaceAgentActive: () => options.agentActive ?? false,
+    getWorkspaceActiveAgentSessionId: () => options.activeAgentSessionId ?? null,
     isWorkspaceExportActive: () => options.exportActive ?? false,
   })
 
@@ -150,16 +150,133 @@ describe('page builder edit lock service', () => {
     }).valid).toBe(true)
   })
 
-  test('active Agent work marks the workspace busy and blocks acquisition', () => {
-    const { service } = createService({ agentActive: true })
+  test('active Agent work exposes the active session and blocks unrelated acquisition', () => {
+    const { service } = createService({ activeAgentSessionId: 'session-active' })
 
     expect(service.getEditState('workspace-1')).toEqual({
       status: 'locked',
       reason: 'agent',
+      activeSessionId: 'session-active',
     })
 
     expect(() => service.acquire('workspace-1', { holderId: 'holder-1' }))
       .toThrow(PageBuilderEditLockConflictError)
+
+    try {
+      service.acquire('workspace-1', { sessionId: 'session-other', holderId: 'holder-1' })
+    } catch (error) {
+      expect(error).toBeInstanceOf(PageBuilderEditLockConflictError)
+      expect((error as PageBuilderEditLockConflictError).editState).toEqual({
+        status: 'locked',
+        reason: 'agent',
+        activeSessionId: 'session-active',
+      })
+    }
+  })
+
+  test('allows reopening the same active Agent session when no other editor lock exists', () => {
+    const { service } = createService({ activeAgentSessionId: 'session-active' })
+
+    const lease = service.acquire('workspace-1', {
+      sessionId: 'session-active',
+      holderId: 'holder-recovered',
+    })
+
+    expect(lease).toMatchObject({
+      workspaceId: 'workspace-1',
+      lockId: 'lock-1',
+      holderId: 'holder-recovered',
+    })
+    expect(service.validate('workspace-1', {
+      lockId: 'lock-1',
+      holderId: 'holder-recovered',
+    }).valid).toBe(true)
+  })
+
+  test('replaces a stale same-session lock while recovering the active Agent session', () => {
+    const { service } = createService({
+      activeAgentSessionId: 'session-active',
+      ids: ['lock-old', 'lock-recovered'],
+    })
+    service.acquire('workspace-1', {
+      sessionId: 'session-active',
+      holderId: 'holder-old',
+    })
+
+    const recovered = service.acquire('workspace-1', {
+      sessionId: 'session-active',
+      holderId: 'holder-recovered',
+    })
+
+    expect(recovered).toMatchObject({
+      workspaceId: 'workspace-1',
+      lockId: 'lock-recovered',
+      holderId: 'holder-recovered',
+    })
+    expect(service.validate('workspace-1', {
+      lockId: 'lock-old',
+      holderId: 'holder-old',
+    }).valid).toBe(false)
+  })
+
+  test('replaces a legacy lock without session ownership while recovering the active Agent session', () => {
+    let activeAgentSessionId: string | null = null
+    const ids = ['lock-old', 'lock-recovered']
+    const service = new PageBuilderEditLockService({
+      now: () => 1_000,
+      randomUUID: () => ids.shift() ?? 'lock-fallback',
+      getWorkspaceActiveAgentSessionId: () => activeAgentSessionId,
+      isWorkspaceExportActive: () => false,
+    })
+    service.acquire('workspace-1', {
+      holderId: 'holder-old',
+    })
+
+    activeAgentSessionId = 'session-active'
+    const recovered = service.acquire('workspace-1', {
+      sessionId: 'session-active',
+      holderId: 'holder-recovered',
+    })
+
+    expect(recovered).toMatchObject({
+      workspaceId: 'workspace-1',
+      lockId: 'lock-recovered',
+      holderId: 'holder-recovered',
+    })
+    expect(service.validate('workspace-1', {
+      lockId: 'lock-old',
+      holderId: 'holder-old',
+    }).valid).toBe(false)
+  })
+
+  test('blocks active Agent recovery when another session owns a valid editor lock', () => {
+    const service = new PageBuilderEditLockService({
+      now: () => 1_000,
+      randomUUID: (() => {
+        const ids = ['lock-recovered']
+        return () => ids.shift() ?? 'lock-fallback'
+      })(),
+      getWorkspaceActiveAgentSessionId: () => 'session-active',
+      isWorkspaceExportActive: () => false,
+      store: {
+        get: () => ({
+          workspaceId: 'workspace-1',
+          lockId: 'lock-other',
+          holderId: 'holder-other',
+          sessionId: 'session-other',
+          acquiredAt: 1_000,
+          renewedAt: 1_000,
+          expiresAt: 61_000,
+        }),
+        set: () => {},
+        delete: () => {},
+      },
+    })
+
+    expect(() => service.acquire('workspace-1', {
+      sessionId: 'session-active',
+      holderId: 'holder-recovered',
+    })).toThrow(PageBuilderEditLockConflictError)
   })
 
   test('active static export marks the workspace busy and blocks acquisition until it finishes', () => {

@@ -54,7 +54,7 @@ import { ApiError, api } from '@/lib/api'
 import { clearBootstrapPayload, readBootstrapPayload } from '@page-builder/lib/bootstrap-cache'
 import { resolveBuilderContext } from '@page-builder/lib/builder-context'
 import { getPageBuilderPublicBasePath } from '@page-builder/lib/public-base-path'
-import { buildHomePath } from '@page-builder/lib/routes'
+import { buildBuilderPath, buildHomePath } from '@page-builder/lib/routes'
 import {
   clearPageBuilderEditLockFragment,
   clearStoredPageBuilderEditLock,
@@ -147,6 +147,15 @@ function toEditLockCredentials(lease: PageBuilderEditLockLease | null): PageBuil
         holderId: lease.holderId,
       }
     : null
+}
+
+async function resolveActivePageBuilderSessionId(workspaceId: string): Promise<string | null> {
+  try {
+    const projects = await api.listPageBuilderProjects()
+    return projects.find((project) => project.workspaceId === workspaceId)?.activeSessionId ?? null
+  } catch {
+    return null
+  }
 }
 
 async function resolveInitialPageBuilderEditLock(
@@ -303,6 +312,24 @@ function navigateToPageBuilderHome(): void {
     window.history.pushState(null, '', homePath)
   } else {
     window.history.replaceState(null, '', homePath)
+  }
+
+  if (typeof window.dispatchEvent === 'function') {
+    const event = typeof PopStateEvent === 'function'
+      ? new PopStateEvent('popstate')
+      : new Event('popstate')
+    window.dispatchEvent(event)
+  }
+}
+
+function navigateToPageBuilderBuilder(workspaceId: string, sessionId: string): void {
+  if (typeof window === 'undefined') return
+  const builderPath = buildBuilderPath(workspaceId, sessionId, getPageBuilderPublicBasePath())
+
+  if (typeof window.history.pushState === 'function') {
+    window.history.pushState(null, '', builderPath)
+  } else {
+    window.history.replaceState(null, '', builderPath)
   }
 
   if (typeof window.dispatchEvent === 'function') {
@@ -481,17 +508,18 @@ export function BuilderPage({
       try {
         const cmsWorkspace = normalizeCmsBuilderWorkspace(context.workspace)
         const cmsSession = normalizeCmsBuilderSession(context.session, cmsWorkspace.id)
+        const targetSessionId = cmsSession.id
         const needsEditLock = cmsWorkspace.template === 'page-builder'
         setEditLockRequired(needsEditLock)
         if (needsEditLock) {
-          const lease = await resolveInitialPageBuilderEditLock(cmsWorkspace.id, cmsSession.id)
+          const lease = await resolveInitialPageBuilderEditLock(cmsWorkspace.id, targetSessionId)
           setEditLockLease(lease)
           setEditLockLostMessage(null)
         }
 
         setSessions([cmsSession])
         setWorkspaces([cmsWorkspace])
-        setCurrentSessionId(cmsSession.id)
+        setCurrentSessionId(targetSessionId)
         setCurrentWorkspaceId(cmsWorkspace.id)
         setCmsBrowserWorkspaceId(cmsWorkspace.id)
         setLoadState({ status: 'ready', initialUserMessage: null })
@@ -537,10 +565,30 @@ export function BuilderPage({
         return
       }
 
-      const needsEditLock = resolved.workspace?.template === 'page-builder'
+      const resolvedWorkspace = resolved.workspace
+      const resolvedSession = resolved.session
+      if (!resolvedWorkspace || !resolvedSession) {
+        setLoadState({
+          status: 'error',
+          message: '当前项目或对话不存在，无法进入构建页。',
+          recovery: 'home-and-retry',
+        })
+        return
+      }
+
+      const activeSessionId = resolvedWorkspace.template === 'page-builder'
+        ? await resolveActivePageBuilderSessionId(resolvedWorkspace.id)
+        : null
+      if (activeSessionId && activeSessionId !== sessionId) {
+        navigateToPageBuilderBuilder(resolvedWorkspace.id, activeSessionId)
+        return
+      }
+
+      const targetSessionId = activeSessionId ?? sessionId
+      const needsEditLock = resolvedWorkspace.template === 'page-builder'
       setEditLockRequired(needsEditLock)
       if (needsEditLock) {
-        const lease = await resolveInitialPageBuilderEditLock(workspaceId, sessionId)
+        const lease = await resolveInitialPageBuilderEditLock(workspaceId, targetSessionId)
         setEditLockLease(lease)
         setEditLockLostMessage(null)
       } else {
@@ -550,16 +598,16 @@ export function BuilderPage({
 
       setSessions(sessions)
       setWorkspaces(workspaces)
-      setCurrentSessionId(sessionId)
+      setCurrentSessionId(targetSessionId)
       setCurrentWorkspaceId(workspaceId)
 
       let initialUserMessage: string | null = null
       if (typeof window !== 'undefined') {
-        const payload = readBootstrapPayload(window.sessionStorage, sessionId)
+        const payload = readBootstrapPayload(window.sessionStorage, targetSessionId)
         if (payload?.workspaceId === workspaceId) {
           initialUserMessage = payload.initialPrompt
         } else if (payload) {
-          clearBootstrapPayload(window.sessionStorage, sessionId)
+          clearBootstrapPayload(window.sessionStorage, targetSessionId)
         }
       }
 

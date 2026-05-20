@@ -125,6 +125,7 @@ function createProject(overrides: Partial<PageBuilderProjectSummary> = {}): Page
     createdAt: 1710000000000,
     lastActiveAt: 1710001000000,
     latestSessionId: 'session-1',
+    activeSessionId: null,
     previewUrl: '/api/workspaces/workspace-1/preview/',
     editState: { status: 'available' },
     ...overrides,
@@ -210,6 +211,40 @@ describe('PageBuilderHistorySection', () => {
     expect(acquirePageBuilderEditLock).not.toHaveBeenCalled()
     expect(createSession).not.toHaveBeenCalled()
     expect(open).toHaveBeenCalledWith(buildBuilderPath(project.workspaceId, 'session-1'), '_blank', 'noopener,noreferrer')
+    expect(location.pathname).toBe('/')
+  })
+
+  test('edit action prefers the active session over the latest session', async () => {
+    const { location, open } = installWindowHarness()
+    const project = createProject({
+      latestSessionId: 'session-latest',
+      activeSessionId: 'session-active',
+      editState: {
+        status: 'locked',
+        reason: 'agent',
+        activeSessionId: 'session-active',
+      },
+    })
+
+    const { PageBuilderHistorySection, acquirePageBuilderEditLock, createSession } = await loadHistorySection({
+      projects: [project],
+    })
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(React.createElement(PageBuilderHistorySection))
+    })
+
+    const editButton = renderer.root.findAllByType('button').find((button) => button.props['aria-label'] === '编辑项目')
+    expect(editButton).toBeDefined()
+
+    await act(async () => {
+      await editButton!.props.onClick()
+    })
+
+    expect(acquirePageBuilderEditLock).not.toHaveBeenCalled()
+    expect(createSession).not.toHaveBeenCalled()
+    expect(open).toHaveBeenCalledWith(buildBuilderPath(project.workspaceId, 'session-active'), '_blank', 'noopener,noreferrer')
     expect(location.pathname).toBe('/')
   })
 

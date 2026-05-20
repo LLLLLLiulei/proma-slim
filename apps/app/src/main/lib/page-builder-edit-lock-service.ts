@@ -66,7 +66,7 @@ interface PageBuilderEditLockServiceOptions {
   store?: PageBuilderEditLockStore
   now?: () => number
   randomUUID?: () => string
-  isWorkspaceAgentActive?: (workspaceId: string) => boolean
+  getWorkspaceActiveAgentSessionId?: (workspaceId: string) => string | null
   isWorkspaceExportActive?: (workspaceId: string) => boolean
 }
 
@@ -74,14 +74,14 @@ export class PageBuilderEditLockService {
   private readonly store: PageBuilderEditLockStore
   private readonly now: () => number
   private readonly randomUUID: () => string
-  private readonly isWorkspaceAgentActive: (workspaceId: string) => boolean
+  private readonly getWorkspaceActiveAgentSessionId: (workspaceId: string) => string | null
   private readonly isWorkspaceExportActive: (workspaceId: string) => boolean
 
   constructor(options: PageBuilderEditLockServiceOptions = {}) {
     this.store = options.store ?? new InMemoryPageBuilderEditLockStore()
     this.now = options.now ?? Date.now
     this.randomUUID = options.randomUUID ?? nodeRandomUUID
-    this.isWorkspaceAgentActive = options.isWorkspaceAgentActive ?? (() => false)
+    this.getWorkspaceActiveAgentSessionId = options.getWorkspaceActiveAgentSessionId ?? (() => null)
     this.isWorkspaceExportActive = options.isWorkspaceExportActive ?? (() => false)
   }
 
@@ -90,8 +90,18 @@ export class PageBuilderEditLockService {
     request: PageBuilderEditLockAcquireRequest = {},
   ): PageBuilderEditLockLease {
     const normalizedWorkspaceId = normalizeRequiredId(workspaceId)
+    const normalizedSessionId = normalizeOptionalId(request.sessionId)
+    const activeSessionId = this.getActiveAgentSessionId(normalizedWorkspaceId)
     const existingLock = this.getValidLock(normalizedWorkspaceId)
     if (existingLock) {
+      if (
+        activeSessionId
+        && normalizedSessionId === activeSessionId
+        && (existingLock.sessionId === undefined || existingLock.sessionId === activeSessionId)
+      ) {
+        return this.issueLease(normalizedWorkspaceId, request)
+      }
+
       throw new PageBuilderEditLockConflictError(
         'locked',
         lockToEditState(existingLock),
@@ -99,11 +109,11 @@ export class PageBuilderEditLockService {
       )
     }
 
-    if (this.isWorkspaceAgentActive(normalizedWorkspaceId)) {
+    if (activeSessionId && normalizedSessionId !== activeSessionId) {
       throw new PageBuilderEditLockConflictError(
         'agent-busy',
-        { status: 'locked', reason: 'agent' },
-        '该项目正在构建中，请稍后再试',
+        { status: 'locked', reason: 'agent', activeSessionId },
+        '该项目正在由 Agent 处理中，请恢复当前活跃会话',
       )
     }
 
@@ -115,18 +125,7 @@ export class PageBuilderEditLockService {
       )
     }
 
-    const now = this.now()
-    const lock: StoredPageBuilderEditLock = {
-      workspaceId: normalizedWorkspaceId,
-      lockId: this.randomUUID(),
-      holderId: normalizeOptionalId(request.holderId) ?? this.randomUUID(),
-      ...(normalizeOptionalId(request.sessionId) ? { sessionId: normalizeOptionalId(request.sessionId) } : {}),
-      acquiredAt: now,
-      renewedAt: now,
-      expiresAt: now + PAGE_BUILDER_EDIT_LOCK_TTL_MS,
-    }
-    this.store.set(lock)
-    return lockToLease(lock)
+    return this.issueLease(normalizedWorkspaceId, request)
   }
 
   renew(
@@ -235,8 +234,9 @@ export class PageBuilderEditLockService {
       return lockToEditState(lock)
     }
 
-    if (this.isWorkspaceAgentActive(normalizedWorkspaceId)) {
-      return { status: 'locked', reason: 'agent' }
+    const activeSessionId = this.getActiveAgentSessionId(normalizedWorkspaceId)
+    if (activeSessionId) {
+      return { status: 'locked', reason: 'agent', activeSessionId }
     }
 
     if (this.isWorkspaceExportActive(normalizedWorkspaceId)) {
@@ -256,11 +256,35 @@ export class PageBuilderEditLockService {
       editState.reason === 'agent' ? 'agent-busy' : editState.reason === 'export' ? 'export-busy' : 'locked',
       editState,
       editState.reason === 'agent'
-        ? '该项目正在构建中，请稍后再试'
+        ? '该项目正在由 Agent 处理中，请恢复当前活跃会话'
         : editState.reason === 'export'
           ? '该项目正在导出中，请稍后再试'
         : '该项目当前有其他编辑会话正在进行，请稍后再试',
     )
+  }
+
+  getActiveAgentSessionId(workspaceId: string): string | null {
+    const normalizedWorkspaceId = normalizeRequiredId(workspaceId)
+    return normalizeOptionalId(this.getWorkspaceActiveAgentSessionId(normalizedWorkspaceId) ?? undefined) ?? null
+  }
+
+  private issueLease(
+    normalizedWorkspaceId: string,
+    request: PageBuilderEditLockAcquireRequest,
+  ): PageBuilderEditLockLease {
+    const now = this.now()
+    const normalizedSessionId = normalizeOptionalId(request.sessionId)
+    const lock: StoredPageBuilderEditLock = {
+      workspaceId: normalizedWorkspaceId,
+      lockId: this.randomUUID(),
+      holderId: normalizeOptionalId(request.holderId) ?? this.randomUUID(),
+      ...(normalizedSessionId ? { sessionId: normalizedSessionId } : {}),
+      acquiredAt: now,
+      renewedAt: now,
+      expiresAt: now + PAGE_BUILDER_EDIT_LOCK_TTL_MS,
+    }
+    this.store.set(lock)
+    return lockToLease(lock)
   }
 
   private getValidLock(workspaceId: string): StoredPageBuilderEditLock | null {
@@ -280,13 +304,17 @@ export class PageBuilderEditLockService {
 }
 
 export function isPageBuilderWorkspaceAgentActive(workspaceId: string): boolean {
-  return listAgentSessions().some((session) => (
+  return getPageBuilderWorkspaceActiveAgentSessionId(workspaceId) !== null
+}
+
+export function getPageBuilderWorkspaceActiveAgentSessionId(workspaceId: string): string | null {
+  return listAgentSessions().find((session) => (
     session.workspaceId === workspaceId && isAgentSessionActive(session.id)
-  ))
+  ))?.id ?? null
 }
 
 export const pageBuilderEditLockService = new PageBuilderEditLockService({
-  isWorkspaceAgentActive: isPageBuilderWorkspaceAgentActive,
+  getWorkspaceActiveAgentSessionId: getPageBuilderWorkspaceActiveAgentSessionId,
   isWorkspaceExportActive: (workspaceId) => pageBuilderStaticExportService.isWorkspaceExportActive(workspaceId),
 })
 

@@ -76,10 +76,14 @@
 - **THEN** 系统 SHALL 打开该项目当前最新的预览入口
 
 ### Requirement: 编辑操作必须恢复或补建可编辑会话
-系统 SHALL 在用户点击历史项目卡片的 `编辑` 按钮时进入该项目的 builder 页面；若该工作区下已经存在会话，则优先恢复最近一次会话，若该工作区当前没有可用会话，则 SHALL 自动创建一个新会话后再进入 builder。Builder 页面 SHALL 自行完成编辑锁获取、续约和冲突反馈。
+系统 SHALL 在用户点击历史项目卡片的 `编辑` 按钮时进入该项目的 builder 页面；若该工作区下已经存在仍在执行的 active Agent 会话，则系统 SHALL 优先恢复该 active 会话；若该工作区当前没有 active 会话但存在可用的最近会话，则系统 SHALL 进入该最近会话对应的 builder 页面；若该工作区当前没有可用会话，则系统 SHALL 自动创建一个新会话后再进入 builder。Builder 页面 SHALL 自行完成编辑锁获取、续约和冲突反馈。
 
-#### Scenario: 工作区存在会话时恢复最近一次编辑
-- **WHEN** 用户点击某个已有会话的历史项目卡片上的 `编辑` 按钮
+#### Scenario: 工作区存在 active 会话时恢复该会话
+- **WHEN** 用户点击某个历史项目卡片上的 `编辑` 按钮，且该工作区下存在仍在执行的 active Agent 会话
+- **THEN** 系统 SHALL 优先进入该 active 会话对应的 builder 页面
+
+#### Scenario: active 会话不存在时回退到最近会话
+- **WHEN** 用户点击某个历史项目卡片上的 `编辑` 按钮，且该工作区下没有 active Agent 会话但存在最近一次会话
 - **THEN** 系统 SHALL 进入该工作区最近一次会话对应的 builder 页面
 
 #### Scenario: 已有锁上下文时由 builder 继续续约

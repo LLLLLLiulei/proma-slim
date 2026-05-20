@@ -171,6 +171,8 @@ function installWindowHarness(): {
   getListenerCount: (type: string) => number
   runIntervalsOnce: () => Promise<void>
   open: ReturnType<typeof mock>
+  pushState: ReturnType<typeof mock>
+  replaceState: ReturnType<typeof mock>
 } {
   const sessionStorage = createMemoryStorage()
   const localStorage = createMemoryStorage()
@@ -183,6 +185,28 @@ function installWindowHarness(): {
   const intervals = new Map<number, () => void | Promise<void>>()
   let nextIntervalId = 1
   const open = mock(() => {})
+  const pushState = mock((_state: unknown, _title: string, url?: string | URL | null) => {
+    if (!url) {
+      location.hash = ''
+      return
+    }
+
+    const parsed = new URL(String(url), 'http://localhost')
+    location.pathname = parsed.pathname
+    location.search = parsed.search
+    location.hash = parsed.hash
+  })
+  const replaceState = mock((_state: unknown, _title: string, url?: string | URL | null) => {
+    if (!url) {
+      location.hash = ''
+      return
+    }
+
+    const parsed = new URL(String(url), 'http://localhost')
+    location.pathname = parsed.pathname
+    location.search = parsed.search
+    location.hash = parsed.hash
+  })
 
   Object.defineProperty(globalThis, 'window', {
     configurable: true,
@@ -199,17 +223,8 @@ function installWindowHarness(): {
       sessionStorage,
       location,
       history: {
-        replaceState: (_state: unknown, _title: string, url?: string | URL | null) => {
-          if (!url) {
-            location.hash = ''
-            return
-          }
-
-          const parsed = new URL(String(url), 'http://localhost')
-          location.pathname = parsed.pathname
-          location.search = parsed.search
-          location.hash = parsed.hash
-        },
+        pushState,
+        replaceState,
       },
       setInterval(callback: () => void | Promise<void>) {
         const id = nextIntervalId++
@@ -228,6 +243,8 @@ function installWindowHarness(): {
     sessionStorage,
     location,
     open,
+    pushState,
+    replaceState,
     dispatchWindowEvent(type: string, event?: unknown) {
       for (const listener of listeners.get(type) ?? []) {
         listener(event)
@@ -275,6 +292,10 @@ async function loadBuilderPage(options: {
     lockId: string,
     payload: PageBuilderEditLockHolderRequest,
   ) => Promise<void>
+  listPageBuilderProjectsImpl?: () => Promise<Array<{
+    workspaceId: string
+    activeSessionId?: string | null
+  }>>
   getWorkspacePreviewStateImpl?: () => Promise<WorkspacePreviewState>
   getPageBuilderCmsTargetSnapshotImpl?: (
     workspaceId: string,
@@ -385,6 +406,7 @@ async function loadBuilderPage(options: {
       })),
   )
   const releasePageBuilderEditLock = mock(options.releasePageBuilderEditLockImpl ?? (async () => {}))
+  const listPageBuilderProjects = mock(options.listPageBuilderProjectsImpl ?? (async () => []))
 
   mock.module('@/components/agent', () => ({
     AgentView(props: Record<string, unknown>) {
@@ -473,6 +495,7 @@ async function loadBuilderPage(options: {
     api: {
       getCmsBuilderContext,
       getCmsIntegrationStatus,
+      listPageBuilderProjects,
       listSessions,
       listWorkspaces,
       acquirePageBuilderEditLock,
@@ -571,6 +594,7 @@ async function loadBuilderPage(options: {
     getCmsIntegrationStatus,
     listSessions,
     listWorkspaces,
+    listPageBuilderProjects,
   }
 }
 
@@ -870,6 +894,116 @@ describe('BuilderPage', () => {
     expect(getLastCmsBrowserDialogProps()).toMatchObject({
       open: false,
       workspaceId: null,
+    })
+  })
+
+  test('switches a stale standalone builder URL to the active Agent session', async () => {
+    const { location, pushState, replaceState } = installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const staleSession: AgentSessionMeta = {
+      id: 'session-stale',
+      title: '旧会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const activeSession: AgentSessionMeta = {
+      id: 'session-active',
+      title: '处理中会话',
+      workspaceId: workspace.id,
+      createdAt: 2,
+      updatedAt: 2,
+    }
+
+    const {
+      BuilderPage,
+      acquirePageBuilderEditLock,
+      getLastAgentViewProps,
+      listPageBuilderProjects,
+    } = await loadBuilderPage({
+      sessions: [activeSession, staleSession],
+      workspaces: [workspace],
+      listPageBuilderProjectsImpl: async () => [{
+        workspaceId: workspace.id,
+        activeSessionId: activeSession.id,
+      }],
+      mockPreviewPane: true,
+      mockCmsBrowserDialog: true,
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={staleSession.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(listPageBuilderProjects).toHaveBeenCalledTimes(1)
+    expect(pushState).toHaveBeenCalledWith(null, '', `/builder/${workspace.id}/${activeSession.id}`)
+    expect(replaceState).not.toHaveBeenCalled()
+    expect(location.pathname).toBe(`/builder/${workspace.id}/${activeSession.id}`)
+    expect(acquirePageBuilderEditLock).not.toHaveBeenCalled()
+    expect(getLastAgentViewProps()).toBeNull()
+  })
+
+  test('recovers the same active Agent session in standalone mode', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const activeSession: AgentSessionMeta = {
+      id: 'session-active',
+      title: '处理中会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const {
+      BuilderPage,
+      acquirePageBuilderEditLock,
+      getLastAgentViewProps,
+    } = await loadBuilderPage({
+      sessions: [activeSession],
+      workspaces: [workspace],
+      listPageBuilderProjectsImpl: async () => [{
+        workspaceId: workspace.id,
+        activeSessionId: activeSession.id,
+      }],
+      mockPreviewPane: true,
+      mockCmsBrowserDialog: true,
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={activeSession.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(acquirePageBuilderEditLock).toHaveBeenCalledWith(workspace.id, expect.objectContaining({
+      sessionId: activeSession.id,
+    }))
+    expect(getLastAgentViewProps()).toMatchObject({
+      sessionId: activeSession.id,
     })
   })
 

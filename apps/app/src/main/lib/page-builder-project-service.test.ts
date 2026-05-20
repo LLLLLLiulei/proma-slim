@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -6,6 +6,7 @@ import { getAgentSessionMessagesPath, getAgentSessionsIndexPath, getAgentWorkspa
 import { createAgentSession, listAgentSessions } from './agent-session-manager'
 import { createAgentWorkspace, ensureDefaultWorkspace, listAgentWorkspaces } from './workspace-service'
 import { deletePageBuilderProject, listPageBuilderProjects } from './page-builder-project-service'
+import { pageBuilderEditLockService } from './page-builder-edit-lock-service'
 
 describe('page builder project service', () => {
   let configDir: string
@@ -18,6 +19,7 @@ describe('page builder project service', () => {
   afterEach(() => {
     delete process.env.PROMA_CONFIG_DIR
     delete process.env.AI_PAGE_BUILDER_BASE_PATH
+    mock.restore()
     rmSync(configDir, { recursive: true, force: true })
   })
 
@@ -95,6 +97,73 @@ describe('page builder project service', () => {
 
     expect(projects.find((project) => project.workspaceId === builder.id)?.previewUrl)
       .toBe(`/pagebuilder/api/workspaces/${builder.id}/preview/`)
+  })
+
+  test('lists active page-builder session ids for recoverable projects', () => {
+    const workspace = createAgentWorkspace('Recoverable Project', { template: 'page-builder' })
+    const latestSession = createAgentSession('Latest Idle Session', undefined, workspace.id)
+    const activeSession = createAgentSession('Active Session', undefined, workspace.id)
+    const originalGetEditState = pageBuilderEditLockService.getEditState.bind(pageBuilderEditLockService)
+    const originalGetActiveAgentSessionId = pageBuilderEditLockService.getActiveAgentSessionId.bind(pageBuilderEditLockService)
+    pageBuilderEditLockService.getEditState = ((workspaceId: string) => (
+      workspaceId === workspace.id
+        ? { status: 'locked', reason: 'agent', activeSessionId: activeSession.id }
+        : originalGetEditState(workspaceId)
+    )) as typeof pageBuilderEditLockService.getEditState
+    pageBuilderEditLockService.getActiveAgentSessionId = ((workspaceId: string) => (
+      workspaceId === workspace.id ? activeSession.id : originalGetActiveAgentSessionId(workspaceId)
+    )) as typeof pageBuilderEditLockService.getActiveAgentSessionId
+
+    try {
+      const projects = listPageBuilderProjects()
+
+      expect(projects.find((project) => project.workspaceId === workspace.id)).toMatchObject({
+        latestSessionId: activeSession.id,
+        activeSessionId: activeSession.id,
+        editState: {
+          status: 'locked',
+          reason: 'agent',
+          activeSessionId: activeSession.id,
+        },
+      })
+      expect(latestSession.id).not.toBe(activeSession.id)
+    } finally {
+      pageBuilderEditLockService.getEditState = originalGetEditState as typeof pageBuilderEditLockService.getEditState
+      pageBuilderEditLockService.getActiveAgentSessionId = originalGetActiveAgentSessionId as typeof pageBuilderEditLockService.getActiveAgentSessionId
+    }
+  })
+
+  test('lists active page-builder session ids even when the workspace currently has an editor lock', () => {
+    const workspace = createAgentWorkspace('Locked Recoverable Project', { template: 'page-builder' })
+    const latestSession = createAgentSession('Latest Locked Session', undefined, workspace.id)
+    const activeSession = createAgentSession('Active Locked Session', undefined, workspace.id)
+    const originalGetEditState = pageBuilderEditLockService.getEditState.bind(pageBuilderEditLockService)
+    const originalGetActiveAgentSessionId = pageBuilderEditLockService.getActiveAgentSessionId.bind(pageBuilderEditLockService)
+    pageBuilderEditLockService.getEditState = ((workspaceId: string) => (
+      workspaceId === workspace.id
+        ? { status: 'locked', reason: 'editor', expiresAt: Date.now() + 60_000 }
+        : originalGetEditState(workspaceId)
+    )) as typeof pageBuilderEditLockService.getEditState
+    pageBuilderEditLockService.getActiveAgentSessionId = ((workspaceId: string) => (
+      workspaceId === workspace.id ? activeSession.id : originalGetActiveAgentSessionId(workspaceId)
+    )) as typeof pageBuilderEditLockService.getActiveAgentSessionId
+
+    try {
+      const projects = listPageBuilderProjects()
+
+      expect(projects.find((project) => project.workspaceId === workspace.id)).toMatchObject({
+        latestSessionId: activeSession.id,
+        activeSessionId: activeSession.id,
+        editState: {
+          status: 'locked',
+          reason: 'editor',
+        },
+      })
+      expect(latestSession.id).not.toBe(activeSession.id)
+    } finally {
+      pageBuilderEditLockService.getEditState = originalGetEditState as typeof pageBuilderEditLockService.getEditState
+      pageBuilderEditLockService.getActiveAgentSessionId = originalGetActiveAgentSessionId as typeof pageBuilderEditLockService.getActiveAgentSessionId
+    }
   })
 
   test('deletes a page-builder project with its sessions, messages, and workspace root', () => {
