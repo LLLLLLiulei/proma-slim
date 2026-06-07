@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
+import { deflateSync } from 'node:zlib'
 import { closeDiagnosticLoggers, flushDiagnosticLoggers } from './diagnostic-logging'
 import { createAgentWorkspace } from './workspace-service'
 
@@ -36,6 +37,79 @@ function createPngBuffer(width: number, height: number, totalBytes = 2048): Uint
   view.setUint32(12, 0x49484452)
   view.setUint32(16, width)
   view.setUint32(20, height)
+  return buffer
+}
+
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+let crcTable: number[] | null = null
+
+function getCrcTable(): number[] {
+  if (crcTable) return crcTable
+  crcTable = Array.from({ length: 256 }, (_, index) => {
+    let crc = index
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = (crc & 1) ? (0xedb88320 ^ (crc >>> 1)) : (crc >>> 1)
+    }
+    return crc >>> 0
+  })
+  return crcTable
+}
+
+function crc32(buffer: Buffer): number {
+  let crc = 0xffffffff
+  const table = getCrcTable()
+  for (const byte of buffer) {
+    crc = table[(crc ^ byte) & 0xff]! ^ (crc >>> 8)
+  }
+  return (crc ^ 0xffffffff) >>> 0
+}
+
+function createPngChunk(type: string, data = Buffer.alloc(0)): Buffer {
+  const typeBuffer = Buffer.from(type, 'ascii')
+  const length = Buffer.alloc(4)
+  length.writeUInt32BE(data.length, 0)
+  const checksum = Buffer.alloc(4)
+  checksum.writeUInt32BE(crc32(Buffer.concat([typeBuffer, data])), 0)
+  return Buffer.concat([length, typeBuffer, data, checksum])
+}
+
+function createValidLargePngBuffer(width: number, height: number): Buffer {
+  const ihdr = Buffer.alloc(13)
+  ihdr.writeUInt32BE(width, 0)
+  ihdr.writeUInt32BE(height, 4)
+  ihdr[8] = 8
+  ihdr[9] = 2
+  ihdr[10] = 0
+  ihdr[11] = 0
+  ihdr[12] = 0
+
+  const stride = width * 3 + 1
+  const raw = Buffer.alloc(stride * height)
+  let seed = 0x12345678
+  for (let y = 0; y < height; y += 1) {
+    const row = y * stride
+    raw[row] = 0
+    for (let x = 1; x < stride; x += 1) {
+      seed ^= seed << 13
+      seed ^= seed >>> 17
+      seed ^= seed << 5
+      raw[row + x] = (seed >>> 24) & 0xff
+    }
+  }
+
+  return Buffer.concat([
+    PNG_SIGNATURE,
+    createPngChunk('IHDR', ihdr),
+    createPngChunk('IDAT', deflateSync(raw, { level: 6 })),
+    createPngChunk('IEND'),
+  ])
+}
+
+function createLargeGifBuffer(width: number, height: number, totalBytes: number): Buffer {
+  const buffer = Buffer.alloc(totalBytes, 0)
+  buffer.write('GIF89a', 0, 'ascii')
+  buffer.writeUInt16LE(width, 6)
+  buffer.writeUInt16LE(height, 8)
   return buffer
 }
 
@@ -254,6 +328,60 @@ describe('image search sdk runtime tools', () => {
     expect(fetchMock).toHaveBeenCalledWith('https://api.unsplash.com/photos/valid/download', expect.anything())
   })
 
+  test('download_images optimizes large static images and keeps oversized GIFs unchanged', async () => {
+    const { buildImageSearchRuntimeToolBundle } = await import('./image-search-sdk-tools')
+    const workspace = createAgentWorkspace('Image Search Import Optimization', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+    const largePng = createValidLargePngBuffer(768, 768)
+    const largeGif = createLargeGifBuffer(320, 240, (15 * 1024 * 1024) + 4096)
+
+    expect(largePng.byteLength).toBeGreaterThan(1024 * 1024)
+    expect(largeGif.byteLength).toBeGreaterThan(15 * 1024 * 1024)
+
+    const fetchMock = mock(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === 'https://images.example.com/large.png') {
+        return new Response(new Uint8Array(largePng), { status: 200, headers: { 'content-type': 'image/png', 'content-length': String(largePng.byteLength) } })
+      }
+      if (url === 'https://images.example.com/animated.gif') {
+        return new Response(new Uint8Array(largeGif), { status: 200, headers: { 'content-type': 'image/gif', 'content-length': String(largeGif.byteLength) } })
+      }
+      throw new Error(`unexpected fetch: ${url}`)
+    })
+    const tools = getRegisteredTools(buildImageSearchRuntimeToolBundle({ workspace, fetchFn: fetchMock as unknown as typeof fetch, now: () => 1_700_000_000_000, uuidFn: () => 'optimized-uuid' }))
+
+    const result = await invokeTool<{ imported: Array<Record<string, unknown>>; failed: Array<{ downloadUrl: string; provider: string; error: string }> }>(tools.download_images!, {
+      images: [
+        { provider: 'pexels', downloadUrl: 'https://images.example.com/large.png', url: 'https://images.example.com/large.png', width: 768, height: 768, sourcePage: 'https://source.example.com/large' },
+        { provider: 'bing', downloadUrl: 'https://images.example.com/animated.gif', url: 'https://images.example.com/animated.gif', width: 320, height: 240, sourcePage: 'https://source.example.com/gif' },
+      ],
+      count: 2,
+    })
+
+    expect(result.failed).toEqual([])
+    expect(result.imported).toEqual([
+      expect.objectContaining({
+        assetFileName: 'page-builder-image-1700000000000-optimized-uuid.webp',
+        assetRelativePath: 'assets/page-builder-image-1700000000000-optimized-uuid.webp',
+        assetPreviewPath: './assets/page-builder-image-1700000000000-optimized-uuid.webp',
+        width: 768,
+        height: 768,
+      }),
+      expect.objectContaining({
+        assetFileName: 'page-builder-image-1700000000000-optimized-uuid.gif',
+        assetRelativePath: 'assets/page-builder-image-1700000000000-optimized-uuid.gif',
+        assetPreviewPath: './assets/page-builder-image-1700000000000-optimized-uuid.gif',
+        width: 320,
+        height: 240,
+      }),
+    ])
+    const optimized = readFileSync(join(workspaceFilesDir, 'assets', 'page-builder-image-1700000000000-optimized-uuid.webp'))
+    const gif = readFileSync(join(workspaceFilesDir, 'assets', 'page-builder-image-1700000000000-optimized-uuid.gif'))
+    expect(optimized.byteLength).toBeLessThan(largePng.byteLength)
+    expect(gif.byteLength).toBe(largeGif.byteLength)
+    expect(gif.subarray(0, 6).toString('ascii')).toBe('GIF89a')
+  })
+
   test('provider config resolver reads provider keys without printing secret values', async () => {
     clearProviderEnv()
     process.env.PEXELS_API_KEY = 'pexels-native'
@@ -343,6 +471,10 @@ describe('image search sdk runtime tools', () => {
     expect(backendLog).toContain('result.diagnostics.pexels.status=ok')
     expect(backendLog).toContain('phase=download_tool_start')
     expect(backendLog).toContain('phase=download_candidate_start')
+    expect(backendLog).toContain('phase=image_optimize_skipped')
+    expect(backendLog).toContain('reason=below_threshold')
+    expect(backendLog).toContain('originalByteLength=')
+    expect(backendLog).toContain('inputFormat=png')
     expect(backendLog).toContain('phase=download_candidate_success')
     expect(backendLog).toContain('assetRelativePath=assets/page-builder-image-1700000000000-log-uuid.png')
     expect(backendLog).toContain('phase=download_tool_success')

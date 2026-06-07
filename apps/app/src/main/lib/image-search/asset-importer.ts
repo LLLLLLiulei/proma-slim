@@ -4,8 +4,9 @@ import { extname, join } from 'node:path'
 import type { AgentWorkspace } from '@ai-page-builder/shared'
 import { getWorkspaceFilesDir } from '../config-paths'
 import { logImageSearchInfo, logImageSearchWarn, serializeImageSearchLogError } from './logging'
+import { optimizeImageBuffer, type ImageOptimizationMetadata } from './image-optimizer'
 import type { FetchLike, FailedDownload, ImageResult, ImageSearchLogger, ImportImagesResult, ImportedImageResult } from './types'
-import { DEFAULT_IMAGE_COUNT, DOWNLOAD_TIMEOUT, MAX_IMAGE_BYTES, MIN_IMAGE_SIZE } from './types'
+import { DEFAULT_IMAGE_COUNT, DOWNLOAD_TIMEOUT, MIN_IMAGE_SIZE } from './types'
 
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
@@ -15,7 +16,6 @@ const HEADERS = { 'User-Agent': USER_AGENT }
 export interface ImportImagesToWorkspaceOptions {
   now?: () => number
   uuidFn?: () => string
-  maxImageBytes?: number
   logger?: ImageSearchLogger
 }
 
@@ -24,9 +24,22 @@ export interface ImportImagesToWorkspaceInput {
   count?: number
 }
 
-export function parseImageDimensions(buffer: ArrayBuffer): { width: number; height: number } {
-  if (buffer.byteLength < 10) return { width: 0, height: 0 }
-  const view = new DataView(buffer)
+type BinaryImageBuffer = ArrayBuffer | Uint8Array
+
+function toDataView(buffer: BinaryImageBuffer): DataView {
+  if (buffer instanceof ArrayBuffer) return new DataView(buffer)
+  return new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength)
+}
+
+function toBytes(buffer: BinaryImageBuffer): Uint8Array {
+  if (buffer instanceof ArrayBuffer) return new Uint8Array(buffer)
+  return buffer
+}
+
+export function parseImageDimensions(buffer: BinaryImageBuffer): { width: number; height: number } {
+  const view = toDataView(buffer)
+  const bytes = toBytes(buffer)
+  if (view.byteLength < 10) return { width: 0, height: 0 }
 
   if (view.getUint16(0) === 0xffd8) {
     let offset = 2
@@ -51,7 +64,7 @@ export function parseImageDimensions(buffer: ArrayBuffer): { width: number; heig
     }
   }
 
-  if (buffer.byteLength >= 24) {
+  if (view.byteLength >= 24) {
     if (view.getUint32(0) === 0x89504e47 && view.getUint32(4) === 0x0d0a1a0a) {
       return {
         width: view.getUint32(16),
@@ -60,8 +73,8 @@ export function parseImageDimensions(buffer: ArrayBuffer): { width: number; heig
     }
   }
 
-  if (buffer.byteLength >= 10) {
-    const magic = String.fromCharCode(...new Uint8Array(buffer, 0, 6))
+  if (view.byteLength >= 10) {
+    const magic = String.fromCharCode(...bytes.subarray(0, 6))
     if (magic === 'GIF87a' || magic === 'GIF89a') {
       return {
         width: view.getUint16(6, true),
@@ -70,7 +83,7 @@ export function parseImageDimensions(buffer: ArrayBuffer): { width: number; heig
     }
   }
 
-  if (buffer.byteLength >= 30) {
+  if (view.byteLength >= 30) {
     if (view.getUint32(0) === 0x52494646 && view.getUint32(8) === 0x57454250) {
       const chunk = view.getUint32(12)
       if (chunk === 0x56503820) {
@@ -167,18 +180,19 @@ function assertSafeHttpUrl(rawUrl: string): void {
   }
 }
 
-function isImageMagic(buffer: ArrayBuffer): boolean {
-  const view = new DataView(buffer)
+function isImageMagic(buffer: BinaryImageBuffer): boolean {
+  const view = toDataView(buffer)
+  const bytes = toBytes(buffer)
   if (view.byteLength >= 8 && view.getUint32(0) === 0x89504e47 && view.getUint32(4) === 0x0d0a1a0a) return true
   if (view.byteLength >= 2 && view.getUint16(0) === 0xffd8) return true
   if (view.byteLength >= 2 && view.getUint16(0, true) === 0x4d42) return true
   if (view.byteLength >= 12 && view.getUint32(0) === 0x52494646 && view.getUint32(8) === 0x57454250) return true
   if (view.byteLength >= 6) {
-    const signature = String.fromCharCode(...new Uint8Array(buffer, 0, 6))
+    const signature = String.fromCharCode(...bytes.subarray(0, 6))
     if (signature === 'GIF87a' || signature === 'GIF89a') return true
   }
   if (view.byteLength >= 16) {
-    const signature = String.fromCharCode(...new Uint8Array(buffer, 4, 12))
+    const signature = String.fromCharCode(...bytes.subarray(4, 16))
     if (signature.includes('ftyp') && (signature.includes('avif') || signature.includes('avis'))) return true
   }
   return false
@@ -242,9 +256,8 @@ async function trackDownloadIfNeeded(
 async function fetchImageBuffer(
   fetchFn: FetchLike,
   image: ImageResult,
-  maxImageBytes: number,
   logger?: ImageSearchLogger,
-): Promise<{ buffer: ArrayBuffer; width: number; height: number; extension: string; contentType: string | null; byteLength: number }> {
+): Promise<{ buffer: Buffer; width: number; height: number; extension: string; contentType: string | null; byteLength: number; optimization: ImageOptimizationMetadata }> {
   const downloadUrl = image.downloadUrl || image.url
   assertSafeHttpUrl(downloadUrl)
   if (isSvgUrl(downloadUrl)) throw new Error('拒绝导入 SVG 图片')
@@ -265,15 +278,7 @@ async function fetchImageBuffer(
     throw new Error(`响应不是图片（content-type: ${contentType}）`)
   }
 
-  const contentLength = Number(response.headers.get('content-length') || '0')
-  if (contentLength > maxImageBytes) {
-    throw new Error(`图片文件过大（${contentLength} bytes）`)
-  }
-
-  const buffer = await response.arrayBuffer()
-  if (buffer.byteLength > maxImageBytes) {
-    throw new Error(`图片文件过大（${buffer.byteLength} bytes）`)
-  }
+  const buffer = Buffer.from(await response.arrayBuffer())
   if (buffer.byteLength < 1024) throw new Error('图片文件过小')
   if (!isImageMagic(buffer)) throw new Error(contentType ? `响应不是图片（content-type: ${contentType}）` : '响应不是图片')
 
@@ -283,13 +288,23 @@ async function fetchImageBuffer(
   if (width > 0 && width < MIN_IMAGE_SIZE) throw new Error(`图片尺寸过小（${width}x${height}）`)
   if (height > 0 && height < MIN_IMAGE_SIZE) throw new Error(`图片尺寸过小（${width}x${height}）`)
 
-  return {
+  const optimized = await optimizeImageBuffer({
     buffer,
     width,
     height,
     extension: resolveImageExtension(finalUrl, contentType),
     contentType,
-    byteLength: buffer.byteLength,
+    logger,
+  })
+
+  return {
+    buffer: optimized.buffer,
+    width: optimized.width,
+    height: optimized.height,
+    extension: optimized.extension,
+    contentType: optimized.contentType,
+    byteLength: optimized.byteLength,
+    optimization: optimized.optimization,
   }
 }
 
@@ -311,7 +326,6 @@ export async function importImagesToWorkspace(
   const targetCount = Math.max(1, Math.trunc(input.count ?? DEFAULT_IMAGE_COUNT))
   const now = options.now ?? Date.now
   const uuidFn = options.uuidFn ?? randomUUID
-  const maxImageBytes = options.maxImageBytes ?? MAX_IMAGE_BYTES
   const logger = options.logger
   const workspaceFilesDir = getWorkspaceFilesDir(workspace.slug)
   const assetsDir = join(workspaceFilesDir, 'assets')
@@ -333,11 +347,11 @@ export async function importImagesToWorkspace(
       hasDownloadTrackingUrl: Boolean(image.downloadTrackingUrl),
     })
     try {
-      const downloaded = await fetchImageBuffer(fetchFn, image, maxImageBytes, logger)
+      const downloaded = await fetchImageBuffer(fetchFn, image, logger)
       const assetFileName = `page-builder-image-${now()}-${uuidFn()}${downloaded.extension}`
       const assetRelativePath = join('assets', assetFileName)
       const assetPreviewPath = `./assets/${assetFileName}`
-      writeFileSync(join(workspaceFilesDir, assetRelativePath), Buffer.from(downloaded.buffer))
+      writeFileSync(join(workspaceFilesDir, assetRelativePath), downloaded.buffer)
       imported.push({
         downloadUrl: image.downloadUrl || image.url,
         provider: image.provider,
@@ -364,6 +378,7 @@ export async function importImagesToWorkspace(
         height: downloaded.height,
         contentType: downloaded.contentType,
         byteLength: downloaded.byteLength,
+        optimization: downloaded.optimization,
       })
     } catch (error) {
       const failedItem = toFailedDownload(image, error)

@@ -4,7 +4,6 @@ export const MAX_RETRIES = 3
 export const REQUEST_TIMEOUT = 10_000
 export const DOWNLOAD_TIMEOUT = 10_000
 export const DIMENSION_TIMEOUT = 5_000
-export const MAX_IMAGE_BYTES = 15 * 1024 * 1024
 
 export const IMAGE_PROVIDERS = ['pexels', 'pixabay', 'unsplash', 'bing'] as const
 
