@@ -2,6 +2,14 @@ import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
+const IMAGE_SEARCH_ENV_KEYS = new Set([
+  'IMAGE_SEARCH_PROVIDERS',
+  'PEXELS_API_KEY',
+  'PIXABAY_API_KEY',
+  'UNSPLASH_ACCESS_KEY',
+])
+const PREFIXED_IMAGE_SEARCH_ENV_PATTERN = /\b[A-Z0-9]+_(?:IMAGE_SEARCH_PROVIDERS|PEXELS_API_KEY|PIXABAY_API_KEY|UNSPLASH_ACCESS_KEY)\b/g
+
 function readRepoFile(relativePath: string): string {
   return readFileSync(fileURLToPath(new URL(relativePath, import.meta.url)), 'utf-8')
 }
@@ -9,6 +17,12 @@ function readRepoFile(relativePath: string): string {
 function readComposeServiceBlock(compose: string, serviceName: string): string {
   const match = compose.match(new RegExp(`\\n  ${serviceName}:\\n[\\s\\S]*?(?=\\n  \\w|\\n?$)`))
   return match?.[0] ?? ''
+}
+
+function expectOnlyImageSearchEnvKeys(content: string) {
+  const invalid = Array.from(content.matchAll(PREFIXED_IMAGE_SEARCH_ENV_PATTERN), (match) => match[0])
+    .filter((key) => !IMAGE_SEARCH_ENV_KEYS.has(key))
+  expect(invalid).toEqual([])
 }
 
 describe('page-builder docker assets', () => {
@@ -24,6 +38,11 @@ describe('page-builder docker assets', () => {
     expect(compose).not.toContain('ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL')
     expect(compose).toContain('AI_PAGE_BUILDER_PLAYWRIGHT_MCP_URL: ${AI_PAGE_BUILDER_PLAYWRIGHT_MCP_URL:-http://playwright:8931/mcp}')
     expect(compose).toContain('AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN: ${AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN:-http://server:8888}')
+    expectOnlyImageSearchEnvKeys(compose)
+    expect(compose).toContain('IMAGE_SEARCH_PROVIDERS: ${IMAGE_SEARCH_PROVIDERS:-}')
+    expect(compose).toContain('PEXELS_API_KEY: ${PEXELS_API_KEY:-}')
+    expect(compose).toContain('PIXABAY_API_KEY: ${PIXABAY_API_KEY:-}')
+    expect(compose).toContain('UNSPLASH_ACCESS_KEY: ${UNSPLASH_ACCESS_KEY:-}')
     expect(compose).toContain("PLAYWRIGHT_EXECUTABLE_PATH=\"$(find /ms-playwright/chromium-* \\( -path '*chrome-linux/chrome' -o -path '*chrome-linux64/chrome' \\) | head -1)\"")
     expect(compose).toContain('if [ -z "$$PLAYWRIGHT_EXECUTABLE_PATH" ]; then')
     expect(compose).toContain('--executable-path "$$PLAYWRIGHT_EXECUTABLE_PATH"')
@@ -51,6 +70,11 @@ describe('page-builder docker assets', () => {
     expect(envExample).toContain('AI_PAGE_BUILDER_ACCESS_SESSION_RENEW_THRESHOLD_MS=')
     expect(envExample).toContain('AI_PAGE_BUILDER_SYNC_EXPORT_TIMEOUT_MS=0')
     expect(envExample).toContain('AI_PAGE_BUILDER_HOST_DATA_DIR=')
+    expectOnlyImageSearchEnvKeys(envExample)
+    expect(envExample).toContain('IMAGE_SEARCH_PROVIDERS=')
+    expect(envExample).toContain('PEXELS_API_KEY=')
+    expect(envExample).toContain('PIXABAY_API_KEY=')
+    expect(envExample).toContain('UNSPLASH_ACCESS_KEY=')
   })
 
   test('docker assets explain CMS runtime store persistence inputs', () => {
@@ -60,6 +84,11 @@ describe('page-builder docker assets', () => {
     expect(cmsEnvExample).toContain('integrations/cms/runtime')
     expect(cmsEnvExample).toContain('单 server 实例')
     expect(cmsEnvExample).toContain('默认文件 runtime store 只支持单 server 实例语义')
+    expectOnlyImageSearchEnvKeys(cmsEnvExample)
+    expect(cmsEnvExample).toContain('IMAGE_SEARCH_PROVIDERS=')
+    expect(cmsEnvExample).toContain('PEXELS_API_KEY=')
+    expect(cmsEnvExample).toContain('PIXABAY_API_KEY=')
+    expect(cmsEnvExample).toContain('UNSPLASH_ACCESS_KEY=')
   })
 
   test('docker assets expose page-builder public base path as runtime configuration', () => {
@@ -88,8 +117,13 @@ describe('page-builder docker assets', () => {
     expect(dockerfile).not.toContain('ARG AI_PAGE_BUILDER_BASE_PATH=')
     expect(dockerfile).not.toContain('AI_PAGE_BUILDER_BASE_PATH="$AI_PAGE_BUILDER_BASE_PATH" bun run --filter')
     expect(dockerfile).toContain("RUN bun run --filter='@ai-page-builder/page-builder' build")
-    expect(dockerfile).toContain('COPY --from=deps /app/node_modules ./node_modules')
-    expect(dockerfile).toContain('COPY --from=build /app/packages/shared ./packages/shared')
+    expect(dockerfile).toContain('bun build apps/page-builder/src/server/prod-server.ts')
+    expect(dockerfile).toContain('--outfile /app/apps/page-builder/src/server/prod-server.js')
+    expect(dockerfile).not.toContain('COPY --from=deps /app/node_modules ./node_modules')
+    expect(dockerfile).not.toContain('COPY --from=build /app/packages/shared ./packages/shared')
+    expect(dockerfile).not.toContain('COPY --from=build /app/apps/page-builder/src/server/prod-server.ts')
+    expect(dockerfile).toContain('COPY --from=build /app/apps/page-builder/src/server/prod-server.js ./apps/page-builder/src/server/prod-server.js')
+    expect(dockerfile).toContain('exec bun apps/page-builder/src/server/prod-server.js')
 
     expect(compose).toContain('AI_PAGE_BUILDER_BASE_PATH: ${AI_PAGE_BUILDER_BASE_PATH:-}')
     expect(compose).toContain('AI_PAGE_BUILDER_PUBLIC_ORIGIN: ${AI_PAGE_BUILDER_PUBLIC_ORIGIN:-}')
@@ -135,6 +169,11 @@ describe('page-builder docker assets', () => {
     expect(verifyCompose).toContain('AI_PAGE_BUILDER_BASE_PATH: /pagebuilder')
     expect(verifyCompose).toContain('AI_PAGE_BUILDER_ACCESS_SESSION_RENEW_THRESHOLD_MS: ${AI_PAGE_BUILDER_ACCESS_SESSION_RENEW_THRESHOLD_MS:-3600000}')
     expect(verifyCompose).toContain('AI_PAGE_BUILDER_SYNC_EXPORT_TIMEOUT_MS: ${AI_PAGE_BUILDER_SYNC_EXPORT_TIMEOUT_MS:-30000}')
+    expectOnlyImageSearchEnvKeys(verifyCompose)
+    expect(verifyCompose).toContain('IMAGE_SEARCH_PROVIDERS: ${IMAGE_SEARCH_PROVIDERS:-}')
+    expect(verifyCompose).toContain('PEXELS_API_KEY: ${PEXELS_API_KEY:-}')
+    expect(verifyCompose).toContain('PIXABAY_API_KEY: ${PIXABAY_API_KEY:-}')
+    expect(verifyCompose).toContain('UNSPLASH_ACCESS_KEY: ${UNSPLASH_ACCESS_KEY:-}')
     expect(verifyCompose).toContain('source: ./.cms-verify-data')
     expect(verifyCompose).toContain('source: ./cms-mock')
     expect(verifyCompose).toContain('source: ./nginx/cms-verify.conf')
@@ -171,6 +210,11 @@ describe('page-builder docker assets', () => {
     expect(serverBlock).toContain('ANTHROPIC_API_KEY: ${AI_PAGE_BUILDER_ANTHROPIC_API_KEY:?Set AI_PAGE_BUILDER_ANTHROPIC_API_KEY}')
     expect(serverBlock).toContain('AI_PAGE_BUILDER_ACCESS_SESSION_RENEW_THRESHOLD_MS: ${AI_PAGE_BUILDER_ACCESS_SESSION_RENEW_THRESHOLD_MS:-}')
     expect(serverBlock).toContain('AI_PAGE_BUILDER_PLAYWRIGHT_MCP_URL: ${AI_PAGE_BUILDER_PLAYWRIGHT_MCP_URL:-http://playwright:8931/mcp}')
+    expectOnlyImageSearchEnvKeys(serverBlock)
+    expect(serverBlock).toContain('IMAGE_SEARCH_PROVIDERS: ${IMAGE_SEARCH_PROVIDERS:-}')
+    expect(serverBlock).toContain('PEXELS_API_KEY: ${PEXELS_API_KEY:-}')
+    expect(serverBlock).toContain('PIXABAY_API_KEY: ${PIXABAY_API_KEY:-}')
+    expect(serverBlock).toContain('UNSPLASH_ACCESS_KEY: ${UNSPLASH_ACCESS_KEY:-}')
     expect(serverBlock).toContain('source: ${AI_PAGE_BUILDER_HOST_DATA_DIR:-${HOME:?Set HOME in your shell}/.ai-page-builder}')
     expect(webBlock).toContain('AI_PAGE_BUILDER_SERVER_ORIGIN: http://server:8888')
     expect(webBlock).toContain('AI_PAGE_BUILDER_BASE_PATH: ${AI_PAGE_BUILDER_BASE_PATH:-}')

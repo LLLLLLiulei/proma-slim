@@ -13,7 +13,7 @@
   ],
   "scripts": {
     "dev": "bun run --filter='@ai-page-builder/app' dev",
-    "dev:page-builder": "bun run --filter='@ai-page-builder/page-builder' dev",
+    "dev:page-builder": "bun --env-file=.env.local run --filter='@ai-page-builder/page-builder' dev",
     "build": "bun run --filter='@ai-page-builder/app' build",
     "start": "bun run --filter='@ai-page-builder/app' start",
     "typecheck": "bun run --filter='*' typecheck",

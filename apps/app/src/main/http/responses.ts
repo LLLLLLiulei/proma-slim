@@ -2,6 +2,7 @@ import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { existsSync } from 'node:fs'
 import { getRuntimeStatus } from '../lib/runtime-init'
+import { resolveAnthropicRuntimeEnv } from '../lib/agent-runtime-env'
 import { HttpError } from './errors'
 
 const JSON_HEADERS = {
@@ -39,7 +40,7 @@ function resolveClaudeSdkCliPath(): string | null {
 }
 
 export function createStatusPayload() {
-  const apiKeyConfigured = Boolean(process.env.ANTHROPIC_API_KEY?.trim())
+  const apiKeyConfigured = Boolean(resolveAnthropicRuntimeEnv().apiKey)
   const sdkCliPath = resolveClaudeSdkCliPath()
 
   return {

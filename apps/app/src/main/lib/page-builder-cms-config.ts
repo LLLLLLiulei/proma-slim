@@ -62,10 +62,16 @@ function readCmsSettingsFile(): CmsSettingsFile | null {
 
 export function resolvePageBuilderCmsConfig(env: CmsEnv = process.env): PageBuilderCmsConfig | null {
   const fileSettings = readCmsSettingsFile()
-  const rawBaseUrl = env.PROMA_CMS_BASE_URL?.trim() || readOptionalString(fileSettings?.baseUrl)
+  const rawBaseUrl = env.PROMA_CMS_BASE_URL?.trim()
+    || env.AI_PAGE_BUILDER_CMS_BASE_URL?.trim()
+    || readOptionalString(fileSettings?.baseUrl)
   const baseUrl = rawBaseUrl ? normalizeBaseUrl(rawBaseUrl) : undefined
-  const username = env.PROMA_CMS_USERNAME?.trim() || readOptionalString(fileSettings?.username)
-  const password = env.PROMA_CMS_PASSWORD?.trim() || readOptionalString(fileSettings?.password)
+  const username = env.PROMA_CMS_USERNAME?.trim()
+    || env.AI_PAGE_BUILDER_CMS_USERNAME?.trim()
+    || readOptionalString(fileSettings?.username)
+  const password = env.PROMA_CMS_PASSWORD?.trim()
+    || env.AI_PAGE_BUILDER_CMS_PASSWORD?.trim()
+    || readOptionalString(fileSettings?.password)
 
   if (!baseUrl || !username || !password) {
     return null

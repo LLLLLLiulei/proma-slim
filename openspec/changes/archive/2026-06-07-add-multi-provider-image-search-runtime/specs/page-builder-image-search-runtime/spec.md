@@ -1,18 +1,4 @@
-## Purpose
-定义 page-builder 会话中的宿主侧图片搜索运行时能力，包括 query 级注入的 `image_search` SDK MCP server、多 provider 图片搜索结果归一化、provider 诊断、详细 MCP 执行日志，以及导入当前工作区 `assets/` 的受控资产导入语义。
-
-## Requirements
-### Requirement: Page-builder 会话必须暴露宿主创建的图片搜索 runtime tools
-系统 SHALL 在 `page-builder` 会话执行 Agent 查询时，为该次 query 附加宿主创建的 runtime `image_search` SDK MCP server，并仅暴露图片搜索与导入相关工具，而不是要求用户额外启动外部 MCP 进程。
-
-#### Scenario: Page-builder 查询附加图片搜索 runtime tools
-- **WHEN** 某个带有 `page-builder` 模板标记的会话开始执行 Agent 查询
-- **THEN** 系统 SHALL 为该次 query 附加 runtime `image_search` SDK MCP server
-- **AND** 系统 SHALL 允许该查询调用 `mcp__image_search__search_images` 与 `mcp__image_search__download_images`
-
-#### Scenario: 普通工作区默认不附加图片搜索 runtime tools
-- **WHEN** 某个不带 `page-builder` 模板标记的会话开始执行 Agent 查询
-- **THEN** 系统 SHALL NOT 为该查询默认附加 runtime `image_search` SDK MCP server
+## ADDED Requirements
 
 ### Requirement: `search_images` 必须按外部 image-search-mcp 设计支持多 provider 聚合搜索
 系统 SHALL 允许 `page-builder` 会话通过 `search_images` 使用 Pexels、Pixabay、Unsplash、Bing 进行多 provider 图片搜索，并默认聚合已启用且可用 provider 的结果。
@@ -74,19 +60,6 @@
 - **THEN** 系统 SHALL 对重复结果去重
 - **AND** 系统 SHALL 过滤掉 `.svg` 结果
 
-### Requirement: `search_images` 必须返回过滤后的图片结果
-系统 SHALL 允许 `page-builder` 会话通过 `search_images` 使用已配置的图片搜索 provider，并返回经过去重、格式过滤、尺寸补全、ranking 和 provider 归一化的结构化结果。
-
-#### Scenario: 搜索失败时返回可理解的工具错误
-- **WHEN** 所有已启用且可用 provider 搜索请求均失败或没有任何可搜索 provider
-- **THEN** 系统 SHALL 返回说明搜索失败原因的工具错误或诊断信息
-- **AND** 系统 SHALL NOT 因单个 provider 的搜索失败直接让整个 Agent query 崩溃
-
-#### Scenario: 结果排序优先参考外部项目 scoring 规则
-- **WHEN** 多个 provider 返回候选图片
-- **THEN** 系统 SHALL 参考外部 `image-search-mcp` 的 provider priority、query relevance、orientation match、resolution bonus 和去重规则进行排序
-- **AND** 系统 SHALL 返回排序后的 compact structured content 供模型继续选择下载
-
 ### Requirement: 多 provider 下载必须执行安全边界校验
 系统 SHALL 在 `download_images` 导入远程图片前执行 URL、重定向、内容类型、图片格式、大小和并发安全校验。
 
@@ -104,6 +77,53 @@
 - **WHEN** 模型传入多张候选图片并指定导入数量
 - **THEN** 系统 SHALL 使用有限并发按候选顺序尝试下载
 - **AND** 系统 SHALL 在成功导入达到请求数量后停止继续下载无关候选
+
+### Requirement: 图片搜索 runtime 必须输出详细 MCP 执行日志
+系统 SHALL 将 `image_search` runtime 的工具调用、provider 搜索、排序和下载导入过程写入现有 backend 诊断日志，并关联当前 Agent turn 的 trace 信息。
+
+#### Scenario: search_images 输出工具级和 provider 级日志
+- **WHEN** 模型调用 `mcp__image_search__search_images`
+- **THEN** 系统 SHALL 记录工具开始、成功或失败日志
+- **AND** 系统 SHALL 记录完整工具入参、返回结果、provider diagnostics、耗时和结果数量
+- **AND** 系统 SHALL 记录 provider skipped、start、request、success、error 以及 ranking 完成日志
+
+#### Scenario: download_images 输出工具级和候选下载日志
+- **WHEN** 模型调用 `mcp__image_search__download_images`
+- **THEN** 系统 SHALL 记录工具开始、成功或失败日志
+- **AND** 系统 SHALL 记录完整工具入参、返回结果、耗时、导入数量和失败数量
+- **AND** 系统 SHALL 记录每个下载候选的 start、success 或 failed 日志，包括 URL、provider、来源页、content-type、字节数、尺寸、资产路径和失败原因
+
+#### Scenario: 图片搜索日志关联 Agent turn 且不输出 API key 明文
+- **WHEN** 图片搜索 runtime 在某次 Agent turn 中执行
+- **THEN** 日志 SHALL 包含可用的 `requestId`、`turnId`、`sessionId`、`workspaceId` 和 `workspaceSlug`
+- **AND** 日志 SHALL NOT 输出 Pexels、Pixabay、Unsplash API key 明文
+
+## MODIFIED Requirements
+
+### Requirement: Page-builder 会话必须暴露宿主创建的图片搜索 runtime tools
+系统 SHALL 在 `page-builder` 会话执行 Agent 查询时，为该次 query 附加宿主创建的 runtime `image_search` SDK MCP server，并仅暴露图片搜索与导入相关工具，而不是要求用户额外启动外部 MCP 进程。
+
+#### Scenario: Page-builder 查询附加图片搜索 runtime tools
+- **WHEN** 某个带有 `page-builder` 模板标记的会话开始执行 Agent 查询
+- **THEN** 系统 SHALL 为该次 query 附加 runtime `image_search` SDK MCP server
+- **AND** 系统 SHALL 允许该查询调用 `mcp__image_search__search_images` 与 `mcp__image_search__download_images`
+
+#### Scenario: 普通工作区默认不附加图片搜索 runtime tools
+- **WHEN** 某个不带 `page-builder` 模板标记的会话开始执行 Agent 查询
+- **THEN** 系统 SHALL NOT 为该查询默认附加 runtime `image_search` SDK MCP server
+
+### Requirement: `search_images` 必须返回过滤后的图片结果
+系统 SHALL 允许 `page-builder` 会话通过 `search_images` 使用已配置的图片搜索 provider，并返回经过去重、格式过滤、尺寸补全、ranking 和 provider 归一化的结构化结果。
+
+#### Scenario: 搜索失败时返回可理解的工具错误
+- **WHEN** 所有已启用且可用 provider 搜索请求均失败或没有任何可搜索 provider
+- **THEN** 系统 SHALL 返回说明搜索失败原因的工具错误或诊断信息
+- **AND** 系统 SHALL NOT 因单个 provider 的搜索失败直接让整个 Agent query 崩溃
+
+#### Scenario: 结果排序优先参考外部项目 scoring 规则
+- **WHEN** 多个 provider 返回候选图片
+- **THEN** 系统 SHALL 参考外部 `image-search-mcp` 的 provider priority、query relevance、orientation match、resolution bonus 和去重规则进行排序
+- **AND** 系统 SHALL 返回排序后的 compact structured content 供模型继续选择下载
 
 ### Requirement: `download_images` 必须将图片导入当前 workspace `assets/`
 系统 SHALL 将 `download_images` 定义为“导入图片到当前 `page-builder` workspace `assets/`”的工具，而不是允许模型将图片下载到任意本地目录；该工具 SHALL 使用新版 provider-aware `ImageResult` 候选图片结构。
@@ -132,32 +152,3 @@
 - **WHEN** 某次 `download_images` 调用中只有部分图片下载或写入失败
 - **THEN** 系统 SHALL 保留其余图片的成功导入结果
 - **AND** 系统 SHALL 在返回结果中明确标注失败项
-
-### Requirement: 图片搜索 runtime 必须输出详细 MCP 执行日志
-系统 SHALL 将 `image_search` runtime 的工具调用、provider 搜索、排序和下载导入过程写入现有 backend 诊断日志，并关联当前 Agent turn 的 trace 信息。
-
-#### Scenario: search_images 输出工具级和 provider 级日志
-- **WHEN** 模型调用 `mcp__image_search__search_images`
-- **THEN** 系统 SHALL 记录工具开始、成功或失败日志
-- **AND** 系统 SHALL 记录完整工具入参、返回结果、provider diagnostics、耗时和结果数量
-- **AND** 系统 SHALL 记录 provider skipped、start、request、success、error 以及 ranking 完成日志
-
-#### Scenario: download_images 输出工具级和候选下载日志
-- **WHEN** 模型调用 `mcp__image_search__download_images`
-- **THEN** 系统 SHALL 记录工具开始、成功或失败日志
-- **AND** 系统 SHALL 记录完整工具入参、返回结果、耗时、导入数量和失败数量
-- **AND** 系统 SHALL 记录每个下载候选的 start、success 或 failed 日志，包括 URL、provider、来源页、content-type、字节数、尺寸、资产路径和失败原因
-
-#### Scenario: 图片搜索日志关联 Agent turn 且不输出 API key 明文
-- **WHEN** 图片搜索 runtime 在某次 Agent turn 中执行
-- **THEN** 日志 SHALL 包含可用的 `requestId`、`turnId`、`sessionId`、`workspaceId` 和 `workspaceSlug`
-- **AND** 日志 SHALL NOT 输出 Pexels、Pixabay、Unsplash API key 明文
-
-### Requirement: 图片导入工具首版不得直接修改页面 HTML
-系统 SHALL 将图片搜索与图片导入限制为素材准备能力，而不是在本次变更中直接替换页面元素或自动修改当前 HTML。
-
-#### Scenario: 导入完成后不自动替换页面图片
-- **WHEN** 模型调用 `mcp__image_search__download_images` 成功导入图片到当前 workspace `assets/`
-- **THEN** 系统 SHALL 仅返回资产路径和相关元数据
-- **AND** 系统 SHALL NOT 直接修改当前页面 HTML
-- **AND** 系统 SHALL NOT 自动替换页面中的图片元素

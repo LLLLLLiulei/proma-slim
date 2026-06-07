@@ -66,6 +66,20 @@ describe('resolvePageBuilderCmsConfig', () => {
     }
   })
 
+  test('uses page-builder CMS env vars when legacy PROMA CMS vars are absent', () => {
+    const config = resolvePageBuilderCmsConfig({
+      AI_PAGE_BUILDER_CMS_BASE_URL: 'https://cms.example.com/manager/',
+      AI_PAGE_BUILDER_CMS_USERNAME: 'builder-user',
+      AI_PAGE_BUILDER_CMS_PASSWORD: 'builder-pass',
+    })
+
+    expect(config).toEqual({
+      baseUrl: 'https://cms.example.com/manager',
+      username: 'builder-user',
+      password: 'builder-pass',
+    })
+  })
+
   test('does not require site configuration to resolve host credentials', () => {
     const config = resolvePageBuilderCmsConfig({
       PROMA_CMS_BASE_URL: 'https://demo.zving.com/manager/',

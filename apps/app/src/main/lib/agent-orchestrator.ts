@@ -59,6 +59,7 @@ import { buildSystemPromptAppend, buildDynamicContext } from './agent-prompt-bui
 import { permissionService } from './agent-permission-service'
 import { askUserService } from './agent-ask-user-service'
 import { mapAgentFriendlyError } from './agent-friendly-error'
+import { resolveAnthropicRuntimeEnv } from './agent-runtime-env'
 import { applyPromaAgentToolGuardrails } from './agent-tool-guardrails'
 import {
   areAllWorkersIdle,
@@ -328,6 +329,7 @@ function resolveCmsRuntimeToolBundle(
 
 function resolveImageSearchRuntimeToolBundle(
   workspace: import('@ai-page-builder/shared').AgentWorkspace,
+  trace?: BuildImageSearchRuntimeToolBundleOptions['trace'],
 ): ReturnType<typeof buildImageSearchRuntimeToolBundle> | null {
   if (workspace.template !== 'page-builder') {
     return null
@@ -335,6 +337,7 @@ function resolveImageSearchRuntimeToolBundle(
 
   return buildImageSearchRuntimeToolBundle({
     workspace,
+    trace,
   } satisfies BuildImageSearchRuntimeToolBundleOptions)
 }
 
@@ -966,11 +969,19 @@ export class AgentOrchestrator {
     })
     const workspaceSlug = workspaceRuntime.workspace.slug
     const isPageBuilderWorkspace = workspaceRuntime.workspace.template === 'page-builder'
+    const requestId = diagnostic?.requestTrace?.requestId ?? null
+    const turnId = diagnostic?.turnTrace?.turnId ?? null
     const priorMessages = getAgentSessionMessages(sessionId)
     const turnMessageStartIndex = priorMessages.length
     const isFirstUserTurn = !priorMessages.some((message) => message.role === 'user')
     const cmsRuntimeToolBundle = resolveCmsRuntimeToolBundle(workspaceRuntime.workspace, sessionId)
-    const imageSearchRuntimeToolBundle = resolveImageSearchRuntimeToolBundle(workspaceRuntime.workspace)
+    const imageSearchRuntimeToolBundle = resolveImageSearchRuntimeToolBundle(workspaceRuntime.workspace, {
+      requestId,
+      turnId,
+      sessionId,
+      workspaceId: workspaceRuntime.workspace.id,
+      workspaceSlug: workspaceRuntime.workspace.slug,
+    })
     const runtimeMcpServers: AgentMcpServerMap = {
       ...(cmsRuntimeToolBundle ? {
         [CMS_RUNTIME_SERVER_NAME]: cmsRuntimeToolBundle.mcpServer,
@@ -994,8 +1005,6 @@ export class AgentOrchestrator {
         attachments,
       })
     }
-    const requestId = diagnostic?.requestTrace?.requestId ?? null
-    const turnId = diagnostic?.turnTrace?.turnId ?? null
     const diagnosticRuntime = getDiagnosticLoggingRuntimeState()
     const logTurnPhase = (
       level: 'info' | 'warn' | 'error',
@@ -1183,14 +1192,15 @@ export class AgentOrchestrator {
     }
 
     // 2. 直接从环境变量读取 API Key（不再依赖渠道系统）
-    const apiKey = process.env.ANTHROPIC_API_KEY?.trim()
+    const anthropicEnv = resolveAnthropicRuntimeEnv()
+    const apiKey = anthropicEnv.apiKey
     if (!apiKey) {
       rollbackPendingAttachments()
       logTurnPhase('error', 'api_key_missing', {}, '缺少 Agent API Key')
-      callbacks.onError('未检测到 ANTHROPIC_API_KEY 环境变量，请先在终端配置后再发送消息')
+      callbacks.onError('未检测到 ANTHROPIC_API_KEY 或 AI_PAGE_BUILDER_ANTHROPIC_API_KEY 环境变量，请先在终端配置后再发送消息')
       return
     }
-    const baseUrl = process.env.ANTHROPIC_BASE_URL?.trim()
+    const baseUrl = anthropicEnv.baseUrl
 
     // 3. 构建环境变量
     // 同步凭证到 process.env（SDK in-process 代码可能直接读取 process.env）

@@ -1356,7 +1356,7 @@ describe('AgentOrchestrator workspace runtime', () => {
       },
     )
 
-    expect(onErrors).toEqual(['未检测到 ANTHROPIC_API_KEY 环境变量，请先在终端配置后再发送消息'])
+    expect(onErrors).toEqual(['未检测到 ANTHROPIC_API_KEY 或 AI_PAGE_BUILDER_ANTHROPIC_API_KEY 环境变量，请先在终端配置后再发送消息'])
     expect(getAgentSessionMessages(session.id)).toEqual([])
     expect(existsSync(attachmentPath)).toBe(false)
   })
