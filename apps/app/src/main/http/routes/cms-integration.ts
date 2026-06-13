@@ -274,6 +274,7 @@ cmsIntegrationRoutes.get('/handoffs/:handoffId/open', async (c) => {
 cmsIntegrationRoutes.use('/builder-context', createCmsBuilderAccessMiddleware({
   workspaceId: (c) => readRequiredQuery(c.req.query('workspaceId'), 'workspaceId'),
   sessionId: (c) => readRequiredQuery(c.req.query('sessionId'), 'sessionId'),
+  allowDevStandaloneBypass: false,
 }))
 
 cmsIntegrationRoutes.get('/builder-context', (c) => {

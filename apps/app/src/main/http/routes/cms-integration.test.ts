@@ -33,11 +33,13 @@ import { createHttpApp } from '../app'
 
 const ORIGINAL_ENV = {
   PROMA_CONFIG_DIR: process.env.PROMA_CONFIG_DIR,
+  NODE_ENV: process.env.NODE_ENV,
   AI_PAGE_BUILDER_INTEGRATION_MODE: process.env.AI_PAGE_BUILDER_INTEGRATION_MODE,
   AI_PAGE_BUILDER_INTEGRATION_SECRET: process.env.AI_PAGE_BUILDER_INTEGRATION_SECRET,
   AI_PAGE_BUILDER_CMS_BASE_URL: process.env.AI_PAGE_BUILDER_CMS_BASE_URL,
   AI_PAGE_BUILDER_BASE_PATH: process.env.AI_PAGE_BUILDER_BASE_PATH,
   AI_PAGE_BUILDER_PUBLIC_ORIGIN: process.env.AI_PAGE_BUILDER_PUBLIC_ORIGIN,
+  AI_PAGE_BUILDER_DEV_ALLOW_STANDALONE_ENTRY_IN_CMS: process.env.AI_PAGE_BUILDER_DEV_ALLOW_STANDALONE_ENTRY_IN_CMS,
   AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN: process.env.AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN,
   AI_PAGE_BUILDER_SYNC_EXPORT_TIMEOUT_MS: process.env.AI_PAGE_BUILDER_SYNC_EXPORT_TIMEOUT_MS,
   AI_PAGE_BUILDER_ACCESS_SESSION_RENEW_THRESHOLD_MS: process.env.AI_PAGE_BUILDER_ACCESS_SESSION_RENEW_THRESHOLD_MS,
@@ -1598,6 +1600,152 @@ describe('cms integration routes', () => {
     expect(renderingVueScript.status).toBe(200)
     expect(renderingVueScript.headers.get('access-control-allow-origin')).toBe('*')
     expect(await renderingVueScript.text()).not.toContain('ai_page_builder_access')
+  })
+
+  test('allows standalone home history and direct builder APIs only for explicit development CMS opt-in', async () => {
+    enableCmsIntegration(configDir, {
+      NODE_ENV: 'development',
+      AI_PAGE_BUILDER_DEV_ALLOW_STANDALONE_ENTRY_IN_CMS: 'true',
+    })
+    process.env.PROMA_CMS_BASE_URL = 'https://demo.zving.com/manager/'
+    process.env.PROMA_CMS_USERNAME = 'test-user'
+    process.env.PROMA_CMS_PASSWORD = 'test-pass'
+    globalThis.fetch = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === 'https://cms.example.com/manager/ui/login') {
+        return createLoginFetchMock()(input, init)
+      }
+
+      if (url === 'https://demo.zving.com/manager/api/token') {
+        return createCmsTokenResponse()
+      }
+
+      if (url === 'https://demo.zving.com/manager/api/sites') {
+        expect(new Headers(init?.headers).get('authorization')).toBe('Bearer cms-token')
+        expect(new Headers(init?.headers).get('cookie')).toBeNull()
+        return jsonResponse({
+          status: 1,
+          data: [
+            { id: '14', name: '开发站点', url: 'https://demo.zving.com/site/' },
+          ],
+        })
+      }
+
+      if (url === 'https://demo.zving.com/manager/api/catalogsTree?siteID=14') {
+        expect(new Headers(init?.headers).get('authorization')).toBe('Bearer cms-token')
+        expect(new Headers(init?.headers).get('cookie')).toBeNull()
+        return jsonResponse({
+          status: 1,
+          data: [],
+        })
+      }
+
+      throw new Error(`unexpected request: ${url}`)
+    }) as unknown as typeof fetch
+    const app = createApp()
+
+    const created = await createBoundCmsProject(app, {
+      externalRecordId: 'cms-dev-standalone-entry',
+      projectName: 'CMS Dev Standalone Entry',
+    })
+
+    const status = await app.fetch(new Request('http://localhost/api/integrations/cms/status'))
+    expect(status.status).toBe(200)
+    expect(await status.json()).toMatchObject({
+      integrationMode: 'cms',
+      enabled: true,
+      devStandaloneEntryEnabled: true,
+    })
+
+    const projects = await app.fetch(new Request('http://localhost/api/page-builder/projects'))
+    expect(projects.status).toBe(200)
+    expect(await projects.json()).toEqual(expect.arrayContaining([expect.objectContaining({
+      workspaceId: created.binding.workspaceId,
+      latestSessionId: created.binding.primarySessionId,
+    })]))
+
+    const workspaces = await app.fetch(new Request('http://localhost/api/workspaces'))
+    expect(workspaces.status).toBe(200)
+    expect(await workspaces.json()).toEqual(expect.arrayContaining([expect.objectContaining({
+      id: created.binding.workspaceId,
+    })]))
+
+    const sessions = await app.fetch(new Request('http://localhost/api/sessions'))
+    expect(sessions.status).toBe(200)
+    expect(await sessions.json()).toEqual(expect.arrayContaining([expect.objectContaining({
+      id: created.binding.primarySessionId,
+      workspaceId: created.binding.workspaceId,
+    })]))
+
+    const messages = await app.fetch(new Request(`http://localhost/api/sessions/${created.binding.primarySessionId}/messages`))
+    expect(messages.status).toBe(200)
+    expect(await messages.json()).toEqual(getAgentSessionMessages(created.binding.primarySessionId))
+
+    const activity = await app.fetch(new Request(`http://localhost/api/sessions/${created.binding.primarySessionId}/activity`))
+    expect(activity.status).toBe(200)
+    expect(await activity.json()).toEqual({ active: false })
+
+    const localWorkspaceResponse = await app.fetch(new Request('http://localhost/api/workspaces', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Local Dev Project', template: 'page-builder' }),
+    }))
+    expect(localWorkspaceResponse.status).toBe(201)
+    const localWorkspace = await localWorkspaceResponse.json() as { id: string; template?: string }
+    expect(localWorkspace.template).toBe('page-builder')
+
+    const localSessionResponse = await app.fetch(new Request('http://localhost/api/sessions', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ title: 'Local Dev Session', workspaceId: localWorkspace.id }),
+    }))
+    expect(localSessionResponse.status).toBe(201)
+
+    const localCmsSites = await app.fetch(new Request(`http://localhost/api/workspaces/${localWorkspace.id}/page-builder/cms/sites`))
+    expect(localCmsSites.status).toBe(200)
+    expect(await localCmsSites.json()).toEqual([
+      expect.objectContaining({ id: '14', name: '开发站点' }),
+    ])
+
+    const localCmsCatalogs = await app.fetch(new Request(`http://localhost/api/workspaces/${localWorkspace.id}/page-builder/cms/catalogs?siteId=14`))
+    expect(localCmsCatalogs.status).toBe(200)
+    expect(await localCmsCatalogs.json()).toEqual({
+      items: [],
+      tree: [],
+    })
+
+    const deleteLocalProject = await app.fetch(new Request(`http://localhost/api/page-builder/projects/${localWorkspace.id}`, {
+      method: 'DELETE',
+    }))
+    expect(deleteLocalProject.status).toBe(204)
+
+    const missingAccessContext = await app.fetch(new Request(`http://localhost/api/integrations/cms/builder-context?workspaceId=${created.binding.workspaceId}&sessionId=${created.binding.primarySessionId}`))
+    expect(missingAccessContext.status).toBe(401)
+    expect(await missingAccessContext.json()).toMatchObject({ code: 'builder_access_required' })
+  })
+
+  test('ignores standalone entry opt-in outside development CMS mode', async () => {
+    enableCmsIntegration(configDir, {
+      NODE_ENV: 'production',
+      AI_PAGE_BUILDER_DEV_ALLOW_STANDALONE_ENTRY_IN_CMS: 'true',
+    })
+    const app = createApp()
+
+    const status = await app.fetch(new Request('http://localhost/api/integrations/cms/status'))
+    expect(status.status).toBe(200)
+    expect(await status.json()).not.toHaveProperty('devStandaloneEntryEnabled')
+
+    const projects = await app.fetch(new Request('http://localhost/api/page-builder/projects'))
+    expect(projects.status).toBe(403)
+    expect(await projects.json()).toMatchObject({ code: 'builder_access_mismatch' })
+
+    const workspaces = await app.fetch(new Request('http://localhost/api/workspaces'))
+    expect(workspaces.status).toBe(403)
+    expect(await workspaces.json()).toMatchObject({ code: 'builder_access_mismatch' })
+
+    const sessions = await app.fetch(new Request('http://localhost/api/sessions'))
+    expect(sessions.status).toBe(403)
+    expect(await sessions.json()).toMatchObject({ code: 'builder_access_mismatch' })
   })
 
   test('scopes CMS browser data APIs to the builder workspace project binding', async () => {

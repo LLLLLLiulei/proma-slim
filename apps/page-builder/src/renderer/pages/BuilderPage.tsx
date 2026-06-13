@@ -114,6 +114,10 @@ function isCmsIntegrationEnabled(status: CmsIntegrationStatus): boolean {
   return status.integrationMode === 'cms' && status.enabled
 }
 
+function shouldLoadCmsBuilderContext(status: CmsIntegrationStatus): boolean {
+  return status.integrationMode === 'cms' && status.enabled && status.devStandaloneEntryEnabled !== true
+}
+
 function normalizeCmsBuilderWorkspace(workspace: CmsBuilderContext['workspace']): AgentWorkspace {
   const now = Date.now()
   return {
@@ -490,9 +494,10 @@ export function BuilderPage({
     }
 
     const nextCmsIntegrationEnabled = isCmsIntegrationEnabled(integrationStatus)
+    const nextShouldLoadCmsBuilderContext = shouldLoadCmsBuilderContext(integrationStatus)
     setCmsIntegrationEnabled(nextCmsIntegrationEnabled)
 
-    if (nextCmsIntegrationEnabled) {
+    if (nextShouldLoadCmsBuilderContext) {
       let context: CmsBuilderContext
       try {
         context = await api.getCmsBuilderContext(workspaceId, sessionId)
@@ -600,6 +605,7 @@ export function BuilderPage({
       setWorkspaces(workspaces)
       setCurrentSessionId(targetSessionId)
       setCurrentWorkspaceId(workspaceId)
+      setCmsBrowserWorkspaceId(nextCmsIntegrationEnabled ? resolvedWorkspace.id : null)
 
       let initialUserMessage: string | null = null
       if (typeof window !== 'undefined') {

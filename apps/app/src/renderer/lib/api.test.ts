@@ -108,6 +108,7 @@ describe('renderer api wrappers', () => {
         enabled: true,
         supportedOpenModes: ['iframe', 'window'],
         basePath: '/pagebuilder',
+        devStandaloneEntryEnabled: true,
       })
     })
     globalThis.fetch = fetchMock as unknown as typeof fetch
@@ -120,6 +121,7 @@ describe('renderer api wrappers', () => {
       enabled: true,
       supportedOpenModes: ['iframe', 'window'],
       basePath: '/pagebuilder',
+      devStandaloneEntryEnabled: true,
     })
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })

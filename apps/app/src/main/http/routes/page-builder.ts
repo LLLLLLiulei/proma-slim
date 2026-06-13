@@ -52,12 +52,16 @@ pageBuilderRoutes.get('/cms-rendering-vue.js', () => {
 })
 
 pageBuilderRoutes.get('/projects', (c) => {
-  assertCmsBuilderApiAvailableInCmsMode('CMS 集成模式下不可读取全量 page-builder 项目列表')
+  assertCmsBuilderApiAvailableInCmsMode('CMS 集成模式下不可读取全量 page-builder 项目列表', {
+    allowDevStandaloneEntry: true,
+  })
   return c.json(listPageBuilderProjects())
 })
 
 pageBuilderRoutes.delete('/projects/:workspaceId', (c) => {
-  assertCmsBuilderApiAvailableInCmsMode('CMS 集成模式下不可删除 project binding 关联的 page-builder 项目')
+  assertCmsBuilderApiAvailableInCmsMode('CMS 集成模式下不可删除 project binding 关联的 page-builder 项目', {
+    allowDevStandaloneEntry: true,
+  })
   try {
     deletePageBuilderProject(c.req.param('workspaceId'))
   } catch (error) {

@@ -266,7 +266,11 @@ function installWindowHarness(): {
 async function loadBuilderPage(options: {
   sessions: AgentSessionMeta[]
   workspaces: AgentWorkspace[]
-  getCmsIntegrationStatusImpl?: () => Promise<{ integrationMode: 'standalone' | 'cms'; enabled: boolean }>
+  getCmsIntegrationStatusImpl?: () => Promise<{
+    integrationMode: 'standalone' | 'cms'
+    enabled: boolean
+    devStandaloneEntryEnabled?: boolean
+  }>
   getCmsBuilderContextImpl?: (
     workspaceId: string,
     sessionId: string,
@@ -851,6 +855,102 @@ describe('BuilderPage', () => {
     })
     expect(getLastCmsBrowserDialogProps()).toMatchObject({
       cmsDataUnavailableReason: null,
+      workspaceId: workspace.id,
+    })
+  })
+
+  test('uses standalone direct builder loading while keeping CMS block actions in dev CMS mode', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '开发态 CMS 项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const store = createStore()
+
+    const {
+      BuilderPage,
+      acquirePageBuilderEditLock,
+      getCmsBuilderContext,
+      getLastAgentViewProps,
+      getLastCmsBrowserDialogProps,
+      getLastPreviewPaneProps,
+      listSessions,
+      listWorkspaces,
+    } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      getCmsIntegrationStatusImpl: async () => ({
+        integrationMode: 'cms',
+        enabled: true,
+        devStandaloneEntryEnabled: true,
+      }),
+      mockPreviewPane: true,
+      mockCmsBrowserDialog: true,
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={store}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(getCmsBuilderContext).not.toHaveBeenCalled()
+    expect(listSessions).toHaveBeenCalledTimes(1)
+    expect(listWorkspaces).toHaveBeenCalledTimes(1)
+    expect(acquirePageBuilderEditLock).toHaveBeenCalledWith(workspace.id, expect.objectContaining({
+      sessionId: session.id,
+    }))
+    expect(store.get(agentSessionsAtom)).toEqual([session])
+    expect(store.get(agentWorkspacesAtom)).toEqual([workspace])
+    expect(store.get(currentAgentSessionIdAtom)).toBe(session.id)
+    expect(store.get(currentAgentWorkspaceIdAtom)).toBe(workspace.id)
+    expect(getLastAgentViewProps()).toMatchObject({
+      sessionId: session.id,
+      initialUserMessage: null,
+    })
+    expect(typeof (getLastPreviewPaneProps() as {
+      onRequestOpenCmsBrowser?: () => void
+    }).onRequestOpenCmsBrowser).toBe('function')
+
+    await act(async () => {
+      (getLastPreviewPaneProps() as {
+        onSelectionEvent?: (event: { type: string; targetSelection?: PageBuilderTargetSelection }) => void
+      }).onSelectionEvent?.({
+        type: 'selected',
+        targetSelection: createBlockTargetSelection('#hero-banner'),
+      })
+    })
+
+    await act(async () => {
+      (getLastPreviewPaneProps() as {
+        onRequestOpenCmsBrowser?: () => void
+      }).onRequestOpenCmsBrowser?.()
+    })
+
+    expect(getLastCmsBrowserDialogProps()).toMatchObject({
+      open: true,
+      requestContext: {
+        entryPoint: 'block-toolbar',
+        targetSelection: {
+          kind: 'block',
+          selector: '#hero-banner',
+        },
+      },
       workspaceId: workspace.id,
     })
   })

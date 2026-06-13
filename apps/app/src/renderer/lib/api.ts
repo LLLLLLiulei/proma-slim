@@ -50,6 +50,7 @@ export interface CmsIntegrationStatus {
   enabled: boolean
   supportedOpenModes?: Array<'iframe' | 'window'>
   basePath?: string
+  devStandaloneEntryEnabled?: boolean
 }
 
 export interface CmsBuilderContextWorkspace extends Pick<AgentWorkspace, 'id' | 'name' | 'slug'> {

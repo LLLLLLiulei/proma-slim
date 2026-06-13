@@ -29,6 +29,11 @@ export interface CmsBuilderAccessMiddlewareOptions {
   workspaceId: string | CmsBuilderAccessResolver
   sessionId?: string | CmsBuilderAccessResolver
   requireOrigin?: boolean | ((c: Context<HttpAppEnv>) => boolean)
+  allowDevStandaloneBypass?: boolean
+}
+
+export interface CmsBuilderApiAvailabilityOptions {
+  allowDevStandaloneEntry?: boolean
 }
 
 export const createCmsBuilderAccessMiddleware = (options: CmsBuilderAccessMiddlewareOptions) => {
@@ -48,6 +53,19 @@ export const createCmsBuilderAccessMiddleware = (options: CmsBuilderAccessMiddle
       c.set('cmsBuilderInternalReadonlyAccess', true)
       if (c.var.diagnostic) {
         c.var.diagnostic.resource.workspaceId = workspaceId
+      }
+      await next()
+      return
+    }
+
+    if (config.devStandaloneEntryEnabled && options.allowDevStandaloneBypass !== false) {
+      c.set('cmsBuilderDevStandaloneAccess', true)
+      if (c.var.diagnostic) {
+        c.var.diagnostic.resource.workspaceId = workspaceId
+        const sessionId = resolveOptionValue(c, options.sessionId)
+        if (sessionId) {
+          c.var.diagnostic.resource.sessionId = sessionId
+        }
       }
       await next()
       return
@@ -130,8 +148,16 @@ function isInternalReadonlyPreviewRequest(c: Context<HttpAppEnv>): boolean {
   return INTERNAL_READONLY_PREVIEW_PATH_PATTERNS.some((pattern) => pattern.test(requestUrl.pathname))
 }
 
-export function assertCmsBuilderApiAvailableInCmsMode(message?: string): void {
-  if (!resolveCmsIntegrationConfig().enabled) {
+export function assertCmsBuilderApiAvailableInCmsMode(
+  message?: string,
+  options: CmsBuilderApiAvailabilityOptions = {},
+): void {
+  const config = resolveCmsIntegrationConfig()
+  if (!config.enabled) {
+    return
+  }
+
+  if (options.allowDevStandaloneEntry && config.devStandaloneEntryEnabled) {
     return
   }
 

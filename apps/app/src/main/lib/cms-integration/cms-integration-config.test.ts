@@ -22,6 +22,7 @@ describe('cms integration config', () => {
       accessSessionTtlMs: 28800000,
       accessSessionRenewThresholdMs: 3600000,
       syncExportTimeoutMs: 0,
+      devStandaloneEntryEnabled: false,
     })
     expect(buildCmsIntegrationStatus(config)).toEqual({
       integrationMode: 'standalone',
@@ -53,6 +54,7 @@ describe('cms integration config', () => {
       accessSessionTtlMs: 86400000,
       accessSessionRenewThresholdMs: 600000,
       syncExportTimeoutMs: 45000,
+      devStandaloneEntryEnabled: false,
     })
     expect(buildCmsIntegrationStatus(config)).toEqual({
       integrationMode: 'cms',
@@ -113,7 +115,46 @@ describe('cms integration config', () => {
       accessSessionTtlMs: 28800000,
       accessSessionRenewThresholdMs: 3600000,
       syncExportTimeoutMs: 0,
+      devStandaloneEntryEnabled: false,
     })
+  })
+
+  test('enables dev standalone entry only for explicit development CMS opt-in', () => {
+    const enabled = resolveCmsIntegrationConfig({
+      NODE_ENV: 'development',
+      AI_PAGE_BUILDER_INTEGRATION_MODE: 'cms',
+      AI_PAGE_BUILDER_DEV_ALLOW_STANDALONE_ENTRY_IN_CMS: 'true',
+      AI_PAGE_BUILDER_BASE_PATH: '/pagebuilder',
+    })
+    const disabledOutsideDevelopment = resolveCmsIntegrationConfig({
+      NODE_ENV: 'production',
+      AI_PAGE_BUILDER_INTEGRATION_MODE: 'cms',
+      AI_PAGE_BUILDER_DEV_ALLOW_STANDALONE_ENTRY_IN_CMS: 'true',
+      AI_PAGE_BUILDER_BASE_PATH: '/pagebuilder',
+    })
+    const disabledWithoutExplicitTruth = resolveCmsIntegrationConfig({
+      NODE_ENV: 'development',
+      AI_PAGE_BUILDER_INTEGRATION_MODE: 'cms',
+      AI_PAGE_BUILDER_DEV_ALLOW_STANDALONE_ENTRY_IN_CMS: 'false',
+      AI_PAGE_BUILDER_BASE_PATH: '/pagebuilder',
+    })
+
+    expect(enabled.devStandaloneEntryEnabled).toBe(true)
+    expect(buildCmsIntegrationStatus(enabled)).toEqual({
+      integrationMode: 'cms',
+      enabled: true,
+      supportedOpenModes: ['iframe', 'window'],
+      basePath: '/pagebuilder',
+      devStandaloneEntryEnabled: true,
+    })
+    expect(disabledOutsideDevelopment.devStandaloneEntryEnabled).toBe(false)
+    expect(buildCmsIntegrationStatus(disabledOutsideDevelopment)).toEqual({
+      integrationMode: 'cms',
+      enabled: true,
+      supportedOpenModes: ['iframe', 'window'],
+      basePath: '/pagebuilder',
+    })
+    expect(disabledWithoutExplicitTruth.devStandaloneEntryEnabled).toBe(false)
   })
 
   test('rejects public origin values that include path query or hash', () => {

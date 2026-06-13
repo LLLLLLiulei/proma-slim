@@ -84,7 +84,13 @@ function resolveCmsWorkspaceBrowserScope(c: { var: HttpAppEnv['Variables'] }): P
 
   const binding = c.var.cmsBuilderInternalReadonlyAccess
     ? resolveCmsProjectBindingForInternalWorkspace(c.var.workspace)
+    : c.var.cmsBuilderDevStandaloneAccess
+      ? resolveOptionalCmsProjectBindingForWorkspace(c.var.workspace)
     : resolveCmsProjectBindingForWorkspace(c)
+  if (!binding) {
+    return {}
+  }
+
   return {
     siteId: binding.siteId,
     filterSitesToSiteId: binding.siteId,
@@ -114,26 +120,39 @@ function resolveCmsProjectBindingForWorkspace(c: { var: HttpAppEnv['Variables'] 
 }
 
 function resolveCmsProjectBindingForInternalWorkspace(workspace: HttpAppEnv['Variables']['workspace']): CmsIntegratedProjectBinding {
-  const binding = getSharedCmsProjectBindingStore().readAll().find((entry) => entry.workspaceId === workspace.id)
+  const binding = resolveOptionalCmsProjectBindingForWorkspace(workspace)
   if (!binding) {
-    throw cmsProjectNotFound()
-  }
-
-  const session = getAgentSessionMeta(binding.primarySessionId)
-  if (workspace.template !== 'page-builder' || !session || session.workspaceId !== workspace.id) {
     throw cmsProjectNotFound()
   }
 
   return binding
 }
 
+function resolveOptionalCmsProjectBindingForWorkspace(workspace: HttpAppEnv['Variables']['workspace']): CmsIntegratedProjectBinding | null {
+  const binding = getSharedCmsProjectBindingStore().readAll().find((entry) => entry.workspaceId === workspace.id)
+  if (!binding) {
+    return null
+  }
+
+  const session = getAgentSessionMeta(binding.primarySessionId)
+  if (workspace.template !== 'page-builder' || !session || session.workspaceId !== workspace.id) {
+    return null
+  }
+
+  return binding
+}
+
 workspaceRoutes.get('/', (c) => {
-  assertCmsBuilderApiAvailableInCmsMode('CMS 集成模式下不可读取全量 workspace 列表')
+  assertCmsBuilderApiAvailableInCmsMode('CMS 集成模式下不可读取全量 workspace 列表', {
+    allowDevStandaloneEntry: true,
+  })
   return c.json(listAgentWorkspaces())
 })
 
 workspaceRoutes.post('/', async (c) => {
-  assertCmsBuilderApiAvailableInCmsMode('CMS 集成模式下不可从浏览器本地创建 workspace')
+  assertCmsBuilderApiAvailableInCmsMode('CMS 集成模式下不可从浏览器本地创建 workspace', {
+    allowDevStandaloneEntry: true,
+  })
   const body = await readJsonBody<{ name?: string; template?: string }>(c.req.raw)
   if (!body.name || !body.name.trim()) {
     throw new HttpError(400, '工作区名称不能为空')

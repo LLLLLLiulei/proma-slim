@@ -71,7 +71,11 @@ function installWindowHarness(initialPathname = '/') {
 async function loadHomePage(options: {
   createPageBuilderProjectImpl: (deps: unknown) => Promise<{ workspace: AgentWorkspace; session: AgentSessionMeta }>
   retryPageBuilderSessionImpl: (workspaceId: string, deps: unknown) => Promise<AgentSessionMeta>
-  getCmsIntegrationStatusImpl?: () => Promise<{ integrationMode: 'standalone' | 'cms'; enabled: boolean }>
+  getCmsIntegrationStatusImpl?: () => Promise<{
+    integrationMode: 'standalone' | 'cms'
+    enabled: boolean
+    devStandaloneEntryEnabled?: boolean
+  }>
 }) {
   const toastError = mock(() => {})
   let historyRenderCount = 0
@@ -214,6 +218,65 @@ describe('HomePage', () => {
     expect(renderer.root.findAll((node) => node.props['data-testid'] === 'page-builder-history-section')).toHaveLength(0)
     expect(getHistoryRenderCount()).toBe(0)
     expect(createPageBuilderProject).toHaveBeenCalledTimes(0)
+  })
+
+  test('shows standalone prompt and history in CMS mode when dev standalone entry is enabled', async () => {
+    const { location, sessionStorage } = installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const createPageBuilderProject = mock(async () => ({ workspace, session }))
+
+    const { HomePage, getHistoryRenderCount } = await loadHomePage({
+      createPageBuilderProjectImpl: createPageBuilderProject,
+      retryPageBuilderSessionImpl: async () => session,
+      getCmsIntegrationStatusImpl: async () => ({
+        integrationMode: 'cms',
+        enabled: true,
+        devStandaloneEntryEnabled: true,
+      }),
+    })
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(React.createElement(HomePage))
+      await Promise.resolve()
+    })
+
+    const json = JSON.stringify(renderer.toJSON())
+    expect(json).not.toContain('请从 CMS 系统进入 PageBuilder')
+    expect(renderer.root.findAllByType('textarea')).toHaveLength(1)
+    expect(renderer.root.findAll((node) => node.props['data-testid'] === 'page-builder-history-section')).toHaveLength(1)
+    expect(getHistoryRenderCount()).toBe(1)
+
+    const textarea = renderer.root.findByType('textarea')
+    await act(async () => {
+      textarea.props.onChange({ target: { value: '生成一个开发态 CMS 官网' } })
+    })
+
+    const submitButton = renderer.root.findByType('button')
+    await act(async () => {
+      submitButton.props.onClick()
+    })
+
+    expect(createPageBuilderProject).toHaveBeenCalledTimes(1)
+    expect(location.pathname).toBe(buildBuilderPath(workspace.id, session.id))
+    expect(readBootstrapPayload(sessionStorage, session.id)).toEqual({
+      sessionId: session.id,
+      workspaceId: workspace.id,
+      initialPrompt: '生成一个开发态 CMS 官网',
+    })
   })
 
   test('fails closed when integration status cannot be loaded', async () => {

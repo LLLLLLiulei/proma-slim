@@ -15,6 +15,7 @@ export interface CmsIntegrationConfig {
   accessSessionTtlMs: number
   accessSessionRenewThresholdMs: number
   syncExportTimeoutMs: number
+  devStandaloneEntryEnabled: boolean
 }
 
 export interface CmsIntegrationStatus {
@@ -22,6 +23,7 @@ export interface CmsIntegrationStatus {
   enabled: boolean
   supportedOpenModes?: Array<'iframe' | 'window'>
   basePath?: string
+  devStandaloneEntryEnabled?: boolean
 }
 
 type CmsIntegrationEnv = Record<string, string | undefined>
@@ -83,13 +85,22 @@ function readOptionalPositiveInteger(value: string | undefined, defaultValue: nu
   return parsed
 }
 
+function isExplicitTrue(value: string | undefined): boolean {
+  const normalized = value?.trim().toLowerCase()
+  return normalized === 'true' || normalized === '1' || normalized === 'yes' || normalized === 'on'
+}
+
 export function resolveCmsIntegrationConfig(env: CmsIntegrationEnv = process.env): CmsIntegrationConfig {
   const integrationMode = normalizeIntegrationMode(env.AI_PAGE_BUILDER_INTEGRATION_MODE)
   const basePath = normalizePageBuilderPublicBasePath(env.AI_PAGE_BUILDER_BASE_PATH)
+  const enabled = integrationMode === 'cms'
+  const devStandaloneEntryEnabled = enabled
+    && env.NODE_ENV === 'development'
+    && isExplicitTrue(env.AI_PAGE_BUILDER_DEV_ALLOW_STANDALONE_ENTRY_IN_CMS)
 
   return {
     integrationMode,
-    enabled: integrationMode === 'cms',
+    enabled,
     basePath,
     cmsBaseUrl: normalizeCmsBaseUrl(env.AI_PAGE_BUILDER_CMS_BASE_URL),
     integrationSecret: env.AI_PAGE_BUILDER_INTEGRATION_SECRET?.trim() || null,
@@ -104,6 +115,7 @@ export function resolveCmsIntegrationConfig(env: CmsIntegrationEnv = process.env
       ACCESS_SESSION_RENEW_THRESHOLD_DEFAULT_MS,
     ),
     syncExportTimeoutMs: readOptionalPositiveInteger(env.AI_PAGE_BUILDER_SYNC_EXPORT_TIMEOUT_MS, 0),
+    devStandaloneEntryEnabled,
   }
 }
 
@@ -120,6 +132,7 @@ export function buildCmsIntegrationStatus(config: CmsIntegrationConfig): CmsInte
     enabled: true,
     supportedOpenModes: ['iframe', 'window'],
     basePath: config.basePath,
+    ...(config.devStandaloneEntryEnabled ? { devStandaloneEntryEnabled: true } : {}),
   }
 }
 

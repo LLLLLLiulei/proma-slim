@@ -130,12 +130,16 @@ function resolveRequestOrigin(request: Request): string | undefined {
 }
 
 sessionRoutes.get('/', (c) => {
-  assertCmsBuilderApiAvailableInCmsMode('CMS 集成模式下不可读取全量 session 列表')
+  assertCmsBuilderApiAvailableInCmsMode('CMS 集成模式下不可读取全量 session 列表', {
+    allowDevStandaloneEntry: true,
+  })
   return c.json(listAgentSessions())
 })
 
 sessionRoutes.post('/', async (c) => {
-  assertCmsBuilderApiAvailableInCmsMode('CMS 集成模式下不可从浏览器本地创建 session')
+  assertCmsBuilderApiAvailableInCmsMode('CMS 集成模式下不可从浏览器本地创建 session', {
+    allowDevStandaloneEntry: true,
+  })
   const body = await readJsonBody<{ title?: string; workspaceId?: string }>(c.req.raw)
   return c.json(createAgentSession(body.title, undefined, body.workspaceId), 201)
 })

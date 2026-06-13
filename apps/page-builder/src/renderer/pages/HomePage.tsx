@@ -42,7 +42,7 @@ export function HomePage(): React.ReactElement {
 
     try {
       const status = await api.getCmsIntegrationStatus()
-      setIntegrationGate(status.integrationMode === 'cms' && status.enabled
+      setIntegrationGate(status.integrationMode === 'cms' && status.enabled && status.devStandaloneEntryEnabled !== true
         ? { status: 'cms' }
         : { status: 'standalone' })
     } catch (nextError) {

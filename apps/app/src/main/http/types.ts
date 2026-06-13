@@ -19,6 +19,7 @@ export interface HttpAppEnv {
     workspace: AgentWorkspace
     cmsBuilderAccess?: BuilderAccessSessionRecord
     cmsBuilderInternalReadonlyAccess?: boolean
+    cmsBuilderDevStandaloneAccess?: boolean
     diagnostic: HttpRequestDiagnosticState
   }
 }
