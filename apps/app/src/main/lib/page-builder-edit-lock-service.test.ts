@@ -119,22 +119,71 @@ describe('page builder edit lock service', () => {
     }).valid).toBe(true)
   })
 
-  test('release waits for the grace period and renewal cancels pending release', () => {
+  test('release allows another holder to acquire immediately and replaces the pending lock', () => {
+    const { service } = createService({ ids: ['lock-1', 'lock-2'] })
+    service.acquire('workspace-1', { holderId: 'holder-1' })
+
+    service.release('workspace-1', 'lock-1', { holderId: 'holder-1' })
+    const nextLease = service.acquire('workspace-1', { holderId: 'holder-2' })
+
+    expect(nextLease.lockId).toBe('lock-2')
+    expect(nextLease.holderId).toBe('holder-2')
+    expect(service.renew('workspace-1', 'lock-1', { holderId: 'holder-1' })).toBeNull()
+    expect(service.validate('workspace-1', {
+      lockId: 'lock-2',
+      holderId: 'holder-2',
+    }).valid).toBe(true)
+  })
+
+  test('release pending lock reports the project as available', () => {
+    const { service } = createService()
+    service.acquire('workspace-1', { holderId: 'holder-1' })
+
+    service.release('workspace-1', 'lock-1', { holderId: 'holder-1' })
+
+    expect(service.getEditState('workspace-1')).toEqual({ status: 'available' })
+  })
+
+  test('same holder can renew a release pending lock during the grace period', () => {
     const { service, setNow } = createService()
     service.acquire('workspace-1', { holderId: 'holder-1' })
 
     service.release('workspace-1', 'lock-1', { holderId: 'holder-1' })
     setNow(1_000 + PAGE_BUILDER_EDIT_LOCK_RELEASE_GRACE_MS - 1)
-    expect(() => service.acquire('workspace-1', { holderId: 'holder-2' }))
-      .toThrow(PageBuilderEditLockConflictError)
+    const renewed = service.renew('workspace-1', 'lock-1', { holderId: 'holder-1' })
 
-    service.renew('workspace-1', 'lock-1', { holderId: 'holder-1' })
+    expect(renewed).toEqual({
+      workspaceId: 'workspace-1',
+      lockId: 'lock-1',
+      holderId: 'holder-1',
+      expiresAt: 1_000 + PAGE_BUILDER_EDIT_LOCK_RELEASE_GRACE_MS - 1 + PAGE_BUILDER_EDIT_LOCK_TTL_MS,
+      heartbeatIntervalMs: PAGE_BUILDER_EDIT_LOCK_HEARTBEAT_INTERVAL_MS,
+    })
     setNow(1_000 + PAGE_BUILDER_EDIT_LOCK_RELEASE_GRACE_MS + 1)
 
     expect(service.validate('workspace-1', {
       lockId: 'lock-1',
       holderId: 'holder-1',
     }).valid).toBe(true)
+  })
+
+  test('release pending lock does not authorize editing operations', () => {
+    const { service } = createService()
+    service.acquire('workspace-1', { holderId: 'holder-1' })
+
+    service.release('workspace-1', 'lock-1', { holderId: 'holder-1' })
+    const status = service.validate('workspace-1', {
+      lockId: 'lock-1',
+      holderId: 'holder-1',
+    })
+
+    expect(status.valid).toBe(false)
+    expect(status.lease).toBeNull()
+    expect(status.editState).toEqual({ status: 'available' })
+    expect(() => service.assertCanEdit('workspace-1', {
+      lockId: 'lock-1',
+      holderId: 'holder-1',
+    })).toThrow(PageBuilderEditLockConflictError)
   })
 
   test('holder mismatch release is ignored for the current lock holder', () => {

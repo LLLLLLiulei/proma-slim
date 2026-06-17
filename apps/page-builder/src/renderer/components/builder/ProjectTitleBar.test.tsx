@@ -26,6 +26,31 @@ function HydrateWorkspaces({
   return <>{children}</>
 }
 
+function flattenElementText(node: React.ReactNode): string {
+  return React.Children.toArray(node).map((child) => {
+    if (typeof child === 'string') {
+      return child
+    }
+
+    if (typeof child === 'number') {
+      return String(child)
+    }
+
+    if (React.isValidElement(child)) {
+      return flattenElementText(child.props.children)
+    }
+
+    return ''
+  }).join('')
+}
+
+function findButtonByText(renderer: ReturnType<typeof create>, label: string) {
+  return renderer.root.find((node) =>
+    node.type === 'button'
+    && flattenElementText(node.props.children).trim() === label,
+  )
+}
+
 describe('ProjectTitleBar', () => {
   test('renders the current workspace name as the project title', () => {
     const store = createStore()
@@ -156,5 +181,70 @@ describe('ProjectTitleBar', () => {
     })
     expect(onEditLockRejected).toHaveBeenCalledWith(editLockError)
     expect(store.get(agentWorkspacesAtom)[0]?.name).toBe('未命名项目')
+  })
+
+  test('renders the save-template action and invokes the callback', async () => {
+    const store = createStore()
+    const onRequestSaveTemplate = mock(() => {})
+    const workspaces: AgentWorkspace[] = [{
+      id: 'workspace-1',
+      name: '营销专题',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }]
+
+    const renderer = create(
+      <Provider store={store}>
+        <HydrateWorkspaces workspaces={workspaces}>
+          <ProjectTitleBar
+            onRequestSaveTemplate={onRequestSaveTemplate}
+            workspaceId="workspace-1"
+          />
+        </HydrateWorkspaces>
+      </Provider>,
+    )
+
+    await act(async () => {
+      findButtonByText(renderer, '另存模板').props.onClick()
+    })
+
+    expect(onRequestSaveTemplate).toHaveBeenCalledTimes(1)
+    expect(JSON.stringify(renderer.toJSON())).toContain('营销专题')
+  })
+
+  test('does not invoke the save-template action when it is disabled', async () => {
+    const store = createStore()
+    const onRequestSaveTemplate = mock(() => {})
+    const workspaces: AgentWorkspace[] = [{
+      id: 'workspace-1',
+      name: '营销专题',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }]
+
+    const renderer = create(
+      <Provider store={store}>
+        <HydrateWorkspaces workspaces={workspaces}>
+          <ProjectTitleBar
+            onRequestSaveTemplate={onRequestSaveTemplate}
+            saveTemplateDisabled
+            workspaceId="workspace-1"
+          />
+        </HydrateWorkspaces>
+      </Provider>,
+    )
+
+    const button = findButtonByText(renderer, '另存模板')
+    expect(button.props.disabled).toBe(true)
+
+    await act(async () => {
+      button.props.onClick()
+    })
+
+    expect(onRequestSaveTemplate).not.toHaveBeenCalled()
   })
 })

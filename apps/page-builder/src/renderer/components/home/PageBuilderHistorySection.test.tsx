@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
 import React from 'react'
 import { act, create } from 'react-test-renderer'
-import type { AgentSessionMeta, PageBuilderProjectSummary } from '@ai-page-builder/shared'
+import type { AgentSessionMeta, AgentWorkspace, PageBuilderProjectSummary } from '@ai-page-builder/shared'
 import { buildBuilderPath } from '@page-builder/lib/routes'
 
 function installWindowHarness(initialPathname = '/') {
@@ -46,6 +46,7 @@ async function loadHistorySection(options: {
   projects?: PageBuilderProjectSummary[]
   createSessionImpl?: (title?: string, workspaceId?: string) => Promise<AgentSessionMeta>
   deleteProjectImpl?: (workspaceId: string) => Promise<void>
+  updateWorkspaceImpl?: (workspaceId: string, updates: Partial<Pick<AgentWorkspace, 'name'>>) => Promise<AgentWorkspace>
   releaseLockImpl?: (workspaceId: string, lockId: string, payload: { holderId: string }) => Promise<void>
   toastErrorImpl?: (message: string) => void
 }) {
@@ -64,6 +65,14 @@ async function loadHistorySection(options: {
       })),
   )
   const deletePageBuilderProject = mock(options.deleteProjectImpl ?? (async () => {}))
+  const updateWorkspace = mock(options.updateWorkspaceImpl ?? (async (workspaceId, updates) => ({
+    id: workspaceId,
+    name: updates.name ?? 'History Project',
+    slug: 'history-project',
+    template: 'page-builder' as const,
+    createdAt: 1,
+    updatedAt: 2,
+  })))
   const releasePageBuilderEditLock = mock(options.releaseLockImpl ?? (async () => {}))
   const toastError = options.toastErrorImpl ?? mock(() => {})
 
@@ -73,6 +82,7 @@ async function loadHistorySection(options: {
       acquirePageBuilderEditLock,
       createSession,
       deletePageBuilderProject,
+      updateWorkspace,
       releasePageBuilderEditLock,
     },
   }))
@@ -112,6 +122,7 @@ async function loadHistorySection(options: {
     acquirePageBuilderEditLock,
     createSession,
     deletePageBuilderProject,
+    updateWorkspace,
     releasePageBuilderEditLock,
     toastError,
   }
@@ -163,6 +174,43 @@ describe('PageBuilderHistorySection', () => {
     const json = JSON.stringify(renderer.toJSON())
     expect(json).toContain('历史记录')
     expect(json).toContain('History Project')
+  })
+
+  test('renames a history project from the card title without acquiring an edit lock', async () => {
+    installWindowHarness()
+    const project = createProject()
+
+    const {
+      PageBuilderHistorySection,
+      acquirePageBuilderEditLock,
+      listPageBuilderProjects,
+      updateWorkspace,
+    } = await loadHistorySection({
+      projects: [project],
+    })
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(React.createElement(PageBuilderHistorySection))
+    })
+
+    await act(async () => {
+      renderer.root.findByProps({ 'aria-label': '编辑项目名称' }).props.onClick()
+    })
+
+    const nameInput = renderer.root.findByProps({ 'aria-label': '项目名称' })
+    await act(async () => {
+      nameInput.props.onChange({ currentTarget: { value: '  History Project Renamed  ' } })
+    })
+
+    await act(async () => {
+      await nameInput.props.onKeyDown({ key: 'Enter', preventDefault: mock(() => {}) })
+    })
+
+    expect(acquirePageBuilderEditLock).not.toHaveBeenCalled()
+    expect(updateWorkspace).toHaveBeenCalledWith(project.workspaceId, { name: 'History Project Renamed' })
+    expect(listPageBuilderProjects).toHaveBeenCalledTimes(1)
+    expect(JSON.stringify(renderer.toJSON())).toContain('History Project Renamed')
   })
 
   test('preview action opens the project preview url in a new window', async () => {

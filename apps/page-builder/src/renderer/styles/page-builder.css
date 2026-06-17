@@ -153,6 +153,7 @@
   animation: page-builder-home-rise 720ms cubic-bezier(0.16, 1, 0.3, 1) 120ms both;
 }
 
+.page-builder-home-template-card,
 .page-builder-home-history-card {
   transition:
     transform 220ms cubic-bezier(0.16, 1, 0.3, 1),
@@ -160,6 +161,8 @@
     border-color 220ms ease;
 }
 
+.page-builder-home-template-card:hover,
+.page-builder-home-template-card:focus-within,
 .page-builder-home-history-card:hover,
 .page-builder-home-history-card:focus-within {
   transform: translate3d(0, -2px, 0);
@@ -167,38 +170,6 @@
   box-shadow:
     0 22px 44px -34px rgb(15 23 42 / 0.18),
     inset 0 1px 0 rgb(255 255 255 / 0.5);
-}
-
-.page-builder-home-history-action-primary {
-  border: 1px solid rgb(255 255 255 / 0.4);
-  background: linear-gradient(135deg, rgb(249 115 22 / 0.98), rgb(234 88 12 / 0.94));
-  box-shadow:
-    0 16px 34px -18px rgb(249 115 22 / 0.72),
-    inset 0 1px 0 rgb(255 255 255 / 0.2);
-}
-
-.page-builder-home-history-action-primary:hover {
-  background: linear-gradient(135deg, rgb(249 115 22), rgb(234 88 12));
-  box-shadow:
-    0 18px 38px -18px rgb(249 115 22 / 0.82),
-    inset 0 1px 0 rgb(255 255 255 / 0.24);
-}
-
-.page-builder-home-history-action-secondary {
-  border: 1px solid hsl(var(--border) / 0.68);
-  background: rgb(255 255 255 / 0.9);
-  box-shadow:
-    0 12px 28px -18px rgb(15 23 42 / 0.2),
-    inset 0 1px 0 rgb(255 255 255 / 0.72);
-}
-
-.page-builder-home-history-action-secondary:hover {
-  background: rgb(255 255 255 / 0.98);
-  border-color: hsl(var(--border) / 0.84);
-  box-shadow:
-    0 14px 32px -18px rgb(59 130 246 / 0.24),
-    0 0 0 1px rgb(59 130 246 / 0.08),
-    inset 0 1px 0 rgb(255 255 255 / 0.82);
 }
 
 .page-builder-home-history-preview::before {
@@ -210,7 +181,26 @@
   pointer-events: none;
 }
 
+.page-builder-home-template-preview::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.18), transparent 24%);
+  pointer-events: none;
+}
+
 .page-builder-home-history-preview-frame {
+  width: calc(100% / 0.28);
+  height: calc(100% / 0.28);
+  border: 0;
+  background: hsl(var(--background));
+  pointer-events: none;
+  transform: scale(0.28);
+  transform-origin: top left;
+}
+
+.page-builder-home-template-preview-frame {
   width: calc(100% / 0.28);
   height: calc(100% / 0.28);
   border: 0;

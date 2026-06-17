@@ -79,6 +79,11 @@ async function loadHomePage(options: {
 }) {
   const toastError = mock(() => {})
   let historyRenderCount = 0
+  let resourceTabsRenderCount = 0
+  const resourceTabsProps: Array<{
+    allowTemplateUse?: boolean
+    showHistory?: boolean
+  }> = []
   const createWorkspace = mock(async () => {
     throw new Error('createWorkspace should be provided through project-start mock')
   })
@@ -116,6 +121,19 @@ async function loadHomePage(options: {
     },
   }))
 
+  mock.module('@page-builder/components/home/PageBuilderHomeResourceTabs', () => ({
+    PageBuilderHomeResourceTabs(props: {
+      allowTemplateUse?: boolean
+      showHistory?: boolean
+    }) {
+      resourceTabsRenderCount += 1
+      resourceTabsProps.push(props)
+      return React.createElement('div', {
+        'data-testid': 'page-builder-home-resource-tabs',
+      }, 'template-library-tab')
+    },
+  }))
+
   mock.module('@/lib/api', () => ({
     api: {
       createWorkspace,
@@ -140,6 +158,8 @@ async function loadHomePage(options: {
     createWorkspace,
     getCmsIntegrationStatus,
     getHistoryRenderCount: () => historyRenderCount,
+    getResourceTabsProps: () => resourceTabsProps,
+    getResourceTabsRenderCount: () => resourceTabsRenderCount,
     toastError,
   }
 }
@@ -151,7 +171,7 @@ afterEach(() => {
 })
 
 describe('HomePage', () => {
-  test('does not mount standalone entry or history while integration status is pending', async () => {
+  test('does not mount standalone entry or resource tabs while integration status is pending', async () => {
     installWindowHarness()
     const pendingStatus = new Promise<{ integrationMode: 'standalone'; enabled: false }>(() => {})
     const createPageBuilderProject = mock(async () => {
@@ -165,7 +185,7 @@ describe('HomePage', () => {
       updatedAt: 1,
     }
 
-    const { HomePage, getHistoryRenderCount } = await loadHomePage({
+    const { HomePage, getHistoryRenderCount, getResourceTabsRenderCount } = await loadHomePage({
       createPageBuilderProjectImpl: createPageBuilderProject,
       retryPageBuilderSessionImpl: async () => session,
       getCmsIntegrationStatusImpl: async () => await pendingStatus,
@@ -177,12 +197,14 @@ describe('HomePage', () => {
     })
 
     expect(renderer.root.findAllByType('textarea')).toHaveLength(0)
+    expect(renderer.root.findAll((node) => node.props['data-testid'] === 'page-builder-home-resource-tabs')).toHaveLength(0)
     expect(renderer.root.findAll((node) => node.props['data-testid'] === 'page-builder-history-section')).toHaveLength(0)
+    expect(getResourceTabsRenderCount()).toBe(0)
     expect(getHistoryRenderCount()).toBe(0)
     expect(createPageBuilderProject).toHaveBeenCalledTimes(0)
   })
 
-  test('shows a restricted CMS entry page without local creation or history in CMS mode', async () => {
+  test('shows the template library without local creation, history, or template use in CMS mode', async () => {
     installWindowHarness()
     const workspace: AgentWorkspace = {
       id: 'workspace-1',
@@ -200,7 +222,7 @@ describe('HomePage', () => {
     }
     const createPageBuilderProject = mock(async () => ({ workspace, session }))
 
-    const { HomePage, getHistoryRenderCount } = await loadHomePage({
+    const { HomePage, getHistoryRenderCount, getResourceTabsProps, getResourceTabsRenderCount } = await loadHomePage({
       createPageBuilderProjectImpl: createPageBuilderProject,
       retryPageBuilderSessionImpl: async () => session,
       getCmsIntegrationStatusImpl: async () => ({ integrationMode: 'cms', enabled: true }),
@@ -215,12 +237,18 @@ describe('HomePage', () => {
     const json = JSON.stringify(renderer.toJSON())
     expect(json).toContain('请从 CMS 系统进入 PageBuilder')
     expect(renderer.root.findAllByType('textarea')).toHaveLength(0)
+    expect(renderer.root.findAll((node) => node.props['data-testid'] === 'page-builder-home-resource-tabs')).toHaveLength(1)
     expect(renderer.root.findAll((node) => node.props['data-testid'] === 'page-builder-history-section')).toHaveLength(0)
+    expect(getResourceTabsRenderCount()).toBe(1)
+    expect(getResourceTabsProps()).toEqual([{
+      allowTemplateUse: false,
+      showHistory: false,
+    }])
     expect(getHistoryRenderCount()).toBe(0)
     expect(createPageBuilderProject).toHaveBeenCalledTimes(0)
   })
 
-  test('shows standalone prompt and history in CMS mode when dev standalone entry is enabled', async () => {
+  test('shows standalone prompt and resource tabs in CMS mode when dev standalone entry is enabled', async () => {
     const { location, sessionStorage } = installWindowHarness()
     const workspace: AgentWorkspace = {
       id: 'workspace-1',
@@ -238,7 +266,7 @@ describe('HomePage', () => {
     }
     const createPageBuilderProject = mock(async () => ({ workspace, session }))
 
-    const { HomePage, getHistoryRenderCount } = await loadHomePage({
+    const { HomePage, getHistoryRenderCount, getResourceTabsRenderCount } = await loadHomePage({
       createPageBuilderProjectImpl: createPageBuilderProject,
       retryPageBuilderSessionImpl: async () => session,
       getCmsIntegrationStatusImpl: async () => ({
@@ -257,8 +285,10 @@ describe('HomePage', () => {
     const json = JSON.stringify(renderer.toJSON())
     expect(json).not.toContain('请从 CMS 系统进入 PageBuilder')
     expect(renderer.root.findAllByType('textarea')).toHaveLength(1)
-    expect(renderer.root.findAll((node) => node.props['data-testid'] === 'page-builder-history-section')).toHaveLength(1)
-    expect(getHistoryRenderCount()).toBe(1)
+    expect(renderer.root.findAll((node) => node.props['data-testid'] === 'page-builder-home-resource-tabs')).toHaveLength(1)
+    expect(renderer.root.findAll((node) => node.props['data-testid'] === 'page-builder-history-section')).toHaveLength(0)
+    expect(getResourceTabsRenderCount()).toBe(1)
+    expect(getHistoryRenderCount()).toBe(0)
 
     const textarea = renderer.root.findByType('textarea')
     await act(async () => {
@@ -292,7 +322,7 @@ describe('HomePage', () => {
       throw new Error('should not create project')
     })
 
-    const { HomePage, getHistoryRenderCount } = await loadHomePage({
+    const { HomePage, getHistoryRenderCount, getResourceTabsRenderCount } = await loadHomePage({
       createPageBuilderProjectImpl: createPageBuilderProject,
       retryPageBuilderSessionImpl: async () => session,
       getCmsIntegrationStatusImpl: async () => {
@@ -310,12 +340,14 @@ describe('HomePage', () => {
     expect(json).toContain('服务暂不可用')
     expect(json).toContain('重试')
     expect(renderer.root.findAllByType('textarea')).toHaveLength(0)
+    expect(renderer.root.findAll((node) => node.props['data-testid'] === 'page-builder-home-resource-tabs')).toHaveLength(0)
     expect(renderer.root.findAll((node) => node.props['data-testid'] === 'page-builder-history-section')).toHaveLength(0)
+    expect(getResourceTabsRenderCount()).toBe(0)
     expect(getHistoryRenderCount()).toBe(0)
     expect(createPageBuilderProject).toHaveBeenCalledTimes(0)
   })
 
-  test('keeps the hero content inside a viewport-tall stage while placing history below the fold', async () => {
+  test('keeps the hero content inside a viewport-tall stage while placing resource tabs below the fold', async () => {
     installWindowHarness()
     const workspace: AgentWorkspace = {
       id: 'workspace-1',
@@ -354,9 +386,9 @@ describe('HomePage', () => {
       typeof node.props.className === 'string'
       && node.props.className.includes('page-builder-home-stage')
     )
-    const historyShell = renderer.root.find((node) =>
+    const resourceShell = renderer.root.find((node) =>
       typeof node.props.className === 'string'
-      && node.props.className.includes('page-builder-home-history-shell')
+      && node.props.className.includes('page-builder-home-resource-shell')
     )
     const ambient = renderer.root.find((node) =>
       typeof node.props.className === 'string'
@@ -378,7 +410,7 @@ describe('HomePage', () => {
     expect(stage.props.className).toContain('min-h-[100dvh]')
     expect(stage.props.className).toContain('items-center')
     expect(stage.props.className).toContain('justify-center')
-    expect(historyShell.props.className).toContain('page-builder-home-history-shell')
+    expect(resourceShell.props.className).toContain('page-builder-home-resource-shell')
     expect(ambient.props['aria-hidden']).toBe(true)
     expect(animatedAmbient.props.className).toContain('page-builder-home-ambient')
     expect(surface.props.className).toContain('page-builder-home-panel-flat')
@@ -486,7 +518,7 @@ describe('HomePage', () => {
     expect(surface.props.className).toContain('page-builder-home-panel-focus')
   })
 
-  test('mounts the independent history section below the viewport-tall hero stage', async () => {
+  test('mounts the independent resource tabs below the viewport-tall hero stage', async () => {
     installWindowHarness()
     const workspace: AgentWorkspace = {
       id: 'workspace-1',
@@ -517,15 +549,15 @@ describe('HomePage', () => {
       typeof node.props.className === 'string'
       && node.props.className.includes('page-builder-home-stage')
     )
-    const historyShell = renderer.root.find((node) =>
+    const resourceShell = renderer.root.find((node) =>
       typeof node.props.className === 'string'
-      && node.props.className.includes('page-builder-home-history-shell')
+      && node.props.className.includes('page-builder-home-resource-shell')
     )
-    const historySection = renderer.root.find((node) => node.props['data-testid'] === 'page-builder-history-section')
+    const resourceTabs = renderer.root.find((node) => node.props['data-testid'] === 'page-builder-home-resource-tabs')
 
-    expect(stage.findAll((node) => node.props['data-testid'] === 'page-builder-history-section')).toHaveLength(0)
-    expect(historyShell.findAll((node) => node.props['data-testid'] === 'page-builder-history-section')).toHaveLength(1)
-    expect(historySection.children).toContain('history-section')
+    expect(stage.findAll((node) => node.props['data-testid'] === 'page-builder-home-resource-tabs')).toHaveLength(0)
+    expect(resourceShell.findAll((node) => node.props['data-testid'] === 'page-builder-home-resource-tabs')).toHaveLength(1)
+    expect(resourceTabs.children).toContain('template-library-tab')
   })
 
   test('creates a project, stores the bootstrap prompt, and navigates to the builder page', async () => {

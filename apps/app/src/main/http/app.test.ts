@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
-import { strFromU8, unzipSync } from 'fflate'
+import { strFromU8, unzipSync, zipSync } from 'fflate'
 import {
   PAGE_BUILDER_PREVIEW_BRIDGE_SOURCE,
   PAGE_BUILDER_PREVIEW_PARENT_SOURCE,
@@ -475,9 +475,9 @@ describe('createHttpApp', () => {
     expect(readFileSync(join(workspaceFilesDir, 'index.html'), 'utf-8')).toContain('<h1>旧标题</h1>')
   })
 
-  test('workspace title updates require edit locks only for page-builder workspaces', async () => {
+  test('workspace title updates do not require page-builder edit locks', async () => {
     const app = createApp()
-    const pageBuilderWorkspace = createAgentWorkspace('Builder Rename Locked', { template: 'page-builder' })
+    const pageBuilderWorkspace = createAgentWorkspace('Builder Rename From Home', { template: 'page-builder' })
     const regularWorkspace = createAgentWorkspace('Regular Rename')
 
     const pageBuilderResponse = await app.fetch(new Request(`http://localhost/api/workspaces/${pageBuilderWorkspace.id}`, {
@@ -486,14 +486,15 @@ describe('createHttpApp', () => {
         'content-type': 'application/json',
       },
       body: JSON.stringify({
-        name: 'Should Not Rename',
+        name: 'Builder Renamed From Home',
       }),
     }))
 
-    expect(pageBuilderResponse.status).toBe(409)
-    expect(await pageBuilderResponse.json()).toEqual({
-      error: '编辑锁已失效，请从首页重新进入编辑',
-    })
+    expect(pageBuilderResponse.status).toBe(200)
+    expect(await pageBuilderResponse.json()).toEqual(expect.objectContaining({
+      id: pageBuilderWorkspace.id,
+      name: 'Builder Renamed From Home',
+    }))
 
     const regularResponse = await app.fetch(new Request(`http://localhost/api/workspaces/${regularWorkspace.id}`, {
       method: 'PATCH',
@@ -649,6 +650,287 @@ describe('createHttpApp', () => {
     }
     expect(report.entryFile).toBe('index.html')
     expect(report.summary.localizedResourceCount).toBe(0)
+  })
+
+  test('workspace routes save the current standalone page-builder project as a template', async () => {
+    const app = createApp()
+    const workspace = createAgentWorkspace('Template Source', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+
+    mkdirSync(join(workspaceFilesDir, 'assets'), { recursive: true })
+    mkdirSync(join(workspaceFilesDir, '.proma'), { recursive: true })
+    writeFileSync(
+      join(workspaceFilesDir, 'index.html'),
+      '<!doctype html><html><head><link rel="stylesheet" href="./assets/site.css"></head><body><h1>可复用模板</h1></body></html>',
+      'utf-8',
+    )
+    writeFileSync(join(workspaceFilesDir, 'assets', 'site.css'), 'body { color: green; }', 'utf-8')
+    writeFileSync(join(workspaceFilesDir, '.proma', 'cms-rendering-manifest.json'), '{"version":1}', 'utf-8')
+    const editLockHeaders = await acquirePageBuilderEditLockHeaders(app, workspace.id)
+
+    const response = await app.fetch(new Request(`http://localhost/api/workspaces/${workspace.id}/page-builder/templates`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        ...editLockHeaders,
+      },
+      body: JSON.stringify({
+        name: '另存模板',
+        description: '从当前项目另存',
+        tags: ['专题', ' ', '活动'],
+      }),
+    }))
+
+    expect(response.status).toBe(201)
+    const payload = await response.json() as {
+      template: {
+        id: string
+        name: string
+        description?: string
+        tags?: string[]
+        sourceKind: string
+        previewUrl: string
+        deletable: true
+      }
+    }
+    expect(payload.template).toEqual(expect.objectContaining({
+      name: '另存模板',
+      description: '从当前项目另存',
+      tags: ['专题', '活动'],
+      sourceKind: 'saved-project',
+      previewUrl: `/api/page-builder/templates/${payload.template.id}/preview/`,
+      deletable: true,
+    }))
+    expect(payload.template.id).toMatch(/^tpl_saved_[0-9]{14}_[A-Za-z0-9_-]+$/)
+    expect(payload.template).not.toHaveProperty('thumbnail')
+    expect(payload.template).not.toHaveProperty('thumbnailUrl')
+
+    const templateDir = join(homedir(), '.proma', 'page-builder-templates', payload.template.id)
+    const manifest = JSON.parse(readFileSync(join(templateDir, 'template.json'), 'utf-8')) as Record<string, unknown>
+    expect(manifest).toEqual(expect.objectContaining({
+      version: 1,
+      id: payload.template.id,
+      name: '另存模板',
+      sourceKind: 'saved-project',
+      entry: 'workspace-files/index.html',
+      sourceProject: expect.objectContaining({
+        workspaceId: workspace.id,
+        workspaceName: 'Template Source',
+        sourceMode: 'standalone',
+      }),
+    }))
+    expect(manifest).not.toHaveProperty('thumbnail')
+    expect(manifest).not.toHaveProperty('thumbnailUrl')
+    expect(readFileSync(join(templateDir, 'workspace-files', 'index.html'), 'utf-8')).toContain('可复用模板')
+    expect(readFileSync(join(templateDir, 'workspace-files', 'assets', 'site.css'), 'utf-8')).toContain('color: green')
+    expect(existsSync(join(templateDir, 'workspace-files', 'export-report.json'))).toBe(false)
+    expect(existsSync(join(templateDir, 'workspace-files', '.proma', 'cms-rendering-manifest.json'))).toBe(false)
+    expect(existsSync(join(templateDir, 'reports', 'static-export-report.json'))).toBe(true)
+    expect(existsSync(join(templateDir, 'reports', 'template-validation-report.json'))).toBe(true)
+    expect(readFileSync(join(templateDir, 'source', 'source-project.json'), 'utf-8')).not.toContain('cookie')
+
+    const listResponse = await app.fetch(new Request('http://localhost/api/page-builder/templates'))
+    expect(await listResponse.json()).toEqual({
+      templates: [expect.objectContaining({
+        id: payload.template.id,
+        name: '另存模板',
+      })],
+    })
+
+    const previewResponse = await app.fetch(new Request(`http://localhost${payload.template.previewUrl}`))
+    expect(previewResponse.status).toBe(200)
+    expect(await previewResponse.text()).toContain('可复用模板')
+  })
+
+  test('workspace routes require an edit lock and valid payload before saving a page-builder template', async () => {
+    const app = createApp()
+    const workspace = createAgentWorkspace('Template Source Invalid', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+    writeFileSync(join(workspaceFilesDir, 'index.html'), '<h1>Template</h1>', 'utf-8')
+
+    const missingLockResponse = await app.fetch(new Request(`http://localhost/api/workspaces/${workspace.id}/page-builder/templates`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ name: '缺少锁' }),
+    }))
+
+    expect(missingLockResponse.status).toBe(409)
+    expect(await missingLockResponse.json()).toEqual({ error: '编辑锁已失效，请从首页重新进入编辑' })
+
+    const editLockHeaders = await acquirePageBuilderEditLockHeaders(app, workspace.id)
+    const invalidBodyResponse = await app.fetch(new Request(`http://localhost/api/workspaces/${workspace.id}/page-builder/templates`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        ...editLockHeaders,
+      },
+      body: JSON.stringify({ name: ' ' }),
+    }))
+
+    expect(invalidBodyResponse.status).toBe(400)
+    expect(await invalidBodyResponse.json()).toEqual({ error: '模板名称不能为空' })
+  })
+
+  test('workspace routes reject saving non page-builder workspaces and projects without an entry', async () => {
+    const app = createApp()
+    const regularWorkspace = createAgentWorkspace('Regular Workspace')
+    const regularResponse = await app.fetch(new Request(`http://localhost/api/workspaces/${regularWorkspace.id}/page-builder/templates`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ name: '普通工作区' }),
+    }))
+
+    expect(regularResponse.status).toBe(400)
+    expect(await regularResponse.json()).toEqual({ error: '仅支持 PageBuilder 工作区另存模板' })
+
+    const pageBuilderWorkspace = createAgentWorkspace('Missing Entry Template', { template: 'page-builder' })
+    const editLockHeaders = await acquirePageBuilderEditLockHeaders(app, pageBuilderWorkspace.id)
+    const missingEntryResponse = await app.fetch(new Request(`http://localhost/api/workspaces/${pageBuilderWorkspace.id}/page-builder/templates`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        ...editLockHeaders,
+      },
+      body: JSON.stringify({ name: '无入口模板' }),
+    }))
+
+    expect(missingEntryResponse.status).toBe(404)
+    expect(await missingEntryResponse.json()).toEqual({ error: '当前项目没有可另存的页面' })
+  })
+
+  test('workspace routes save as template when static export strips cms authoring markers', async () => {
+    const app = createApp()
+    const workspace = createAgentWorkspace('Standalone With CMS Markers', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+    writeFileSync(
+      join(workspaceFilesDir, 'index.html'),
+      '<!doctype html><html><body><h1>静态快照内容</h1><cms-content data-proma-cms-content-id="42"></cms-content><script src="/api/page-builder/cms-rendering-preview.js"></script></body></html>',
+      'utf-8',
+    )
+    const editLockHeaders = await acquirePageBuilderEditLockHeaders(app, workspace.id)
+
+    const response = await app.fetch(new Request(`http://localhost/api/workspaces/${workspace.id}/page-builder/templates`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        ...editLockHeaders,
+      },
+      body: JSON.stringify({ name: '静态快照模板' }),
+    }))
+
+    expect(response.status).toBe(201)
+    const payload = await response.json() as { template: { id: string; name: string } }
+    expect(payload.template.name).toBe('静态快照模板')
+
+    const templateDir = join(homedir(), '.proma', 'page-builder-templates', payload.template.id)
+    const exportedHtml = readFileSync(join(templateDir, 'workspace-files', 'index.html'), 'utf-8')
+    expect(exportedHtml).toContain('静态快照内容')
+    expect(exportedHtml).not.toContain('<cms-content')
+    expect(exportedHtml).not.toContain('cms-rendering-preview.js')
+    expect(readFileSync(join(templateDir, 'reports', 'template-validation-report.json'), 'utf-8')).toContain('"ok": true')
+  })
+
+  test('workspace routes reject save-as-template when export keeps remote runtime dependencies', async () => {
+    const app = createApp()
+    const workspace = createAgentWorkspace('Template With Remote Runtime', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+    writeFileSync(
+      join(workspaceFilesDir, 'index.html'),
+      '<!doctype html><html><body><script src="https://cdn.example.com/runtime.js"></script><h1>Remote Runtime</h1></body></html>',
+      'utf-8',
+    )
+    const editLockHeaders = await acquirePageBuilderEditLockHeaders(app, workspace.id)
+
+    const response = await app.fetch(new Request(`http://localhost/api/workspaces/${workspace.id}/page-builder/templates`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        ...editLockHeaders,
+      },
+      body: JSON.stringify({ name: '远程运行时模板' }),
+    }))
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({ error: '模板包含不支持的远程运行时依赖' })
+    const templatesRoot = join(homedir(), '.proma', 'page-builder-templates')
+    expect(existsSync(templatesRoot) ? readdirSync(templatesRoot).filter((entry) => !entry.startsWith('.')) : []).toEqual([])
+  })
+
+  test('workspace routes reject save-as-template when static export reports critical resource warnings', async () => {
+    const app = createApp()
+    const workspace = createAgentWorkspace('Template With Resource Warning', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+    writeFileSync(join(workspaceFilesDir, 'index.html'), '<h1>Resource Warning</h1>', 'utf-8')
+
+    const { pageBuilderStaticExportService } = await import('../lib/page-builder-static-export-service')
+    const originalExport = pageBuilderStaticExportService.exportWorkspaceStaticPackage.bind(pageBuilderStaticExportService)
+    pageBuilderStaticExportService.exportWorkspaceStaticPackage = (async (_capturedWorkspace, options) => {
+      expect(options).toEqual({ downloadCmsRemoteAssets: true })
+      const exportDir = join(homedir(), '.proma', 'fake-template-export')
+      mkdirSync(exportDir, { recursive: true })
+      const report = {
+        version: 1,
+        workspaceId: workspace.id,
+        entryFile: 'index.html',
+        generatedAt: '2026-06-14T10:00:00.000Z',
+        localizedResources: [],
+        retainedExternalLinks: [{ resourceUrl: 'https://cdn.example.com/file.pdf', reason: 'attachment-download-failed' }],
+        warnings: [{
+          code: 'attachment-download-failed',
+          message: '附件离线化失败，已保留原始链接: https://cdn.example.com/file.pdf',
+          resourceUrl: 'https://cdn.example.com/file.pdf',
+        }],
+        unsupportedRuntimeDependencies: [],
+        failures: [],
+        summary: {
+          localizedResourceCount: 0,
+          retainedExternalLinkCount: 1,
+          warningCount: 1,
+          unsupportedRuntimeDependencyCount: 0,
+          failureCount: 0,
+          hasWarnings: true,
+        },
+      }
+      const reportJson = JSON.stringify(report, null, 2)
+      const packagePath = join(exportDir, 'package.zip')
+      const reportPath = join(exportDir, 'export-report.json')
+      writeFileSync(packagePath, zipSync({
+        'index.html': new TextEncoder().encode('<h1>Resource Warning</h1>'),
+        'export-report.json': new TextEncoder().encode(reportJson),
+      }))
+      writeFileSync(reportPath, reportJson, 'utf-8')
+
+      return {
+        fileName: 'export.zip',
+        fallbackFileName: 'export.zip',
+        filePath: packagePath,
+        reportPath,
+        reportSummary: report.summary,
+      }
+    }) as typeof pageBuilderStaticExportService.exportWorkspaceStaticPackage
+
+    try {
+      const editLockHeaders = await acquirePageBuilderEditLockHeaders(app, workspace.id)
+      const response = await app.fetch(new Request(`http://localhost/api/workspaces/${workspace.id}/page-builder/templates`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          ...editLockHeaders,
+        },
+        body: JSON.stringify({ name: '资源失败模板' }),
+      }))
+
+      expect(response.status).toBe(409)
+      expect(await response.json()).toEqual({ error: '模板资源下载失败，无法保存' })
+      const templatesRoot = join(homedir(), '.proma', 'page-builder-templates')
+      expect(existsSync(templatesRoot) ? readdirSync(templatesRoot) : []).toEqual([])
+    } finally {
+      pageBuilderStaticExportService.exportWorkspaceStaticPackage = originalExport
+    }
   })
 
   test('workspace routes pass an explicit downloadCmsRemoteAssets=false option to the static export service', async () => {

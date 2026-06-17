@@ -310,6 +310,24 @@ async function loadBuilderPage(options: {
     payload: unknown,
     options?: unknown,
   ) => Promise<WorkspacePreviewState>
+  savePageBuilderWorkspaceAsTemplateImpl?: (
+    workspaceId: string,
+    payload: {
+      name: string
+      description?: string
+      tags?: string[]
+    },
+    options?: unknown,
+  ) => Promise<{
+    template: {
+      id: string
+      name: string
+      sourceKind: 'saved-project'
+      createdAt: string
+      previewUrl: string
+      deletable: true
+    }
+  }>
   createPageBuilderCmsAutoHandoffImpl?: (
     workspaceId: string,
     payload: {
@@ -466,6 +484,24 @@ async function loadBuilderPage(options: {
     }
   })
 
+  mock.module('@/components/ui/dialog', () => {
+    const passthrough = ({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) =>
+      React.createElement('div', props, children)
+
+    return {
+      Dialog: ({ children, open }: React.PropsWithChildren<{ open?: boolean }>) =>
+        open === false ? React.createElement(React.Fragment) : React.createElement(React.Fragment, null, children),
+      DialogClose: passthrough,
+      DialogContent: passthrough,
+      DialogDescription: ({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) =>
+        React.createElement('p', props, children),
+      DialogFooter: passthrough,
+      DialogHeader: passthrough,
+      DialogTitle: ({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) =>
+        React.createElement('h2', props, children),
+    }
+  })
+
   if (options.mockPreviewPane) {
     mock.module('@page-builder/components/builder/PreviewPane', () => ({
       PreviewPane(props: Record<string, unknown>) {
@@ -564,6 +600,9 @@ async function loadBuilderPage(options: {
         `/api/workspaces/${workspaceId}/page-builder/export-static-jobs/${jobId}/download`,
       savePageBuilderInlineText: options.savePageBuilderInlineTextImpl ?? (async () => {
         throw new Error('savePageBuilderInlineText 未在测试中模拟')
+      }),
+      savePageBuilderWorkspaceAsTemplate: options.savePageBuilderWorkspaceAsTemplateImpl ?? (async () => {
+        throw new Error('savePageBuilderWorkspaceAsTemplate 未在测试中模拟')
       }),
       replacePageBuilderImage: options.replacePageBuilderImageImpl ?? (async () => {
         throw new Error('replacePageBuilderImage 未在测试中模拟')
@@ -760,6 +799,10 @@ function findCheckbox(renderer: ReturnType<typeof create>) {
     node.type === 'input'
     && node.props.type === 'checkbox',
   )
+}
+
+function findControlByAriaLabel(renderer: ReturnType<typeof create>, label: string) {
+  return renderer.root.find((node) => node.props['aria-label'] === label)
 }
 
 function HydrateBuilderPageState({
@@ -2214,6 +2257,364 @@ describe('BuilderPage', () => {
         holderId: 'holder-write',
       },
     })
+  })
+
+  test('saves the current standalone builder project as a template with edit lock credentials', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const savePageBuilderWorkspaceAsTemplate = mock(async () => ({
+      template: {
+        id: 'tpl_saved_20260615120000_ab12cd34',
+        name: '活动页模板',
+        sourceKind: 'saved-project' as const,
+        createdAt: '2026-06-15T12:00:00.000Z',
+        previewUrl: '/api/page-builder/templates/tpl_saved_20260615120000_ab12cd34/preview/',
+        deletable: true as const,
+      },
+    }))
+
+    const {
+      BuilderPage,
+      getToastSuccess,
+    } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      mockPreviewPane: true,
+      acquirePageBuilderEditLockImpl: async (workspaceId) => ({
+        workspaceId,
+        lockId: 'lock-template',
+        holderId: 'holder-template',
+        expiresAt: 60_000,
+        heartbeatIntervalMs: 15_000,
+      }),
+      savePageBuilderWorkspaceAsTemplateImpl: savePageBuilderWorkspaceAsTemplate,
+    })
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      findButtonByText(renderer, '另存模板').props.onClick()
+      await Promise.resolve()
+    })
+
+    expect(findControlByAriaLabel(renderer, '模板名称').props.value).toBe('未命名项目')
+
+    await act(async () => {
+      findControlByAriaLabel(renderer, '模板名称').props.onChange({
+        currentTarget: { value: '活动页模板' },
+      })
+    })
+
+    await act(async () => {
+      findButtonByText(renderer, '保存模板').props.onClick()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(savePageBuilderWorkspaceAsTemplate).toHaveBeenCalledWith(workspace.id, {
+      name: '活动页模板',
+    }, {
+      editLock: {
+        lockId: 'lock-template',
+        holderId: 'holder-template',
+      },
+    })
+    expect(getToastSuccess()).toHaveBeenCalledWith('模板已保存，可在首页模板库查看')
+    expect(findButtonsByText(renderer, '保存模板')).toHaveLength(0)
+  })
+
+  test('shows the CMS solidification notice only when the builder was loaded from CMS context', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: 'CMS 专题',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const { BuilderPage } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      getCmsIntegrationStatusImpl: async () => ({ integrationMode: 'cms', enabled: true }),
+      mockPreviewPane: true,
+    })
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      findButtonByText(renderer, '另存模板').props.onClick()
+      await Promise.resolve()
+    })
+
+    expect(JSON.stringify(renderer.toJSON())).toContain('CMS 数据会被固化为静态模板')
+  })
+
+  test('does not show the CMS solidification notice for dev standalone builder loading', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '开发态 CMS 项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const { BuilderPage } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      getCmsIntegrationStatusImpl: async () => ({
+        integrationMode: 'cms',
+        enabled: true,
+        devStandaloneEntryEnabled: true,
+      }),
+      mockPreviewPane: true,
+    })
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      findButtonByText(renderer, '另存模板').props.onClick()
+      await Promise.resolve()
+    })
+
+    expect(JSON.stringify(renderer.toJSON())).not.toContain('CMS 数据会被固化为静态模板')
+  })
+
+  test('keeps the save-template dialog open and shows backend errors', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const savePageBuilderWorkspaceAsTemplate = mock(async () => {
+      throw new Error('模板资源下载失败，无法保存')
+    })
+
+    const {
+      BuilderPage,
+      getToastError,
+    } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      mockPreviewPane: true,
+      savePageBuilderWorkspaceAsTemplateImpl: savePageBuilderWorkspaceAsTemplate,
+    })
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      findButtonByText(renderer, '另存模板').props.onClick()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      findButtonByText(renderer, '保存模板').props.onClick()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(getToastError()).toHaveBeenCalledWith('模板资源下载失败，无法保存')
+    expect(JSON.stringify(renderer.toJSON())).toContain('模板资源下载失败，无法保存')
+  })
+
+  test('save-template edit-lock rejection disables builder editing interactions', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const {
+      ApiError,
+      BuilderPage,
+      getLastPreviewPaneProps,
+      getToastError,
+    } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      mockPreviewPane: true,
+      savePageBuilderWorkspaceAsTemplateImpl: async () => {
+        throw new ApiError('编辑锁已失效，请从首页重新进入编辑', 409)
+      },
+    })
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      findButtonByText(renderer, '另存模板').props.onClick()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      findButtonByText(renderer, '保存模板').props.onClick()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(getToastError()).toHaveBeenCalledWith('编辑锁已失效，请从首页重新进入编辑')
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      interactionLocked: true,
+      selectionToggleDisabled: true,
+    })
+  })
+
+  test('does not send save-template requests while the agent is streaming', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const savePageBuilderWorkspaceAsTemplate = mock(async () => {
+      throw new Error('streaming should prevent save-template requests')
+    })
+    const store = createStore()
+
+    const { BuilderPage } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      mockPreviewPane: true,
+      savePageBuilderWorkspaceAsTemplateImpl: savePageBuilderWorkspaceAsTemplate,
+    })
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <Provider store={store}>
+          <HydrateBuilderPageState streamingStates={new Map([
+            [session.id, {
+              running: true,
+              content: '',
+              toolActivities: [],
+              teammates: [],
+              startedAt: 1,
+            }],
+          ])}>
+            <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+          </HydrateBuilderPageState>
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    const button = findButtonByText(renderer, '另存模板')
+    expect(button.props.disabled).toBe(true)
+
+    await act(async () => {
+      button.props.onClick()
+      await Promise.resolve()
+    })
+
+    expect(savePageBuilderWorkspaceAsTemplate).not.toHaveBeenCalled()
   })
 
   test('keeps the desktop builder shell height-bounded so the embedded chat can scroll internally', async () => {

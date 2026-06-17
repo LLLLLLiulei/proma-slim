@@ -19,6 +19,7 @@ import type {
   PageBuilderInlineTextSaveResult,
   PageBuilderStaticExportJobCreateOptions,
   PageBuilderStaticExportJob,
+  PageBuilderTemplateSaveRequest,
   PageBuilderTurnRoutingMetadata,
   PageBuilderTargetSelection,
 } from '@ai-page-builder/shared'
@@ -93,6 +94,7 @@ import {
 import { CmsBrowserDialog } from '@page-builder/components/builder/CmsBrowserDialog'
 import { PreviewPane } from '@page-builder/components/builder/PreviewPane'
 import { ProjectTitleBar } from '@page-builder/components/builder/ProjectTitleBar'
+import { SaveTemplateDialog } from '@page-builder/components/builder/SaveTemplateDialog'
 import type { CmsBuilderContext, CmsIntegrationStatus, WorkspacePreviewState } from '@/lib/api'
 
 type LoadState =
@@ -101,6 +103,7 @@ type LoadState =
   | { status: 'ready'; initialUserMessage: string | null }
 
 type SelectionActionState = 'idle' | 'armed' | 'selected'
+type BuilderSourceMode = 'standalone' | 'cms-integrated'
 
 const PAGE_BUILDER_GUIDED_GENERATION_SKILL = 'page-builder-guided-generation'
 const PAGE_BUILDER_CMS_REGION_AUTHORING_GUIDANCE_SKILL = 'page-builder-cms-region-authoring-guidance'
@@ -367,6 +370,7 @@ export function BuilderPage({
   const setWorkspaces = useSetAtom(agentWorkspacesAtom)
   const setCurrentSessionId = useSetAtom(currentAgentSessionIdAtom)
   const setCurrentWorkspaceId = useSetAtom(currentAgentWorkspaceIdAtom)
+  const workspaces = useAtomValue(agentWorkspacesAtom)
   const streamingState = useAtomValue(agentStreamingStatesAtom).get(sessionId)
   const [loadState, setLoadState] = React.useState<LoadState>({ status: 'loading' })
   const [editLockRequired, setEditLockRequired] = React.useState(false)
@@ -387,6 +391,7 @@ export function BuilderPage({
   const [selectedTargetSelection, setSelectedTargetSelection] = React.useState<PageBuilderTargetSelection | null>(null)
   const [selectedTargetDisplayLabel, setSelectedTargetDisplayLabel] = React.useState<string | null>(null)
   const [pendingDeleteSelector, setPendingDeleteSelector] = React.useState<string | null>(null)
+  const [builderSourceMode, setBuilderSourceMode] = React.useState<BuilderSourceMode>('standalone')
   const [cmsIntegrationEnabled, setCmsIntegrationEnabled] = React.useState(false)
   const [cmsBrowserOpen, setCmsBrowserOpen] = React.useState(false)
   const [cmsDataUnavailableReason, setCmsDataUnavailableReason] = React.useState<string | null>(null)
@@ -397,6 +402,9 @@ export function BuilderPage({
   const [isReplacingImage, setIsReplacingImage] = React.useState(false)
   const [staticExportJob, setStaticExportJob] = React.useState<PageBuilderStaticExportJob | null>(null)
   const [staticExportDialogOpen, setStaticExportDialogOpen] = React.useState(false)
+  const [saveTemplateDialogOpen, setSaveTemplateDialogOpen] = React.useState(false)
+  const [saveTemplateError, setSaveTemplateError] = React.useState<string | null>(null)
+  const [isSavingTemplate, setIsSavingTemplate] = React.useState(false)
   const [downloadCmsRemoteAssets, setDownloadCmsRemoteAssets] = React.useState(true)
   const [isCreatingStaticExportJob, setIsCreatingStaticExportJob] = React.useState(false)
   const selectionModeEnabled = selectionActionState !== 'idle'
@@ -406,6 +414,9 @@ export function BuilderPage({
     editLockCredentials ? { editLock: editLockCredentials } : undefined
   ), [editLockCredentials])
   const editingEnabled = !editLockRequired || (editLockCredentials !== null && editLockLostMessage === null)
+  const currentWorkspaceName = React.useMemo(() => (
+    workspaces.find((workspace) => workspace.id === workspaceId)?.name ?? '未命名项目'
+  ), [workspaces, workspaceId])
 
   React.useEffect(() => {
     editLockLeaseRef.current = editLockLease
@@ -476,6 +487,7 @@ export function BuilderPage({
     setEditLockRequired(false)
     setEditLockLease(null)
     setEditLockLostMessage(null)
+    setBuilderSourceMode('standalone')
     setCmsIntegrationEnabled(false)
     setCmsBrowserOpen(false)
     setCmsDataUnavailableReason(null)
@@ -526,6 +538,7 @@ export function BuilderPage({
         setWorkspaces([cmsWorkspace])
         setCurrentSessionId(targetSessionId)
         setCurrentWorkspaceId(cmsWorkspace.id)
+        setBuilderSourceMode('cms-integrated')
         setCmsBrowserWorkspaceId(cmsWorkspace.id)
         setLoadState({ status: 'ready', initialUserMessage: null })
         return
@@ -954,6 +967,65 @@ export function BuilderPage({
       setIsCreatingStaticExportJob(false)
     }
   }, [downloadCmsRemoteAssets, handleStaticExportSettled, isCreatingStaticExportJob, previewState?.hasPreview, staticExportJob, workspaceId])
+
+  const handleRequestSaveTemplate = React.useCallback((): void => {
+    if (isAgentStreaming) {
+      toast.error('当前项目正在生成中，请稍后再另存模板')
+      return
+    }
+
+    if (!editingEnabled) {
+      toast.error(editLockLostMessage ?? EDIT_LOCK_LOST_MESSAGE)
+      return
+    }
+
+    setSaveTemplateError(null)
+    setSaveTemplateDialogOpen(true)
+  }, [editLockLostMessage, editingEnabled, isAgentStreaming])
+
+  const handleSaveTemplateDialogOpenChange = React.useCallback((open: boolean): void => {
+    if (isSavingTemplate) {
+      return
+    }
+
+    setSaveTemplateDialogOpen(open)
+    if (open) {
+      setSaveTemplateError(null)
+    }
+  }, [isSavingTemplate])
+
+  const handleConfirmSaveTemplate = React.useCallback(async (payload: PageBuilderTemplateSaveRequest): Promise<void> => {
+    if (isSavingTemplate) {
+      return
+    }
+
+    if (isAgentStreaming) {
+      toast.error('当前项目正在生成中，请稍后再另存模板')
+      return
+    }
+
+    if (!editingEnabled) {
+      toast.error(editLockLostMessage ?? EDIT_LOCK_LOST_MESSAGE)
+      return
+    }
+
+    setIsSavingTemplate(true)
+    setSaveTemplateError(null)
+
+    try {
+      await api.savePageBuilderWorkspaceAsTemplate(workspaceId, payload, editLockRequestOptions)
+      setSaveTemplateDialogOpen(false)
+      toast.success('模板已保存，可在首页模板库查看')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '模板保存失败'
+      console.error('[BuilderPage] 另存模板失败:', error)
+      handlePageBuilderEditLockRejected(error)
+      setSaveTemplateError(message)
+      toast.error(message)
+    } finally {
+      setIsSavingTemplate(false)
+    }
+  }, [editLockLostMessage, editLockRequestOptions, editingEnabled, handlePageBuilderEditLockRejected, isAgentStreaming, isSavingTemplate, workspaceId])
 
   React.useEffect(() => {
     if (typeof window === 'undefined') return
@@ -1553,6 +1625,15 @@ export function BuilderPage({
             editLock={editLockCredentials ?? undefined}
             editingDisabled={!editingEnabled}
             onEditLockRejected={handlePageBuilderEditLockRejected}
+            onRequestSaveTemplate={handleRequestSaveTemplate}
+            saveTemplateDisabled={isAgentStreaming || !editingEnabled || isSavingTemplate}
+            saveTemplateTitle={
+              !editingEnabled
+                ? (editLockLostMessage ?? EDIT_LOCK_LOST_MESSAGE)
+                : isAgentStreaming
+                  ? '当前项目正在生成中，请稍后再另存模板'
+                  : '另存为模板'
+            }
             workspaceId={workspaceId}
           />
           <div className="min-h-0 flex-1 overflow-hidden bg-background/40">
@@ -1586,6 +1667,16 @@ export function BuilderPage({
           void handleImageFileChange(event)
         }}
         type="file"
+      />
+
+      <SaveTemplateDialog
+        cmsIntegrated={builderSourceMode === 'cms-integrated'}
+        defaultName={currentWorkspaceName}
+        errorMessage={saveTemplateError}
+        onOpenChange={handleSaveTemplateDialogOpenChange}
+        onSubmit={handleConfirmSaveTemplate}
+        open={saveTemplateDialogOpen}
+        submitting={isSavingTemplate}
       />
 
       <AlertDialog

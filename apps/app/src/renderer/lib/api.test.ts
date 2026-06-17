@@ -1045,6 +1045,269 @@ describe('renderer api wrappers', () => {
     })
   })
 
+  test('savePageBuilderWorkspaceAsTemplate posts template metadata with edit lock headers', async () => {
+    const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe('/api/workspaces/workspace%2F1/page-builder/templates')
+      expect(init?.method).toBe('POST')
+
+      const headers = new Headers(init?.headers)
+      expect(headers.get('content-type')).toBe('application/json')
+      expect(headers.get('x-proma-page-builder-edit-lock')).toBe('lock-1')
+      expect(headers.get('x-proma-page-builder-edit-holder')).toBe('holder-1')
+      expect(JSON.parse(String(init?.body))).toEqual({
+        name: '活动页模板',
+        description: '用于活动专题复用',
+        tags: ['营销', '活动页'],
+      })
+
+      return jsonResponse({
+        template: {
+          id: 'tpl_saved_20260615120000_ab12cd34',
+          name: '活动页模板',
+          description: '用于活动专题复用',
+          tags: ['营销', '活动页'],
+          sourceKind: 'saved-project',
+          createdAt: '2026-06-15T12:00:00.000Z',
+          previewUrl: '/api/page-builder/templates/tpl_saved_20260615120000_ab12cd34/preview/',
+          deletable: true,
+        },
+      })
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const { api } = await import('./api')
+    const result = await api.savePageBuilderWorkspaceAsTemplate('workspace/1', {
+      name: '活动页模板',
+      description: '用于活动专题复用',
+      tags: ['营销', '活动页'],
+    }, {
+      editLock: {
+        lockId: 'lock-1',
+        holderId: 'holder-1',
+      },
+    })
+
+    expect(result.template.name).toBe('活动页模板')
+    expect(result.template.previewUrl).toBe('/api/page-builder/templates/tpl_saved_20260615120000_ab12cd34/preview/')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  test('page-builder template library API wrappers use global template endpoints', async () => {
+    const requestedUrls: string[] = []
+    const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      requestedUrls.push(`${init?.method ?? 'GET'} ${String(input)}`)
+
+      if (String(input).endsWith('/templates')) {
+        return jsonResponse({
+          templates: [{
+            id: 'tpl_saved_20260615120000_ab12cd34',
+            name: '活动页模板',
+            description: '用于活动专题复用',
+            tags: ['营销', '活动页'],
+            sourceKind: 'saved-project',
+            createdAt: '2026-06-15T12:00:00.000Z',
+            previewUrl: '/api/page-builder/templates/tpl_saved_20260615120000_ab12cd34/preview/',
+            deletable: true,
+          }],
+        })
+      }
+
+      if (String(input).endsWith('/templates/tpl%2F1/use')) {
+        expect(init?.method).toBe('POST')
+        expect(new Headers(init?.headers).get('content-type')).toBe('application/json')
+        expect(JSON.parse(String(init?.body))).toEqual({ projectName: '自定义专题项目' })
+        return jsonResponse({
+          workspace: {
+            id: 'workspace-from-template',
+            name: '自定义专题项目',
+            slug: 'workspace-from-template',
+            template: 'page-builder',
+            createdAt: 1,
+            updatedAt: 1,
+          },
+          session: {
+            id: 'session-from-template',
+            title: '新 Agent 会话',
+            workspaceId: 'workspace-from-template',
+            createdAt: 1,
+            updatedAt: 1,
+          },
+          previewState: {
+            hasPreview: true,
+            entryUrl: '/api/workspaces/workspace-from-template/preview/',
+            revision: 'rev-template',
+            hasCmsRendering: false,
+            requiresSameOrigin: false,
+          },
+        }, { status: 201 })
+      }
+
+      if (String(input).endsWith('/templates/tpl%2F1')) {
+        if (init?.method === 'DELETE') {
+          return new Response(null, { status: 204 })
+        }
+
+        if (init?.method === 'PATCH') {
+          expect(JSON.parse(String(init.body))).toEqual({ name: '重命名模板' })
+          return jsonResponse({
+            template: {
+              id: 'tpl/1',
+              name: '重命名模板',
+              sourceKind: 'saved-project',
+              createdAt: '2026-06-15T12:00:00.000Z',
+              previewUrl: '/api/page-builder/templates/tpl%2F1/preview/',
+              deletable: true,
+            },
+          })
+        }
+
+        return jsonResponse({
+          id: 'tpl/1',
+          name: '活动页模板',
+          description: '用于活动专题复用',
+          tags: ['营销', '活动页'],
+          sourceKind: 'saved-project',
+          createdAt: '2026-06-15T12:00:00.000Z',
+          previewUrl: '/api/page-builder/templates/tpl%2F1/preview/',
+          deletable: true,
+          entry: 'workspace-files/index.html',
+        })
+      }
+
+      throw new Error(`unexpected request: ${String(input)}`)
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const { api } = await import(`./api.ts?test=${Date.now()}-${Math.random()}`)
+
+    const list = await api.listPageBuilderTemplates()
+    const detail = await api.getPageBuilderTemplate('tpl/1')
+    const useResult = await api.usePageBuilderTemplate('tpl/1', { projectName: '自定义专题项目' })
+    const renameResult = await api.renamePageBuilderTemplate('tpl/1', { name: '重命名模板' })
+    const downloadUrl = api.getPageBuilderTemplateDownloadUrl('tpl/1')
+    await api.deletePageBuilderTemplate('tpl/1')
+
+    expect(list.templates).toHaveLength(1)
+    expect(detail.entry).toBe('workspace-files/index.html')
+    expect(useResult.workspace.id).toBe('workspace-from-template')
+    expect(useResult.previewState.revision).toBe('rev-template')
+    expect(renameResult.template.name).toBe('重命名模板')
+    expect(downloadUrl).toBe('/api/page-builder/templates/tpl%2F1/download')
+    expect(requestedUrls).toEqual([
+      'GET /api/page-builder/templates',
+      'GET /api/page-builder/templates/tpl%2F1',
+      'POST /api/page-builder/templates/tpl%2F1/use',
+      'PATCH /api/page-builder/templates/tpl%2F1',
+      'DELETE /api/page-builder/templates/tpl%2F1',
+    ])
+  })
+
+  test('importPageBuilderTemplate uploads zip files with multipart form data', async () => {
+    const importedTemplate = {
+      id: 'tpl-imported-1',
+      name: '外部静态页',
+      sourceKind: 'saved-project',
+      createdAt: '2026-06-16T12:00:00.000Z',
+      previewUrl: '/api/page-builder/templates/tpl-imported-1/preview/',
+      deletable: true,
+    }
+    const zipFile = new File(['zip-bytes'], 'external-page.zip', { type: 'application/zip' })
+    const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe('/api/page-builder/templates/import')
+      expect(init?.method).toBe('POST')
+      expect(init?.body).toBeInstanceOf(FormData)
+      expect(new Headers(init?.headers).get('content-type')).toBeNull()
+
+      const formData = init?.body as FormData
+      const uploadedFile = formData.get('file')
+      expect(uploadedFile).toBeInstanceOf(File)
+      expect((uploadedFile as File).name).toBe(zipFile.name)
+      expect((uploadedFile as File).type).toBe(zipFile.type)
+
+      return jsonResponse({ template: importedTemplate }, { status: 201 })
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const { api } = await import(`./api.ts?test=${Date.now()}-${Math.random()}`)
+    const response = await api.importPageBuilderTemplate(zipFile)
+
+    expect(response.template).toEqual(importedTemplate)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  test('page-builder template library API wrappers preserve configured public base path', async () => {
+    const requestedUrls: string[] = []
+    const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      requestedUrls.push(`${init?.method ?? 'GET'} ${String(input)}`)
+      if (String(input).endsWith('/templates/import')) {
+        expect(init?.body).toBeInstanceOf(FormData)
+        expect(new Headers(init?.headers).get('content-type')).toBeNull()
+        return jsonResponse({
+          template: {
+            id: 'tpl-imported-1',
+            name: '外部静态页',
+            sourceKind: 'saved-project',
+            createdAt: '2026-06-16T12:00:00.000Z',
+            previewUrl: '/pagebuilder/api/page-builder/templates/tpl-imported-1/preview/',
+            deletable: true,
+          },
+        }, { status: 201 })
+      }
+      if (String(input).endsWith('/templates')) {
+        return jsonResponse({ templates: [] })
+      }
+      if (String(input).endsWith('/templates/tpl-1/use')) {
+        expect(new Headers(init?.headers).get('content-type')).toBe('application/json')
+        expect(JSON.parse(String(init?.body))).toEqual({ projectName: 'Base Path 项目' })
+        return jsonResponse({
+          workspace: { id: 'workspace-1', name: '模板项目', slug: 'workspace-1', createdAt: 1, updatedAt: 1 },
+          session: { id: 'session-1', title: '新 Agent 会话', workspaceId: 'workspace-1', createdAt: 1, updatedAt: 1 },
+          previewState: {
+            hasPreview: true,
+            entryUrl: '/pagebuilder/api/workspaces/workspace-1/preview/',
+            revision: 'rev-1',
+            hasCmsRendering: false,
+            requiresSameOrigin: false,
+          },
+        })
+      }
+      if (String(input).endsWith('/templates/tpl-1') && init?.method === 'PATCH') {
+        expect(new Headers(init?.headers).get('content-type')).toBe('application/json')
+        expect(JSON.parse(String(init?.body))).toEqual({ name: 'Base Path 模板' })
+        return jsonResponse({
+          template: {
+            id: 'tpl-1',
+            name: 'Base Path 模板',
+            sourceKind: 'saved-project',
+            createdAt: '2026-06-15T12:00:00.000Z',
+            previewUrl: '/pagebuilder/api/page-builder/templates/tpl-1/preview/',
+            deletable: true,
+          },
+        })
+      }
+      return new Response(null, { status: 204 })
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const { api, configureApiPublicBasePath } = await import(`./api.ts?test=${Date.now()}-${Math.random()}`)
+    configureApiPublicBasePath('/pagebuilder')
+
+    await api.listPageBuilderTemplates()
+    await api.importPageBuilderTemplate(new File(['zip-bytes'], 'external-page.zip', { type: 'application/zip' }))
+    await api.usePageBuilderTemplate('tpl-1', { projectName: 'Base Path 项目' })
+    await api.renamePageBuilderTemplate('tpl-1', { name: 'Base Path 模板' })
+    expect(api.getPageBuilderTemplateDownloadUrl('tpl-1')).toBe('/pagebuilder/api/page-builder/templates/tpl-1/download')
+    await api.deletePageBuilderTemplate('tpl-1')
+
+    expect(requestedUrls).toEqual([
+      'GET /pagebuilder/api/page-builder/templates',
+      'POST /pagebuilder/api/page-builder/templates/import',
+      'POST /pagebuilder/api/page-builder/templates/tpl-1/use',
+      'PATCH /pagebuilder/api/page-builder/templates/tpl-1',
+      'DELETE /pagebuilder/api/page-builder/templates/tpl-1',
+    ])
+  })
+
   test('createSession sends workspaceId in the request body when provided', async () => {
     const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
       expect(String(input)).toBe('/api/sessions')

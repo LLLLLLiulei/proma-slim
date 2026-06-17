@@ -168,6 +168,22 @@ export function getCmsSettingsPath(): string {
 }
 
 /**
+ * 获取 PageBuilder 用户模板根目录
+ *
+ * @returns ~/.proma/page-builder-templates/
+ */
+export function getUserPageBuilderTemplatesDir(): string {
+  const dir = join(getConfigDir(), 'page-builder-templates')
+
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true })
+    console.log(`[配置] 已创建 PageBuilder 用户模板目录: ${dir}`)
+  }
+
+  return dir
+}
+
+/**
  * 获取 Agent 会话索引文件路径
  *
  * @returns ~/.proma/agent-sessions.json

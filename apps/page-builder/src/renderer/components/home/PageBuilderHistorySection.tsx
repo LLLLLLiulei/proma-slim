@@ -27,6 +27,8 @@ export function PageBuilderHistorySection(): React.ReactElement {
     loading,
     openProject,
     projects,
+    renameProject,
+    renamingProjectId,
     refreshProjects,
     removeProject,
   } = usePageBuilderHistory()
@@ -104,7 +106,11 @@ export function PageBuilderHistorySection(): React.ReactElement {
               onDelete={setPendingDelete}
               onEdit={openProject}
               onPreview={openPreview}
+              onRename={async (targetProject, name) => {
+                await renameProject(targetProject.workspaceId, name)
+              }}
               project={project}
+              renaming={renamingProjectId === project.workspaceId}
             />
           ))}
         </div>

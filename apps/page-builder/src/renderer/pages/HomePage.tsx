@@ -6,7 +6,7 @@ import { api } from '@/lib/api'
 import { getPageBuilderPublicBasePath } from '@page-builder/lib/public-base-path'
 import { buildBuilderPath } from '@page-builder/lib/routes'
 import { clearBootstrapPayload, writeBootstrapPayload } from '@page-builder/lib/bootstrap-cache'
-import { PageBuilderHistorySection } from '@page-builder/components/home/PageBuilderHistorySection'
+import { PageBuilderHomeResourceTabs } from '@page-builder/components/home/PageBuilderHomeResourceTabs'
 import {
   PageBuilderProjectStartError,
   createPageBuilderProject,
@@ -36,6 +36,7 @@ export function HomePage(): React.ReactElement {
   const [recoverable, setRecoverable] = React.useState<RecoverableState | null>(null)
   const [integrationGate, setIntegrationGate] = React.useState<IntegrationGateState>({ status: 'checking' })
   const publicBasePath = getPageBuilderPublicBasePath()
+  const showResourceTabs = integrationGate.status === 'standalone' || integrationGate.status === 'cms'
 
   const loadIntegrationStatus = React.useCallback(async (): Promise<void> => {
     setIntegrationGate({ status: 'checking' })
@@ -194,7 +195,7 @@ export function HomePage(): React.ReactElement {
                 <div className="page-builder-home-surface page-builder-home-panel-surface page-builder-home-panel-flat rounded-[24px] border border-border/55 bg-background/90 px-6 py-8 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.45)] backdrop-blur-xl">
                   <h2 className="text-lg font-semibold tracking-tight text-foreground">请从 CMS 系统进入 PageBuilder</h2>
                   <p className="mx-auto mt-3 max-w-[42ch] text-sm leading-6 text-muted-foreground">
-                    当前已启用 CMS 集成模式，需要通过 CMS 项目入口完成访问校验后继续编辑。
+                    当前已启用 CMS 集成模式，模板库可继续浏览和维护；创建和编辑项目需要通过 CMS 项目入口完成访问校验。
                   </p>
                 </div>
               </div>
@@ -266,9 +267,12 @@ export function HomePage(): React.ReactElement {
           </div>
         </section>
 
-        {integrationGate.status === 'standalone' && (
-          <div className="page-builder-home-history-shell px-4 pb-8 sm:px-6 sm:pb-10">
-            <PageBuilderHistorySection />
+        {showResourceTabs && (
+          <div className="page-builder-home-resource-shell px-4 pb-8 sm:px-6 sm:pb-10">
+            <PageBuilderHomeResourceTabs
+              allowTemplateUse={integrationGate.status !== 'cms'}
+              showHistory={integrationGate.status !== 'cms'}
+            />
           </div>
         )}
       </div>

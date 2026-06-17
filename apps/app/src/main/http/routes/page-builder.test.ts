@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
+import { unzipSync, zipSync } from 'fflate'
 import { createAgentSession } from '../../lib/agent-session-manager'
+import { getAgentWorkspacesDir } from '../../lib/config-paths'
 import { createAgentWorkspace } from '../../lib/workspace-service'
 import { createHttpApp } from '../app'
 
@@ -12,12 +14,21 @@ const originalCmsEnv = {
   PROMA_CMS_USERNAME: process.env.PROMA_CMS_USERNAME,
   PROMA_CMS_PASSWORD: process.env.PROMA_CMS_PASSWORD,
 } as const
+const originalPageBuilderEnv = {
+  AI_PAGE_BUILDER_BASE_PATH: process.env.AI_PAGE_BUILDER_BASE_PATH,
+  AI_PAGE_BUILDER_INTEGRATION_MODE: process.env.AI_PAGE_BUILDER_INTEGRATION_MODE,
+  AI_PAGE_BUILDER_DEV_ALLOW_STANDALONE_ENTRY_IN_CMS: process.env.AI_PAGE_BUILDER_DEV_ALLOW_STANDALONE_ENTRY_IN_CMS,
+  AI_PAGE_BUILDER_TEMPLATE_IMPORT_MAX_ZIP_MB: process.env.AI_PAGE_BUILDER_TEMPLATE_IMPORT_MAX_ZIP_MB,
+  AI_PAGE_BUILDER_TEMPLATE_IMPORT_MAX_UNCOMPRESSED_MB: process.env.AI_PAGE_BUILDER_TEMPLATE_IMPORT_MAX_UNCOMPRESSED_MB,
+  NODE_ENV: process.env.NODE_ENV,
+} as const
 
 afterEach(() => {
   rmSync(join(homedir(), '.proma'), { recursive: true, force: true })
   globalThis.fetch = originalFetch
   mock.restore()
   restoreCmsEnv()
+  restorePageBuilderEnv()
 })
 
 function createApp() {
@@ -37,6 +48,24 @@ function restoreCmsEnv() {
   restoreEnvVar('PROMA_CMS_BASE_URL', originalCmsEnv.PROMA_CMS_BASE_URL)
   restoreEnvVar('PROMA_CMS_USERNAME', originalCmsEnv.PROMA_CMS_USERNAME)
   restoreEnvVar('PROMA_CMS_PASSWORD', originalCmsEnv.PROMA_CMS_PASSWORD)
+}
+
+function restorePageBuilderEnv() {
+  restoreEnvVar('AI_PAGE_BUILDER_BASE_PATH', originalPageBuilderEnv.AI_PAGE_BUILDER_BASE_PATH)
+  restoreEnvVar('AI_PAGE_BUILDER_INTEGRATION_MODE', originalPageBuilderEnv.AI_PAGE_BUILDER_INTEGRATION_MODE)
+  restoreEnvVar(
+    'AI_PAGE_BUILDER_DEV_ALLOW_STANDALONE_ENTRY_IN_CMS',
+    originalPageBuilderEnv.AI_PAGE_BUILDER_DEV_ALLOW_STANDALONE_ENTRY_IN_CMS,
+  )
+  restoreEnvVar(
+    'AI_PAGE_BUILDER_TEMPLATE_IMPORT_MAX_ZIP_MB',
+    originalPageBuilderEnv.AI_PAGE_BUILDER_TEMPLATE_IMPORT_MAX_ZIP_MB,
+  )
+  restoreEnvVar(
+    'AI_PAGE_BUILDER_TEMPLATE_IMPORT_MAX_UNCOMPRESSED_MB',
+    originalPageBuilderEnv.AI_PAGE_BUILDER_TEMPLATE_IMPORT_MAX_UNCOMPRESSED_MB,
+  )
+  restoreEnvVar('NODE_ENV', originalPageBuilderEnv.NODE_ENV)
 }
 
 function restoreEnvVar(name: string, value: string | undefined) {
@@ -62,7 +91,629 @@ function createTokenResponse() {
   })
 }
 
+function createUserTemplate(
+  id: string,
+  options: {
+    name?: string
+    description?: string
+    tags?: string[]
+    category?: string
+    html?: string
+    css?: string
+    manifestOverrides?: Record<string, unknown>
+  } = {},
+) {
+  const templateDir = join(homedir(), '.proma', 'page-builder-templates', id)
+  const workspaceFilesDir = join(templateDir, 'workspace-files')
+  mkdirSync(join(workspaceFilesDir, 'assets'), { recursive: true })
+  writeFileSync(join(workspaceFilesDir, 'index.html'), options.html ?? '<!doctype html><h1>Template</h1>', 'utf-8')
+  writeFileSync(join(workspaceFilesDir, 'assets', 'site.css'), options.css ?? 'body { color: red; }', 'utf-8')
+
+  const manifest = {
+    version: 1,
+    id,
+    name: options.name ?? '新闻专题模板',
+    description: options.description ?? '适合新闻专题。',
+    tags: options.tags ?? ['新闻', '专题'],
+    category: options.category ?? 'special-page',
+    sourceKind: 'saved-project',
+    entry: 'workspace-files/index.html',
+    createdAt: '2026-06-14T10:00:00.000Z',
+    sourceProject: {
+      workspaceId: 'workspace-source',
+      workspaceName: '来源项目',
+      sourceMode: 'standalone',
+      exportedAt: '2026-06-14T10:00:00.000Z',
+    },
+    ...options.manifestOverrides,
+  }
+  writeFileSync(join(templateDir, 'template.json'), JSON.stringify(manifest, null, 2), 'utf-8')
+
+  return { templateDir, workspaceFilesDir }
+}
+
+function createZipFile(entries: Record<string, string | Uint8Array>, fileName = 'imported-template.zip'): File {
+  const encodedEntries: Record<string, Uint8Array> = {}
+  const encoder = new TextEncoder()
+  for (const [entryName, content] of Object.entries(entries)) {
+    encodedEntries[entryName] = typeof content === 'string'
+      ? encoder.encode(content)
+      : content
+  }
+
+  const zipBytes = zipSync(encodedEntries)
+  const zipBody = new ArrayBuffer(zipBytes.byteLength)
+  new Uint8Array(zipBody).set(zipBytes)
+  return new File([zipBody], fileName, { type: 'application/zip' })
+}
+
+async function importTemplateZip(
+  app: ReturnType<typeof createApp>,
+  file: File,
+): Promise<Response> {
+  const formData = new FormData()
+  formData.set('file', file)
+  return await app.fetch(new Request('http://localhost/api/page-builder/templates/import', {
+    method: 'POST',
+    body: formData,
+  }))
+}
+
 describe('page-builder routes', () => {
+  test('GET /api/page-builder/templates returns valid user templates and skips invalid manifests without thumbnail fields', async () => {
+    process.env.AI_PAGE_BUILDER_BASE_PATH = '/pagebuilder'
+    const app = createApp()
+    createUserTemplate('tpl_saved_202606141000', {
+      manifestOverrides: {
+        thumbnail: 'thumbnail.png',
+        thumbnailUrl: '/thumbnail.png',
+      },
+    })
+    createUserTemplate('tpl_invalid_mismatch', {
+      manifestOverrides: {
+        id: 'different-id',
+      },
+    })
+    const escapingEntry = createUserTemplate('tpl_invalid_entry_symlink')
+    unlinkSync(join(escapingEntry.workspaceFilesDir, 'index.html'))
+    symlinkSync(join(escapingEntry.templateDir, 'template.json'), join(escapingEntry.workspaceFilesDir, 'index.html'))
+
+    const response = await app.fetch(new Request('http://localhost/api/page-builder/templates'))
+
+    expect(response.status).toBe(200)
+    const payload = await response.json() as { templates: Array<Record<string, unknown>> }
+    expect(payload.templates).toHaveLength(1)
+    expect(payload.templates[0]).toEqual(expect.objectContaining({
+      id: 'tpl_saved_202606141000',
+      name: '新闻专题模板',
+      description: '适合新闻专题。',
+      tags: ['新闻', '专题'],
+      category: 'special-page',
+      sourceKind: 'saved-project',
+      createdAt: '2026-06-14T10:00:00.000Z',
+      previewUrl: '/pagebuilder/api/page-builder/templates/tpl_saved_202606141000/preview/',
+      deletable: true,
+    }))
+    expect(payload.templates[0]).not.toHaveProperty('thumbnail')
+    expect(payload.templates[0]).not.toHaveProperty('thumbnailUrl')
+  })
+
+  test('GET /api/page-builder/templates/:templateId returns template detail without thumbnail fields', async () => {
+    const app = createApp()
+    createUserTemplate('tpl_detail_202606141000', {
+      manifestOverrides: {
+        thumbnail: 'thumbnail.png',
+        thumbnailUrl: '/thumbnail.png',
+      },
+    })
+
+    const response = await app.fetch(new Request('http://localhost/api/page-builder/templates/tpl_detail_202606141000'))
+
+    expect(response.status).toBe(200)
+    const payload = await response.json() as Record<string, unknown>
+    expect(payload).toEqual(expect.objectContaining({
+      id: 'tpl_detail_202606141000',
+      name: '新闻专题模板',
+      entry: 'workspace-files/index.html',
+      previewUrl: '/api/page-builder/templates/tpl_detail_202606141000/preview/',
+      deletable: true,
+    }))
+    expect(payload).not.toHaveProperty('thumbnail')
+    expect(payload).not.toHaveProperty('thumbnailUrl')
+
+    const missingResponse = await app.fetch(new Request('http://localhost/api/page-builder/templates/not-found'))
+    expect(missingResponse.status).toBe(404)
+  })
+
+  test('PATCH /api/page-builder/templates/:templateId updates only the template name', async () => {
+    const app = createApp()
+    const { templateDir } = createUserTemplate('tpl_rename_202606141000', {
+      name: '旧模板名称',
+      description: '保留描述',
+      tags: ['保留标签'],
+    })
+
+    const response = await app.fetch(new Request('http://localhost/api/page-builder/templates/tpl_rename_202606141000', {
+      method: 'PATCH',
+      headers: {
+        'content-type': 'application/json; charset=utf-8',
+      },
+      body: JSON.stringify({
+        name: '  新模板名称  ',
+      }),
+    }))
+
+    expect(response.status).toBe(200)
+    const payload = await response.json() as Record<string, unknown>
+    expect(payload).toEqual({
+      template: expect.objectContaining({
+        id: 'tpl_rename_202606141000',
+        name: '新模板名称',
+        description: '保留描述',
+        tags: ['保留标签'],
+        previewUrl: '/api/page-builder/templates/tpl_rename_202606141000/preview/',
+      }),
+    })
+
+    const manifest = JSON.parse(readFileSync(join(templateDir, 'template.json'), 'utf-8')) as Record<string, unknown>
+    expect(manifest.name).toBe('新模板名称')
+    expect(manifest.description).toBe('保留描述')
+    expect(manifest.tags).toEqual(['保留标签'])
+
+    const invalidResponse = await app.fetch(new Request('http://localhost/api/page-builder/templates/tpl_rename_202606141000', {
+      method: 'PATCH',
+      headers: {
+        'content-type': 'application/json; charset=utf-8',
+      },
+      body: JSON.stringify({
+        name: '   ',
+      }),
+    }))
+    expect(invalidResponse.status).toBe(400)
+
+    const missingResponse = await app.fetch(new Request('http://localhost/api/page-builder/templates/not-found', {
+      method: 'PATCH',
+      headers: {
+        'content-type': 'application/json; charset=utf-8',
+      },
+      body: JSON.stringify({
+        name: '新模板名称',
+      }),
+    }))
+    expect(missingResponse.status).toBe(404)
+  })
+
+  test('template preview serves readonly html and assets without injecting builder or cms runtime', async () => {
+    const app = createApp()
+    createUserTemplate('tpl_preview_202606141000', {
+      html: '<!doctype html><html><head><link rel="stylesheet" href="./assets/site.css"></head><body><h1>Preview Template</h1></body></html>',
+    })
+
+    const previewResponse = await app.fetch(new Request('http://localhost/api/page-builder/templates/tpl_preview_202606141000/preview/'))
+
+    expect(previewResponse.status).toBe(200)
+    expect(previewResponse.headers.get('content-type')).toContain('text/html')
+    expect(previewResponse.headers.get('cache-control')).toBe('no-store')
+    expect(previewResponse.headers.get('content-security-policy')).toContain('sandbox allow-scripts allow-forms allow-popups')
+    expect(previewResponse.headers.get('content-security-policy')).toContain('allow-same-origin')
+    const html = await previewResponse.text()
+    expect(html).toContain('<h1>Preview Template</h1>')
+    expect(html).not.toContain('preview-bridge.js')
+    expect(html).not.toContain('cms-rendering-preview.js')
+    expect(html).not.toContain('cms-rendering-vue.js')
+
+    const assetResponse = await app.fetch(new Request('http://localhost/api/page-builder/templates/tpl_preview_202606141000/preview/assets/site.css'))
+    expect(assetResponse.status).toBe(200)
+    expect(assetResponse.headers.get('cache-control')).toBe('no-store')
+    expect(await assetResponse.text()).toContain('color: red')
+
+    const missingResponse = await app.fetch(new Request('http://localhost/api/page-builder/templates/tpl_preview_202606141000/preview/missing.css'))
+    expect(missingResponse.status).toBe(404)
+
+    const traversalResponse = await app.fetch(new Request('http://localhost/api/page-builder/templates/tpl_preview_202606141000/preview/%2e%2e%2ftemplate.json'))
+    expect(traversalResponse.status).toBe(403)
+  })
+
+  test('template download returns a reusable zip with only manifest and workspace files', async () => {
+    const app = createApp()
+    const { templateDir } = createUserTemplate('tpl_download_202606141000', {
+      name: '可下载模板',
+      html: '<!doctype html><html><body><h1>Download Template</h1></body></html>',
+      css: 'body { color: #2563eb; }',
+    })
+    mkdirSync(join(templateDir, 'reports'), { recursive: true })
+    mkdirSync(join(templateDir, 'source'), { recursive: true })
+    writeFileSync(join(templateDir, 'reports', 'template-validation-report.json'), '{"ok":true}', 'utf-8')
+    writeFileSync(join(templateDir, 'source', 'source-project.json'), '{"workspaceId":"secret"}', 'utf-8')
+
+    const response = await app.fetch(new Request('http://localhost/api/page-builder/templates/tpl_download_202606141000/download'))
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toBe('application/zip')
+    expect(response.headers.get('cache-control')).toBe('private, no-store')
+    expect(response.headers.get('content-disposition')).toContain('attachment;')
+    expect(response.headers.get('content-disposition')).toContain('filename="tpl_download_202606141000.zip"')
+    const zipBytes = new Uint8Array(await response.arrayBuffer())
+    const entries = unzipSync(zipBytes)
+    expect(Object.keys(entries).sort()).toEqual([
+      'template.json',
+      'workspace-files/assets/site.css',
+      'workspace-files/index.html',
+    ])
+    const decoder = new TextDecoder()
+    const manifest = JSON.parse(decoder.decode(entries['template.json'])) as Record<string, unknown>
+    expect(manifest).toEqual(expect.objectContaining({
+      version: 1,
+      id: 'tpl_download_202606141000',
+      name: '可下载模板',
+      entry: 'workspace-files/index.html',
+    }))
+    expect(manifest).not.toHaveProperty('sourceProject')
+    expect(decoder.decode(entries['workspace-files/index.html'])).toContain('Download Template')
+    expect(decoder.decode(entries['workspace-files/assets/site.css'])).toContain('#2563eb')
+
+    const importedResponse = await importTemplateZip(app, new File([zipBytes], 'downloaded-template.zip', {
+      type: 'application/zip',
+    }))
+    expect(importedResponse.status).toBe(201)
+    expect(await importedResponse.json()).toEqual({
+      template: expect.objectContaining({
+        id: expect.stringMatching(/^tpl_imported_[0-9]{14}_[A-Za-z0-9_-]+$/),
+        name: '可下载模板',
+      }),
+    })
+  })
+
+  test('template download rejects symlinks escaping workspace files', async () => {
+    const app = createApp()
+    const { templateDir, workspaceFilesDir } = createUserTemplate('tpl_download_symlink_202606141000')
+    symlinkSync(join(templateDir, 'template.json'), join(workspaceFilesDir, 'assets', 'escape.json'))
+
+    const response = await app.fetch(new Request('http://localhost/api/page-builder/templates/tpl_download_symlink_202606141000/download'))
+
+    expect(response.status).toBe(403)
+  })
+
+  test('POST /api/page-builder/templates/import imports a static zip with root index into the template registry', async () => {
+    process.env.AI_PAGE_BUILDER_BASE_PATH = '/pagebuilder'
+    const app = createApp()
+    const zipFile = createZipFile({
+      'template.json': JSON.stringify({
+        version: 1,
+        id: 'external-id-is-ignored',
+        name: '外部平台模板',
+      }),
+      'index.html': '<!doctype html><html><head><script src="./assets/site.js"></script><script src="https://cdn.example.com/runtime.js"></script></head><body><h1>Imported Root Template</h1></body></html>',
+      'assets/site.css': 'body { color: #123456; }',
+      'assets/site.js': 'window.externalTemplateLoaded = true;',
+      '__MACOSX/._ignored': 'ignored',
+      '.DS_Store': 'ignored',
+    }, 'fallback-name.zip')
+
+    const response = await importTemplateZip(app, zipFile)
+
+    expect(response.status).toBe(201)
+    const payload = await response.json() as { template: { id: string; name: string; previewUrl: string } }
+    expect(payload.template).toEqual(expect.objectContaining({
+      id: expect.stringMatching(/^tpl_imported_[0-9]{14}_[A-Za-z0-9_-]+$/),
+      name: '外部平台模板',
+      previewUrl: `/pagebuilder/api/page-builder/templates/${payload.template.id}/preview/`,
+    }))
+    expect(payload.template.id).not.toBe('external-id-is-ignored')
+    expect(payload.template).not.toHaveProperty('thumbnail')
+    expect(payload.template).not.toHaveProperty('thumbnailUrl')
+
+    const templateDir = join(homedir(), '.proma', 'page-builder-templates', payload.template.id)
+    const html = readFileSync(join(templateDir, 'workspace-files', 'index.html'), 'utf-8')
+    expect(html).toContain('Imported Root Template')
+    expect(html).toContain('https://cdn.example.com/runtime.js')
+    expect(readFileSync(join(templateDir, 'workspace-files', 'assets', 'site.css'), 'utf-8')).toContain('#123456')
+    expect(readFileSync(join(templateDir, 'workspace-files', 'assets', 'site.js'), 'utf-8')).toContain('externalTemplateLoaded')
+    expect(existsSync(join(templateDir, 'workspace-files', '__MACOSX'))).toBe(false)
+    expect(existsSync(join(templateDir, 'workspace-files', '.DS_Store'))).toBe(false)
+    const report = JSON.parse(readFileSync(join(templateDir, 'reports', 'template-import-report.json'), 'utf-8')) as Record<string, unknown>
+    expect(report).toEqual(expect.objectContaining({
+      version: 1,
+      sourceFileName: 'fallback-name.zip',
+      entryRoot: '',
+      entryFile: 'index.html',
+    }))
+
+    const listResponse = await app.fetch(new Request('http://localhost/api/page-builder/templates'))
+    expect(await listResponse.json()).toEqual({
+      templates: [expect.objectContaining({
+        id: payload.template.id,
+        name: '外部平台模板',
+      })],
+    })
+  })
+
+  test('POST /api/page-builder/templates/import recognizes common index layouts and falls back to the uploaded file name', async () => {
+    const app = createApp()
+    const singleRootResponse = await importTemplateZip(app, createZipFile({
+      'dist/index.html': '<h1>Single Root</h1>',
+      'dist/assets/site.css': 'body { color: green; }',
+    }, 'single-root.zip'))
+    const workspaceFilesResponse = await importTemplateZip(app, createZipFile({
+      'workspace-files/index.html': '<h1>Workspace Files</h1>',
+      'workspace-files/assets/site.css': 'body { color: blue; }',
+    }, 'workspace-package.zip'))
+    const uniqueNestedResponse = await importTemplateZip(app, createZipFile({
+      'archive/public/pages/index.html': '<h1>Unique Nested</h1>',
+      'archive/public/pages/assets/site.css': 'body { color: purple; }',
+      'archive/public/readme.txt': 'no entry here',
+    }, 'unique-nested-template.zip'))
+
+    expect(singleRootResponse.status).toBe(201)
+    expect(workspaceFilesResponse.status).toBe(201)
+    expect(uniqueNestedResponse.status).toBe(201)
+    const singleRoot = await singleRootResponse.json() as { template: { id: string; name: string } }
+    const workspaceFiles = await workspaceFilesResponse.json() as { template: { id: string; name: string } }
+    const uniqueNested = await uniqueNestedResponse.json() as { template: { id: string; name: string } }
+
+    expect(singleRoot.template.name).toBe('single-root')
+    expect(workspaceFiles.template.name).toBe('workspace-package')
+    expect(uniqueNested.template.name).toBe('unique-nested-template')
+    expect(readFileSync(join(homedir(), '.proma', 'page-builder-templates', singleRoot.template.id, 'workspace-files', 'index.html'), 'utf-8')).toContain('Single Root')
+    expect(readFileSync(join(homedir(), '.proma', 'page-builder-templates', workspaceFiles.template.id, 'workspace-files', 'index.html'), 'utf-8')).toContain('Workspace Files')
+    expect(readFileSync(join(homedir(), '.proma', 'page-builder-templates', uniqueNested.template.id, 'workspace-files', 'index.html'), 'utf-8')).toContain('Unique Nested')
+  })
+
+  test('POST /api/page-builder/templates/import rejects missing files, missing index, ambiguous index, unsafe paths, and size limits', async () => {
+    const app = createApp()
+    const missingFileResponse = await app.fetch(new Request('http://localhost/api/page-builder/templates/import', {
+      method: 'POST',
+      body: new FormData(),
+    }))
+    expect(missingFileResponse.status).toBe(400)
+
+    const noIndexResponse = await importTemplateZip(app, createZipFile({
+      'assets/site.css': 'body {}',
+    }))
+    expect(noIndexResponse.status).toBe(400)
+    expect(await noIndexResponse.json()).toEqual(expect.objectContaining({
+      error: expect.stringContaining('index.html'),
+    }))
+
+    const ambiguousResponse = await importTemplateZip(app, createZipFile({
+      'a/index.html': '<h1>A</h1>',
+      'b/index.html': '<h1>B</h1>',
+    }))
+    expect(ambiguousResponse.status).toBe(400)
+    expect(await ambiguousResponse.json()).toEqual(expect.objectContaining({
+      error: expect.stringContaining('无法自动判断模板入口'),
+    }))
+
+    const unsafeResponse = await importTemplateZip(app, createZipFile({
+      'index.html': '<h1>Unsafe</h1>',
+      '../escape.txt': 'escape',
+    }))
+    expect(unsafeResponse.status).toBe(403)
+
+    process.env.AI_PAGE_BUILDER_TEMPLATE_IMPORT_MAX_ZIP_MB = '0.000001'
+    const zipTooLargeResponse = await importTemplateZip(app, createZipFile({
+      'index.html': '<h1>Too Large</h1>',
+    }))
+    expect(zipTooLargeResponse.status).toBe(413)
+    delete process.env.AI_PAGE_BUILDER_TEMPLATE_IMPORT_MAX_ZIP_MB
+
+    process.env.AI_PAGE_BUILDER_TEMPLATE_IMPORT_MAX_UNCOMPRESSED_MB = '0.000001'
+    const uncompressedTooLargeResponse = await importTemplateZip(app, createZipFile({
+      'index.html': '<h1>Too Large After Inflate</h1>',
+    }))
+    expect(uncompressedTooLargeResponse.status).toBe(413)
+
+    const templatesRoot = join(homedir(), '.proma', 'page-builder-templates')
+    expect(existsSync(templatesRoot) ? readdirSync(templatesRoot).filter((entry) => !entry.startsWith('.')) : []).toEqual([])
+  })
+
+  test('template library APIs are available in cms integration production mode', async () => {
+    process.env.AI_PAGE_BUILDER_INTEGRATION_MODE = 'cms'
+    process.env.NODE_ENV = 'production'
+    const app = createApp()
+
+    const importResponse = await importTemplateZip(app, createZipFile({
+      'index.html': '<h1>CMS Import Allowed</h1>',
+    }, 'cms-import.zip'))
+    expect(importResponse.status).toBe(201)
+    const payload = await importResponse.json() as { template: { id: string; name: string } }
+    expect(payload.template.name).toBe('cms-import')
+
+    const listResponse = await app.fetch(new Request('http://localhost/api/page-builder/templates'))
+    expect(listResponse.status).toBe(200)
+    expect(await listResponse.json()).toEqual({
+      templates: [expect.objectContaining({
+        id: payload.template.id,
+      })],
+    })
+
+    const detailResponse = await app.fetch(new Request(`http://localhost/api/page-builder/templates/${payload.template.id}`))
+    expect(detailResponse.status).toBe(200)
+    expect(await detailResponse.json()).toEqual(expect.objectContaining({
+      id: payload.template.id,
+      name: 'cms-import',
+    }))
+
+    const previewResponse = await app.fetch(new Request(`http://localhost/api/page-builder/templates/${payload.template.id}/preview/`))
+    expect(previewResponse.status).toBe(200)
+    expect(await previewResponse.text()).toContain('CMS Import Allowed')
+
+    const downloadResponse = await app.fetch(new Request(`http://localhost/api/page-builder/templates/${payload.template.id}/download`))
+    expect(downloadResponse.status).toBe(200)
+
+    const renameResponse = await app.fetch(new Request(`http://localhost/api/page-builder/templates/${payload.template.id}`, {
+      method: 'PATCH',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        name: 'CMS 模板已重命名',
+      }),
+    }))
+    expect(renameResponse.status).toBe(200)
+    expect(await renameResponse.json()).toEqual({
+      template: expect.objectContaining({
+        id: payload.template.id,
+        name: 'CMS 模板已重命名',
+      }),
+    })
+
+    expect(readFileSync(join(homedir(), '.proma', 'page-builder-templates', payload.template.id, 'workspace-files', 'index.html'), 'utf-8')).toContain('CMS Import Allowed')
+
+    const deleteResponse = await app.fetch(new Request(`http://localhost/api/page-builder/templates/${payload.template.id}`, {
+      method: 'DELETE',
+    }))
+    expect(deleteResponse.status).toBe(204)
+  })
+
+  test('template preview rejects symlinks escaping workspace files', async () => {
+    const app = createApp()
+    const { templateDir, workspaceFilesDir } = createUserTemplate('tpl_symlink_202606141000')
+    symlinkSync(join(templateDir, 'template.json'), join(workspaceFilesDir, 'assets', 'escape.json'))
+
+    const response = await app.fetch(new Request('http://localhost/api/page-builder/templates/tpl_symlink_202606141000/preview/assets/escape.json'))
+
+    expect(response.status).toBe(403)
+  })
+
+  test('DELETE /api/page-builder/templates/:templateId deletes only the user template directory', async () => {
+    const app = createApp()
+    const { templateDir } = createUserTemplate('tpl_delete_202606141000')
+    const workspace = createAgentWorkspace('Template Consumer', { template: 'page-builder' })
+    const workspaceFile = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files', 'index.html')
+    writeFileSync(workspaceFile, '<h1>Workspace</h1>', 'utf-8')
+
+    const deleteResponse = await app.fetch(new Request('http://localhost/api/page-builder/templates/tpl_delete_202606141000', {
+      method: 'DELETE',
+    }))
+
+    expect(deleteResponse.status).toBe(204)
+    expect(existsSync(templateDir)).toBe(false)
+    expect(existsSync(workspaceFile)).toBe(true)
+
+    const listResponse = await app.fetch(new Request('http://localhost/api/page-builder/templates'))
+    expect(await listResponse.json()).toEqual({ templates: [] })
+
+    const missingDeleteResponse = await app.fetch(new Request('http://localhost/api/page-builder/templates/tpl_delete_202606141000', {
+      method: 'DELETE',
+    }))
+    expect(missingDeleteResponse.status).toBe(404)
+  })
+
+  test('template registry APIs do not require dev standalone bypass in cms integration production mode', async () => {
+    createUserTemplate('tpl_cms_bypass_202606141000')
+
+    process.env.AI_PAGE_BUILDER_INTEGRATION_MODE = 'cms'
+    process.env.NODE_ENV = 'production'
+    const productionApp = createApp()
+
+    const allowedResponse = await productionApp.fetch(new Request('http://localhost/api/page-builder/templates'))
+    expect(allowedResponse.status).toBe(200)
+    expect(await allowedResponse.json()).toEqual({
+      templates: [expect.objectContaining({
+        id: 'tpl_cms_bypass_202606141000',
+      })],
+    })
+  })
+
+  test('POST /api/page-builder/templates/:templateId/use creates a project, session, and preview state', async () => {
+    process.env.AI_PAGE_BUILDER_BASE_PATH = '/pagebuilder'
+    const app = createApp()
+    createUserTemplate('tpl_use_202606151000', {
+      name: '首页活动模板',
+      html: '<!doctype html><html><head><link rel="stylesheet" href="./assets/site.css"></head><body><h1>Use Template Project</h1></body></html>',
+      css: 'body { color: #0f766e; }',
+    })
+
+    const response = await app.fetch(new Request('http://localhost/api/page-builder/templates/tpl_use_202606151000/use', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        projectName: '自定义首页活动项目',
+      }),
+    }))
+
+    expect(response.status).toBe(201)
+    const payload = await response.json() as {
+      workspace: { id: string; name: string; slug: string; template?: string }
+      session: { id: string; workspaceId?: string }
+      previewState: {
+        hasPreview: boolean
+        entryUrl: string | null
+        hasCmsRendering: boolean
+        requiresSameOrigin: boolean
+      }
+    }
+    expect(payload.workspace).toEqual(expect.objectContaining({
+      name: '自定义首页活动项目',
+      template: 'page-builder',
+    }))
+    expect(payload.session.workspaceId).toBe(payload.workspace.id)
+    expect(payload.previewState).toEqual(expect.objectContaining({
+      hasPreview: true,
+      entryUrl: `/pagebuilder/api/workspaces/${payload.workspace.id}/preview/`,
+      hasCmsRendering: false,
+      requiresSameOrigin: false,
+    }))
+
+    const workspaceFilesDir = join(getAgentWorkspacesDir(), payload.workspace.slug, 'workspace-files')
+    expect(readFileSync(join(workspaceFilesDir, 'index.html'), 'utf-8')).toContain('Use Template Project')
+    expect(readFileSync(join(workspaceFilesDir, 'assets', 'site.css'), 'utf-8')).toContain('#0f766e')
+    expect(existsSync(join(getAgentWorkspacesDir(), payload.workspace.slug, 'template.json'))).toBe(false)
+  })
+
+  test('POST /api/page-builder/templates/:templateId/use rejects an empty project name', async () => {
+    const app = createApp()
+    createUserTemplate('tpl_use_empty_name_202606151000', {
+      name: '首页活动模板',
+    })
+
+    const response = await app.fetch(new Request('http://localhost/api/page-builder/templates/tpl_use_empty_name_202606151000/use', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        projectName: '   ',
+      }),
+    }))
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual(expect.objectContaining({
+      error: '项目名称不能为空',
+    }))
+  })
+
+  test('POST /api/page-builder/templates/:templateId/use is available in cms integration production mode', async () => {
+    createUserTemplate('tpl_use_cms_bypass_202606151000')
+
+    process.env.AI_PAGE_BUILDER_INTEGRATION_MODE = 'cms'
+    process.env.NODE_ENV = 'production'
+    const productionApp = createApp()
+
+    const allowedResponse = await productionApp.fetch(new Request('http://localhost/api/page-builder/templates/tpl_use_cms_bypass_202606151000/use', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        projectName: 'CMS 模式模板项目',
+      }),
+    }))
+    expect(allowedResponse.status).toBe(201)
+    expect(await allowedResponse.json()).toEqual(expect.objectContaining({
+      workspace: expect.objectContaining({
+        name: 'CMS 模式模板项目',
+        template: 'page-builder',
+      }),
+      previewState: expect.objectContaining({
+        hasPreview: true,
+      }),
+    }))
+  })
+
   test('GET /api/page-builder/projects returns page-builder project summaries', async () => {
     const app = createApp()
     const workspace = createAgentWorkspace('History Project', { template: 'page-builder' })

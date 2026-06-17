@@ -30,6 +30,15 @@ import type {
   PageBuilderStaticExportJobCreateOptions,
   PageBuilderStaticExportJob,
   PageBuilderTargetSelection,
+  PageBuilderTemplateDetail,
+  PageBuilderTemplateImportResponse,
+  PageBuilderTemplateListResponse,
+  PageBuilderTemplateRenameRequest,
+  PageBuilderTemplateRenameResponse,
+  PageBuilderTemplateSaveRequest,
+  PageBuilderTemplateSaveResponse,
+  PageBuilderTemplateUseRequest,
+  PageBuilderTemplateUseResponse,
   PermissionResponse,
   RuntimeStatus,
   WorkspaceCapabilities,
@@ -184,6 +193,12 @@ function buildPageBuilderImageReplacementBody(payload: PageBuilderImageReplaceme
   return formData
 }
 
+function buildPageBuilderTemplateImportBody(file: File): FormData {
+  const formData = new FormData()
+  formData.set('file', file)
+  return formData
+}
+
 export function resolveApiUrl(url: string): string {
   if (!configuredPublicBasePath || !url.startsWith('/api')) {
     return url
@@ -333,6 +348,51 @@ export const api = {
 
   listPageBuilderProjects(): Promise<PageBuilderProjectSummary[]> {
     return request<PageBuilderProjectSummary[]>('/api/page-builder/projects')
+  },
+
+  listPageBuilderTemplates(): Promise<PageBuilderTemplateListResponse> {
+    return request<PageBuilderTemplateListResponse>('/api/page-builder/templates')
+  },
+
+  importPageBuilderTemplate(file: File): Promise<PageBuilderTemplateImportResponse> {
+    return request<PageBuilderTemplateImportResponse>('/api/page-builder/templates/import', {
+      method: 'POST',
+      body: buildPageBuilderTemplateImportBody(file),
+    })
+  },
+
+  getPageBuilderTemplate(templateId: string): Promise<PageBuilderTemplateDetail> {
+    return request<PageBuilderTemplateDetail>(`/api/page-builder/templates/${encodeURIComponent(templateId)}`)
+  },
+
+  usePageBuilderTemplate(
+    templateId: string,
+    payload: PageBuilderTemplateUseRequest,
+  ): Promise<PageBuilderTemplateUseResponse> {
+    return request<PageBuilderTemplateUseResponse>(`/api/page-builder/templates/${encodeURIComponent(templateId)}/use`, {
+      method: 'POST',
+      body: payload,
+    })
+  },
+
+  renamePageBuilderTemplate(
+    templateId: string,
+    payload: PageBuilderTemplateRenameRequest,
+  ): Promise<PageBuilderTemplateRenameResponse> {
+    return request<PageBuilderTemplateRenameResponse>(`/api/page-builder/templates/${encodeURIComponent(templateId)}`, {
+      method: 'PATCH',
+      body: payload,
+    })
+  },
+
+  deletePageBuilderTemplate(templateId: string): Promise<void> {
+    return request<void>(`/api/page-builder/templates/${encodeURIComponent(templateId)}`, {
+      method: 'DELETE',
+    })
+  },
+
+  getPageBuilderTemplateDownloadUrl(templateId: string): string {
+    return resolveApiUrl(`/api/page-builder/templates/${encodeURIComponent(templateId)}/download`)
   },
 
   deletePageBuilderProject(workspaceId: string): Promise<void> {
@@ -521,6 +581,18 @@ export const api = {
     return request<WorkspacePreviewState>(`/api/workspaces/${encodeURIComponent(workspaceId)}/page-builder/image`, {
       method: 'POST',
       body: buildPageBuilderImageReplacementBody(payload),
+      editLock: options.editLock,
+    })
+  },
+
+  savePageBuilderWorkspaceAsTemplate(
+    workspaceId: string,
+    payload: PageBuilderTemplateSaveRequest,
+    options: PageBuilderEditLockRequestOptions = {},
+  ): Promise<PageBuilderTemplateSaveResponse> {
+    return request<PageBuilderTemplateSaveResponse>(`/api/workspaces/${encodeURIComponent(workspaceId)}/page-builder/templates`, {
+      method: 'POST',
+      body: payload,
       editLock: options.editLock,
     })
   },

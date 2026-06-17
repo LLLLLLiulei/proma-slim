@@ -11,6 +11,10 @@ import {
 import { readPageBuilderPreviewBridgeScript } from '../../lib/page-builder-preview-bridge'
 import { getAgentWorkspace } from '../../lib/workspace-service'
 import {
+  PageBuilderTemplateServiceError,
+  pageBuilderTemplateService,
+} from '../../lib/page-builder-template-service'
+import {
   assertCmsBuilderApiAvailableInCmsMode,
   createCmsBuilderAccessMiddleware,
 } from '../../lib/cms-integration/cms-builder-access-middleware'
@@ -75,6 +79,96 @@ pageBuilderRoutes.delete('/projects/:workspaceId', (c) => {
   }
 
   return noContent()
+})
+
+pageBuilderRoutes.get('/templates', (c) => {
+  return json(pageBuilderTemplateService.listTemplates())
+})
+
+pageBuilderRoutes.post('/templates/import', async (c) => {
+  const file = await readTemplateImportFile(c.req.raw)
+  try {
+    return json(await pageBuilderTemplateService.importTemplateZip(file), 201)
+  } catch (error) {
+    throw mapTemplateServiceError(error)
+  }
+})
+
+pageBuilderRoutes.get('/templates/:templateId/preview', (c) => {
+  try {
+    return pageBuilderTemplateService.createPreviewResponse(c.req.param('templateId'), '')
+  } catch (error) {
+    throw mapTemplateServiceError(error)
+  }
+})
+
+pageBuilderRoutes.get('/templates/:templateId/preview/', (c) => {
+  try {
+    return pageBuilderTemplateService.createPreviewResponse(c.req.param('templateId'), '')
+  } catch (error) {
+    throw mapTemplateServiceError(error)
+  }
+})
+
+pageBuilderRoutes.get('/templates/:templateId/preview/*', (c) => {
+  try {
+    const templateId = c.req.param('templateId')
+    return pageBuilderTemplateService.createPreviewResponse(
+      templateId,
+      c.req.param('*') ?? getTemplatePreviewRequestPath(c.req.raw.url, templateId),
+    )
+  } catch (error) {
+    throw mapTemplateServiceError(error)
+  }
+})
+
+pageBuilderRoutes.get('/templates/:templateId/download', (c) => {
+  try {
+    return pageBuilderTemplateService.createDownloadResponse(c.req.param('templateId'))
+  } catch (error) {
+    throw mapTemplateServiceError(error)
+  }
+})
+
+pageBuilderRoutes.get('/templates/:templateId', (c) => {
+  try {
+    return json(pageBuilderTemplateService.getTemplate(c.req.param('templateId')))
+  } catch (error) {
+    throw mapTemplateServiceError(error)
+  }
+})
+
+pageBuilderRoutes.delete('/templates/:templateId', (c) => {
+  try {
+    pageBuilderTemplateService.deleteTemplate(c.req.param('templateId'))
+  } catch (error) {
+    throw mapTemplateServiceError(error)
+  }
+
+  return noContent()
+})
+
+pageBuilderRoutes.patch('/templates/:templateId', async (c) => {
+  const body = await readOptionalJsonBody<{ name?: unknown }>(c.req.raw)
+  try {
+    return json(pageBuilderTemplateService.renameTemplate(c.req.param('templateId'), {
+      name: readOptionalBodyString(body.name) ?? '',
+    }))
+  } catch (error) {
+    throw mapTemplateServiceError(error)
+  }
+})
+
+pageBuilderRoutes.post('/templates/:templateId/use', async (c) => {
+  const body = await readOptionalJsonBody<{ projectName?: unknown }>(c.req.raw)
+  const projectName = readOptionalBodyString(body.projectName)
+  try {
+    return json(pageBuilderTemplateService.instantiateTemplateProject(c.req.param('templateId'), {
+      projectName: projectName ?? '',
+    }), 201)
+  } catch (error) {
+    throw mapTemplateServiceError(error)
+  }
 })
 
 pageBuilderRoutes.use('/projects/:workspaceId/edit-lock', createCmsBuilderAccessMiddleware({
@@ -194,4 +288,57 @@ async function readOptionalJsonBody<T extends Record<string, unknown>>(request: 
 function readOptionalBodyString(value: unknown): string | undefined {
   const normalized = typeof value === 'string' ? value.trim() : ''
   return normalized || undefined
+}
+
+async function readTemplateImportFile(request: Request): Promise<File> {
+  const contentType = request.headers.get('content-type') ?? ''
+  if (!contentType.includes('multipart/form-data')) {
+    throw new HttpError(400, '请求体必须是合法的 multipart/form-data')
+  }
+
+  let formData: FormData
+  try {
+    formData = await request.formData()
+  } catch {
+    throw new HttpError(400, '请求体必须是合法的 multipart/form-data')
+  }
+
+  const file = formData.get('file')
+  if (!(file instanceof File)) {
+    throw new HttpError(400, 'multipart 请求缺少 file 字段')
+  }
+
+  return file
+}
+
+function getTemplatePreviewRequestPath(url: string, templateId: string): string {
+  const pathname = new URL(url).pathname
+  const prefix = `/api/page-builder/templates/${encodeURIComponent(templateId)}/preview`
+  const suffix = pathname.startsWith(prefix) ? pathname.slice(prefix.length) : '/'
+
+  return suffix || '/'
+}
+
+function mapTemplateServiceError(error: unknown): Error {
+  if (error instanceof PageBuilderTemplateServiceError) {
+    if (error.code === 'invalid-input') {
+      return new HttpError(400, error.message)
+    }
+
+    if (error.code === 'forbidden') {
+      return new HttpError(403, error.message)
+    }
+
+    if (error.code === 'size-limit') {
+      return new HttpError(413, error.message)
+    }
+
+    if (error.code === 'not-found' || error.code === 'entry-missing') {
+      return new HttpError(404, error.message)
+    }
+
+    return new HttpError(409, error.message)
+  }
+
+  return error instanceof Error ? error : new Error(String(error))
 }

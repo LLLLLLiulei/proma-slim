@@ -14,6 +14,8 @@ export function usePageBuilderHistory() {
   const [projects, setProjects] = React.useState<PageBuilderProjectSummary[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [renamingProjectId, setRenamingProjectId] = React.useState<string | null>(null)
+  const renamingProjectIdRef = React.useRef<string | null>(null)
   const publicBasePath = getPageBuilderPublicBasePath()
 
   const loadProjects = React.useCallback(async (): Promise<void> => {
@@ -74,11 +76,37 @@ export function usePageBuilderHistory() {
     }
   }, [projects])
 
+  const renameProject = React.useCallback(async (workspaceId: string, name: string): Promise<void> => {
+    if (renamingProjectIdRef.current !== null) {
+      return
+    }
+
+    renamingProjectIdRef.current = workspaceId
+    setRenamingProjectId(workspaceId)
+    try {
+      const workspace = await api.updateWorkspace(workspaceId, { name })
+      setProjects((current) => current.map((project) => (
+        project.workspaceId === workspaceId
+          ? { ...project, workspaceName: workspace.name }
+          : project
+      )))
+    } catch (nextError) {
+      const message = nextError instanceof Error ? nextError.message : '重命名项目失败'
+      toast.error(message)
+      throw new Error(message)
+    } finally {
+      renamingProjectIdRef.current = null
+      setRenamingProjectId(null)
+    }
+  }, [])
+
   return {
     error,
     loading,
     openProject,
     projects,
+    renameProject,
+    renamingProjectId,
     refreshProjects: loadProjects,
     removeProject,
   }

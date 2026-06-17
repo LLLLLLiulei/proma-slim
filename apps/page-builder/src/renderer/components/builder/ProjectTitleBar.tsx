@@ -11,11 +11,17 @@ export function ProjectTitleBar({
   editLock,
   editingDisabled = false,
   onEditLockRejected,
+  onRequestSaveTemplate,
+  saveTemplateDisabled = false,
+  saveTemplateTitle,
   workspaceId,
 }: {
   editLock?: PageBuilderEditLockCredentials
   editingDisabled?: boolean
   onEditLockRejected?: (error: unknown) => void
+  onRequestSaveTemplate?: () => void
+  saveTemplateDisabled?: boolean
+  saveTemplateTitle?: string
   workspaceId: string
 }): React.ReactElement | null {
   const workspaces = useAtomValue(agentWorkspacesAtom)
@@ -119,6 +125,22 @@ export function ProjectTitleBar({
           </button>
         </div>
       )}
+      {!editing && onRequestSaveTemplate ? (
+        <button
+          aria-label="另存模板"
+          className="shrink-0 rounded-md border border-border/70 bg-background/80 px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border/70 disabled:hover:text-muted-foreground"
+          disabled={saveTemplateDisabled}
+          onClick={() => {
+            if (saveTemplateDisabled) return
+            onRequestSaveTemplate()
+          }}
+          onMouseDown={(event) => event.preventDefault()}
+          title={saveTemplateTitle}
+          type="button"
+        >
+          另存模板
+        </button>
+      ) : null}
     </div>
   )
 }

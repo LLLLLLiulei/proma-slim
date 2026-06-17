@@ -6,6 +6,7 @@ import type {
   PageBuilderCmsSelectionResult,
   PageBuilderImageReplacementPayload,
   PageBuilderInlineTextSavePayload,
+  PageBuilderTemplateSaveRequest,
   PageBuilderStaticExportJobCreateOptions,
   PageBuilderStaticExportJobCreateRequest,
   PageBuilderTargetSelection,
@@ -52,6 +53,10 @@ import {
   PageBuilderStaticExportServiceError,
   pageBuilderStaticExportService,
 } from '../../lib/page-builder-static-export-service'
+import {
+  PageBuilderTemplateServiceError,
+  pageBuilderTemplateService,
+} from '../../lib/page-builder-template-service'
 import { getAgentSessionMeta, listAgentSessions } from '../../lib/agent-session-manager'
 import { HttpError } from '../errors'
 import { json, noContent, readJsonBody } from '../responses'
@@ -190,8 +195,6 @@ workspaceRoutes.use('/:workspaceId/*', createCmsBuilderAccessMiddleware({
 }))
 
 workspaceRoutes.patch('/:workspaceId', async (c) => {
-  assertPageBuilderEditLockForWorkspace(c.var.workspace, c.req.raw)
-
   const body = await readJsonBody<{ name?: string }>(c.req.raw)
   if (!body.name || !body.name.trim()) {
     throw new HttpError(400, '工作区名称不能为空')
@@ -407,6 +410,28 @@ workspaceRoutes.post('/:workspaceId/page-builder/image', async (c) => {
     }
 
     throw new HttpError(409, error.message)
+  }
+})
+
+workspaceRoutes.post('/:workspaceId/page-builder/templates', async (c) => {
+  if (c.var.workspace.template !== 'page-builder') {
+    throw new HttpError(400, '仅支持 PageBuilder 工作区另存模板')
+  }
+  assertPageBuilderEditLockForWorkspace(c.var.workspace, c.req.raw)
+
+  const body = await readJsonBody<PageBuilderTemplateSaveRequest>(c.req.raw)
+  const cmsBuilderAccess = c.var.cmsBuilderAccess
+  const binding = cmsBuilderAccess ? resolveCmsProjectBindingForWorkspace(c) : null
+
+  try {
+    return json(await pageBuilderTemplateService.saveWorkspaceAsTemplate(c.var.workspace, body, {
+      sourceMode: binding ? 'cms-integrated' : 'standalone',
+      ...(binding ? { cmsProjectId: binding.projectId } : {}),
+      ...(binding ? { cmsSiteId: binding.siteId } : {}),
+      ...(binding?.externalRecordId ? { cmsExternalRecordId: binding.externalRecordId } : {}),
+    }), 201)
+  } catch (error) {
+    throw mapTemplateSaveServiceError(error)
   }
 })
 
@@ -845,6 +870,30 @@ function mapStaticExportServiceError(error: unknown): Error {
   if (error instanceof PageBuilderStaticExportServiceError) {
     if (error.code === 'entry-missing' || error.code === 'job-missing') {
       return new HttpError(404, error.message)
+    }
+
+    return new HttpError(409, error.message)
+  }
+
+  return error instanceof Error ? error : new Error(String(error))
+}
+
+function mapTemplateSaveServiceError(error: unknown): Error {
+  if (error instanceof HttpError) {
+    return error
+  }
+
+  if (error instanceof PageBuilderTemplateServiceError) {
+    if (error.code === 'invalid-input') {
+      return new HttpError(400, error.message)
+    }
+
+    if (error.code === 'entry-missing' || error.code === 'not-found') {
+      return new HttpError(404, error.message)
+    }
+
+    if (error.code === 'forbidden') {
+      return new HttpError(403, error.message)
     }
 
     return new HttpError(409, error.message)

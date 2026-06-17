@@ -1242,6 +1242,79 @@ describe('cms integration routes', () => {
     }
   })
 
+  test('saves a CMS integrated page-builder project as a static snapshot template with valid access', async () => {
+    enableCmsIntegration(configDir)
+    globalThis.fetch = createLoginFetchMock() as unknown as typeof fetch
+    const app = createApp()
+
+    const created = await createBoundCmsProject(app, {
+      externalRecordId: 'cms-save-template-1',
+      projectName: 'CMS Save Template',
+      siteId: '14',
+    })
+    createPreviewFiles(configDir, created.binding)
+
+    const handoffResponse = await createHandoff(app, created.projectId, { target: 'builder' })
+    const handoff = await handoffResponse.json() as { openUrl: string }
+    const accessCookie = (await consumeOpenUrl(app, handoff.openUrl)).headers.get('set-cookie')
+    expectWorkspaceScopedAccessCookie(accessCookie)
+
+    const editLock = await app.fetch(new Request(`http://localhost/api/page-builder/projects/${created.binding.workspaceId}/edit-lock`, {
+      method: 'POST',
+      headers: {
+        cookie: accessCookie!,
+        origin: 'https://builder.example.com',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ holderId: 'cms-save-template-holder' }),
+    }))
+    expect(editLock.status).toBe(201)
+    const lease = await editLock.json() as { lockId: string; holderId: string }
+
+    const missingAccess = await app.fetch(new Request(`http://localhost/api/workspaces/${created.binding.workspaceId}/page-builder/templates`, {
+      method: 'POST',
+      headers: {
+        origin: 'https://builder.example.com',
+        'content-type': 'application/json',
+        [PAGE_BUILDER_EDIT_LOCK_HEADER]: lease.lockId,
+        [PAGE_BUILDER_EDIT_HOLDER_HEADER]: lease.holderId,
+      },
+      body: JSON.stringify({ name: 'CMS 静态快照模板' }),
+    }))
+    expect(missingAccess.status).toBe(401)
+    expect(await missingAccess.json()).toMatchObject({ code: 'builder_access_required' })
+
+    const response = await app.fetch(new Request(`http://localhost/api/workspaces/${created.binding.workspaceId}/page-builder/templates`, {
+      method: 'POST',
+      headers: {
+        cookie: accessCookie!,
+        origin: 'https://builder.example.com',
+        'content-type': 'application/json',
+        [PAGE_BUILDER_EDIT_LOCK_HEADER]: lease.lockId,
+        [PAGE_BUILDER_EDIT_HOLDER_HEADER]: lease.holderId,
+      },
+      body: JSON.stringify({ name: 'CMS 静态快照模板' }),
+    }))
+
+    expect(response.status).toBe(201)
+    const payload = await response.json() as { template: { id: string; previewUrl: string } }
+    expect(payload.template.previewUrl).toBe(`/pagebuilder/api/page-builder/templates/${payload.template.id}/preview/`)
+    const manifest = JSON.parse(
+      readFileSync(join(configDir, 'page-builder-templates', payload.template.id, 'template.json'), 'utf-8'),
+    ) as Record<string, unknown>
+    expect(manifest).toEqual(expect.objectContaining({
+      sourceProject: expect.objectContaining({
+        workspaceId: created.binding.workspaceId,
+        workspaceName: 'CMS Save Template',
+        sourceMode: 'cms-integrated',
+        cmsProjectId: created.projectId,
+        cmsSiteId: '14',
+        cmsExternalRecordId: 'cms-save-template-1',
+      }),
+    }))
+    expect(readFileSync(join(configDir, 'page-builder-templates', payload.template.id, 'workspace-files', 'index.html'), 'utf-8')).toContain('CMS Preview')
+  })
+
   test('protects CMS mode session workspace and page-builder project APIs', async () => {
     enableCmsIntegration(configDir)
     globalThis.fetch = createLoginFetchMock() as unknown as typeof fetch

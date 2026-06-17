@@ -92,7 +92,7 @@ export class PageBuilderEditLockService {
     const normalizedWorkspaceId = normalizeRequiredId(workspaceId)
     const normalizedSessionId = normalizeOptionalId(request.sessionId)
     const activeSessionId = this.getActiveAgentSessionId(normalizedWorkspaceId)
-    const existingLock = this.getValidLock(normalizedWorkspaceId)
+    const existingLock = this.getBlockingLock(normalizedWorkspaceId)
     if (existingLock) {
       if (
         activeSessionId
@@ -140,7 +140,7 @@ export class PageBuilderEditLockService {
       return null
     }
 
-    const lock = this.getValidLock(normalizedWorkspaceId)
+    const lock = this.getRenewableLock(normalizedWorkspaceId)
     if (!lock || lock.lockId !== normalizedLockId || lock.holderId !== normalizedHolderId) {
       return null
     }
@@ -168,7 +168,7 @@ export class PageBuilderEditLockService {
       return false
     }
 
-    const lock = this.getValidLock(normalizedWorkspaceId)
+    const lock = this.getRenewableLock(normalizedWorkspaceId)
     if (!lock || lock.lockId !== normalizedLockId || lock.holderId !== normalizedHolderId) {
       return false
     }
@@ -183,7 +183,7 @@ export class PageBuilderEditLockService {
   getStatus(workspaceId: string, lockId: string): PageBuilderEditLockStatus {
     const normalizedWorkspaceId = normalizeRequiredId(workspaceId)
     const normalizedLockId = normalizeRequiredId(lockId)
-    const lock = this.getValidLock(normalizedWorkspaceId)
+    const lock = this.getBlockingLock(normalizedWorkspaceId)
     const valid = Boolean(lock && lock.lockId === normalizedLockId)
 
     return {
@@ -200,7 +200,7 @@ export class PageBuilderEditLockService {
     const normalizedWorkspaceId = normalizeRequiredId(workspaceId)
     const normalizedLockId = normalizeOptionalId(credentials.lockId)
     const normalizedHolderId = normalizeOptionalId(credentials.holderId)
-    const lock = this.getValidLock(normalizedWorkspaceId)
+    const lock = this.getBlockingLock(normalizedWorkspaceId)
     const valid = Boolean(
       lock
       && lock.lockId === normalizedLockId
@@ -229,7 +229,7 @@ export class PageBuilderEditLockService {
 
   getEditState(workspaceId: string): PageBuilderProjectEditState {
     const normalizedWorkspaceId = normalizeRequiredId(workspaceId)
-    const lock = this.getValidLock(normalizedWorkspaceId)
+    const lock = this.getBlockingLock(normalizedWorkspaceId)
     if (lock) {
       return lockToEditState(lock)
     }
@@ -287,7 +287,7 @@ export class PageBuilderEditLockService {
     return lockToLease(lock)
   }
 
-  private getValidLock(workspaceId: string): StoredPageBuilderEditLock | null {
+  private getRenewableLock(workspaceId: string): StoredPageBuilderEditLock | null {
     const lock = this.store.get(workspaceId)
     if (!lock) {
       return null
@@ -296,6 +296,15 @@ export class PageBuilderEditLockService {
     const now = this.now()
     if (lock.expiresAt <= now || (lock.releasePendingUntil !== undefined && lock.releasePendingUntil <= now)) {
       this.store.delete(workspaceId)
+      return null
+    }
+
+    return lock
+  }
+
+  private getBlockingLock(workspaceId: string): StoredPageBuilderEditLock | null {
+    const lock = this.getRenewableLock(workspaceId)
+    if (!lock || lock.releasePendingUntil !== undefined) {
       return null
     }
 

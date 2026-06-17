@@ -222,13 +222,15 @@
 - **AND** 调用方 SHALL NOT 需要手动拼接 `/pagebuilder`
 
 ### Requirement: CMS 集成模式首页必须展示受限入口
-PageBuilder HomePage 在 CMS 集成模式下 SHALL 停止提供 standalone 本地项目创建入口，并 SHALL 引导用户从 CMS 系统进入 PageBuilder。仅当 integration status 明确返回 `devStandaloneEntryEnabled: true` 时，HomePage SHALL 在开发模式下展示 standalone 首页启动入口。
+PageBuilder HomePage 在 CMS 集成模式下 SHALL 停止提供 standalone 本地项目创建入口，并 SHALL 引导用户从 CMS 系统进入 PageBuilder；模板库管理能力仍 SHALL 可见，但首页 SHALL NOT 提供“使用模板”创建项目入口。仅当 integration status 明确返回 `devStandaloneEntryEnabled: true` 时，HomePage SHALL 在开发模式下展示 standalone 首页启动入口。
 
 #### Scenario: CMS 模式首页显示 CMS 入口提示
 - **WHEN** 用户访问 PageBuilder 首页且 integration status 表示 CMS 集成模式已启用
 - **AND** integration status 未返回 `devStandaloneEntryEnabled: true`
 - **THEN** 系统 SHALL 展示“请从 CMS 系统进入 PageBuilder”
 - **AND** 系统 SHALL NOT 展示本地 prompt 输入框或创建按钮
+- **AND** 系统 SHALL 展示模板库资源区
+- **AND** 系统 SHALL NOT 展示“使用模板”入口或历史记录 Tab
 
 #### Scenario: CMS 模式首页不允许本地创建项目
 - **WHEN** 用户访问 PageBuilder 首页且 integration status 表示 CMS 集成模式已启用
