@@ -13,6 +13,13 @@ export type CmsIntegrationErrorCode =
   | 'builder_access_required'
   | 'builder_access_mismatch'
   | 'builder_access_origin_forbidden'
+  | 'template_not_found'
+  | 'template_import_invalid'
+  | 'template_size_limit'
+  | 'template_import_forbidden'
+  | 'template_import_failed'
+  | 'template_operation_forbidden'
+  | 'template_operation_failed'
 
 const DEFAULT_MESSAGES: Record<CmsIntegrationErrorCode, string> = {
   invalid_request: '请求参数不合法',
@@ -29,6 +36,13 @@ const DEFAULT_MESSAGES: Record<CmsIntegrationErrorCode, string> = {
   builder_access_required: '请先通过 CMS handoff 重新进入 PageBuilder',
   builder_access_mismatch: '当前访问会话与目标工作区不匹配，请从 CMS 重新进入',
   builder_access_origin_forbidden: '当前请求来源不可信，请从 CMS 页面重新进入 PageBuilder',
+  template_not_found: '模板不存在',
+  template_import_invalid: '模板压缩包不合法，无法导入',
+  template_size_limit: '模板压缩包超过大小限制',
+  template_import_forbidden: '模板压缩包包含不允许的内容',
+  template_import_failed: '模板导入失败，请稍后再试',
+  template_operation_forbidden: '模板操作被拒绝',
+  template_operation_failed: '模板操作失败，请稍后再试',
 }
 
 export class CmsIntegrationError extends Error {
@@ -106,4 +120,32 @@ export function builderAccessMismatch(message?: string): CmsIntegrationError {
 
 export function builderAccessOriginForbidden(message?: string): CmsIntegrationError {
   return new CmsIntegrationError('builder_access_origin_forbidden', 403, message)
+}
+
+export function cmsTemplateNotFound(message?: string): CmsIntegrationError {
+  return new CmsIntegrationError('template_not_found', 404, message)
+}
+
+export function cmsTemplateImportInvalid(message?: string): CmsIntegrationError {
+  return new CmsIntegrationError('template_import_invalid', 400, message)
+}
+
+export function cmsTemplateSizeLimit(message?: string): CmsIntegrationError {
+  return new CmsIntegrationError('template_size_limit', 413, message)
+}
+
+export function cmsTemplateImportForbidden(message?: string): CmsIntegrationError {
+  return new CmsIntegrationError('template_import_forbidden', 403, message)
+}
+
+export function cmsTemplateImportFailed(message?: string): CmsIntegrationError {
+  return new CmsIntegrationError('template_import_failed', 500, message)
+}
+
+export function cmsTemplateOperationForbidden(message?: string): CmsIntegrationError {
+  return new CmsIntegrationError('template_operation_forbidden', 403, message)
+}
+
+export function cmsTemplateOperationFailed(message?: string): CmsIntegrationError {
+  return new CmsIntegrationError('template_operation_failed', 500, message)
 }

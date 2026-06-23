@@ -195,6 +195,10 @@ workspaceRoutes.use('/:workspaceId/*', createCmsBuilderAccessMiddleware({
 }))
 
 workspaceRoutes.patch('/:workspaceId', async (c) => {
+  if (c.var.cmsBuilderAccess) {
+    assertPageBuilderEditLockForWorkspace(c.var.workspace, c.req.raw)
+  }
+
   const body = await readJsonBody<{ name?: string }>(c.req.raw)
   if (!body.name || !body.name.trim()) {
     throw new HttpError(400, '工作区名称不能为空')

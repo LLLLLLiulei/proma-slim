@@ -198,6 +198,19 @@ describe('page-builder routes', () => {
     expect(payload.templates[0]).not.toHaveProperty('thumbnailUrl')
   })
 
+  test('GET /api/page-builder/templates filters templates by name query', async () => {
+    const app = createApp()
+    createUserTemplate('tpl_filter_activity_202606141000', { name: 'Activity Landing Template' })
+    createUserTemplate('tpl_filter_news_202606141000', { name: '新闻专题模板' })
+    createUserTemplate('tpl_filter_product_202606141000', { name: 'Product Launch Template' })
+
+    const response = await app.fetch(new Request('http://localhost/api/page-builder/templates?name=activity'))
+
+    expect(response.status).toBe(200)
+    const payload = await response.json() as { templates: Array<{ id: string; name: string }> }
+    expect(payload.templates.map((template) => template.id)).toEqual(['tpl_filter_activity_202606141000'])
+  })
+
   test('GET /api/page-builder/templates/:templateId returns template detail without thumbnail fields', async () => {
     const app = createApp()
     createUserTemplate('tpl_detail_202606141000', {

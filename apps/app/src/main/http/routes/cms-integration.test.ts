@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { strFromU8, unzipSync } from 'fflate'
+import { strFromU8, unzipSync, zipSync } from 'fflate'
 import {
   PAGE_BUILDER_CMS_SELECTION_RESULT_VERSION,
 } from '@ai-page-builder/shared'
@@ -43,6 +43,8 @@ const ORIGINAL_ENV = {
   AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN: process.env.AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN,
   AI_PAGE_BUILDER_SYNC_EXPORT_TIMEOUT_MS: process.env.AI_PAGE_BUILDER_SYNC_EXPORT_TIMEOUT_MS,
   AI_PAGE_BUILDER_ACCESS_SESSION_RENEW_THRESHOLD_MS: process.env.AI_PAGE_BUILDER_ACCESS_SESSION_RENEW_THRESHOLD_MS,
+  AI_PAGE_BUILDER_TEMPLATE_IMPORT_MAX_ZIP_MB: process.env.AI_PAGE_BUILDER_TEMPLATE_IMPORT_MAX_ZIP_MB,
+  AI_PAGE_BUILDER_TEMPLATE_IMPORT_MAX_UNCOMPRESSED_MB: process.env.AI_PAGE_BUILDER_TEMPLATE_IMPORT_MAX_UNCOMPRESSED_MB,
   PROMA_CMS_BASE_URL: process.env.PROMA_CMS_BASE_URL,
   PROMA_CMS_USERNAME: process.env.PROMA_CMS_USERNAME,
   PROMA_CMS_PASSWORD: process.env.PROMA_CMS_PASSWORD,
@@ -184,6 +186,70 @@ function createPreviewFiles(configDir: string, binding: { workspaceId: string })
     'utf-8',
   )
   writeFileSync(join(workspaceFilesDir, 'assets', 'app.js'), 'console.log("preview")', 'utf-8')
+}
+
+function createUserTemplate(configDir: string, id: string, options: {
+  name?: string
+  html?: string
+  css?: string
+} = {}) {
+  const templateDir = join(configDir, 'page-builder-templates', id)
+  const workspaceFilesDir = join(templateDir, 'workspace-files')
+  mkdirSync(join(workspaceFilesDir, 'assets'), { recursive: true })
+  writeFileSync(join(workspaceFilesDir, 'index.html'), options.html ?? '<!doctype html><h1>Template</h1>', 'utf-8')
+  writeFileSync(join(workspaceFilesDir, 'assets', 'site.css'), options.css ?? 'body { color: red; }', 'utf-8')
+  writeFileSync(join(templateDir, 'template.json'), JSON.stringify({
+    version: 1,
+    id,
+    name: options.name ?? 'CMS 模板',
+    sourceKind: 'saved-project',
+    entry: 'workspace-files/index.html',
+    createdAt: '2026-06-17T10:00:00.000Z',
+    sourceProject: {
+      sourceMode: 'standalone',
+      exportedAt: '2026-06-17T10:00:00.000Z',
+    },
+  }, null, 2), 'utf-8')
+  return { templateDir, workspaceFilesDir }
+}
+
+function listTemplateDirectoryNames(configDir: string): string[] {
+  const templatesDir = join(configDir, 'page-builder-templates')
+  if (!existsSync(templatesDir)) {
+    return []
+  }
+  return readdirSync(templatesDir).filter((name) => !name.startsWith('.tmp-'))
+}
+
+function createTemplateZip(entries: Record<string, string | Uint8Array>, fileName = 'cms-template.zip'): File {
+  const encoder = new TextEncoder()
+  const encodedEntries: Record<string, Uint8Array> = {}
+  for (const [entryName, content] of Object.entries(entries)) {
+    encodedEntries[entryName] = typeof content === 'string' ? encoder.encode(content) : content
+  }
+
+  const zipBytes = zipSync(encodedEntries)
+  const zipBody = new ArrayBuffer(zipBytes.byteLength)
+  new Uint8Array(zipBody).set(zipBytes)
+  return new File([zipBody], fileName, { type: 'application/zip' })
+}
+
+async function importCmsTemplateZip(app: ReturnType<typeof createApp>, file?: File, options: {
+  secret?: string
+  cmsCookie?: string
+} = {}) {
+  const formData = new FormData()
+  if (file) {
+    formData.set('file', file)
+  }
+  return app.fetch(new Request('http://localhost/api/integrations/cms/templates/import', {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${options.secret ?? 'integration-secret'}`,
+      'x-cms-cookie': options.cmsCookie ?? 'JSESSIONID=abc',
+    },
+    body: formData,
+  }))
 }
 
 function rebindCmsProject(
@@ -426,6 +492,255 @@ describe('cms integration routes', () => {
     expect(listAgentWorkspaces().filter((workspace) => workspace.template === 'page-builder')).toHaveLength(0)
   })
 
+  test('POST /api/integrations/cms/projects rejects invalid templateId before creating resources', async () => {
+    enableCmsIntegration(configDir)
+    globalThis.fetch = createLoginFetchMock() as unknown as typeof fetch
+    const app = createApp()
+
+    const response = await app.fetch(new Request('http://localhost/api/integrations/cms/projects', {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer integration-secret',
+        'content-type': 'application/json',
+        'x-cms-cookie': 'JSESSIONID=abc',
+      },
+      body: JSON.stringify({
+        externalRecordId: 'cms-topic-template-invalid',
+        projectName: 'Topic',
+        siteId: '14',
+        templateId: '',
+      }),
+    }))
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({ code: 'invalid_request' })
+    expect(listAgentWorkspaces().filter((workspace) => workspace.template === 'page-builder')).toHaveLength(0)
+  })
+
+  test('GET /api/integrations/cms/templates authenticates and returns absolute preview urls', async () => {
+    enableCmsIntegration(configDir)
+    createUserTemplate(configDir, 'tpl_cms_list_1', { name: 'CMS List Template' })
+    const fetchMock = createLoginFetchMock()
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+    const app = createApp()
+
+    const unauthorized = await app.fetch(new Request('http://localhost/api/integrations/cms/templates'))
+    expect(unauthorized.status).toBe(401)
+    expect(await unauthorized.json()).toMatchObject({ code: 'integration_unauthorized' })
+
+    const missingCookie = await app.fetch(new Request('http://localhost/api/integrations/cms/templates', {
+      headers: { authorization: 'Bearer integration-secret' },
+    }))
+    expect(missingCookie.status).toBe(400)
+    expect(await missingCookie.json()).toMatchObject({ code: 'invalid_request' })
+
+    enableCmsIntegration(configDir, { AI_PAGE_BUILDER_PUBLIC_ORIGIN: undefined })
+    const missingOrigin = await app.fetch(new Request('http://localhost/api/integrations/cms/templates', {
+      headers: {
+        authorization: 'Bearer integration-secret',
+        'x-cms-cookie': 'JSESSIONID=abc',
+      },
+    }))
+    expect(missingOrigin.status).toBe(400)
+    expect(await missingOrigin.json()).toMatchObject({ code: 'invalid_request' })
+
+    enableCmsIntegration(configDir)
+    const response = await app.fetch(new Request('http://localhost/api/integrations/cms/templates', {
+      headers: {
+        authorization: 'Bearer integration-secret',
+        'x-cms-cookie': 'JSESSIONID=abc',
+      },
+    }))
+    expect(response.status).toBe(200)
+    const payload = await response.json() as {
+      templates: Array<{ id: string; name: string; previewUrl: string; sourceKind: string; deletable: boolean }>
+    }
+    expect(payload.templates).toEqual([expect.objectContaining({
+      id: 'tpl_cms_list_1',
+      name: 'CMS List Template',
+      sourceKind: 'saved-project',
+      deletable: true,
+      previewUrl: 'https://builder.example.com/pagebuilder/api/page-builder/templates/tpl_cms_list_1/preview/',
+    })])
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  test('GET /api/integrations/cms/templates filters templates by name query', async () => {
+    enableCmsIntegration(configDir)
+    createUserTemplate(configDir, 'tpl_cms_search_activity', { name: 'Activity Landing Template' })
+    createUserTemplate(configDir, 'tpl_cms_search_news', { name: '新闻专题模板' })
+    createUserTemplate(configDir, 'tpl_cms_search_product', { name: 'Product Launch Template' })
+    const fetchMock = createLoginFetchMock()
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+    const app = createApp()
+
+    const response = await app.fetch(new Request('http://localhost/api/integrations/cms/templates?name=%20activity%20', {
+      headers: {
+        authorization: 'Bearer integration-secret',
+        'x-cms-cookie': 'JSESSIONID=abc',
+      },
+    }))
+
+    expect(response.status).toBe(200)
+    const payload = await response.json() as {
+      templates: Array<{ id: string; name: string; previewUrl: string }>
+    }
+    expect(payload.templates).toEqual([expect.objectContaining({
+      id: 'tpl_cms_search_activity',
+      name: 'Activity Landing Template',
+      previewUrl: 'https://builder.example.com/pagebuilder/api/page-builder/templates/tpl_cms_search_activity/preview/',
+    })])
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  test('POST /api/integrations/cms/templates/import validates input and returns absolute preview url', async () => {
+    enableCmsIntegration(configDir)
+    const fetchMock = createLoginFetchMock()
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+    const app = createApp()
+
+    const missingFile = await importCmsTemplateZip(app)
+    expect(missingFile.status).toBe(400)
+    expect(await missingFile.json()).toMatchObject({ code: 'invalid_request' })
+
+    enableCmsIntegration(configDir, { AI_PAGE_BUILDER_PUBLIC_ORIGIN: undefined })
+    const originMissing = await importCmsTemplateZip(app, createTemplateZip({
+      'index.html': '<!doctype html><h1>Should not write</h1>',
+    }))
+    expect(originMissing.status).toBe(400)
+    expect(await originMissing.json()).toMatchObject({ code: 'invalid_request' })
+    expect(listTemplateDirectoryNames(configDir)).toEqual([])
+
+    enableCmsIntegration(configDir)
+    const invalidZip = await importCmsTemplateZip(app, new File(['not a zip'], 'bad.zip', { type: 'application/zip' }))
+    expect(invalidZip.status).toBe(400)
+    expect(await invalidZip.json()).toMatchObject({ code: 'template_import_invalid' })
+
+    process.env.AI_PAGE_BUILDER_TEMPLATE_IMPORT_MAX_ZIP_MB = '0.000001'
+    const tooLarge = await importCmsTemplateZip(app, createTemplateZip({
+      'index.html': '<!doctype html><h1>Too large</h1>',
+    }))
+    expect(tooLarge.status).toBe(413)
+    expect(await tooLarge.json()).toMatchObject({ code: 'template_size_limit' })
+    delete process.env.AI_PAGE_BUILDER_TEMPLATE_IMPORT_MAX_ZIP_MB
+
+    const success = await importCmsTemplateZip(app, createTemplateZip({
+      'index.html': '<!doctype html><h1>Imported</h1>',
+      'assets/site.css': 'body { color: red; }',
+    }))
+    expect(success.status).toBe(201)
+    const payload = await success.json() as { template: { id: string; previewUrl: string; name: string } }
+    expect(payload.template.name).toBe('cms-template')
+    expect(payload.template.previewUrl).toBe(
+      `https://builder.example.com/pagebuilder/api/page-builder/templates/${payload.template.id}/preview/`,
+    )
+    expect(existsSync(join(configDir, 'page-builder-templates', payload.template.id, 'workspace-files', 'index.html'))).toBe(true)
+    expect(fetchMock).toHaveBeenCalledTimes(4)
+  })
+
+  test('PATCH /api/integrations/cms/templates/:templateId authenticates and renames a template', async () => {
+    enableCmsIntegration(configDir)
+    createUserTemplate(configDir, 'tpl_cms_rename_1', { name: '旧模板名称' })
+    const fetchMock = createLoginFetchMock()
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+    const app = createApp()
+
+    const invalidName = await app.fetch(new Request('http://localhost/api/integrations/cms/templates/tpl_cms_rename_1', {
+      method: 'PATCH',
+      headers: {
+        authorization: 'Bearer integration-secret',
+        'content-type': 'application/json',
+        'x-cms-cookie': 'JSESSIONID=abc',
+      },
+      body: JSON.stringify({ name: '   ' }),
+    }))
+    expect(invalidName.status).toBe(400)
+    expect(await invalidName.json()).toMatchObject({ code: 'invalid_request' })
+
+    const response = await app.fetch(new Request('http://localhost/api/integrations/cms/templates/tpl_cms_rename_1', {
+      method: 'PATCH',
+      headers: {
+        authorization: 'Bearer integration-secret',
+        'content-type': 'application/json',
+        'x-cms-cookie': 'JSESSIONID=abc',
+      },
+      body: JSON.stringify({ name: '  新模板名称  ' }),
+    }))
+
+    expect(response.status).toBe(200)
+    const payload = await response.json() as {
+      template: { id: string; name: string; previewUrl: string }
+    }
+    expect(payload.template).toMatchObject({
+      id: 'tpl_cms_rename_1',
+      name: '新模板名称',
+      previewUrl: 'https://builder.example.com/pagebuilder/api/page-builder/templates/tpl_cms_rename_1/preview/',
+    })
+    const manifest = JSON.parse(readFileSync(join(configDir, 'page-builder-templates', 'tpl_cms_rename_1', 'template.json'), 'utf-8')) as {
+      name: string
+    }
+    expect(manifest.name).toBe('新模板名称')
+
+    const missing = await app.fetch(new Request('http://localhost/api/integrations/cms/templates/tpl_missing', {
+      method: 'PATCH',
+      headers: {
+        authorization: 'Bearer integration-secret',
+        'content-type': 'application/json',
+        'x-cms-cookie': 'JSESSIONID=abc',
+      },
+      body: JSON.stringify({ name: '任意名称' }),
+    }))
+    expect(missing.status).toBe(404)
+    expect(await missing.json()).toMatchObject({ code: 'template_not_found' })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  test('POST /api/integrations/cms/templates/batch-delete reports partial delete results', async () => {
+    enableCmsIntegration(configDir)
+    const first = createUserTemplate(configDir, 'tpl_cms_delete_1')
+    const second = createUserTemplate(configDir, 'tpl_cms_delete_2')
+    const fetchMock = createLoginFetchMock()
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+    const app = createApp()
+
+    const invalidBody = await app.fetch(new Request('http://localhost/api/integrations/cms/templates/batch-delete', {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer integration-secret',
+        'content-type': 'application/json',
+        'x-cms-cookie': 'JSESSIONID=abc',
+      },
+      body: JSON.stringify({ templateIds: [] }),
+    }))
+    expect(invalidBody.status).toBe(400)
+    expect(await invalidBody.json()).toMatchObject({ code: 'invalid_request' })
+
+    const response = await app.fetch(new Request('http://localhost/api/integrations/cms/templates/batch-delete', {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer integration-secret',
+        'content-type': 'application/json',
+        'x-cms-cookie': 'JSESSIONID=abc',
+      },
+      body: JSON.stringify({
+        templateIds: ['tpl_cms_delete_1', 'tpl_missing', 'tpl_cms_delete_2', 'tpl_cms_delete_1'],
+      }),
+    }))
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      deletedTemplateIds: ['tpl_cms_delete_1', 'tpl_cms_delete_2'],
+      failures: [{
+        templateId: 'tpl_missing',
+        code: 'template_not_found',
+        error: '模板不存在',
+      }],
+    })
+    expect(existsSync(first.templateDir)).toBe(false)
+    expect(existsSync(second.templateDir)).toBe(false)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
   test('POST /api/integrations/cms/projects creates empty page-builder project binding and supports authenticated idempotency', async () => {
     enableCmsIntegration(configDir)
     const fetchMock = createLoginFetchMock()
@@ -488,6 +803,251 @@ describe('cms integration routes', () => {
     const expiredPayload = await expiredRetry.json() as Record<string, unknown>
     expect(expiredPayload).toMatchObject({ code: 'cms_login_expired' })
     expect(expiredPayload.projectId).toBeUndefined()
+  })
+
+  test('POST /api/integrations/cms/projects creates template projects and enforces template idempotency', async () => {
+    enableCmsIntegration(configDir)
+    globalThis.fetch = createLoginFetchMock() as unknown as typeof fetch
+    const app = createApp()
+    createUserTemplate(configDir, 'tpl_project_a', {
+      name: 'Template A',
+      html: '<!doctype html><html><body><h1>Template A</h1><link rel="stylesheet" href="./assets/site.css"></body></html>',
+      css: 'body { color: blue; }',
+    })
+    createUserTemplate(configDir, 'tpl_project_b', {
+      name: 'Template B',
+      html: '<!doctype html><html><body><h1>Template B</h1></body></html>',
+    })
+
+    const missingTemplate = await app.fetch(new Request('http://localhost/api/integrations/cms/projects', {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer integration-secret',
+        'content-type': 'application/json',
+        'x-cms-cookie': 'JSESSIONID=abc',
+      },
+      body: JSON.stringify({
+        externalRecordId: 'cms-topic-template-missing',
+        projectName: 'Missing Template Topic',
+        siteId: '14',
+        templateId: 'tpl_missing',
+      }),
+    }))
+    expect(missingTemplate.status).toBe(404)
+    expect(await missingTemplate.json()).toMatchObject({ code: 'template_not_found' })
+    expect(listAgentWorkspaces().filter((workspace) => workspace.template === 'page-builder')).toHaveLength(0)
+
+    const createResponse = await app.fetch(new Request('http://localhost/api/integrations/cms/projects', {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer integration-secret',
+        'content-type': 'application/json',
+        'x-cms-cookie': 'JSESSIONID=abc',
+      },
+      body: JSON.stringify({
+        externalRecordId: 'cms-topic-template-1',
+        projectName: 'Template Topic',
+        siteId: '14',
+        templateId: 'tpl_project_a',
+      }),
+    }))
+
+    expect(createResponse.status).toBe(201)
+    const created = await createResponse.json() as Record<string, unknown>
+    expect(created).toEqual({
+      projectId: expect.stringMatching(/^pbp_/),
+      created: true,
+      templateId: 'tpl_project_a',
+    })
+    expect(JSON.stringify(created)).not.toContain('workspaceId')
+    expect(JSON.stringify(created)).not.toContain('sessionId')
+    const binding = getSharedCmsProjectBindingStore().findByProjectId(String(created.projectId))
+    expect(binding).toMatchObject({
+      externalRecordId: 'cms-topic-template-1',
+      siteId: '14',
+      sourceTemplateId: 'tpl_project_a',
+    })
+    const workspace = listAgentWorkspaces().find((entry) => entry.id === binding!.workspaceId)
+    expect(workspace).toMatchObject({ name: 'Template Topic', template: 'page-builder' })
+    const workspaceFilesDir = join(configDir, 'agent-workspaces', workspace!.slug, 'workspace-files')
+    expect(readFileSync(join(workspaceFilesDir, 'index.html'), 'utf-8')).toContain('Template A')
+    expect(readFileSync(join(workspaceFilesDir, 'assets', 'site.css'), 'utf-8')).toContain('blue')
+    const sessions = listAgentSessions().filter((session) => session.workspaceId === workspace!.id)
+    expect(sessions).toHaveLength(1)
+    expect(getAgentSessionMessages(sessions[0]!.id)).toEqual([])
+
+    const sameTemplateRetry = await app.fetch(new Request('http://localhost/api/integrations/cms/projects', {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer integration-secret',
+        'content-type': 'application/json',
+        'x-cms-cookie': 'JSESSIONID=abc',
+      },
+      body: JSON.stringify({
+        externalRecordId: 'cms-topic-template-1',
+        projectName: 'Template Topic Retry',
+        siteId: '14',
+        templateId: 'tpl_project_a',
+      }),
+    }))
+    expect(sameTemplateRetry.status).toBe(200)
+    expect(await sameTemplateRetry.json()).toEqual({
+      projectId: created.projectId,
+      created: false,
+      templateId: 'tpl_project_a',
+    })
+
+    const oldClientRetry = await app.fetch(new Request('http://localhost/api/integrations/cms/projects', {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer integration-secret',
+        'content-type': 'application/json',
+        'x-cms-cookie': 'JSESSIONID=abc',
+      },
+      body: JSON.stringify({
+        externalRecordId: 'cms-topic-template-1',
+        projectName: 'Template Topic Old Client Retry',
+        siteId: '14',
+      }),
+    }))
+    expect(oldClientRetry.status).toBe(200)
+    expect(await oldClientRetry.json()).toEqual({
+      projectId: created.projectId,
+      created: false,
+      templateId: 'tpl_project_a',
+    })
+
+    const templateConflict = await app.fetch(new Request('http://localhost/api/integrations/cms/projects', {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer integration-secret',
+        'content-type': 'application/json',
+        'x-cms-cookie': 'JSESSIONID=abc',
+      },
+      body: JSON.stringify({
+        externalRecordId: 'cms-topic-template-1',
+        projectName: 'Template Topic Conflict',
+        siteId: '14',
+        templateId: 'tpl_project_b',
+      }),
+    }))
+    expect(templateConflict.status).toBe(409)
+    expect(await templateConflict.json()).toMatchObject({ code: 'project_conflict' })
+
+    const emptyProject = await app.fetch(new Request('http://localhost/api/integrations/cms/projects', {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer integration-secret',
+        'content-type': 'application/json',
+        'x-cms-cookie': 'JSESSIONID=abc',
+      },
+      body: JSON.stringify({
+        externalRecordId: 'cms-topic-empty-before-template',
+        projectName: 'Empty Topic',
+        siteId: '14',
+      }),
+    }))
+    expect(emptyProject.status).toBe(201)
+    const emptyThenTemplate = await app.fetch(new Request('http://localhost/api/integrations/cms/projects', {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer integration-secret',
+        'content-type': 'application/json',
+        'x-cms-cookie': 'JSESSIONID=abc',
+      },
+      body: JSON.stringify({
+        externalRecordId: 'cms-topic-empty-before-template',
+        projectName: 'Empty Topic Template Retry',
+        siteId: '14',
+        templateId: 'tpl_project_a',
+      }),
+    }))
+    expect(emptyThenTemplate.status).toBe(409)
+    expect(await emptyThenTemplate.json()).toMatchObject({ code: 'project_conflict' })
+    expect(listAgentWorkspaces().filter((entry) => entry.template === 'page-builder')).toHaveLength(2)
+  })
+
+  test('POST /api/integrations/cms/projects rolls back template workspace when binding write fails', async () => {
+    enableCmsIntegration(configDir)
+    globalThis.fetch = createLoginFetchMock() as unknown as typeof fetch
+    const app = createApp()
+    createUserTemplate(configDir, 'tpl_rollback', {
+      html: '<!doctype html><html><body><h1>Rollback</h1></body></html>',
+    })
+    mkdirSync(join(configDir, 'integrations', 'cms', 'projects.json'), { recursive: true })
+
+    const response = await app.fetch(new Request('http://localhost/api/integrations/cms/projects', {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer integration-secret',
+        'content-type': 'application/json',
+        'x-cms-cookie': 'JSESSIONID=abc',
+      },
+      body: JSON.stringify({
+        externalRecordId: 'cms-topic-template-rollback',
+        projectName: 'Rollback Topic',
+        siteId: '14',
+        templateId: 'tpl_rollback',
+      }),
+    }))
+
+    expect(response.status).toBe(500)
+    const payload = await response.json() as Record<string, unknown>
+    expect(payload).toMatchObject({ code: 'template_import_failed' })
+    expect(payload.projectId).toBeUndefined()
+    expect(listAgentWorkspaces().filter((entry) => entry.template === 'page-builder')).toHaveLength(0)
+  })
+
+  test('template-created CMS project supports builder/preview handoff and sync export', async () => {
+    enableCmsIntegration(configDir)
+    globalThis.fetch = createLoginFetchMock() as unknown as typeof fetch
+    const app = createApp()
+    createUserTemplate(configDir, 'tpl_closed_loop', {
+      html: '<!doctype html><html><body><h1>Closed Loop Template</h1><script src="./assets/app.js"></script></body></html>',
+      css: 'body { color: green; }',
+    })
+
+    const createResponse = await app.fetch(new Request('http://localhost/api/integrations/cms/projects', {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer integration-secret',
+        'content-type': 'application/json',
+        'x-cms-cookie': 'JSESSIONID=abc',
+      },
+      body: JSON.stringify({
+        externalRecordId: 'cms-topic-template-closed-loop',
+        projectName: 'Closed Loop Topic',
+        siteId: '14',
+        templateId: 'tpl_closed_loop',
+      }),
+    }))
+    expect(createResponse.status).toBe(201)
+    const created = await createResponse.json() as { projectId: string }
+    const binding = getSharedCmsProjectBindingStore().findByProjectId(created.projectId)
+    expect(binding?.sourceTemplateId).toBe('tpl_closed_loop')
+
+    const builderHandoff = await createHandoff(app, created.projectId, { target: 'builder', openMode: 'window' })
+    expect(builderHandoff.status).toBe(200)
+    const builderPayload = await builderHandoff.json() as { openUrl: string; target: string }
+    expect(builderPayload.target).toBe('builder')
+    const builderOpen = await consumeOpenUrl(app, builderPayload.openUrl)
+    expect(builderOpen.status).toBe(302)
+    expect(builderOpen.headers.get('location')).toBe(
+      `/pagebuilder/builder/${binding!.workspaceId}/${binding!.primarySessionId}`,
+    )
+
+    const previewHandoff = await createHandoff(app, created.projectId, { target: 'preview', openMode: 'window' })
+    expect(previewHandoff.status).toBe(200)
+    const previewPayload = await previewHandoff.json() as { openUrl: string; target: string }
+    expect(previewPayload.target).toBe('preview')
+    const previewOpen = await consumeOpenUrl(app, previewPayload.openUrl)
+    expect(previewOpen.status).toBe(302)
+    expect(previewOpen.headers.get('location')).toBe(`/pagebuilder/api/workspaces/${binding!.workspaceId}/preview/`)
+
+    const exportResponse = await exportCmsProject(app, created.projectId)
+    expect(exportResponse.status).toBe(200)
+    const entries = unzipSync(new Uint8Array(await exportResponse.arrayBuffer()))
+    expect(strFromU8(entries['index.html']!)).toContain('Closed Loop Template')
   })
 
   test('POST /api/integrations/cms/projects/:projectId/export returns a static ZIP without builder access session', async () => {

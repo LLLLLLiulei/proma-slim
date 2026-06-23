@@ -17,3 +17,8 @@ vendor
 openspec
 docs
 prompt.txt
+
+# 运行态数据与示例密钥，不应进入镜像构建上下文（见 build/README.md）
+build/.cms-verify-data
+build/.env.cms.example
+build/.env.standalone.example

@@ -82,7 +82,9 @@ pageBuilderRoutes.delete('/projects/:workspaceId', (c) => {
 })
 
 pageBuilderRoutes.get('/templates', (c) => {
-  return json(pageBuilderTemplateService.listTemplates())
+  return json(pageBuilderTemplateService.listTemplates({
+    name: c.req.query('name'),
+  }))
 })
 
 pageBuilderRoutes.post('/templates/import', async (c) => {

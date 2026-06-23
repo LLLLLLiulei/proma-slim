@@ -12,6 +12,7 @@ export interface CmsIntegratedProjectBinding {
   projectName: string
   siteId: string
   externalRecordId: string
+  sourceTemplateId?: string
   cmsUserName?: string
   cmsRealName?: string
   createdAt: number
@@ -29,6 +30,7 @@ export interface CreateCmsProjectBindingInput {
   externalRecordId: string
   projectName: string
   siteId: string
+  sourceTemplateId?: string
   cmsUser: CmsLoginUserSummary
 }
 
@@ -86,6 +88,7 @@ function isBinding(value: unknown): value is CmsIntegratedProjectBinding {
     && typeof record.projectName === 'string'
     && typeof record.siteId === 'string'
     && typeof record.externalRecordId === 'string'
+    && (record.sourceTemplateId === undefined || typeof record.sourceTemplateId === 'string')
     && typeof record.createdAt === 'number'
     && typeof record.updatedAt === 'number'
     && typeof record.lastValidatedAt === 'number'
@@ -145,6 +148,7 @@ export class CmsProjectBindingStore {
         projectName: input.projectName,
         siteId: input.siteId,
         externalRecordId: input.externalRecordId,
+        ...(input.sourceTemplateId ? { sourceTemplateId: input.sourceTemplateId } : {}),
         ...(readOptionalUserName(input.cmsUser) ? { cmsUserName: readOptionalUserName(input.cmsUser) } : {}),
         ...(readOptionalRealName(input.cmsUser) ? { cmsRealName: readOptionalRealName(input.cmsUser) } : {}),
         createdAt: now,
@@ -219,6 +223,10 @@ export class CmsProjectBindingStore {
     }
 
     if (!internalResourceExists(existing)) {
+      throw cmsProjectConflict()
+    }
+
+    if (input.sourceTemplateId && existing.sourceTemplateId !== input.sourceTemplateId) {
       throw cmsProjectConflict()
     }
   }

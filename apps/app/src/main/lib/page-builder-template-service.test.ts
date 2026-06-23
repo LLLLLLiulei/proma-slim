@@ -49,6 +49,23 @@ function createUserTemplate(
   return { templateDir, workspaceFilesDir }
 }
 
+describe('PageBuilderTemplateService listTemplates', () => {
+  test('filters templates by trimmed case-insensitive name keyword', () => {
+    createUserTemplate('tpl_service_list_activity', { name: 'Activity Landing Template' })
+    createUserTemplate('tpl_service_list_news', { name: '新闻专题模板' })
+    createUserTemplate('tpl_service_list_product', { name: 'Product Launch Template' })
+
+    const activityResult = pageBuilderTemplateService.listTemplates({ name: '  activity  ' })
+    expect(activityResult.templates.map((template) => template.id)).toEqual(['tpl_service_list_activity'])
+
+    const chineseResult = pageBuilderTemplateService.listTemplates({ name: '专题' })
+    expect(chineseResult.templates.map((template) => template.id)).toEqual(['tpl_service_list_news'])
+
+    const emptyKeywordResult = pageBuilderTemplateService.listTemplates({ name: '   ' })
+    expect(emptyKeywordResult.templates).toHaveLength(3)
+  })
+})
+
 describe('PageBuilderTemplateService saveWorkspaceAsTemplate', () => {
   test('saves a standalone workspace as a registry-visible user template', async () => {
     const workspace = createAgentWorkspace('Service Template Source', { template: 'page-builder' })

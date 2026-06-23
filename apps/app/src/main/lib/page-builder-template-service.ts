@@ -116,6 +116,10 @@ interface PageBuilderTemplateInstantiateOptions {
   projectName: string
 }
 
+interface PageBuilderTemplateListOptions {
+  name?: string
+}
+
 interface PageBuilderTemplateImportLimits {
   maxZipBytes: number
   maxUncompressedBytes: number
@@ -178,6 +182,11 @@ function readPositiveMegabytesEnv(name: string, fallback: number): number {
 
 function megabytesToBytes(value: number): number {
   return Math.floor(value * 1024 * 1024)
+}
+
+function normalizeSearchKeyword(value: string | undefined): string | null {
+  const normalized = value?.trim().toLowerCase()
+  return normalized || null
 }
 
 export function getPageBuilderTemplateImportLimits(): PageBuilderTemplateImportLimits {
@@ -887,9 +896,13 @@ export class PageBuilderTemplateService {
     }
   }
 
-  listTemplates(): PageBuilderTemplateListResponse {
+  listTemplates(options: PageBuilderTemplateListOptions = {}): PageBuilderTemplateListResponse {
+    const nameKeyword = normalizeSearchKeyword(options.name)
     const templates = this.scanTemplates()
       .map((template) => this.toSummary(template))
+      .filter((template) => (
+        nameKeyword ? template.name.toLowerCase().includes(nameKeyword) : true
+      ))
       .sort((left, right) => {
         const timeDiff = Date.parse(right.createdAt) - Date.parse(left.createdAt)
         return Number.isNaN(timeDiff) || timeDiff === 0

@@ -1097,7 +1097,7 @@ describe('renderer api wrappers', () => {
     const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
       requestedUrls.push(`${init?.method ?? 'GET'} ${String(input)}`)
 
-      if (String(input).endsWith('/templates')) {
+      if (String(input).endsWith('/templates') || String(input).includes('/templates?name=')) {
         return jsonResponse({
           templates: [{
             id: 'tpl_saved_20260615120000_ab12cd34',
@@ -1181,6 +1181,7 @@ describe('renderer api wrappers', () => {
     const { api } = await import(`./api.ts?test=${Date.now()}-${Math.random()}`)
 
     const list = await api.listPageBuilderTemplates()
+    await api.listPageBuilderTemplates({ name: '活动 专题' })
     const detail = await api.getPageBuilderTemplate('tpl/1')
     const useResult = await api.usePageBuilderTemplate('tpl/1', { projectName: '自定义专题项目' })
     const renameResult = await api.renamePageBuilderTemplate('tpl/1', { name: '重命名模板' })
@@ -1195,6 +1196,7 @@ describe('renderer api wrappers', () => {
     expect(downloadUrl).toBe('/api/page-builder/templates/tpl%2F1/download')
     expect(requestedUrls).toEqual([
       'GET /api/page-builder/templates',
+      'GET /api/page-builder/templates?name=%E6%B4%BB%E5%8A%A8+%E4%B8%93%E9%A2%98',
       'GET /api/page-builder/templates/tpl%2F1',
       'POST /api/page-builder/templates/tpl%2F1/use',
       'PATCH /api/page-builder/templates/tpl%2F1',
@@ -1253,7 +1255,7 @@ describe('renderer api wrappers', () => {
           },
         }, { status: 201 })
       }
-      if (String(input).endsWith('/templates')) {
+      if (String(input).endsWith('/templates') || String(input).includes('/templates?name=')) {
         return jsonResponse({ templates: [] })
       }
       if (String(input).endsWith('/templates/tpl-1/use')) {
@@ -1293,6 +1295,7 @@ describe('renderer api wrappers', () => {
     configureApiPublicBasePath('/pagebuilder')
 
     await api.listPageBuilderTemplates()
+    await api.listPageBuilderTemplates({ name: 'Base Path 模板' })
     await api.importPageBuilderTemplate(new File(['zip-bytes'], 'external-page.zip', { type: 'application/zip' }))
     await api.usePageBuilderTemplate('tpl-1', { projectName: 'Base Path 项目' })
     await api.renamePageBuilderTemplate('tpl-1', { name: 'Base Path 模板' })
@@ -1301,6 +1304,7 @@ describe('renderer api wrappers', () => {
 
     expect(requestedUrls).toEqual([
       'GET /pagebuilder/api/page-builder/templates',
+      'GET /pagebuilder/api/page-builder/templates?name=Base+Path+%E6%A8%A1%E6%9D%BF',
       'POST /pagebuilder/api/page-builder/templates/import',
       'POST /pagebuilder/api/page-builder/templates/tpl-1/use',
       'PATCH /pagebuilder/api/page-builder/templates/tpl-1',

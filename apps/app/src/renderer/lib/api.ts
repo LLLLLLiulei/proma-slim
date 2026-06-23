@@ -91,6 +91,10 @@ export interface WorkspacePreviewState {
   requiresSameOrigin: boolean
 }
 
+export interface PageBuilderTemplateListOptions {
+  name?: string
+}
+
 interface CreateWorkspaceOptions {
   template?: 'page-builder'
 }
@@ -350,8 +354,14 @@ export const api = {
     return request<PageBuilderProjectSummary[]>('/api/page-builder/projects')
   },
 
-  listPageBuilderTemplates(): Promise<PageBuilderTemplateListResponse> {
-    return request<PageBuilderTemplateListResponse>('/api/page-builder/templates')
+  listPageBuilderTemplates(options: PageBuilderTemplateListOptions = {}): Promise<PageBuilderTemplateListResponse> {
+    const params = new URLSearchParams()
+    const name = options.name?.trim()
+    if (name) {
+      params.set('name', name)
+    }
+    const query = params.toString()
+    return request<PageBuilderTemplateListResponse>(`/api/page-builder/templates${query ? `?${query}` : ''}`)
   },
 
   importPageBuilderTemplate(file: File): Promise<PageBuilderTemplateImportResponse> {

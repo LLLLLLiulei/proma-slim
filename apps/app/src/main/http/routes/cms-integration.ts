@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import type { AgentSessionMeta, AgentWorkspace } from '@ai-page-builder/shared'
+import type { AgentSessionMeta, AgentWorkspace, PageBuilderTemplateSummary } from '@ai-page-builder/shared'
 import { createAgentSession, getAgentSessionMeta } from '../../lib/agent-session-manager'
 import { assertIntegrationSecret } from '../../lib/cms-integration/cms-integration-auth'
 import {
@@ -16,6 +16,13 @@ import {
 import {
   CmsIntegrationError,
   cmsProjectNotFound,
+  cmsTemplateImportFailed,
+  cmsTemplateImportForbidden,
+  cmsTemplateImportInvalid,
+  cmsTemplateNotFound,
+  cmsTemplateOperationFailed,
+  cmsTemplateOperationForbidden,
+  cmsTemplateSizeLimit,
   handoffExpired,
   invalidCmsRequest,
   previewNotReady,
@@ -32,6 +39,10 @@ import { validateCmsLogin } from '../../lib/cms-integration/cms-login-validator'
 import { exportCmsProjectStaticPackage } from '../../lib/cms-integration/cms-sync-export-service'
 import { createCmsBuilderAccessMiddleware } from '../../lib/cms-integration/cms-builder-access-middleware'
 import { deletePageBuilderProject } from '../../lib/page-builder-project-service'
+import {
+  PageBuilderTemplateServiceError,
+  pageBuilderTemplateService,
+} from '../../lib/page-builder-template-service'
 import { createAgentWorkspace, getAgentWorkspace } from '../../lib/workspace-service'
 import { getWorkspacePreviewState } from '../../lib/workspace-preview-service'
 import type { HttpAppEnv } from '../types'
@@ -40,6 +51,7 @@ interface CmsProjectCreateBody {
   externalRecordId?: unknown
   projectName?: unknown
   siteId?: unknown
+  templateId?: unknown
   prompt?: unknown
 }
 
@@ -50,6 +62,14 @@ interface CmsHandoffCreateBody {
 
 interface CmsSyncExportBody {
   downloadCmsRemoteAssets?: unknown
+}
+
+interface CmsTemplateRenameBody {
+  name?: unknown
+}
+
+interface CmsTemplateBatchDeleteBody {
+  templateIds?: unknown
 }
 
 export const cmsIntegrationRoutes = new Hono<HttpAppEnv>()
@@ -68,6 +88,138 @@ cmsIntegrationRoutes.onError((error) => {
 
 cmsIntegrationRoutes.get('/status', (c) => {
   return c.json(buildCmsIntegrationStatus(resolveCmsIntegrationConfig()))
+})
+
+cmsIntegrationRoutes.get('/templates', async (c) => {
+  const config = resolveCmsIntegrationConfig()
+  assertCmsIntegrationModeEnabled(config)
+  assertCmsIntegrationSecretConfigured(config)
+  assertIntegrationSecret(c.req.raw, config)
+
+  const publicOrigin = config.publicOrigin
+  if (!publicOrigin) {
+    throw invalidCmsRequest('AI_PAGE_BUILDER_PUBLIC_ORIGIN 不能为空且必须是合法 origin')
+  }
+
+  await validateCmsLogin({
+    cmsBaseUrl: config.cmsBaseUrl,
+    cmsCookie: c.req.header('x-cms-cookie'),
+  })
+
+  const templates = pageBuilderTemplateService.listTemplates({
+    name: c.req.query('name'),
+  }).templates.map((template) => (
+    toCmsTemplateSummary(template, {
+      publicOrigin,
+      basePath: config.basePath,
+    })
+  ))
+
+  return c.json({ templates })
+})
+
+cmsIntegrationRoutes.post('/templates/import', async (c) => {
+  const config = resolveCmsIntegrationConfig()
+  assertCmsIntegrationModeEnabled(config)
+  assertCmsIntegrationSecretConfigured(config)
+  assertIntegrationSecret(c.req.raw, config)
+
+  const publicOrigin = config.publicOrigin
+  if (!publicOrigin) {
+    throw invalidCmsRequest('AI_PAGE_BUILDER_PUBLIC_ORIGIN 不能为空且必须是合法 origin')
+  }
+
+  await validateCmsLogin({
+    cmsBaseUrl: config.cmsBaseUrl,
+    cmsCookie: c.req.header('x-cms-cookie'),
+  })
+
+  const file = await readTemplateImportFile(c.req.raw)
+  try {
+    const result = await pageBuilderTemplateService.importTemplateZip(file)
+    return c.json({
+      template: toCmsTemplateSummary(result.template, {
+        publicOrigin,
+        basePath: config.basePath,
+      }),
+    }, 201)
+  } catch (error) {
+    throw mapTemplateServiceErrorToCmsIntegration(error)
+  }
+})
+
+cmsIntegrationRoutes.patch('/templates/:templateId', async (c) => {
+  const config = resolveCmsIntegrationConfig()
+  assertCmsIntegrationModeEnabled(config)
+  assertCmsIntegrationSecretConfigured(config)
+  assertIntegrationSecret(c.req.raw, config)
+
+  const templateId = c.req.param('templateId').trim()
+  if (!templateId) {
+    throw cmsTemplateNotFound()
+  }
+
+  const body = await readOptionalJsonBody<CmsTemplateRenameBody>(c.req.raw)
+  const name = readRequiredBodyString(body.name, 'name')
+  const publicOrigin = config.publicOrigin
+  if (!publicOrigin) {
+    throw invalidCmsRequest('AI_PAGE_BUILDER_PUBLIC_ORIGIN 不能为空且必须是合法 origin')
+  }
+
+  await validateCmsLogin({
+    cmsBaseUrl: config.cmsBaseUrl,
+    cmsCookie: c.req.header('x-cms-cookie'),
+  })
+
+  try {
+    const result = pageBuilderTemplateService.renameTemplate(templateId, { name })
+    return c.json({
+      template: toCmsTemplateSummary(result.template, {
+        publicOrigin,
+        basePath: config.basePath,
+      }),
+    })
+  } catch (error) {
+    throw mapTemplateServiceErrorToCmsTemplateOperation(error)
+  }
+})
+
+cmsIntegrationRoutes.post('/templates/batch-delete', async (c) => {
+  const config = resolveCmsIntegrationConfig()
+  assertCmsIntegrationModeEnabled(config)
+  assertCmsIntegrationSecretConfigured(config)
+  assertIntegrationSecret(c.req.raw, config)
+
+  const body = await readOptionalJsonBody<CmsTemplateBatchDeleteBody>(c.req.raw)
+  const templateIds = readTemplateIds(body.templateIds)
+
+  await validateCmsLogin({
+    cmsBaseUrl: config.cmsBaseUrl,
+    cmsCookie: c.req.header('x-cms-cookie'),
+  })
+
+  const deletedTemplateIds: string[] = []
+  const failures: Array<{
+    templateId: string
+    code: CmsIntegrationError['code']
+    error: string
+  }> = []
+
+  for (const templateId of templateIds) {
+    try {
+      pageBuilderTemplateService.deleteTemplate(templateId)
+      deletedTemplateIds.push(templateId)
+    } catch (error) {
+      const mapped = mapTemplateServiceErrorToCmsTemplateOperation(error)
+      failures.push({
+        templateId,
+        code: mapped.code,
+        error: mapped.message,
+      })
+    }
+  }
+
+  return c.json({ deletedTemplateIds, failures })
 })
 
 cmsIntegrationRoutes.post('/projects', async (c) => {
@@ -90,8 +242,20 @@ cmsIntegrationRoutes.post('/projects', async (c) => {
       externalRecordId: body.externalRecordId,
       projectName: body.projectName,
       siteId: body.siteId,
+      ...(body.templateId ? { sourceTemplateId: body.templateId } : {}),
       cmsUser,
     }, () => {
+      if (body.templateId) {
+        const instantiated = pageBuilderTemplateService.instantiateTemplateProject(body.templateId, {
+          projectName: body.projectName,
+        })
+        createdWorkspaceId = instantiated.workspace.id
+        return {
+          workspaceId: instantiated.workspace.id,
+          primarySessionId: instantiated.session.id,
+        }
+      }
+
       const workspace = createAgentWorkspace(body.projectName, { template: 'page-builder' })
       createdWorkspaceId = workspace.id
       const session = createAgentSession(undefined, undefined, workspace.id)
@@ -104,10 +268,17 @@ cmsIntegrationRoutes.post('/projects', async (c) => {
     return c.json({
       projectId: result.binding.projectId,
       created: result.created,
+      ...(result.binding.sourceTemplateId ? { templateId: result.binding.sourceTemplateId } : {}),
     }, result.created ? 201 : 200)
   } catch (error) {
     if (createdWorkspaceId) {
       cleanupCreatedProject(createdWorkspaceId)
+    }
+    if (error instanceof CmsIntegrationError) {
+      throw error
+    }
+    if (body.templateId) {
+      throw mapTemplateServiceErrorToCmsIntegration(error)
     }
     throw error
   }
@@ -310,6 +481,7 @@ async function readProjectCreateBody(request: Request): Promise<{
   externalRecordId: string
   projectName: string
   siteId: string
+  templateId?: string
 }> {
   let parsed: CmsProjectCreateBody
   try {
@@ -330,6 +502,7 @@ async function readProjectCreateBody(request: Request): Promise<{
     externalRecordId: readRequiredBodyString(parsed.externalRecordId, 'externalRecordId'),
     projectName: readRequiredBodyString(parsed.projectName, 'projectName'),
     siteId: readRequiredBodyString(parsed.siteId, 'siteId'),
+    ...('templateId' in parsed ? { templateId: readRequiredBodyString(parsed.templateId, 'templateId') } : {}),
   }
 }
 
@@ -355,6 +528,53 @@ function readRequiredBodyString(value: unknown, fieldName: string): string {
   }
 
   return value.trim()
+}
+
+function readTemplateIds(value: unknown): string[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw invalidCmsRequest('templateIds 必须是非空数组')
+  }
+
+  const result: string[] = []
+  const seen = new Set<string>()
+  for (const item of value) {
+    if (typeof item !== 'string' || !item.trim()) {
+      throw invalidCmsRequest('templateIds 只能包含非空字符串')
+    }
+
+    const templateId = item.trim()
+    if (!seen.has(templateId)) {
+      seen.add(templateId)
+      result.push(templateId)
+    }
+  }
+
+  if (result.length === 0) {
+    throw invalidCmsRequest('templateIds 必须是非空数组')
+  }
+
+  return result
+}
+
+async function readTemplateImportFile(request: Request): Promise<File> {
+  const contentType = request.headers.get('content-type') ?? ''
+  if (!contentType.includes('multipart/form-data')) {
+    throw invalidCmsRequest('请求体必须是合法的 multipart/form-data')
+  }
+
+  let formData: FormData
+  try {
+    formData = await request.formData()
+  } catch {
+    throw invalidCmsRequest('请求体必须是合法的 multipart/form-data')
+  }
+
+  const file = formData.get('file')
+  if (!(file instanceof File)) {
+    throw invalidCmsRequest('multipart 请求缺少 file 字段')
+  }
+
+  return file
 }
 
 function normalizeHandoffTarget(value: unknown): 'builder' | 'preview' {
@@ -394,6 +614,75 @@ function withBasePath(basePath: string, pathname: string): string {
   }
 
   return `${normalizedBasePath}${pathname.startsWith('/') ? '' : '/'}${pathname}`
+}
+
+function buildCmsTemplatePreviewUrl(input: {
+  publicOrigin: string
+  basePath: string
+  templateId: string
+}): string {
+  return `${input.publicOrigin}${withBasePath(
+    input.basePath,
+    `/api/page-builder/templates/${encodeURIComponent(input.templateId)}/preview/`,
+  )}`
+}
+
+function toCmsTemplateSummary<T extends PageBuilderTemplateSummary>(template: T, input: {
+  publicOrigin: string
+  basePath: string
+}): T {
+  return {
+    ...template,
+    previewUrl: buildCmsTemplatePreviewUrl({
+      publicOrigin: input.publicOrigin,
+      basePath: input.basePath,
+      templateId: template.id,
+    }),
+  }
+}
+
+function mapTemplateServiceErrorToCmsIntegration(error: unknown): CmsIntegrationError {
+  if (error instanceof PageBuilderTemplateServiceError) {
+    if (error.code === 'not-found') {
+      return cmsTemplateNotFound(error.message)
+    }
+
+    if (error.code === 'size-limit') {
+      return cmsTemplateSizeLimit(error.message)
+    }
+
+    if (error.code === 'forbidden' || error.code === 'unsafe-file') {
+      return cmsTemplateImportForbidden(error.message)
+    }
+
+    if (error.code === 'invalid-input' || error.code === 'entry-missing') {
+      return cmsTemplateImportInvalid(error.message)
+    }
+
+    return cmsTemplateImportFailed(error.message)
+  }
+
+  return cmsTemplateImportFailed()
+}
+
+function mapTemplateServiceErrorToCmsTemplateOperation(error: unknown): CmsIntegrationError {
+  if (error instanceof PageBuilderTemplateServiceError) {
+    if (error.code === 'not-found') {
+      return cmsTemplateNotFound(error.message)
+    }
+
+    if (error.code === 'invalid-input') {
+      return invalidCmsRequest(error.message)
+    }
+
+    if (error.code === 'forbidden' || error.code === 'unsafe-file') {
+      return cmsTemplateOperationForbidden(error.message)
+    }
+
+    return cmsTemplateOperationFailed(error.message)
+  }
+
+  return cmsTemplateOperationFailed()
 }
 
 function isBindingInternalResourceAvailable(binding: CmsIntegratedProjectBinding): boolean {
