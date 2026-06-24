@@ -553,7 +553,13 @@ describe('cms integration routes', () => {
     }))
     expect(response.status).toBe(200)
     const payload = await response.json() as {
-      templates: Array<{ id: string; name: string; previewUrl: string; sourceKind: string; deletable: boolean }>
+      templates: Array<{
+        id: string
+        name: string
+        previewUrl: string
+        sourceKind: string
+        deletable: boolean
+      }>
     }
     expect(payload.templates).toEqual([expect.objectContaining({
       id: 'tpl_cms_list_1',
@@ -562,6 +568,7 @@ describe('cms integration routes', () => {
       deletable: true,
       previewUrl: 'https://builder.example.com/pagebuilder/api/page-builder/templates/tpl_cms_list_1/preview/',
     })])
+    expect(payload.templates[0]).not.toHaveProperty('downloadUrl')
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
@@ -590,7 +597,77 @@ describe('cms integration routes', () => {
       name: 'Activity Landing Template',
       previewUrl: 'https://builder.example.com/pagebuilder/api/page-builder/templates/tpl_cms_search_activity/preview/',
     })])
+    expect(payload.templates[0]).not.toHaveProperty('downloadUrl')
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  test('GET /api/integrations/cms/templates/:templateId/download authenticates and streams template zip', async () => {
+    enableCmsIntegration(configDir)
+    createUserTemplate(configDir, 'tpl_cms_download_1', {
+      name: 'CMS 下载模板',
+      html: '<!doctype html><html><body><h1>CMS Download</h1></body></html>',
+      css: 'body { color: #0f766e; }',
+    })
+    const fetchMock = createLoginFetchMock()
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+    const app = createApp()
+
+    const unauthorized = await app.fetch(new Request('http://localhost/api/integrations/cms/templates/tpl_cms_download_1/download', {
+      headers: {
+        authorization: 'Bearer wrong-secret',
+        'x-cms-cookie': 'JSESSIONID=abc',
+      },
+    }))
+    expect(unauthorized.status).toBe(401)
+    expect(await unauthorized.json()).toMatchObject({ code: 'integration_unauthorized' })
+
+    const expiredLogin = await app.fetch(new Request('http://localhost/api/integrations/cms/templates/tpl_cms_download_1/download', {
+      headers: {
+        authorization: 'Bearer integration-secret',
+        'x-cms-cookie': 'expired=true',
+      },
+    }))
+    expect(expiredLogin.status).toBe(401)
+    expect(await expiredLogin.json()).toMatchObject({ code: 'cms_login_expired' })
+
+    const missing = await app.fetch(new Request('http://localhost/api/integrations/cms/templates/tpl_missing/download', {
+      headers: {
+        authorization: 'Bearer integration-secret',
+        'x-cms-cookie': 'JSESSIONID=abc',
+      },
+    }))
+    expect(missing.status).toBe(404)
+    expect(await missing.json()).toMatchObject({ code: 'template_not_found' })
+
+    const response = await app.fetch(new Request('http://localhost/api/integrations/cms/templates/tpl_cms_download_1/download', {
+      headers: {
+        authorization: 'Bearer integration-secret',
+        'x-cms-cookie': 'JSESSIONID=abc',
+      },
+    }))
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toBe('application/zip')
+    expect(response.headers.get('cache-control')).toBe('private, no-store')
+    expect(response.headers.get('content-disposition')).toContain('attachment;')
+    expect(response.headers.get('content-disposition')).toContain('filename="tpl_cms_download_1.zip"')
+
+    const entries = unzipSync(new Uint8Array(await response.arrayBuffer()))
+    expect(Object.keys(entries).sort()).toEqual([
+      'template.json',
+      'workspace-files/assets/site.css',
+      'workspace-files/index.html',
+    ])
+    const decoder = new TextDecoder()
+    const manifest = JSON.parse(decoder.decode(entries['template.json'])) as Record<string, unknown>
+    expect(manifest).toEqual(expect.objectContaining({
+      id: 'tpl_cms_download_1',
+      name: 'CMS 下载模板',
+      entry: 'workspace-files/index.html',
+    }))
+    expect(decoder.decode(entries['workspace-files/index.html'])).toContain('CMS Download')
+    expect(decoder.decode(entries['workspace-files/assets/site.css'])).toContain('#0f766e')
+    expect(fetchMock).toHaveBeenCalledTimes(3)
   })
 
   test('POST /api/integrations/cms/templates/import validates input and returns absolute preview url', async () => {

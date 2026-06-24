@@ -148,6 +148,29 @@ cmsIntegrationRoutes.post('/templates/import', async (c) => {
   }
 })
 
+cmsIntegrationRoutes.get('/templates/:templateId/download', async (c) => {
+  const config = resolveCmsIntegrationConfig()
+  assertCmsIntegrationModeEnabled(config)
+  assertCmsIntegrationSecretConfigured(config)
+  assertIntegrationSecret(c.req.raw, config)
+
+  const templateId = c.req.param('templateId').trim()
+  if (!templateId) {
+    throw cmsTemplateNotFound()
+  }
+
+  await validateCmsLogin({
+    cmsBaseUrl: config.cmsBaseUrl,
+    cmsCookie: c.req.header('x-cms-cookie'),
+  })
+
+  try {
+    return pageBuilderTemplateService.createDownloadResponse(templateId)
+  } catch (error) {
+    throw mapTemplateServiceErrorToCmsTemplateOperation(error)
+  }
+})
+
 cmsIntegrationRoutes.patch('/templates/:templateId', async (c) => {
   const config = resolveCmsIntegrationConfig()
   assertCmsIntegrationModeEnabled(config)
