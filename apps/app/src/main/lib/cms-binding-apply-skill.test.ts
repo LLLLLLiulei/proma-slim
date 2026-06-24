@@ -286,6 +286,31 @@ describe('cms-binding-apply skill contract docs', () => {
     expect(catalog).not.toContain('`contents-by-catalog`')
   })
 
+  test('documents that slot templates must not use undeclared helpers and references resolve from skill root', () => {
+    const skill = readRelativeText('../../../default-skills/cms-binding-apply/SKILL.md')
+    const content = readRelativeText('../../../default-skills/cms-binding-apply/references/cms-content-authoring.md')
+    const shared = readRelativeText('../../../default-skills/cms-binding-apply/references/shared-authoring-rules.md')
+
+    expect(skill).toContain('Do not call undeclared project helpers')
+    expect(skill).toContain('Date')
+    expect(skill).toContain('Math')
+    expect(skill).toContain('JSON')
+    expect(skill).toContain('window')
+    expect(skill).toContain('document')
+    expect(skill).toContain('eval')
+    expect(skill).toContain('fetch')
+    expect(skill).toContain('skills/cms-binding-apply/references/')
+    expect(skill).toContain('not the scratch working directory')
+    expect(shared).toContain('Do not call undeclared project helpers')
+    expect(shared).toContain('Vue-executable safe native globals such as `Date`, `Math`, and `JSON`')
+    expect(shared).toContain('Do not use host globals or imperative browser APIs')
+    expect(shared).toContain('fix the template and retry')
+    expect(content).toContain('Do not call `getDateDay(item.addedAt)`')
+    expect(content).toContain('`item.addedAt?.slice(0, 10)`')
+    expect(content).toContain('`new Date(item.addedAt).getDate()`')
+    expect(content).toContain('`getDateMonthYear`')
+  })
+
   test('keeps cms-content guidance limited to content props, source modes, fields, and recipes', () => {
     const content = readRelativeText('../../../default-skills/cms-binding-apply/references/cms-content-authoring.md')
 

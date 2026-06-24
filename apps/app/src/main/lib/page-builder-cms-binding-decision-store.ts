@@ -281,6 +281,7 @@ function resolveBlockTargetShellFact(targetOuterHtml: string): {
   }
 
   const tagName = root.localName.toLowerCase()
+  const isListShell = tagName === 'ul' || tagName === 'ol'
   const childElements = Array.from(root.children)
   const hasHeadingChild = childElements.some((child) => /^h[1-6]$/i.test(child.tagName))
   const hasNonHeadingChild = childElements.some((child) => !/^h[1-6]$/i.test(child.tagName))
@@ -289,7 +290,8 @@ function resolveBlockTargetShellFact(targetOuterHtml: string): {
 
   return {
     ownsMajorContainer:
-      (hasHeadingChild && hasNonHeadingChild)
+      isListShell
+      || (hasHeadingChild && hasNonHeadingChild)
       || hasShellHints,
     tagName,
   }

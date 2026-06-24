@@ -139,6 +139,7 @@ describe('page builder preview selection helpers', () => {
         allowedProps: ['site-id', 'ids', 'level', 'parent-id', 'content-type', 'search-keyword', 'take'],
         requiredProps: ['site-id', 'level', 'parent-id'],
         slotScope: ['items', 'loading', 'error', 'empty'],
+        allowedSlotHelpers: [],
         itemFields: ['id', 'name', 'path'],
         itemFieldMeta: [],
         recommendedLinkField: 'path',

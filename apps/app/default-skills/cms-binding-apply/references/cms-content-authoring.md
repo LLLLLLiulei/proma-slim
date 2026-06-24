@@ -45,6 +45,8 @@ Use an explicit subset of the shared slot scope `{ items, loading, error, empty 
 - `item.listLogoUrl`: optional content list image URL; guard before rendering
 - `item.addedAt`: optional date/time string; render only when the current design already includes metadata
 
+For date metadata, render `item.addedAt` directly, use a guarded member expression such as `item.addedAt?.slice(0, 10)`, or use Vue-executable safe native expressions such as `new Date(item.addedAt).getDate()` when the design requires date parts. Do not call `getDateDay(item.addedAt)`, `formatDate(item.addedAt)`, `getDateMonthYear`, or any other undeclared project helper.
+
 ## Recipe: content-list
 
 Use this when the target block intent is `content-list`.

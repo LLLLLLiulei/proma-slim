@@ -125,6 +125,151 @@ describe('validateCmsRendering', () => {
     ]))
   })
 
+  test('reports blocking errors for undeclared helper calls inside cms slot interpolations', () => {
+    const result = validateCmsRendering(`
+      <!doctype html>
+      <html>
+        <body>
+          <section data-proma-block-id="pb_blk_news">
+            <cms-content site-id="14" catalog-id="news">
+              <template v-slot:default="{ items }">
+                <article v-for="item in items" :key="item.id">
+                  <time>{{ getDateDay(item.addedAt) }}</time>
+                  <span>{{ formatDate(item.addedAt) }}</span>
+                </article>
+              </template>
+            </cms-content>
+          </section>
+        </body>
+      </html>
+    `, {
+      htmlPath: 'index.html',
+    })
+
+    expect(result.valid).toBe(false)
+    expect(result.errors).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        severity: 'error',
+        code: 'UNKNOWN_SLOT_HELPER',
+        component: 'cms-content',
+        blockId: 'pb_blk_news',
+        message: expect.stringContaining('getDateDay'),
+      }),
+      expect.objectContaining({
+        severity: 'error',
+        code: 'UNKNOWN_SLOT_HELPER',
+        component: 'cms-content',
+        blockId: 'pb_blk_news',
+        message: expect.stringContaining('formatDate'),
+      }),
+    ]))
+  })
+
+  test('reports blocking errors for undeclared helper calls inside cms slot directives', () => {
+    const result = validateCmsRendering(`
+      <!doctype html>
+      <html>
+        <body>
+          <section data-proma-block-id="pb_blk_news">
+            <cms-content site-id="14" catalog-id="news">
+              <template v-slot:default="{ items }">
+                <article
+                  v-for="item in items"
+                  v-if="shouldShow(item)"
+                  :key="item.id"
+                >
+                  <a :href="buildUrl(item.publishUrl)">{{ item.title }}</a>
+                </article>
+              </template>
+            </cms-content>
+          </section>
+        </body>
+      </html>
+    `, {
+      htmlPath: 'index.html',
+    })
+
+    expect(result.valid).toBe(false)
+    expect(result.errors).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        severity: 'error',
+        code: 'UNKNOWN_SLOT_HELPER',
+        component: 'cms-content',
+        blockId: 'pb_blk_news',
+        message: expect.stringContaining('shouldShow'),
+      }),
+      expect.objectContaining({
+        severity: 'error',
+        code: 'UNKNOWN_SLOT_HELPER',
+        component: 'cms-content',
+        blockId: 'pb_blk_news',
+        message: expect.stringContaining('buildUrl'),
+      }),
+    ]))
+  })
+
+  test('allows Vue-executable expressions and safe JavaScript globals without reporting unknown slot helpers', () => {
+    const result = validateCmsRendering(`
+      <!doctype html>
+      <html>
+        <body>
+          <section data-proma-block-id="pb_blk_news">
+            <cms-content site-id="14" catalog-id="news">
+              <template v-slot:default="{ items }">
+                <section>
+                  <article v-for="item in items.slice(0, 3)" :key="item.id">
+                    <time v-if="item.addedAt">{{ item.addedAt?.slice(0, 10) }}</time>
+                    <span>{{ new Date(item.addedAt).getDate() }}</span>
+                    <span>{{ Math.max(1, items.length) }}</span>
+                    <span>{{ JSON.stringify({ id: item.id }) }}</span>
+                    <a :href="item.publishUrl">{{ item.title }}</a>
+                  </article>
+                </section>
+              </template>
+            </cms-content>
+          </section>
+        </body>
+      </html>
+    `, {
+      htmlPath: 'index.html',
+    })
+
+    expect(result.errors.filter((diagnostic) => diagnostic.code === 'UNKNOWN_SLOT_HELPER')).toEqual([])
+    expect(result.errors.filter((diagnostic) => diagnostic.code === 'UNKNOWN_ITEM_FIELD')).toEqual([])
+  })
+
+  test('reports blocking errors when a cms island inside a list shell renders a duplicate list root', () => {
+    const result = validateCmsRendering(`
+      <!doctype html>
+      <html>
+        <body>
+          <ul data-proma-block-id="pb_blk_news" class="row">
+            <cms-content site-id="14" catalog-id="news">
+              <template v-slot:default="{ items }">
+                <ul class="row">
+                  <li v-for="item in items" :key="item.id">{{ item.title }}</li>
+                </ul>
+              </template>
+            </cms-content>
+          </ul>
+        </body>
+      </html>
+    `, {
+      htmlPath: 'index.html',
+    })
+
+    expect(result.valid).toBe(false)
+    expect(result.errors).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        severity: 'error',
+        code: 'DUPLICATE_LIST_SHELL',
+        component: 'cms-content',
+        blockId: 'pb_blk_news',
+        message: expect.stringContaining('ul'),
+      }),
+    ]))
+  })
+
   test('reports blocking errors for unsupported item field access inside cms slots', () => {
     const result = validateCmsRendering(`
       <!doctype html>

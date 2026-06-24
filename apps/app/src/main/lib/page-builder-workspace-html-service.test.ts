@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
@@ -8,8 +8,19 @@ import {
 } from './page-builder-workspace-html-service'
 import { createAgentWorkspace } from './workspace-service'
 
+const originalCmsIntegrationMode = process.env.AI_PAGE_BUILDER_INTEGRATION_MODE
+
+beforeEach(() => {
+  process.env.AI_PAGE_BUILDER_INTEGRATION_MODE = 'cms'
+})
+
 afterEach(() => {
   rmSync(join(homedir(), '.proma'), { recursive: true, force: true })
+  if (originalCmsIntegrationMode === undefined) {
+    delete process.env.AI_PAGE_BUILDER_INTEGRATION_MODE
+  } else {
+    process.env.AI_PAGE_BUILDER_INTEGRATION_MODE = originalCmsIntegrationMode
+  }
 })
 
 describe('page-builder workspace html service', () => {

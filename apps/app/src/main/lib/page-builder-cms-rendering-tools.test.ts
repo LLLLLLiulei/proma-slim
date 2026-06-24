@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
@@ -9,8 +9,19 @@ import {
   createPageBuilderCmsRenderingTools,
 } from './page-builder-cms-rendering-tools'
 
+const originalCmsIntegrationMode = process.env.AI_PAGE_BUILDER_INTEGRATION_MODE
+
+beforeEach(() => {
+  process.env.AI_PAGE_BUILDER_INTEGRATION_MODE = 'cms'
+})
+
 afterEach(() => {
   rmSync(join(homedir(), '.proma'), { recursive: true, force: true })
+  if (originalCmsIntegrationMode === undefined) {
+    delete process.env.AI_PAGE_BUILDER_INTEGRATION_MODE
+  } else {
+    process.env.AI_PAGE_BUILDER_INTEGRATION_MODE = originalCmsIntegrationMode
+  }
 })
 
 describe('page-builder cms rendering apply tool', () => {
@@ -796,6 +807,139 @@ describe('page-builder cms rendering apply tool', () => {
     expect(readFileSync(join(workspaceFilesDir, 'index.html'), 'utf-8')).not.toContain('<cms-catalog level="children" parent-id="7">\n<cms-catalog')
   })
 
+  test('rejects duplicate list roots only when preserved shell already owns the same list container', () => {
+    const workspace = createAgentWorkspace('CMS Apply Preserved List Shell', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+    const entryPath = join(workspaceFilesDir, 'index.html')
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(
+      entryPath,
+      '<!doctype html><html><body><ul id="main-nav" data-proma-block-id="pb_blk_nav"><li>placeholder</li></ul></body></html>',
+      'utf-8',
+    )
+
+    const tools = createPageBuilderCmsRenderingTools()
+
+    expect(() => tools.applyCmsBinding(workspace, {
+      targetSelection: {
+        kind: 'block',
+        selector: '#main-nav',
+        parentBlockSelector: '#main-nav',
+        editBoundary: 'block',
+      },
+      targetBlock: {
+        selector: '#main-nav',
+      },
+      kind: 'catalog-nav',
+      source: {
+        siteId: '14',
+        ids: ['nav-a', 'nav-b'],
+      },
+      structureGuardrails: {
+        shellMode: 'preserve-target-shell',
+        majorContainerOwner: 'shell',
+        shellSelector: '#main-nav',
+        shellTagName: 'ul',
+        shellReason: 'existing-shell-major-container',
+      },
+      templateBody: '<ul class="nav-list"><li v-for="item in items" :key="item.id"><a :href="item.path">{{ item.name }}</a></li></ul>',
+    })).toThrow('templateBody 与当前 preserved-shell 列表壳层冲突')
+
+    expect(readFileSync(entryPath, 'utf-8')).toContain('<li>placeholder</li>')
+  })
+
+  test('rejects duplicate list roots when the selected block itself is a list shell even without explicit guardrails', () => {
+    const workspace = createAgentWorkspace('CMS Apply Implicit Preserved List Shell', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+    const entryPath = join(workspaceFilesDir, 'index.html')
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(
+      entryPath,
+      '<!doctype html><html><body><ul id="content-list" data-proma-block-id="pb_blk_news" class="row row-cols-md-4"><li class="col">placeholder</li></ul></body></html>',
+      'utf-8',
+    )
+
+    const tools = createPageBuilderCmsRenderingTools()
+
+    expect(() => tools.applyCmsBinding(workspace, {
+      targetSelection: {
+        kind: 'block',
+        selector: '#content-list',
+        parentBlockSelector: '#content-list',
+        editBoundary: 'block',
+      },
+      targetBlock: {
+        selector: '#content-list',
+      },
+      kind: 'content-list',
+      source: {
+        siteId: '14',
+        catalogId: 'news',
+        ids: ['n-1', 'n-2'],
+      },
+      templateBody: '<ul class="row row-cols-md-4"><li v-for="item in items" :key="item.id">{{ item.title }}</li></ul>',
+      emptyTemplate: '<ul class="row row-cols-md-4"><li>暂无内容</li></ul>',
+      errorTemplate: '<ul class="row row-cols-md-4"><li>内容加载失败</li></ul>',
+    })).toThrow('templateBody 与当前 preserved-shell 列表壳层冲突')
+
+    expect(readFileSync(entryPath, 'utf-8')).toContain('<li class="col">placeholder</li>')
+    expect(readFileSync(entryPath, 'utf-8')).not.toContain('<cms-content')
+  })
+
+  test('allows full list roots when replacing a source-atomic cms island', () => {
+    const workspace = createAgentWorkspace('CMS Apply Source Atomic List Root', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+    const entryPath = join(workspaceFilesDir, 'index.html')
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(
+      entryPath,
+      [
+        '<!doctype html><html><body>',
+        '<section id="nav-block" data-proma-block-id="pb_blk_nav">',
+        '<cms-catalog site-id="14" ids="old"><template v-slot:default="{ items }"><nav>{{ items.length }}</nav></template></cms-catalog>',
+        '</section>',
+        '</body></html>',
+      ].join(''),
+      'utf-8',
+    )
+
+    const tools = createPageBuilderCmsRenderingTools()
+
+    const result = tools.applyCmsBinding(workspace, {
+      targetSelection: {
+        kind: 'cms-island',
+        htmlPath: 'index.html',
+        sourceSelector: '#nav-block > cms-catalog:nth-of-type(1)',
+        parentBlockSelector: '#nav-block',
+        component: 'cms-catalog',
+        editBoundary: 'source-atomic',
+      },
+      targetBlock: {
+        selector: '#nav-block',
+      },
+      kind: 'catalog-nav',
+      source: {
+        siteId: '14',
+        ids: ['nav-a', 'nav-b'],
+      },
+      structureGuardrails: {
+        shellMode: 'replace-existing-cms-island',
+        majorContainerOwner: 'slot',
+        shellSelector: '#nav-block > cms-catalog:nth-of-type(1)',
+        shellTagName: 'cms-catalog',
+        shellReason: 'source-atomic-cms-island',
+      },
+      templateBody: '<ul class="nav-list"><li v-for="item in items" :key="item.id"><a :href="item.path">{{ item.name }}</a></li></ul>',
+    })
+
+    expect(result.applied).toBe(true)
+    expect(result.generatedHtml).toContain('<ul class="nav-list">')
+    expect(readFileSync(entryPath, 'utf-8')).toContain('<ul class="nav-list">')
+  })
+
   test('accepts outer slot template wrappers in template fields and unwraps them before generating cms binding html', () => {
     const workspace = createAgentWorkspace('CMS Apply Nested Slot Template', { template: 'page-builder' })
     const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
@@ -913,6 +1057,37 @@ describe('page-builder cms rendering apply tool', () => {
     })).toThrow('templateBody 不能包含 <script> 或 <style>')
 
     expect(readFileSync(entryPath, 'utf-8')).not.toContain('<cms-content')
+  })
+
+  test('rejects template fields that call undeclared helpers before writing html with compact guidance', () => {
+    const workspace = createAgentWorkspace('CMS Apply Unknown Slot Helper', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+    const entryPath = join(workspaceFilesDir, 'index.html')
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(
+      entryPath,
+      '<!doctype html><html><body><section id="latest-news" data-proma-block-id="pb_blk_news"><p>placeholder</p></section></body></html>',
+      'utf-8',
+    )
+
+    const tools = createPageBuilderCmsRenderingTools()
+
+    expect(() => tools.applyCmsBinding(workspace, {
+      targetBlock: {
+        selector: '#latest-news',
+      },
+      kind: 'content-list',
+      source: {
+        siteId: '14',
+        catalogId: 'news',
+      },
+      templateBody: '<section><article v-for="item in items" :key="item.id"><time>{{ getDateDay(item.addedAt) }}</time><h3>{{ item.title }}</h3></article></section>',
+    })).toThrow('templateBody 使用了当前 CMS contract 未声明的 helper: getDateDay')
+
+    const html = readFileSync(entryPath, 'utf-8')
+    expect(html).toContain('<p>placeholder</p>')
+    expect(html).not.toContain('<cms-content')
   })
 
   test('rejects template fields that reference unsupported cms item fields before writing html', () => {

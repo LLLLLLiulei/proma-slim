@@ -208,6 +208,90 @@ describe('page-builder CMS binding decision store', () => {
     })
   })
 
+  test('persists preserved-shell structure guardrails for list block targets', () => {
+    const store = createPageBuilderCmsBindingDecisionStore()
+    const selection: Extract<PageBuilderCmsSelectionResult, { selectionKind: 'contents' }> = {
+      version: 6,
+      siteId: '14',
+      targetSelection: createPageBuilderBlockTargetSelection('#content-list'),
+      targetBlock: {
+        selector: '#content-list',
+      },
+      selectionKind: 'contents',
+      sourceType: 'contents-by-catalog',
+      selectionMode: 'by-catalog',
+      catalogId: 'news',
+      snapshot: {
+        catalog: {
+          id: 'news',
+          name: '新闻',
+          parentId: null,
+          path: '/news',
+          contentType: 'article',
+          contentTypeName: '文章',
+          hasChild: false,
+          total: 12,
+          children: [],
+        },
+      },
+    }
+
+    store.registerHandoff({
+      handoffId: 'handoff-list',
+      workspaceId: 'workspace-1',
+      sessionId: 'session-1',
+      input: buildPageBuilderCmsApplySkillInput(selection, {
+        handoffId: 'handoff-list',
+        targetSnapshot: {
+          kind: 'block',
+          selector: '#content-list',
+          parentBlockSelector: '#content-list',
+          targetOuterHtml: '<ul id="content-list" class="row row-cols-md-4"><li class="col">placeholder</li></ul>',
+        },
+        authoringRevision: 'rev-1',
+      }),
+    })
+
+    const result = store.createDecision({
+      workspaceId: 'workspace-1',
+      handoffId: 'handoff-list',
+      sessionId: 'session-1',
+      currentRevision: 'rev-1',
+      decision: {
+        status: 'ready',
+        targetBlockKind: 'content-list',
+        supportedRenderModes: ['replace-current'],
+        renderMode: 'replace-current',
+        applyStrategy: 'replace-current',
+        mappingKind: 'catalog-content-list',
+        toolKind: 'content-list',
+        source: {
+          siteId: '14',
+          catalogId: 'news',
+        },
+      },
+    })
+
+    if (result.status !== 'ready') {
+      throw new Error('expected ready decision result')
+    }
+
+    const record = store.readDecisionForApply({
+      workspaceId: 'workspace-1',
+      decisionId: result.decisionId,
+      sessionId: 'session-1',
+      currentRevision: 'rev-1',
+    })
+
+    expect(record.plan.structureGuardrails).toEqual({
+      shellMode: 'preserve-target-shell',
+      majorContainerOwner: 'shell',
+      shellSelector: '#content-list',
+      shellTagName: 'ul',
+      shellReason: 'existing-shell-major-container',
+    })
+  })
+
   test('passes through non-ready decisions without creating a persisted plan', () => {
     const store = createStoreWithCatalogHandoff()
 

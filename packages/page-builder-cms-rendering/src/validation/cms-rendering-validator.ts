@@ -1,4 +1,13 @@
-import { compile } from '@vue/compiler-dom'
+import {
+  NodeTypes,
+  compile,
+  parse as parseVueTemplate,
+  type DirectiveNode,
+  type ElementNode,
+  type ExpressionNode,
+  type InterpolationNode,
+  type TemplateChildNode,
+} from '@vue/compiler-dom'
 import { parseHTML } from 'linkedom'
 import { PAGE_BUILDER_CMS_AUTHORING_CONTRACT } from '@ai-page-builder/shared'
 import {
@@ -24,6 +33,7 @@ const INDEXED_ITEM_FIELD_ACCESS_PATTERN = /\bitems\s*\[[^\]]+\]\??\.([A-Za-z_][A
 const SLOT_SCOPE_REFERENCE_PATTERN = /(^|[^\w$.])(items|loading|error|empty)\b(?!\s*:)/g
 const SLOT_SCOPE_ALIAS_REFERENCE_PATTERN = /(^|[^\w$.])([A-Za-z_$][A-Za-z0-9_$]*)\s*\.\s*(items|loading|error|empty)\b/g
 const ITEM_INDEX_ACCESS_PATTERN = /\bitems\s*\[[^\]]+\]\??\.([A-Za-z_][A-Za-z0-9_]*)\b/g
+const BARE_FUNCTION_CALL_PATTERN = /\b([A-Za-z_$][A-Za-z0-9_$]*)\s*(?:\?\.)?\s*\(/g
 const INLINE_EVENT_HANDLER_ATTRIBUTE_PATTERN = /^on[a-z]+$/
 const VUE_PACKAGE_SPECIFIER_PATTERN = /^(?:vue|@vue\/.+)$/i
 const VUE_RUNTIME_URL_PATTERN = /(?:^|[/:@._-])vue(?:@[\w.-]+)?(?:[/:._-]|$)|@vue\//i
@@ -34,6 +44,50 @@ const VUE_CREATE_APP_CALL_PATTERN = /\b(?:Vue|window\.Vue)\.(?:createApp|createS
 const VUE_LOCAL_CREATE_APP_CALL_PATTERN = /\b(?:createApp|createSSRApp)\s*\(/
 const VUE_GLOBAL_DESTRUCTURE_PATTERN = /\b(?:const|let|var)\s*{\s*[^}]*\b(?:createApp|createSSRApp)\b[^}]*}\s*=\s*(?:window\.)?Vue\b/i
 const VUE_GLOBAL_ASSIGNMENT_PATTERN = /\b(?:const|let|var)\s+\w+\s*=\s*(?:window\.)?Vue\.(?:createApp|createSSRApp)\b/i
+const RESERVED_FUNCTION_LIKE_IDENTIFIERS = new Set([
+  'await',
+  'case',
+  'catch',
+  'class',
+  'const',
+  'do',
+  'delete',
+  'else',
+  'for',
+  'function',
+  'if',
+  'import',
+  'let',
+  'new',
+  'return',
+  'super',
+  'switch',
+  'try',
+  'throw',
+  'typeof',
+  'var',
+  'void',
+  'while',
+  'yield',
+])
+const SAFE_SLOT_EXPRESSION_GLOBALS = new Set([
+  'Array',
+  'Boolean',
+  'Date',
+  'JSON',
+  'Math',
+  'Number',
+  'Object',
+  'String',
+  'decodeURI',
+  'decodeURIComponent',
+  'encodeURI',
+  'encodeURIComponent',
+  'isFinite',
+  'isNaN',
+  'parseFloat',
+  'parseInt',
+])
 
 export type CmsRenderingDiagnosticSeverity = 'error' | 'warning' | 'info'
 
@@ -291,6 +345,18 @@ export function validateCmsRendering(
           islandIndex,
         }))
       }
+
+      for (const helper of collectUndeclaredSlotHelpers(slot.content)) {
+        diagnostics.push(createDiagnostic({
+          severity: 'error',
+          code: 'UNKNOWN_SLOT_HELPER',
+          message: `Unknown CMS slot helper "${helper}" in ${component} ${slot.name} slot.`,
+          element: island,
+          component,
+          htmlPath,
+          islandIndex,
+        }))
+      }
     }
 
     for (const dangerousTag of DANGEROUS_TAGS) {
@@ -311,8 +377,21 @@ export function validateCmsRendering(
       }
     }
 
-      for (const { slot, root: slotRoot } of slotRoots) {
+    for (const { slot, root: slotRoot } of slotRoots) {
       const optionalItemFields = getOptionalItemFields(component)
+
+      const duplicateListShellTagName = resolveDuplicateListShellTagName(island, slotRoot)
+      if (duplicateListShellTagName) {
+        diagnostics.push(createDiagnostic({
+          severity: 'error',
+          code: 'DUPLICATE_LIST_SHELL',
+          message: `CMS slot duplicates the preserved <${duplicateListShellTagName}> list shell.`,
+          element: island,
+          component,
+          htmlPath,
+          islandIndex,
+        }))
+      }
 
       for (const nestedIsland of Array.from(slotRoot.querySelectorAll(CMS_ISLAND_SELECTOR))) {
         diagnostics.push(createDiagnostic({
@@ -609,6 +688,22 @@ function parseTemplateSlot(content: string): ParentNode {
     .querySelector('[data-proma-slot-root]')!
 }
 
+function resolveDuplicateListShellTagName(island: Element, slotRoot: ParentNode): string | null {
+  const parentTagName = island.parentElement?.localName.toLowerCase()
+  if (parentTagName !== 'ul' && parentTagName !== 'ol') {
+    return null
+  }
+
+  const rootElements = Array.from(slotRoot.childNodes)
+    .filter((node): node is Element => node.nodeType === node.ELEMENT_NODE)
+  if (rootElements.length !== 1) {
+    return null
+  }
+
+  const slotRootTagName = rootElements[0]?.localName.toLowerCase()
+  return slotRootTagName === parentTagName ? parentTagName : null
+}
+
 function isAllowedStructuralAttribute(attributeName: string): boolean {
   return ALLOWED_STRUCTURAL_ATTRIBUTES.has(attributeName)
     || attributeName.startsWith('data-')
@@ -651,6 +746,184 @@ function collectUnsupportedItemFieldAccesses(
   }
 
   return [...unsupported]
+}
+
+function collectUndeclaredSlotHelpers(template: string): string[] {
+  const expressions = collectVueSlotExpressions(template)
+  const allowedHelpers = new Set(PAGE_BUILDER_CMS_AUTHORING_CONTRACT.allowedSlotHelpers)
+  const helpers = new Set<string>()
+
+  for (const expression of expressions) {
+    for (const helper of collectBareFunctionCalls(expression)) {
+      if (!allowedHelpers.has(helper) && !SAFE_SLOT_EXPRESSION_GLOBALS.has(helper)) {
+        helpers.add(helper)
+      }
+    }
+  }
+
+  return [...helpers]
+}
+
+function collectVueSlotExpressions(template: string): string[] {
+  const normalizedTemplate = template.trim()
+  if (!normalizedTemplate) {
+    return []
+  }
+
+  try {
+    const root = parseVueTemplate(normalizedTemplate)
+    const expressions: string[] = []
+    collectExpressionsFromTemplateChildren(root.children, expressions)
+    return expressions
+  } catch {
+    return []
+  }
+}
+
+function collectExpressionsFromTemplateChildren(
+  children: readonly TemplateChildNode[],
+  expressions: string[],
+): void {
+  for (const child of children) {
+    collectExpressionsFromTemplateChild(child, expressions)
+  }
+}
+
+function collectExpressionsFromTemplateChild(node: TemplateChildNode, expressions: string[]): void {
+  switch (node.type) {
+    case NodeTypes.INTERPOLATION:
+      collectExpressionNode((node as InterpolationNode).content, expressions)
+      return
+    case NodeTypes.ELEMENT:
+      collectExpressionsFromElement(node as ElementNode, expressions)
+      return
+    case NodeTypes.IF:
+      for (const branch of node.branches) {
+        collectExpressionsFromTemplateChildren(branch.children, expressions)
+      }
+      return
+    case NodeTypes.IF_BRANCH:
+      collectExpressionsFromTemplateChildren(node.children, expressions)
+      return
+    case NodeTypes.FOR:
+      collectExpressionNode(node.source, expressions)
+      collectExpressionNode(node.keyAlias, expressions)
+      collectExpressionNode(node.valueAlias, expressions)
+      collectExpressionNode(node.objectIndexAlias, expressions)
+      collectExpressionsFromTemplateChildren(node.children, expressions)
+      return
+    case NodeTypes.COMPOUND_EXPRESSION:
+      expressions.push(expressionNodeToString(node))
+      return
+    case NodeTypes.TEXT:
+    case NodeTypes.COMMENT:
+    case NodeTypes.TEXT_CALL:
+      return
+  }
+}
+
+function collectExpressionsFromElement(node: ElementNode, expressions: string[]): void {
+  for (const prop of node.props) {
+    if (prop.type !== NodeTypes.DIRECTIVE) {
+      continue
+    }
+
+    const directive = prop as DirectiveNode
+    if (directive.name !== 'for') {
+      collectExpressionNode(directive.exp, expressions)
+    }
+    collectExpressionNode(directive.arg, expressions)
+
+    if (directive.forParseResult) {
+      collectExpressionNode(directive.forParseResult.source, expressions)
+      collectExpressionNode(directive.forParseResult.key, expressions)
+      collectExpressionNode(directive.forParseResult.value, expressions)
+      collectExpressionNode(directive.forParseResult.index, expressions)
+    }
+  }
+
+  collectExpressionsFromTemplateChildren(node.children, expressions)
+}
+
+function collectExpressionNode(node: ExpressionNode | undefined, expressions: string[]): void {
+  if (!node) {
+    return
+  }
+
+  const expression = expressionNodeToString(node).trim()
+  if (expression) {
+    expressions.push(expression)
+  }
+}
+
+function expressionNodeToString(node: ExpressionNode): string {
+  if (node.type === NodeTypes.SIMPLE_EXPRESSION) {
+    return node.content
+  }
+
+  return node.children
+    .map((child) => {
+      if (typeof child === 'string') {
+        return child
+      }
+
+      if (typeof child === 'symbol') {
+        return ''
+      }
+
+      if (child.type === NodeTypes.INTERPOLATION) {
+        return expressionNodeToString(child.content)
+      }
+
+      if (child.type === NodeTypes.SIMPLE_EXPRESSION || child.type === NodeTypes.COMPOUND_EXPRESSION) {
+        return expressionNodeToString(child)
+      }
+
+      return child.content
+    })
+    .join('')
+}
+
+function collectBareFunctionCalls(expression: string): string[] {
+  const helpers = new Set<string>()
+  BARE_FUNCTION_CALL_PATTERN.lastIndex = 0
+
+  for (const match of expression.matchAll(BARE_FUNCTION_CALL_PATTERN)) {
+    const helper = match[1]
+    if (!helper || RESERVED_FUNCTION_LIKE_IDENTIFIERS.has(helper)) {
+      continue
+    }
+
+    if (!isBareFunctionCall(expression, match.index ?? 0)) {
+      continue
+    }
+
+    helpers.add(helper)
+  }
+
+  return [...helpers]
+}
+
+function isBareFunctionCall(expression: string, identifierIndex: number): boolean {
+  const previous = findPreviousSignificantCharacter(expression, identifierIndex)
+  if (!previous) {
+    return true
+  }
+
+  return previous !== '.'
+    && previous !== '?'
+    && !/[A-Za-z0-9_$]/.test(previous)
+}
+
+function findPreviousSignificantCharacter(expression: string, index: number): string | null {
+  for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+    const char = expression[cursor]
+    if (char && !/\s/.test(char)) {
+      return char
+    }
+  }
+
+  return null
 }
 
 function collectInvalidVueTemplateSyntaxMessages(template: string): string[] {

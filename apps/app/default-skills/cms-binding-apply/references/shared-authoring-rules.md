@@ -10,6 +10,8 @@ Use this file for the boundaries that apply to both `cms-catalog` and `cms-conte
 - The generated CMS component exposes the unified slot scope `{ items, loading, error, empty }`; declare the slot scope explicitly as a subset of that shape.
 - Keep major HTML containers inside the slot so the dynamic region has one coherent root structure per state.
 - Keep Vue authoring inside the current `cms-*` source tag only.
+- Do not call undeclared project helpers. Slot expressions should use declared slot variables, supported item fields, guards, inline member expressions, and Vue-executable safe native globals such as `Date`, `Math`, and `JSON`; when a tool reports a helper/template error or your draft violates these expression boundaries, fix the template and retry.
+- Do not use host globals or imperative browser APIs inside CMS slots: `window`, `document`, `globalThis`, `eval`, `Function`, `fetch`, storage, timers, DOM queries/mutations, or page-wide side effects.
 - Do not nest a second `cms-catalog` / `cms-content` inside CMS slot content. One CMS source tag should own one dynamic region.
 
 Prefer:
@@ -34,7 +36,7 @@ Prefer:
 - Do not propose self-managed Vue runtime or page-wide Vue mount.
 - Do not add `v-*`, `@*`, `:` bindings, or `{{ ... }}` to surrounding non-CMS shell HTML.
 - Do not write raw HTML inline event attributes such as `onclick`, `onerror`, or `onload`.
-- Do not use imperative DOM mutation such as `window.location`, `document.querySelector(...)`, or `element.style.display = ...` inside CMS slot content.
+- Do not use imperative DOM access or mutation such as `window.location`, `document.querySelector(...)`, or `element.style.display = ...` inside CMS slot content.
 - Do not place `<script>` or `<style>` inside CMS slot content.
 - Prefer declarative `<a :href>` links for CMS destinations. When a catalog/content name or card opens a CMS destination in a new window, add `target="_blank"` and `rel="noopener noreferrer"`.
 

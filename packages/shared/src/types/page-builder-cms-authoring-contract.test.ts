@@ -15,6 +15,7 @@ describe('page-builder CMS authoring contract', () => {
       PAGE_BUILDER_CMS_AUTHORING_CONTRACT_VERSION: number
       PAGE_BUILDER_CMS_AUTHORING_CONTRACT: {
         slotScope: readonly string[]
+        allowedSlotHelpers: readonly string[]
         forbiddenStructures: readonly string[]
         components: Record<string, {
           allowedProps: readonly string[]
@@ -31,8 +32,9 @@ describe('page-builder CMS authoring contract', () => {
     }
 
     expect(module.PAGE_BUILDER_CMS_AUTHORING_CONTRACT_VERSION).toBeGreaterThan(0)
-    expect(module.PAGE_BUILDER_CMS_AUTHORING_CONTRACT_VERSION).toBe(4)
+    expect(module.PAGE_BUILDER_CMS_AUTHORING_CONTRACT_VERSION).toBe(5)
     expect(module.PAGE_BUILDER_CMS_AUTHORING_CONTRACT.slotScope).toEqual(['items', 'loading', 'error', 'empty'])
+    expect(module.PAGE_BUILDER_CMS_AUTHORING_CONTRACT.allowedSlotHelpers).toEqual([])
     expect(module.PAGE_BUILDER_CMS_AUTHORING_CONTRACT.forbiddenStructures).toEqual(expect.arrayContaining([
       'nested-cms-islands',
       'dangerous-tags',
@@ -104,6 +106,7 @@ describe('page-builder CMS authoring contract', () => {
         }[]
         recommendedLinkField?: string
         recommendedImageField?: string
+        allowedSlotHelpers: string[]
         forbiddenStructures: string[]
       }
     }
@@ -168,6 +171,7 @@ describe('page-builder CMS authoring contract', () => {
       ],
       recommendedLinkField: 'publishUrl',
       recommendedImageField: 'listLogoUrl',
+      allowedSlotHelpers: [],
       forbiddenStructures: ['nested-cms-islands', 'dangerous-tags', 'outer-slot-wrapper'],
     })
   })

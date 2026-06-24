@@ -264,6 +264,7 @@ export function createPageBuilderCmsRenderingTools(
                 '未找到要绑定 CMS 的区块',
                 '无法唯一定位要绑定 CMS 的区块',
               )
+              assertTemplatesMatchActualTargetShell(block, normalizedInput)
               block.innerHTML = generatedHtml
             }
 
@@ -575,6 +576,21 @@ function assertCmsBindingAuthoringPreflight(
     )
   }
 
+  if (firstError.code === 'UNKNOWN_SLOT_HELPER') {
+    const helperName = firstError.message.match(/"([^"]+)"/)?.[1] ?? 'unknown'
+    throw new PageBuilderCmsBindingApplyError(
+      'invalid-input',
+      `templateBody 使用了当前 CMS contract 未声明的 helper: ${helperName}；请删除该函数调用，改用 CMS contract 字段、守卫或内联成员表达式后重试`,
+    )
+  }
+
+  if (firstError.code === 'DUPLICATE_LIST_SHELL') {
+    throw new PageBuilderCmsBindingApplyError(
+      'invalid-input',
+      'templateBody 与当前 preserved-shell 列表壳层冲突：请在 slot 中只保留 li 等内部动态内容，不要再生成外层 ul/ol 后重试',
+    )
+  }
+
   if (firstError.code === 'INVALID_SLOT_SCOPE') {
     throw new PageBuilderCmsBindingApplyError(
       'invalid-input',
@@ -719,6 +735,22 @@ function assertTemplateFieldMatchesStructureGuardrails(
     return
   }
 
+  const shellTagName = structureGuardrails.shellTagName?.trim().toLowerCase()
+  const rootElements = Array.from(root.children)
+  const singleRootElement = rootElements.length === 1 ? rootElements[0] : null
+  const singleRootTagName = singleRootElement?.localName.toLowerCase()
+  if (
+    fieldName === 'templateBody'
+    && shellTagName
+    && (shellTagName === 'ul' || shellTagName === 'ol')
+    && singleRootTagName === shellTagName
+  ) {
+    throw new PageBuilderCmsBindingApplyError(
+      'invalid-input',
+      `${fieldName} 与当前 preserved-shell 列表壳层冲突：当前 decision 要求保留${formatPreservedShellDescriptor(structureGuardrails)}作为列表壳层，请在 slot 中只保留 li 等内部动态内容，或重新使用 source-atomic 完整动态区域后重试`,
+    )
+  }
+
   const conflictingElement = Array.from(root.children).find((element) => {
     const localName = element.localName.toLowerCase()
     if (PRESERVED_SHELL_CONFLICT_TAGS.has(localName)) {
@@ -737,6 +769,34 @@ function assertTemplateFieldMatchesStructureGuardrails(
     'invalid-input',
     `${fieldName} 与当前保留外层壳层的结构计划冲突：当前 decision 要求保留${formatPreservedShellDescriptor(structureGuardrails)}作为主容器，请改为复用现有壳层，只在 slot 中保留与之兼容的内部动态内容，不要再生成新的 <${conflictingElement.localName.toLowerCase()}> 主容器后重试`,
   )
+}
+
+function assertTemplatesMatchActualTargetShell(
+  block: Element,
+  input: NormalizedApplyPageBuilderCmsBindingInput,
+): void {
+  const tagName = block.localName.toLowerCase()
+  if (tagName !== 'ul' && tagName !== 'ol') {
+    return
+  }
+
+  const structureGuardrails: PageBuilderCmsBindingStructureGuardrails = {
+    shellMode: 'preserve-target-shell',
+    majorContainerOwner: 'shell',
+    shellSelector: input.targetSelection.kind === 'block'
+      ? input.targetSelection.selector
+      : input.targetSelection.parentBlockSelector,
+    shellTagName: tagName,
+    shellReason: 'existing-shell-major-container',
+  }
+
+  assertTemplateFieldMatchesStructureGuardrails('templateBody', input.templateBody, structureGuardrails)
+  if (input.emptyTemplate) {
+    assertTemplateFieldMatchesStructureGuardrails('emptyTemplate', input.emptyTemplate, structureGuardrails)
+  }
+  if (input.errorTemplate) {
+    assertTemplateFieldMatchesStructureGuardrails('errorTemplate', input.errorTemplate, structureGuardrails)
+  }
 }
 
 function formatPreservedShellDescriptor(

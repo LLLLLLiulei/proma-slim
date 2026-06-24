@@ -39,6 +39,8 @@ The incoming payload must already be structured. Expect:
 - `applyIntent`
 - `workspacePolicy`
 
+Reference links are resolved from this skill root. When reading files through shell, use the workspace-local skill directory such as `skills/cms-binding-apply/references/` or the `references/` directory beside this `SKILL.md`, not the scratch working directory.
+
 Read [references/contract-examples.md](references/contract-examples.md) first for the decision contract, payload shapes, and minimal outcome examples.
 
 - If `selection.selectionKind = catalogs` or `authoringContext.component = cms-catalog`, then read [references/cms-catalog-authoring.md](references/cms-catalog-authoring.md).
@@ -112,6 +114,8 @@ When the result is `ready`, continue in the same turn instead of stopping at an 
 - Treat `templateBody`, `emptyTemplate`, and `errorTemplate` as the place for the complete dynamic region structure of each state.
 - The generated CMS component exposes the unified slot scope `{ items, loading, error, empty }`; declare the slot scope explicitly as a subset of that shape.
 - Keep Vue authoring inside the current `cms-*` source tag only. Do not add `v-*`, `@*`, `:` bindings, or `{{ ... }}` to surrounding non-CMS shell HTML.
+- Do not call undeclared project helpers in slot templates. Use contract fields, guards, inline member expressions, and Vue-executable safe native globals such as `Date`, `Math`, and `JSON` only; if the apply tool reports a template/helper error or your draft violates these expression boundaries, fix the template and retry.
+- Do not use host globals or imperative browser APIs in slot templates: `window`, `document`, `globalThis`, `eval`, `Function`, `fetch`, storage, timers, DOM queries/mutations, or page-wide side effects are not part of the CMS authoring surface.
 - Do not author Vue runtime/importmap/bootstrap assets, and do not use `createApp`, `Vue.createApp`, or page-wide `mount` to make the whole page a single Vue root.
 - Stay inside the canonical authoring contract: use supported fields such as `item.path`, `item.publishUrl`, and `item.listLogoUrl`; guard optional fields from `itemFieldMeta`; and use a stable `:key`, normally `:key="item.id"`.
 - Do not write raw HTML inline event attributes, imperative DOM mutation, or `<script>` / `<style>` inside CMS slot content.

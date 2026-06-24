@@ -1,8 +1,9 @@
 import type { PageBuilderCmsSelectionResult } from './page-builder-cms'
 
-export const PAGE_BUILDER_CMS_AUTHORING_CONTRACT_VERSION = 4
+export const PAGE_BUILDER_CMS_AUTHORING_CONTRACT_VERSION = 5
 
 export const PAGE_BUILDER_CMS_AUTHORING_SLOT_SCOPE = ['items', 'loading', 'error', 'empty'] as const
+export const PAGE_BUILDER_CMS_AUTHORING_ALLOWED_SLOT_HELPERS = [] as const
 export const PAGE_BUILDER_CMS_AUTHORING_FORBIDDEN_STRUCTURES = [
   'nested-cms-islands',
   'dangerous-tags',
@@ -47,6 +48,7 @@ export interface PageBuilderCmsAuthoringContractDigest {
   allowedProps: string[]
   requiredProps: string[]
   slotScope: string[]
+  allowedSlotHelpers: string[]
   itemFields: string[]
   itemFieldMeta: PageBuilderCmsAuthoringFieldContract[]
   recommendedLinkField?: string
@@ -87,6 +89,7 @@ export type PageBuilderCmsAuthoringSourceTypeResolution =
 export interface PageBuilderCmsAuthoringContract {
   version: typeof PAGE_BUILDER_CMS_AUTHORING_CONTRACT_VERSION
   slotScope: string[]
+  allowedSlotHelpers: string[]
   forbiddenStructures: string[]
   legacySiteIdFallback: '1'
   components: Record<PageBuilderCmsAuthoringComponent, PageBuilderCmsAuthoringComponentContract>
@@ -230,6 +233,7 @@ const ORDINARY_AUTHORING_BOUNDARY: PageBuilderCmsOrdinaryAuthoringBoundaryDigest
 export const PAGE_BUILDER_CMS_AUTHORING_CONTRACT: PageBuilderCmsAuthoringContract = {
   version: PAGE_BUILDER_CMS_AUTHORING_CONTRACT_VERSION,
   slotScope: [...PAGE_BUILDER_CMS_AUTHORING_SLOT_SCOPE],
+  allowedSlotHelpers: [...PAGE_BUILDER_CMS_AUTHORING_ALLOWED_SLOT_HELPERS],
   forbiddenStructures: [...PAGE_BUILDER_CMS_AUTHORING_FORBIDDEN_STRUCTURES],
   legacySiteIdFallback: '1',
   components: {
@@ -295,6 +299,7 @@ export function buildPageBuilderCmsAuthoringDigest(
     allowedProps: [...componentContract.allowedProps],
     requiredProps: [...sourceMode.requiredProps],
     slotScope: [...PAGE_BUILDER_CMS_AUTHORING_CONTRACT.slotScope],
+    allowedSlotHelpers: [...PAGE_BUILDER_CMS_AUTHORING_CONTRACT.allowedSlotHelpers],
     itemFields: [...componentContract.itemFields],
     itemFieldMeta: componentContract.itemFieldMeta.map((field) => ({ ...field })),
     ...(componentContract.recommendedLinkField ? { recommendedLinkField: componentContract.recommendedLinkField } : {}),
