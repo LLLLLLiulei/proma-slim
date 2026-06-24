@@ -25,6 +25,8 @@ const INTERNAL_READONLY_PREVIEW_PATH_PATTERNS = [
   /^\/api\/workspaces\/[^/]+\/page-builder\/cms\/catalogs(?:\/[^/]+)?$/,
 ] as const
 
+const PUBLIC_PREVIEW_ASSET_PATH_PATTERN = /^\/api\/workspaces\/[^/]+\/preview\/assets\/.+/
+
 export interface CmsBuilderAccessMiddlewareOptions {
   workspaceId: string | CmsBuilderAccessResolver
   sessionId?: string | CmsBuilderAccessResolver
@@ -51,6 +53,14 @@ export const createCmsBuilderAccessMiddleware = (options: CmsBuilderAccessMiddle
 
     if (isInternalReadonlyPreviewRequest(c)) {
       c.set('cmsBuilderInternalReadonlyAccess', true)
+      if (c.var.diagnostic) {
+        c.var.diagnostic.resource.workspaceId = workspaceId
+      }
+      await next()
+      return
+    }
+
+    if (isPublicPreviewAssetRequest(c)) {
       if (c.var.diagnostic) {
         c.var.diagnostic.resource.workspaceId = workspaceId
       }
@@ -146,6 +156,21 @@ function isInternalReadonlyPreviewRequest(c: Context<HttpAppEnv>): boolean {
   }
 
   return INTERNAL_READONLY_PREVIEW_PATH_PATTERNS.some((pattern) => pattern.test(requestUrl.pathname))
+}
+
+function isPublicPreviewAssetRequest(c: Context<HttpAppEnv>): boolean {
+  if (c.req.method !== 'GET') {
+    return false
+  }
+
+  let requestUrl: URL
+  try {
+    requestUrl = new URL(c.req.url)
+  } catch {
+    return false
+  }
+
+  return PUBLIC_PREVIEW_ASSET_PATH_PATTERN.test(requestUrl.pathname)
 }
 
 export function assertCmsBuilderApiAvailableInCmsMode(

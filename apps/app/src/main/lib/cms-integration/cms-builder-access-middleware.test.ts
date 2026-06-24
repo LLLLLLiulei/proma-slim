@@ -116,7 +116,13 @@ function createInternalPreviewTestApp() {
     accessMounted: Boolean(c.var.cmsBuilderAccess),
     internalReadonlyAccess: c.var.cmsBuilderInternalReadonlyAccess === true,
   }))
+  app.get('/api/workspaces/:workspaceId/preview/*', (c) => c.json({
+    accessMounted: Boolean(c.var.cmsBuilderAccess),
+    internalReadonlyAccess: c.var.cmsBuilderInternalReadonlyAccess === true,
+    path: new URL(c.req.url).pathname,
+  }))
   app.post('/api/workspaces/:workspaceId/preview/', (c) => c.json({ ok: true }))
+  app.post('/api/workspaces/:workspaceId/preview/assets/images/a.png', (c) => c.json({ ok: true }))
   return app
 }
 
@@ -206,6 +212,41 @@ describe('cms builder access middleware', () => {
     }))
     expect(proxiedInternalPreview.status).toBe(401)
     expect(await proxiedInternalPreview.json()).toMatchObject({ code: 'builder_access_required' })
+  })
+
+  test('allows unauthenticated GET requests only for preview assets subtree', async () => {
+    const app = createInternalPreviewTestApp()
+
+    const asset = await app.fetch(new Request('https://builder.example.com/api/workspaces/workspace-1/preview/assets/images/a.png'))
+    expect(asset.status).toBe(200)
+    expect(await asset.json()).toEqual({
+      accessMounted: false,
+      internalReadonlyAccess: false,
+      path: '/api/workspaces/workspace-1/preview/assets/images/a.png',
+    })
+    expect(asset.headers.get('set-cookie')).toBeNull()
+
+    const previewEntry = await app.fetch(new Request('https://builder.example.com/api/workspaces/workspace-1/preview/'))
+    expect(previewEntry.status).toBe(401)
+    expect(await previewEntry.json()).toMatchObject({ code: 'builder_access_required' })
+
+    const previewIndex = await app.fetch(new Request('https://builder.example.com/api/workspaces/workspace-1/preview/index.html'))
+    expect(previewIndex.status).toBe(401)
+    expect(await previewIndex.json()).toMatchObject({ code: 'builder_access_required' })
+
+    const nonAsset = await app.fetch(new Request('https://builder.example.com/api/workspaces/workspace-1/preview/styles.css'))
+    expect(nonAsset.status).toBe(401)
+    expect(await nonAsset.json()).toMatchObject({ code: 'builder_access_required' })
+
+    const assetDirectory = await app.fetch(new Request('https://builder.example.com/api/workspaces/workspace-1/preview/assets/'))
+    expect(assetDirectory.status).toBe(401)
+    expect(await assetDirectory.json()).toMatchObject({ code: 'builder_access_required' })
+
+    const assetPost = await app.fetch(new Request('https://builder.example.com/api/workspaces/workspace-1/preview/assets/images/a.png', {
+      method: 'POST',
+    }))
+    expect(assetPost.status).toBe(401)
+    expect(await assetPost.json()).toMatchObject({ code: 'builder_access_required' })
   })
 
   test('accepts multiple workspace-scoped access cookies in the same browser', async () => {
