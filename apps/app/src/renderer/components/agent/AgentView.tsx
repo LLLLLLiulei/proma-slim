@@ -14,7 +14,7 @@ import {
   releasePendingAgentAttachments,
   type PendingAgentAttachment,
 } from './agent-attachments'
-import { RichTextInput } from '@/components/ai-elements/rich-text-input'
+import { PlainTextInput } from '@/components/ai-elements/plain-text-input'
 import { Button } from '@/components/ui/button'
 import {
   agentMessageRefreshAtom,
@@ -377,8 +377,9 @@ export function AgentView({
   const workspaceContext = sessionWorkspaceId
     ? workspaceDirectoryContextMap.get(sessionWorkspaceId) ?? null
     : null
-  const composerInteractionLocked = streaming || Boolean(status && !status.ok)
-  const canSend = (inputValue.trim().length > 0 || pendingAttachments.length > 0) && !(status && !status.ok)
+  const composerInputDisabled = Boolean(status && !status.ok)
+  const composerSendDisabled = streaming || composerInputDisabled
+  const canSend = (inputValue.trim().length > 0 || pendingAttachments.length > 0) && !composerSendDisabled
   const attachedDirectories = React.useMemo(
     () => Array.from(new Set([
       ...(workspaceContext?.attachedDirectories ?? []),
@@ -765,8 +766,12 @@ export function AgentView({
   ])
 
   const handleSend = React.useCallback(async (): Promise<void> => {
+    if (composerSendDisabled) {
+      return
+    }
+
     await sendDraftMessage(latestDraftValueRef.current)
-  }, [sendDraftMessage])
+  }, [composerSendDisabled, sendDraftMessage])
 
   const handleAddFiles = React.useCallback((files: File[]): void => {
     if (!allowAttachments || files.length === 0) return
@@ -1057,12 +1062,13 @@ export function AgentView({
               {composerNotice}
             </div>
           )}
-          <RichTextInput
+          <PlainTextInput
             value={inputValue}
             onChange={setInputValue}
             onSubmit={() => { void handleSend() }}
             onPasteFiles={allowAttachments ? handleAddFiles : undefined}
-            disabled={composerInteractionLocked}
+            disabled={composerInputDisabled}
+            submitDisabled={composerSendDisabled}
             autoFocusTrigger={sessionId}
             placeholder={status && !status.ok ? '请先修复后端状态，再发送消息' : '输入消息...'}
             workspaceId={sessionWorkspaceId}
@@ -1081,7 +1087,7 @@ export function AgentView({
                   variant="ghost"
                   size="icon"
                   className="size-7 rounded-full text-muted-foreground hover:bg-muted"
-                  disabled={composerInteractionLocked}
+                  disabled={composerSendDisabled}
                   onClick={handleOpenFilePicker}
                 >
                   <Paperclip className="size-4" />
@@ -1101,7 +1107,7 @@ export function AgentView({
               )}
               <span className="truncate">
                 {streaming
-                  ? '正在处理中，输入框已锁定。'
+                  ? '正在处理中，可继续输入；完成后可发送。'
                   : 'Enter 发送，Shift+Enter 换行。'}
               </span>
             </div>

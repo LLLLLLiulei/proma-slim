@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { FolderTree, LayoutPanelLeft, RefreshCw } from 'lucide-react'
+import { FolderTree, LayoutPanelLeft, Loader2, RefreshCw } from 'lucide-react'
 import type {
   PageBuilderCmsCatalog,
   PageBuilderCmsContentSummary,
@@ -535,13 +535,13 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
                 </select>
               </label>
               <TabsList className="bg-muted/70">
-                <TabsTrigger className="gap-2" value="catalogs">
-                  <FolderTree className="size-3.5" />
-                  栏目
-                </TabsTrigger>
                 <TabsTrigger className="gap-2" value="contents">
                   <LayoutPanelLeft className="size-3.5" />
                   内容
+                </TabsTrigger>
+                <TabsTrigger className="gap-2" value="catalogs">
+                  <FolderTree className="size-3.5" />
+                  栏目
                 </TabsTrigger>
               </TabsList>
             </div>
@@ -552,28 +552,6 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
               </Button>
             ) : null}
           </div>
-
-          <TabsContent className="mt-0 min-h-0 flex-1 px-3 pb-2.5 pt-2 md:px-4" value="catalogs">
-            {siteGuardPanel ? (
-              <div className="h-full rounded-[20px] border border-border/70 bg-muted/15 p-3">
-                {siteGuardPanel}
-              </div>
-            ) : (
-            <div className="grid h-full min-h-0 gap-2.5 lg:grid-cols-[280px_minmax(0,1fr)]">
-              <div className="min-h-0 rounded-[20px] border border-border/70 bg-muted/15 p-2">
-                {renderCatalogTree('catalogs')}
-              </div>
-
-              <div className="min-h-0 rounded-[20px] border border-border/70 bg-muted/15 p-3">
-                <CmsCatalogDetailPanel
-                  onRetry={retryCatalogDetail}
-                  state={catalogDetailState}
-                  workspaceId={workspaceId}
-                />
-              </div>
-            </div>
-            )}
-          </TabsContent>
 
           <TabsContent className="mt-0 min-h-0 flex-1 px-3 pb-2.5 pt-2 md:px-4" value="contents">
             {siteGuardPanel ? (
@@ -602,6 +580,28 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
             )}
           </TabsContent>
 
+          <TabsContent className="mt-0 min-h-0 flex-1 px-3 pb-2.5 pt-2 md:px-4" value="catalogs">
+            {siteGuardPanel ? (
+              <div className="h-full rounded-[20px] border border-border/70 bg-muted/15 p-3">
+                {siteGuardPanel}
+              </div>
+            ) : (
+            <div className="grid h-full min-h-0 gap-2.5 lg:grid-cols-[280px_minmax(0,1fr)]">
+              <div className="min-h-0 rounded-[20px] border border-border/70 bg-muted/15 p-2">
+                {renderCatalogTree('catalogs')}
+              </div>
+
+              <div className="min-h-0 rounded-[20px] border border-border/70 bg-muted/15 p-3">
+                <CmsCatalogDetailPanel
+                  onRetry={retryCatalogDetail}
+                  state={catalogDetailState}
+                  workspaceId={workspaceId}
+                />
+              </div>
+            </div>
+            )}
+          </TabsContent>
+
           <div className="flex items-center justify-between border-t border-border/70 px-4 py-2.5">
             <p className="text-xs text-muted-foreground">{currentSelectionSummary}</p>
 
@@ -615,7 +615,12 @@ export function CmsBrowserDialog(props: CmsBrowserDialogProps): React.ReactEleme
                 size="sm"
                 type="button"
               >
-                {confirming ? '提交中...' : '确认选择'}
+                {confirming ? (
+                  <>
+                    <Loader2 aria-hidden="true" className="size-3.5 animate-spin" />
+                    提交中...
+                  </>
+                ) : '确认选择'}
               </Button>
             </div>
           </div>

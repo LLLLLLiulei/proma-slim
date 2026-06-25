@@ -4802,7 +4802,121 @@ describe('BuilderPage', () => {
     expect(getComposerNoticeTitle(getLastAgentViewProps())).toBe('cms-content')
   })
 
-  test('creates a programmatic CMS handoff request and closes the dialog only after send settles successfully', async () => {
+  test('shows loading while creating CMS auto handoff and closes the dialog once the handoff request is ready', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '未命名项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    let resolveAutoHandoff!: (request: PageBuilderCmsAutoAgentHandoffRequest) => void
+    const createPageBuilderCmsAutoHandoff = mock(async () => await new Promise<PageBuilderCmsAutoAgentHandoffRequest>((resolve) => {
+      resolveAutoHandoff = resolve
+    }))
+
+    const {
+      BuilderPage,
+      getLastAgentViewProps,
+      getLastCmsBrowserDialogProps,
+      getLastPreviewPaneProps,
+    } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      getCmsIntegrationStatusImpl: async () => ({ integrationMode: 'cms', enabled: true }),
+      createPageBuilderCmsAutoHandoffImpl: createPageBuilderCmsAutoHandoff,
+      mockCmsBrowserDialog: true,
+      mockPreviewPane: true,
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      (getLastPreviewPaneProps() as {
+        onSelectionEvent?: (event: { type: string; targetSelection?: PageBuilderTargetSelection }) => void
+      }).onSelectionEvent?.({ type: 'selected', targetSelection: createBlockTargetSelection('#hero-banner') })
+    })
+
+    await act(async () => {
+      (getLastPreviewPaneProps() as {
+        onRequestOpenCmsBrowser?: () => void
+      }).onRequestOpenCmsBrowser?.()
+    })
+
+    const selection: PageBuilderCmsSelectionResult = {
+      version: 6,
+      siteId: '14',
+      targetSelection: createBlockTargetSelection('#hero-banner'),
+      targetBlock: {
+        selector: '#hero-banner',
+      },
+      selectionKind: 'contents',
+      sourceType: 'contents-by-ids',
+      selectionMode: 'fixed-items',
+      catalogId: '101',
+      contentIds: ['501'],
+      snapshot: {
+        contents: [],
+      },
+    }
+
+    let confirmPromise: Promise<void> | undefined
+    await act(async () => {
+      confirmPromise = (getLastCmsBrowserDialogProps() as {
+        onConfirmSelection?: (value: PageBuilderCmsSelectionResult) => Promise<void>
+      }).onConfirmSelection?.(selection)
+      await Promise.resolve()
+    })
+
+    expect(createPageBuilderCmsAutoHandoff).toHaveBeenCalledTimes(1)
+    expect(getLastCmsBrowserDialogProps()).toMatchObject({
+      open: true,
+      confirming: true,
+    })
+
+    await act(async () => {
+      resolveAutoHandoff({
+        requestId: 'auto-handoff-delayed',
+        userMessage: '请根据刚确认的 CMS 选择结果，判断如何应用到当前目标。',
+        composedUserMessage: '<cms_binding_apply_input>{"version":8}</cms_binding_apply_input>',
+        mentionedSkills: ['cms-binding-apply'],
+        bootstrappedSkills: ['cms-binding-apply'],
+        mentionedMcpServers: ['cms'],
+      })
+      await confirmPromise
+      await Promise.resolve()
+    })
+
+    expect(getLastAgentViewProps()).toMatchObject({
+      programmaticSendRequest: expect.objectContaining({
+        requestId: 'auto-handoff-delayed',
+      }),
+    })
+    expect(getLastCmsBrowserDialogProps()).toMatchObject({
+      open: false,
+      confirming: false,
+    })
+    expect(getPreviewSelectionActionState(getLastPreviewPaneProps())).toBe('idle')
+  })
+
+  test('creates a programmatic CMS handoff request and closes the dialog when the request is ready', async () => {
     installWindowHarness()
     const workspace: AgentWorkspace = {
       id: 'workspace-1',
@@ -4921,20 +5035,6 @@ describe('BuilderPage', () => {
     )
     expect(request?.composedUserMessage).toContain('targetSnapshot')
     expect(request?.composedUserMessage).toContain('pb_blk_hero')
-    expect(getLastCmsBrowserDialogProps()).toMatchObject({
-      open: true,
-      confirming: true,
-    })
-
-    await act(async () => {
-      (getLastAgentViewProps() as {
-        onProgrammaticSendSettled?: (result: PageBuilderCmsAutoAgentHandoffSettledResult) => void
-      }).onProgrammaticSendSettled?.({
-        requestId: request!.requestId,
-        status: 'sent',
-      })
-    })
-
     expect(getLastCmsBrowserDialogProps()).toMatchObject({
       open: false,
       confirming: false,
@@ -5173,7 +5273,7 @@ describe('BuilderPage', () => {
     expect(getLastAgentViewProps()?.programmaticSendRequest ?? null).toBeNull()
   })
 
-  test('keeps the dialog open after auto handoff send failure so the user can retry in place', async () => {
+  test('keeps the dialog closed after auto handoff send failure and reports the error', async () => {
     installWindowHarness()
     const workspace: AgentWorkspace = {
       id: 'workspace-1',
@@ -5263,11 +5363,11 @@ describe('BuilderPage', () => {
     })
 
     expect(getLastCmsBrowserDialogProps()).toMatchObject({
-      open: true,
+      open: false,
       confirming: false,
     })
     expect(getToastError()).toHaveBeenCalledWith('send failed')
-    expect(getPreviewSelectionActionState(getLastPreviewPaneProps())).toBe('selected')
+    expect(getPreviewSelectionActionState(getLastPreviewPaneProps())).toBe('idle')
   })
 
   test('does not install cms-island natural-language rebind interception and keeps rebinding on explicit CMS entry points only', async () => {

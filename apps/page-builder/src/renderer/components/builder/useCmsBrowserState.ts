@@ -90,7 +90,7 @@ function resolveDefaultSiteId(sites: PageBuilderCmsSiteSummary[]): string | null
 export function useCmsBrowserState(options: UseCmsBrowserStateOptions): UseCmsBrowserStateResult {
   const { open } = options
   const workspaceId = options.workspaceId?.trim() ?? ''
-  const [activeTab, setActiveTabState] = React.useState<CmsBrowserTab>('catalogs')
+  const [activeTab, setActiveTabState] = React.useState<CmsBrowserTab>('contents')
   const [sitesState, setSitesState] = React.useState<CmsAsyncState<PageBuilderCmsSiteSummary[]>>(() => createIdleState())
   const [catalogsState, setCatalogsState] = React.useState<CmsAsyncState<PageBuilderCmsCatalogList>>(() => createIdleState())
   const [catalogDetailState, setCatalogDetailState] = React.useState<CmsAsyncState<PageBuilderCmsCatalogDetail>>(() => createIdleState())
@@ -124,7 +124,7 @@ export function useCmsBrowserState(options: UseCmsBrowserStateOptions): UseCmsBr
     resetSiteScopedState()
     setSitesState(createIdleState())
     setSelectedSiteIdState(null)
-    setActiveTabState('catalogs')
+    setActiveTabState('contents')
   }, [resetSiteScopedState])
 
   const ensureSitesLoaded = React.useCallback(async (force = false) => {

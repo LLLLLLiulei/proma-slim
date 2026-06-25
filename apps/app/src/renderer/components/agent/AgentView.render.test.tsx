@@ -19,12 +19,13 @@ import {
   workspaceDirectoryContextMapAtom,
 } from '@/atoms/agent-atoms'
 
-interface RichTextInputProps {
+interface PlainTextInputProps {
   value: string
   onChange: (value: string) => void
   onSubmit: () => void
   onPasteFiles?: (files: File[]) => void
   disabled?: boolean
+  submitDisabled?: boolean
 }
 
 function createWorkspaceContext(workspaceId: string): WorkspaceDirectoryContext {
@@ -73,7 +74,7 @@ async function loadAgentView(options?: {
   trackAgentMessagesRenders?: ReturnType<typeof mock>
   memoizeMockedAgentMessages?: boolean
 }) {
-  let lastRichTextInputProps: RichTextInputProps | null = null
+  let lastPlainTextInputProps: PlainTextInputProps | null = null
   let lastPendingAttachments: unknown[] = []
 
   const reconcileSessionStreaming = options?.reconcileSessionStreaming ?? mock(async () => false)
@@ -116,11 +117,11 @@ async function loadAgentView(options?: {
       return React.createElement('div', { 'data-testid': 'agent-pending-attachments' })
     },
   }))
-  mock.module('@/components/ai-elements/rich-text-input', () => ({
-    RichTextInput(props: RichTextInputProps) {
-      lastRichTextInputProps = props
+  mock.module('@/components/ai-elements/plain-text-input', () => ({
+    PlainTextInput(props: PlainTextInputProps) {
+      lastPlainTextInputProps = props
       return React.createElement('div', {
-        'data-testid': 'rich-text-input',
+        'data-testid': 'plain-text-input',
         'data-value': props.value,
       })
     },
@@ -158,8 +159,8 @@ async function loadAgentView(options?: {
     AgentView: module.AgentView,
     sendMessage,
     stopSession,
-    getLastRichTextInputProps() {
-      return lastRichTextInputProps
+    getLastPlainTextInputProps() {
+      return lastPlainTextInputProps
     },
     getLastPendingAttachments() {
       return lastPendingAttachments
@@ -175,7 +176,7 @@ afterEach(() => {
 })
 
 describe('AgentView rendering extension points', () => {
-  test('disables the attachment button while streaming', async () => {
+  test('keeps the composer editable while streaming but blocks sending', async () => {
     const workspace: AgentWorkspace = {
       id: 'workspace-1',
       name: 'Page Builder Project',
@@ -195,7 +196,8 @@ describe('AgentView rendering extension points', () => {
       [session.id, { running: true, content: '', toolActivities: [], teammates: [], startedAt: 1 }],
     ])
 
-    const { AgentView, getLastRichTextInputProps } = await loadAgentView()
+    const sendMessage = mock(async () => undefined)
+    const { AgentView, getLastPlainTextInputProps } = await loadAgentView({ sendMessage })
 
     let renderer!: ReturnType<typeof create>
     await act(async () => {
@@ -218,8 +220,23 @@ describe('AgentView rendering extension points', () => {
       node.type === 'button' && node.props['aria-label'] === '添加附件',
     )
 
-    expect(getLastRichTextInputProps()?.disabled).toBe(true)
+    expect(getLastPlainTextInputProps()?.disabled).toBe(false)
     expect(attachmentButton.props.disabled).toBe(true)
+
+    await act(async () => {
+      getLastPlainTextInputProps()?.onChange('处理中先记录下一步修改')
+      await Promise.resolve()
+    })
+
+    expect(getLastPlainTextInputProps()?.value).toBe('处理中先记录下一步修改')
+
+    await act(async () => {
+      getLastPlainTextInputProps()?.onSubmit()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(sendMessage).not.toHaveBeenCalled()
   })
 
   test('keeps the composer processing copy while streaming', async () => {
@@ -262,7 +279,7 @@ describe('AgentView rendering extension points', () => {
     })
 
     const json = JSON.stringify(renderer.toJSON())
-    expect(json).toContain('正在处理中，输入框已锁定。')
+    expect(json).toContain('正在处理中，可继续输入；完成后可发送。')
   })
 
   test('renders custom leading composer actions without replacing the shared composer shell', async () => {
@@ -370,7 +387,7 @@ describe('AgentView rendering extension points', () => {
       updatedAt: 1,
     }
     const onMessageSent = mock(() => {})
-    const { AgentView, sendMessage, getLastRichTextInputProps } = await loadAgentView()
+    const { AgentView, sendMessage, getLastPlainTextInputProps } = await loadAgentView()
 
     await act(async () => {
       create(
@@ -389,10 +406,10 @@ describe('AgentView rendering extension points', () => {
     })
 
     await act(async () => {
-      getLastRichTextInputProps()?.onChange('修改这个区块')
+      getLastPlainTextInputProps()?.onChange('修改这个区块')
     })
     await act(async () => {
-      getLastRichTextInputProps()?.onSubmit()
+      getLastPlainTextInputProps()?.onSubmit()
       await Promise.resolve()
       await Promise.resolve()
     })
@@ -427,7 +444,7 @@ describe('AgentView rendering extension points', () => {
     })
     const originalConsoleError = console.error
     console.error = mock(() => {}) as typeof console.error
-    const { AgentView, getLastRichTextInputProps } = await loadAgentView({ sendMessage })
+    const { AgentView, getLastPlainTextInputProps } = await loadAgentView({ sendMessage })
 
     try {
       await act(async () => {
@@ -446,10 +463,10 @@ describe('AgentView rendering extension points', () => {
       })
 
       await act(async () => {
-        getLastRichTextInputProps()?.onChange('修改这个区块')
+        getLastPlainTextInputProps()?.onChange('修改这个区块')
       })
       await act(async () => {
-        getLastRichTextInputProps()?.onSubmit()
+        getLastPlainTextInputProps()?.onSubmit()
         await Promise.resolve()
         await Promise.resolve()
       })
@@ -477,7 +494,7 @@ describe('AgentView rendering extension points', () => {
       updatedAt: 1,
     }
     const trackAgentMessagesRenders = mock((_props: unknown) => {})
-    const { AgentView, getLastRichTextInputProps } = await loadAgentView({
+    const { AgentView, getLastPlainTextInputProps } = await loadAgentView({
       trackAgentMessagesRenders,
       memoizeMockedAgentMessages: true,
       getSessionMessages: async () => [{
@@ -504,7 +521,7 @@ describe('AgentView rendering extension points', () => {
     expect(initialRenderCount).toBeGreaterThan(0)
 
     await act(async () => {
-      getLastRichTextInputProps()?.onChange('继续修改草稿')
+      getLastPlainTextInputProps()?.onChange('继续修改草稿')
       await Promise.resolve()
       await Promise.resolve()
     })
@@ -537,7 +554,7 @@ describe('AgentView rendering extension points', () => {
       bootstrappedSkills: ['cms-binding-apply'],
       mentionedMcpServers: ['cms'],
     }
-    const { AgentView, sendMessage, getLastRichTextInputProps, getLastPendingAttachments } = await loadAgentView()
+    const { AgentView, sendMessage, getLastPlainTextInputProps, getLastPendingAttachments } = await loadAgentView()
     const store = createStore()
 
     let renderer!: ReturnType<typeof create>
@@ -565,12 +582,12 @@ describe('AgentView rendering extension points', () => {
     const attachmentFile = new File(['cms-bytes'], 'cms.png', { type: 'image/png' })
 
     await act(async () => {
-      getLastRichTextInputProps()?.onPasteFiles?.([attachmentFile])
+      getLastPlainTextInputProps()?.onPasteFiles?.([attachmentFile])
       await Promise.resolve()
       await Promise.resolve()
     })
 
-    expect(getLastRichTextInputProps()?.value).toBe('已有草稿')
+    expect(getLastPlainTextInputProps()?.value).toBe('已有草稿')
     expect(getLastPendingAttachments()).toHaveLength(1)
 
     await act(async () => {
@@ -606,7 +623,7 @@ describe('AgentView rendering extension points', () => {
       requestId: 'handoff-1',
       status: 'sent',
     })
-    expect(getLastRichTextInputProps()?.value).toBe('已有草稿')
+    expect(getLastPlainTextInputProps()?.value).toBe('已有草稿')
     expect(getLastPendingAttachments()).toHaveLength(1)
   })
 
@@ -669,7 +686,7 @@ describe('AgentView rendering extension points', () => {
       updatedAt: 1,
     }
 
-    const { AgentView, sendMessage, getLastRichTextInputProps } = await loadAgentView()
+    const { AgentView, sendMessage, getLastPlainTextInputProps } = await loadAgentView()
 
     await act(async () => {
       create(
@@ -687,10 +704,10 @@ describe('AgentView rendering extension points', () => {
     })
 
     await act(async () => {
-      getLastRichTextInputProps()?.onChange('把页面做得更年轻一些')
+      getLastPlainTextInputProps()?.onChange('把页面做得更年轻一些')
     })
     await act(async () => {
-      getLastRichTextInputProps()?.onSubmit()
+      getLastPlainTextInputProps()?.onSubmit()
       await Promise.resolve()
       await Promise.resolve()
     })
@@ -719,7 +736,7 @@ describe('AgentView rendering extension points', () => {
       updatedAt: 1,
     }
 
-    const { AgentView, sendMessage, getLastRichTextInputProps } = await loadAgentView()
+    const { AgentView, sendMessage, getLastPlainTextInputProps } = await loadAgentView()
 
     await act(async () => {
       create(
@@ -733,7 +750,7 @@ describe('AgentView rendering extension points', () => {
       await Promise.resolve()
     })
 
-    const inputProps = getLastRichTextInputProps()
+    const inputProps = getLastPlainTextInputProps()
 
     await act(async () => {
       inputProps?.onChange('最后几个字')
@@ -771,7 +788,7 @@ describe('AgentView rendering extension points', () => {
       mentionedMcpServers: [],
     }))
 
-    const { AgentView, sendMessage, getLastRichTextInputProps } = await loadAgentView()
+    const { AgentView, sendMessage, getLastPlainTextInputProps } = await loadAgentView()
 
     await act(async () => {
       create(
@@ -789,10 +806,10 @@ describe('AgentView rendering extension points', () => {
     })
 
     await act(async () => {
-      getLastRichTextInputProps()?.onChange('继续修改这个 CMS 区块')
+      getLastPlainTextInputProps()?.onChange('继续修改这个 CMS 区块')
     })
     await act(async () => {
-      getLastRichTextInputProps()?.onSubmit()
+      getLastPlainTextInputProps()?.onSubmit()
       await Promise.resolve()
       await Promise.resolve()
     })
@@ -1088,7 +1105,7 @@ describe('AgentView rendering extension points', () => {
     })
     const getSessionMessages = mock(async () => [])
     const toastError = mock(() => {})
-    const { AgentView, getLastRichTextInputProps, getToastError } = await loadAgentView({
+    const { AgentView, getLastPlainTextInputProps, getToastError } = await loadAgentView({
       reconcileSessionStreaming,
       sendMessage,
       getSessionMessages,
@@ -1108,10 +1125,10 @@ describe('AgentView rendering extension points', () => {
     })
 
     await act(async () => {
-      getLastRichTextInputProps()?.onChange('请继续')
+      getLastPlainTextInputProps()?.onChange('请继续')
     })
     await act(async () => {
-      getLastRichTextInputProps()?.onSubmit()
+      getLastPlainTextInputProps()?.onSubmit()
       await Promise.resolve()
       await Promise.resolve()
     })
@@ -1151,7 +1168,7 @@ describe('AgentView rendering extension points', () => {
     const getSessionMessages = mock(async () => [])
     const toastError = mock(() => {})
     const onSendError = mock(() => {})
-    const { AgentView, getLastRichTextInputProps, getToastError } = await loadAgentView({
+    const { AgentView, getLastPlainTextInputProps, getToastError } = await loadAgentView({
       reconcileSessionStreaming,
       sendMessage,
       getSessionMessages,
@@ -1171,10 +1188,10 @@ describe('AgentView rendering extension points', () => {
     })
 
     await act(async () => {
-      getLastRichTextInputProps()?.onChange('请继续')
+      getLastPlainTextInputProps()?.onChange('请继续')
     })
     await act(async () => {
-      getLastRichTextInputProps()?.onSubmit()
+      getLastPlainTextInputProps()?.onSubmit()
       await Promise.resolve()
       await Promise.resolve()
     })
@@ -1206,7 +1223,7 @@ describe('AgentView rendering extension points', () => {
       clearComposer: true,
     }))
     const onMessageSent = mock(() => {})
-    const { AgentView, sendMessage, getLastRichTextInputProps } = await loadAgentView()
+    const { AgentView, sendMessage, getLastPlainTextInputProps } = await loadAgentView()
 
     await act(async () => {
       create(
@@ -1225,10 +1242,10 @@ describe('AgentView rendering extension points', () => {
     })
 
     await act(async () => {
-      getLastRichTextInputProps()?.onChange('把这个列表换成另一个栏目')
+      getLastPlainTextInputProps()?.onChange('把这个列表换成另一个栏目')
     })
     await act(async () => {
-      getLastRichTextInputProps()?.onSubmit()
+      getLastPlainTextInputProps()?.onSubmit()
       await Promise.resolve()
       await Promise.resolve()
     })
@@ -1240,6 +1257,6 @@ describe('AgentView rendering extension points', () => {
     })
     expect(sendMessage).not.toHaveBeenCalled()
     expect(onMessageSent).not.toHaveBeenCalled()
-    expect(getLastRichTextInputProps()?.value).toBe('')
+    expect(getLastPlainTextInputProps()?.value).toBe('')
   })
 })

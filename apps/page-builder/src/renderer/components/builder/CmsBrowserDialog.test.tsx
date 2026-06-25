@@ -245,6 +245,19 @@ function flattenText(node: React.ReactNode): string {
   }).join('')
 }
 
+function findButtonByText(renderer: ReturnType<typeof create>, label: string) {
+  return renderer.root.findAllByType('button')
+    .find((button) => flattenText(button.props.children).trim() === label)
+}
+
+async function clickButtonByText(renderer: ReturnType<typeof create>, label: string): Promise<void> {
+  await act(async () => {
+    findButtonByText(renderer, label)?.props.onClick()
+    await Promise.resolve()
+    await Promise.resolve()
+  })
+}
+
 function installUiMocks() {
   let lastTreeProps: Record<string, unknown> | null = null
   let lastPaginationProps: Record<string, unknown> | null = null
@@ -462,7 +475,7 @@ describe('CmsBrowserDialog', () => {
     expect(listContents).not.toHaveBeenCalled()
   })
 
-  test('loads catalogs on open and uses the first available catalog when the user switches to contents without a prior selection', async () => {
+  test('defaults to contents tab and loads initial contents on open', async () => {
     const { CmsBrowserDialog, listCatalogs, listContents, getLastTreeProps } = await loadCmsBrowserDialog()
 
     let renderer!: ReturnType<typeof create>
@@ -472,6 +485,8 @@ describe('CmsBrowserDialog', () => {
       )
       await Promise.resolve()
       await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
     })
 
     expect(listCatalogs).toHaveBeenCalledTimes(1)
@@ -479,14 +494,10 @@ describe('CmsBrowserDialog', () => {
     expect(JSON.stringify(renderer.toJSON())).toContain('从 CMS 选择数据')
     expect((getLastTreeProps() as { treeData?: Array<{ key: string }> } | null)?.treeData?.[0]?.key).toBe('100')
 
-    const contentsTab = renderer.root.findAllByType('button')
-      .find((button) => flattenText(button.props.children).trim() === '内容')
-
-    await act(async () => {
-      contentsTab?.props.onClick()
-      await Promise.resolve()
-      await Promise.resolve()
-    })
+    const tabButtons = renderer.root.findAllByType('button')
+      .filter((button) => ['内容', '栏目'].includes(flattenText(button.props.children).trim()))
+    expect(tabButtons.map((button) => flattenText(button.props.children).trim())).toEqual(['内容', '栏目'])
+    expect(tabButtons[0]?.props['data-active']).toBe(true)
 
     expect(listContents).toHaveBeenCalledWith(expect.objectContaining({
       siteId: '1',
@@ -496,7 +507,7 @@ describe('CmsBrowserDialog', () => {
   })
 
   test('uses workspace-scoped CMS browser APIs and asset proxy when workspaceId is provided', async () => {
-    const { CmsBrowserDialog, listSites, listCatalogs, getCatalogDetail } = await loadCmsBrowserDialog()
+    const { CmsBrowserDialog, listSites, listCatalogs, listContents } = await loadCmsBrowserDialog()
 
     let renderer!: ReturnType<typeof create>
     await act(async () => {
@@ -505,11 +516,16 @@ describe('CmsBrowserDialog', () => {
       )
       await Promise.resolve()
       await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
     })
 
     expect(listSites).toHaveBeenCalledWith({ workspaceId: 'workspace-1' })
     expect(listCatalogs).toHaveBeenCalledWith({ siteId: '1' }, { workspaceId: 'workspace-1' })
-    expect(getCatalogDetail).toHaveBeenCalledWith('100', '1', { workspaceId: 'workspace-1' })
+    expect(listContents).toHaveBeenCalledWith(expect.objectContaining({
+      siteId: '1',
+      catalogId: '100',
+    }), { workspaceId: 'workspace-1' })
     expect(JSON.stringify(renderer.toJSON())).toContain('/api/workspaces/workspace-1/page-builder/cms/assets?url=')
   })
 
@@ -529,6 +545,8 @@ describe('CmsBrowserDialog', () => {
       await Promise.resolve()
       await Promise.resolve()
     })
+
+    await clickButtonByText(renderer, '栏目')
 
     await act(async () => {
       (getLastTreeProps() as {
@@ -552,6 +570,8 @@ describe('CmsBrowserDialog', () => {
       await Promise.resolve()
       await Promise.resolve()
     })
+
+    await clickButtonByText(renderer, '栏目')
 
     expect(getLastTreeProps()).toEqual(expect.objectContaining({
       checkedKeys: [],
@@ -651,20 +671,15 @@ describe('CmsBrowserDialog', () => {
       await Promise.resolve()
     })
 
+    await clickButtonByText(renderer, '栏目')
+
     await act(async () => {
       (getLastTreeProps() as {
         onCheck?: (checkedKeys: string[]) => void
       } | null)?.onCheck?.(['101'])
     })
 
-    const contentsTab = renderer.root.findAllByType('button')
-      .find((button) => flattenText(button.props.children).trim() === '内容')
-
-    await act(async () => {
-      contentsTab?.props.onClick()
-      await Promise.resolve()
-      await Promise.resolve()
-    })
+    await clickButtonByText(renderer, '内容')
 
     expect(getLastTreeProps()).toEqual(expect.objectContaining({
       checkable: true,
@@ -690,6 +705,8 @@ describe('CmsBrowserDialog', () => {
       await Promise.resolve()
       await Promise.resolve()
     })
+
+    await clickButtonByText(renderer, '栏目')
 
     expect(getCatalogDetail).toHaveBeenCalledWith('100', '1')
     expect(JSON.stringify(renderer.toJSON())).toContain('首页栏目描述')
@@ -1094,6 +1111,8 @@ describe('CmsBrowserDialog', () => {
       await Promise.resolve()
     })
 
+    await clickButtonByText(renderer, '栏目')
+
     const confirmButton = renderer.root.findAllByType('button')
       .find((button) => flattenText(button.props.children).trim() === '确认选择')
 
@@ -1152,6 +1171,8 @@ describe('CmsBrowserDialog', () => {
       await Promise.resolve()
       await Promise.resolve()
     })
+
+    await clickButtonByText(renderer, '栏目')
 
     await act(async () => {
       (getLastTreeProps() as {
@@ -1214,6 +1235,8 @@ describe('CmsBrowserDialog', () => {
       await Promise.resolve()
       await Promise.resolve()
     })
+
+    await clickButtonByText(renderer, '栏目')
 
     await act(async () => {
       (getLastTreeProps() as {
@@ -1300,6 +1323,32 @@ describe('CmsBrowserDialog', () => {
       },
     })
     expect(selection).not.toHaveProperty('contentIds')
+  })
+
+  test('renders a loading indicator on the confirm button while the selection is submitting', async () => {
+    const { CmsBrowserDialog } = await loadCmsBrowserDialog()
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <CmsBrowserDialog
+          confirming
+          open
+          onOpenChange={() => {}}
+          requestContext={REQUEST_CONTEXT}
+        />,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    const confirmButton = renderer.root.findAllByType('button')
+      .find((button) => flattenText(button.props.children).trim() === '提交中...')
+
+    expect(confirmButton?.props.disabled).toBe(true)
+    expect(JSON.stringify(renderer.toJSON())).toContain('animate-spin')
   })
 
   test('clears checked contents when switching content catalogs and confirms fixed content ids', async () => {
@@ -1635,6 +1684,8 @@ describe('CmsBrowserDialog', () => {
       await Promise.resolve()
       await Promise.resolve()
     })
+
+    await clickButtonByText(renderer, '栏目')
 
     const previewImages = renderer.root.findAll((node) =>
       node.type === 'img' && node.props['data-antd-image'] === 'true',

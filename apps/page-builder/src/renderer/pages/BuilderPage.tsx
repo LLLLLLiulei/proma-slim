@@ -398,6 +398,7 @@ export function BuilderPage({
   const [cmsBrowserWorkspaceId, setCmsBrowserWorkspaceId] = React.useState<string | null>(null)
   const [cmsSelectionEntryPoint, setCmsSelectionEntryPoint] = React.useState<PageBuilderCmsSelectionEntryPoint>('block-toolbar')
   const [cmsAutoHandoffRequest, setCmsAutoHandoffRequest] = React.useState<PageBuilderCmsAutoAgentHandoffRequest | null>(null)
+  const [cmsSelectionSubmitting, setCmsSelectionSubmitting] = React.useState(false)
   const [isDeletingBlock, setIsDeletingBlock] = React.useState(false)
   const [isReplacingImage, setIsReplacingImage] = React.useState(false)
   const [staticExportJob, setStaticExportJob] = React.useState<PageBuilderStaticExportJob | null>(null)
@@ -492,6 +493,7 @@ export function BuilderPage({
     setCmsBrowserOpen(false)
     setCmsDataUnavailableReason(null)
     setCmsBrowserWorkspaceId(null)
+    setCmsSelectionSubmitting(false)
 
     let integrationStatus: CmsIntegrationStatus
     try {
@@ -1349,6 +1351,11 @@ export function BuilderPage({
       return
     }
 
+    if (cmsSelectionSubmitting) {
+      return
+    }
+
+    setCmsSelectionSubmitting(true)
     try {
       const request = await api.createPageBuilderCmsAutoHandoff(workspaceId, {
         sessionId,
@@ -1356,11 +1363,15 @@ export function BuilderPage({
         ...(cmsSelectionRequestContext?.entryPoint ? { uiEntryPoint: cmsSelectionRequestContext.entryPoint } : {}),
       }, editLockRequestOptions)
       setCmsAutoHandoffRequest(request)
+      clearSelection()
+      setCmsBrowserOpen(false)
     } catch (error) {
       handlePageBuilderEditLockRejected(error)
       toast.error(error instanceof Error ? error.message : '无法读取当前目标的作者态源码快照')
+    } finally {
+      setCmsSelectionSubmitting(false)
     }
-  }, [cmsSelectionRequestContext?.entryPoint, editLockLostMessage, editLockRequestOptions, editingEnabled, handlePageBuilderEditLockRejected, sessionId, workspaceId])
+  }, [clearSelection, cmsSelectionRequestContext?.entryPoint, cmsSelectionSubmitting, editLockLostMessage, editLockRequestOptions, editingEnabled, handlePageBuilderEditLockRejected, sessionId, workspaceId])
   const handleCmsAutoHandoffSettled = React.useCallback((result: PageBuilderCmsAutoAgentHandoffSettledResult) => {
     if (!cmsAutoHandoffRequest || result.requestId !== cmsAutoHandoffRequest.requestId) {
       return
@@ -1776,7 +1787,7 @@ export function BuilderPage({
 
       <CmsBrowserDialog
         cmsDataUnavailableReason={cmsDataUnavailableReason}
-        confirming={cmsAutoHandoffRequest !== null}
+        confirming={cmsSelectionSubmitting}
         onConfirmSelection={handleCmsSelectionConfirm}
         onOpenChange={cmsIntegrationEnabled ? setCmsBrowserOpen : () => setCmsBrowserOpen(false)}
         open={cmsIntegrationEnabled && cmsBrowserOpen}
