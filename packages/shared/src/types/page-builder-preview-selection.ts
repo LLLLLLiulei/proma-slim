@@ -33,6 +33,10 @@ export type PageBuilderPreviewParentMessage =
     source: typeof PAGE_BUILDER_PREVIEW_PARENT_SOURCE
     type: 'selection-clear'
   }
+  | {
+    source: typeof PAGE_BUILDER_PREVIEW_PARENT_SOURCE
+    type: 'selection-parent'
+  }
   | ({
     source: typeof PAGE_BUILDER_PREVIEW_PARENT_SOURCE
     type: 'inline-text-save-result'

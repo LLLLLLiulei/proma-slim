@@ -20,8 +20,8 @@ import { PageBuilderBlockActionBar } from '@page-builder/components/builder/Page
 import type { PageBuilderPreviewSelectionEvent } from '@page-builder/lib/preview-selection'
 import { cn } from '@/lib/utils'
 
-const BLOCK_ACTION_BAR_ESTIMATED_WIDTH = 176
-const BLOCK_ACTION_BAR_WITH_IMAGE_ACTION_ESTIMATED_WIDTH = 296
+const BLOCK_ACTION_BAR_ESTIMATED_WIDTH = 336
+const BLOCK_ACTION_BAR_WITH_IMAGE_ACTION_ESTIMATED_WIDTH = 440
 const BLOCK_ACTION_BAR_ESTIMATED_HEIGHT = 44
 const BLOCK_ACTION_BAR_GAP = 8
 const BLOCK_ACTION_BAR_PADDING = 12
@@ -323,6 +323,32 @@ export function PreviewPane({
     }
   }, [bridgeReady, interactionLocked, previewUrl, selectionModeEnabled])
 
+  const handleSelectParentTarget = React.useCallback(() => {
+    if (interactionLocked) return
+    const contentWindow = iframeRef.current?.contentWindow
+    if (!contentWindow || !previewUrl) return
+
+    const parentMessage: PageBuilderPreviewParentMessage = {
+      source: PAGE_BUILDER_PREVIEW_PARENT_SOURCE,
+      type: 'selection-parent',
+    }
+    contentWindow.postMessage(parentMessage, '*')
+  }, [interactionLocked, previewUrl])
+
+  const handleClearSelectedTarget = React.useCallback(() => {
+    if (interactionLocked) return
+    const contentWindow = iframeRef.current?.contentWindow
+    setSelectedAnchor(null)
+    onSelectionEvent?.({ type: 'reset' })
+    if (!contentWindow || !previewUrl) return
+
+    const clearMessage: PageBuilderPreviewParentMessage = {
+      source: PAGE_BUILDER_PREVIEW_PARENT_SOURCE,
+      type: 'selection-clear',
+    }
+    contentWindow.postMessage(clearMessage, '*')
+  }, [interactionLocked, onSelectionEvent, previewUrl])
+
   const blockActionBarStyle = resolveBlockActionBarStyle(
     selectedAnchor,
     viewportShellRef.current?.getBoundingClientRect?.() ?? frameRef.current?.getBoundingClientRect?.(),
@@ -491,6 +517,7 @@ export function PreviewPane({
                     <div className="pointer-events-none absolute inset-0 z-10">
                       <PageBuilderBlockActionBar
                         actionsDisabled={interactionLocked}
+                        onClearSelection={handleClearSelectedTarget}
                         onDelete={() => {
                           if (interactionLocked) return
                           onRequestDeleteBlock?.(selectedAnchor.selector)
@@ -510,6 +537,7 @@ export function PreviewPane({
                               })
                             }
                           : undefined}
+                        onSelectParent={handleSelectParentTarget}
                         replaceImageDisabled={imageReplacementPending}
                         style={blockActionBarStyle}
                       />

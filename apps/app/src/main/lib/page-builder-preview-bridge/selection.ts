@@ -395,6 +395,75 @@ export function createSelectionRuntime(
     }
   }
 
+  const createBlockResolvedTarget = (element: Element, selector: string): ResolvedTarget => {
+    const targetSelection = createBlockTargetSelection(selector)
+    return {
+      key: resolveTargetRuntimeKey(targetSelection),
+      targetSelection,
+      primaryElement: element,
+      elements: [element],
+    }
+  }
+
+  const resolveBlockTargetBySelector = (selector: string | null | undefined): ResolvedTarget | null => {
+    if (!selector) {
+      return null
+    }
+
+    let matches: NodeListOf<Element>
+    try {
+      matches = document.querySelectorAll(selector)
+    } catch {
+      return null
+    }
+
+    if (matches.length !== 1) {
+      return null
+    }
+
+    const element = resolveSelectableElement(matches[0])
+    if (!element || BLOCKED_TAGS.has(element.tagName)) {
+      return null
+    }
+
+    if (!resolveElementRect(element)) {
+      return null
+    }
+
+    return createBlockResolvedTarget(element, selector)
+  }
+
+  const resolveParentTarget = (target: ResolvedTarget | null): ResolvedTarget | null => {
+    if (!target) {
+      return null
+    }
+
+    if (target.targetSelection.kind === 'cms-island') {
+      return resolveBlockTargetBySelector(target.targetSelection.parentBlockSelector)
+    }
+
+    let candidate = target.primaryElement.parentElement
+    while (candidate) {
+      const element = resolveSelectableElement(candidate)
+      if (!element) {
+        return null
+      }
+
+      const selector = resolveSelector(element)
+      if (
+        selector
+        && isUniqueSelector(selector)
+        && resolveElementRect(element)
+      ) {
+        return createBlockResolvedTarget(element, selector)
+      }
+
+      candidate = element.parentElement
+    }
+
+    return null
+  }
+
   const shouldRetargetSelection = (target: ResolvedTarget | null): boolean => {
     return Boolean(
       state.selectedTarget
@@ -415,6 +484,7 @@ export function createSelectionRuntime(
     resolveEditableTextTargetDescriptor,
     resolveEditableTextHost,
     resolveSelectableTarget,
+    resolveParentTarget,
     shouldRetargetSelection,
     isEditableTextHost,
     resolveSelector,

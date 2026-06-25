@@ -51,7 +51,10 @@ function startPageBuilderPreviewBridge(): void {
     state,
     selection,
     clearAll: (notifyParent) => clearAll(notifyParent),
+    discardActiveInlineEdit: () => inlineEditing.discardActiveInlineEdit(),
+    selectTarget: (target) => overlays.selectTarget(target),
     syncOverlays: () => syncOverlays(),
+    updateHoveredTarget: (target) => overlays.updateHoveredTarget(target),
     handleInlineTextSaveResult: inlineEditing.handleInlineTextSaveResult,
   })
 

@@ -1,22 +1,26 @@
 import * as React from 'react'
-import { Database, Image, Trash2 } from 'lucide-react'
+import { CornerUpLeft, Database, Image, Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
 export function PageBuilderBlockActionBar({
   actionsDisabled = false,
   className,
+  onClearSelection,
   onDelete,
   onOpenCms,
   onReplaceImage,
+  onSelectParent,
   replaceImageDisabled = false,
   style,
 }: {
   actionsDisabled?: boolean
   className?: string
+  onClearSelection?: () => void
   onDelete?: () => void
   onOpenCms?: () => void
   onReplaceImage?: () => void
+  onSelectParent?: () => void
   replaceImageDisabled?: boolean
   style?: React.CSSProperties
 }): React.ReactElement {
@@ -28,6 +32,30 @@ export function PageBuilderBlockActionBar({
       )}
       style={style}
     >
+      <Button
+        aria-label="选择上一级"
+        className="h-7 shrink-0 justify-start rounded-sm px-2 text-[11px] font-medium text-foreground shadow-none hover:bg-muted/70"
+        disabled={actionsDisabled || !onSelectParent}
+        onClick={onSelectParent}
+        size="sm"
+        type="button"
+        variant="ghost"
+      >
+        <CornerUpLeft className="size-3.25" />
+        选择上一级
+      </Button>
+      <Button
+        aria-label="取消选择"
+        className="h-7 shrink-0 justify-start rounded-sm px-2 text-[11px] font-medium text-foreground shadow-none hover:bg-muted/70"
+        disabled={actionsDisabled || !onClearSelection}
+        onClick={onClearSelection}
+        size="sm"
+        type="button"
+        variant="ghost"
+      >
+        <X className="size-3.25" />
+        取消选择
+      </Button>
       {onReplaceImage ? (
         <Button
           aria-label="替换图片"

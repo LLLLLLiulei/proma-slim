@@ -12,13 +12,17 @@ interface ProtocolSelectionRuntime {
   resolveTargetRect(target: ResolvedTarget | null): { top: number; left: number; right: number; bottom: number; width: number; height: number } | null
   resolveReplaceImageCapabilityForTarget(target: ResolvedTarget | null): ReplaceImageCapability | null
   resolveTargetLabel(target: ResolvedTarget | null): string
+  resolveParentTarget(target: ResolvedTarget | null): ResolvedTarget | null
 }
 
 interface ProtocolOptions {
   state: RuntimeState
   selection: ProtocolSelectionRuntime
   clearAll(notifyParent: boolean): void
+  discardActiveInlineEdit(): void
+  selectTarget(target: ResolvedTarget | null): void
   syncOverlays(): void
+  updateHoveredTarget(target: ResolvedTarget | null): void
   handleInlineTextSaveResult(message: { requestId?: string; ok?: boolean }): void
 }
 
@@ -26,7 +30,10 @@ export function createProtocolRuntime({
   state,
   selection,
   clearAll,
+  discardActiveInlineEdit,
+  selectTarget,
   syncOverlays,
+  updateHoveredTarget,
   handleInlineTextSaveResult,
 }: ProtocolOptions) {
   const postToParent = (message: Record<string, unknown>): void => {
@@ -147,6 +154,24 @@ export function createProtocolRuntime({
       state.selectionInteractionLocked = false
       state.showCmsIslandOutlines = false
       clearAll(false)
+      return
+    }
+
+    if ((data as { type?: string }).type === 'selection-parent') {
+      logBridge('parent-message', { type: 'selection-parent' })
+      if (!state.selectionModeEnabled || state.selectionInteractionLocked || !state.selectedTarget) {
+        return
+      }
+
+      const parentTarget = selection.resolveParentTarget(state.selectedTarget)
+      if (!parentTarget || parentTarget.key === state.selectedTarget.key) {
+        syncOverlays()
+        return
+      }
+
+      discardActiveInlineEdit()
+      updateHoveredTarget(parentTarget)
+      selectTarget(parentTarget)
       return
     }
 

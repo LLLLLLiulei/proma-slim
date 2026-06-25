@@ -145,6 +145,22 @@ function dispatchSelectionMode(
   window.dispatchEvent(selectionModeEvent)
 }
 
+function dispatchParentBridgeMessage(
+  window: Window,
+  parentWindow: unknown,
+  data: Record<string, unknown>,
+) {
+  const messageEvent = new (window as Window & typeof globalThis & { Event: typeof Event }).Event('message')
+  Object.assign(messageEvent, {
+    source: parentWindow,
+    data: {
+      source: PAGE_BUILDER_PREVIEW_PARENT_SOURCE,
+      ...data,
+    },
+  })
+  window.dispatchEvent(messageEvent)
+}
+
 function setElementRect(
   element: Element,
   rect: {
@@ -526,6 +542,240 @@ test('page-builder preview bridge retargets nested block selections before inlin
   expect(selectedMessages.at(-1)).toMatchObject({
     selector: '#inner',
     displayLabel: 'Inner',
+  })
+})
+
+test('page-builder preview bridge promotes the selected block to the closest selectable parent', async () => {
+  const module = await importPreviewBridgeModule()
+  const script = await module.readPageBuilderPreviewBridgeScript()
+  const { document, window, parentMessages, parentWindow } = setupPreviewBridgeDom(`
+    <!doctype html>
+    <html>
+      <body>
+        <section id="hero" data-section="hero">
+          <article id="card" data-section="feature-card">Nested</article>
+        </section>
+      </body>
+    </html>
+  `)
+
+  const hero = document.querySelector('#hero') as Element
+  const card = document.querySelector('#card') as Element
+  setElementRect(hero, {
+    top: 80,
+    left: 30,
+    right: 430,
+    bottom: 300,
+    width: 400,
+    height: 220,
+  })
+  setElementRect(card, {
+    top: 120,
+    left: 70,
+    right: 230,
+    bottom: 200,
+    width: 160,
+    height: 80,
+  })
+
+  window.eval(script)
+  parentMessages.length = 0
+
+  dispatchSelectionMode(window, parentWindow)
+  parentMessages.length = 0
+
+  card.dispatchEvent(new window.Event('click', {
+    bubbles: true,
+    cancelable: true,
+  }))
+  dispatchParentBridgeMessage(window, parentWindow, {
+    type: 'selection-parent',
+  })
+
+  const selectedMessages = parentMessages.filter((message) =>
+    typeof message === 'object'
+    && message !== null
+    && (message as { type?: string }).type === 'selected'
+  ) as Array<{
+    selector: string
+    displayLabel?: string
+    targetSelection: {
+      kind: string
+      selector?: string
+      parentBlockSelector?: string
+      editBoundary?: string
+    }
+    rect: {
+      width: number
+      height: number
+    }
+  }>
+
+  expect(selectedMessages.at(-1)).toMatchObject({
+    selector: '#hero',
+    displayLabel: 'Hero',
+    targetSelection: {
+      kind: 'block',
+      selector: '#hero',
+      parentBlockSelector: '#hero',
+      editBoundary: 'block',
+    },
+    rect: {
+      width: 400,
+      height: 220,
+    },
+  })
+})
+
+test('page-builder preview bridge promotes a selected cms island to its parent block', async () => {
+  const module = await importPreviewBridgeModule()
+  const script = await module.readPageBuilderPreviewBridgeScript()
+  const { document, window, parentMessages, parentWindow } = setupPreviewBridgeDom(`
+    <!doctype html>
+    <html>
+      <body>
+        <section id="news" data-section="news">
+          <ul>
+            <li
+              data-proma-cms-island-id="cms-island-1"
+              data-proma-cms-island-html-path="index.html"
+              data-proma-cms-island-component="cms-catalog"
+              data-proma-cms-island-source-selector="body > section:nth-of-type(1) > ul:nth-of-type(1) > cms-catalog:nth-of-type(1)"
+              data-proma-cms-island-parent-block-selector="#news"
+              data-proma-cms-island-edit-boundary="source-atomic"
+            >
+              <a id="catalog-link">栏目一</a>
+            </li>
+          </ul>
+        </section>
+      </body>
+    </html>
+  `)
+
+  const news = document.querySelector('#news') as Element
+  const islandRoot = document.querySelector('#catalog-link')?.parentElement as Element
+  setElementRect(news, {
+    top: 80,
+    left: 40,
+    right: 520,
+    bottom: 360,
+    width: 480,
+    height: 280,
+  })
+  setElementRect(islandRoot, {
+    top: 140,
+    left: 80,
+    right: 220,
+    bottom: 190,
+    width: 140,
+    height: 50,
+  })
+
+  window.eval(script)
+  parentMessages.length = 0
+
+  dispatchSelectionMode(window, parentWindow)
+  parentMessages.length = 0
+
+  document.querySelector('#catalog-link')?.dispatchEvent(new window.Event('click', {
+    bubbles: true,
+    cancelable: true,
+  }))
+  dispatchParentBridgeMessage(window, parentWindow, {
+    type: 'selection-parent',
+  })
+
+  const selectedMessages = parentMessages.filter((message) =>
+    typeof message === 'object'
+    && message !== null
+    && (message as { type?: string }).type === 'selected'
+  ) as Array<{
+    selector: string
+    displayLabel?: string
+    targetSelection: {
+      kind: string
+      selector?: string
+      parentBlockSelector?: string
+      editBoundary?: string
+    }
+  }>
+
+  expect(selectedMessages.at(-1)).toMatchObject({
+    selector: '#news',
+    displayLabel: 'News',
+    targetSelection: {
+      kind: 'block',
+      selector: '#news',
+      parentBlockSelector: '#news',
+      editBoundary: 'block',
+    },
+  })
+})
+
+test('page-builder preview bridge discards inline text editing before selecting the parent block', async () => {
+  const module = await importPreviewBridgeModule()
+  const script = await module.readPageBuilderPreviewBridgeScript()
+  const { document, window, parentMessages, parentWindow } = setupPreviewBridgeDom(`
+    <!doctype html>
+    <html>
+      <body>
+        <section id="hero">
+          <h1 id="title">旧标题</h1>
+        </section>
+      </body>
+    </html>
+  `)
+
+  const hero = document.querySelector('#hero') as Element
+  const title = document.querySelector('#title') as HTMLElement
+  setElementRect(hero, {
+    top: 80,
+    left: 40,
+    right: 440,
+    bottom: 280,
+    width: 400,
+    height: 200,
+  })
+  setElementRect(title, {
+    top: 120,
+    left: 80,
+    right: 280,
+    bottom: 170,
+    width: 200,
+    height: 50,
+  })
+
+  window.eval(script)
+  parentMessages.length = 0
+
+  dispatchSelectionMode(window, parentWindow)
+  parentMessages.length = 0
+
+  title.dispatchEvent(new window.Event('click', {
+    bubbles: true,
+    cancelable: true,
+  }))
+  title.dispatchEvent(new window.Event('click', {
+    bubbles: true,
+    cancelable: true,
+  }))
+
+  expect(title.getAttribute('contenteditable')).toBe('true')
+
+  dispatchParentBridgeMessage(window, parentWindow, {
+    type: 'selection-parent',
+  })
+
+  expect(title.getAttribute('contenteditable')).toBeNull()
+
+  const selectedMessages = parentMessages.filter((message) =>
+    typeof message === 'object'
+    && message !== null
+    && (message as { type?: string }).type === 'selected'
+  ) as Array<{ selector: string }>
+
+  expect(selectedMessages.at(-1)).toMatchObject({
+    selector: '#hero',
   })
 })
 

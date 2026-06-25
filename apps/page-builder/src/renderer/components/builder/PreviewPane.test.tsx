@@ -395,7 +395,7 @@ describe('PreviewPane', () => {
     expect(viewportShell.props.className).toContain('rounded')
     expect(findButton(renderer, 'PC 预览').props['aria-pressed']).toBe(false)
     expect(findButton(renderer, 'Mobile 预览').props['aria-pressed']).toBe(true)
-    expect(findToolbarNode(renderer).props.style.left).toBe(202)
+    expect(findToolbarNode(renderer).props.style.left).toBe(42)
     expect(renderer.root.findAll((node) =>
       node.type === 'button'
       && node.props['aria-label'] === '从 CMS 选择数据'
@@ -714,6 +714,119 @@ describe('PreviewPane', () => {
 
     expect(onRequestDeleteBlock).toHaveBeenCalledTimes(1)
     expect(onRequestDeleteBlock).toHaveBeenCalledWith('#hero')
+  })
+
+  test('posts parent-selection and clear commands from the selected block toolbar', async () => {
+    const listeners = new Map<string, Set<(event: unknown) => void>>()
+    const iframeWindow = {
+      postMessage: mock(() => {}),
+    }
+    const onSelectionEvent = mock(() => {})
+
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: {
+        addEventListener(type: string, listener: (event: unknown) => void) {
+          const bucket = listeners.get(type) ?? new Set()
+          bucket.add(listener)
+          listeners.set(type, bucket)
+        },
+        removeEventListener(type: string, listener: (event: unknown) => void) {
+          listeners.get(type)?.delete(listener)
+        },
+        open: mock(() => {}),
+      },
+    })
+
+    const { PreviewPane } = await loadPreviewPane()
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <PreviewPane
+          onSelectionEvent={onSelectionEvent}
+          previewUrl="https://example.com/preview?v=rev-1"
+          selectionModeEnabled={true}
+        />,
+        {
+          createNodeMock(element) {
+            if (element.type === 'iframe') {
+              return { contentWindow: iframeWindow }
+            }
+
+            if (
+              element.type === 'div'
+              && typeof element.props.className === 'string'
+              && element.props.className.includes('rounded-xl border border-border/70 bg-background')
+            ) {
+              return {
+                getBoundingClientRect() {
+                  return {
+                    top: 0,
+                    left: 0,
+                    width: 960,
+                    height: 640,
+                    right: 960,
+                    bottom: 640,
+                  }
+                },
+              }
+            }
+
+            return {}
+          },
+        },
+      )
+    })
+
+    await act(async () => {
+      const messageHandler = [...(listeners.get('message') ?? [])][0]
+      messageHandler?.({
+        source: iframeWindow,
+        data: {
+          source: PAGE_BUILDER_PREVIEW_BRIDGE_SOURCE,
+          type: 'selected',
+          selector: '#card',
+          displayLabel: 'FeatureCard',
+          targetSelection: createBlockTargetSelection('#card'),
+          rect: {
+            top: 120,
+            left: 80,
+            right: 380,
+            bottom: 260,
+            width: 300,
+            height: 140,
+          },
+        },
+      })
+    })
+
+    const parentButton = findButton(renderer, '选择上一级')
+    const clearButton = findButton(renderer, '取消选择')
+    expect(parentButton.props.disabled).toBe(false)
+    expect(clearButton.props.disabled).toBe(false)
+
+    await act(async () => {
+      parentButton.props.onClick()
+    })
+
+    expect(iframeWindow.postMessage).toHaveBeenLastCalledWith({
+      source: PAGE_BUILDER_PREVIEW_PARENT_SOURCE,
+      type: 'selection-parent',
+    }, '*')
+
+    await act(async () => {
+      clearButton.props.onClick()
+    })
+
+    expect(onSelectionEvent).toHaveBeenCalledWith({ type: 'reset' })
+    expect(iframeWindow.postMessage).toHaveBeenLastCalledWith({
+      source: PAGE_BUILDER_PREVIEW_PARENT_SOURCE,
+      type: 'selection-clear',
+    }, '*')
+    expect(renderer.root.findAll((node) =>
+      node.type === 'button'
+      && node.props['aria-label'] === '取消选择'
+    )).toHaveLength(0)
   })
 
   test('hides the CMS action for selected blocks when CMS browsing is unavailable', async () => {
@@ -1049,24 +1162,38 @@ describe('PreviewPane', () => {
       node.type === 'button'
       && node.props['aria-label'] === '替换图片'
     )
+    const selectParentButton = findButton(renderer, '选择上一级')
+    const clearSelectionButton = findButton(renderer, '取消选择')
 
     expect(actionButton.props.disabled).toBe(true)
     expect(deleteButton.props.disabled).toBe(true)
     expect(replaceImageButton.props.disabled).toBe(true)
+    expect(selectParentButton.props.disabled).toBe(true)
+    expect(clearSelectionButton.props.disabled).toBe(true)
     expect(renderer.root.findAll((node) =>
       node.type === 'div'
       && node.props['data-preview-interaction-lock'] === true
     )).toHaveLength(0)
 
+    const postMessageCallCount = iframeWindow.postMessage.mock.calls.length
+    const resetSelectionCallCount = (onSelectionEvent.mock.calls as Array<unknown[]>).filter((call) =>
+      call[0] && typeof call[0] === 'object' && (call[0] as { type?: string }).type === 'reset'
+    ).length
     await act(async () => {
       actionButton.props.onClick()
       deleteButton.props.onClick()
       replaceImageButton.props.onClick()
+      selectParentButton.props.onClick()
+      clearSelectionButton.props.onClick()
     })
 
     expect(onRequestOpenCmsBrowser).toHaveBeenCalledTimes(0)
     expect(onRequestDeleteBlock).toHaveBeenCalledTimes(0)
     expect(onRequestReplaceImage).toHaveBeenCalledTimes(0)
+    expect(iframeWindow.postMessage).toHaveBeenCalledTimes(postMessageCallCount)
+    expect((onSelectionEvent.mock.calls as Array<unknown[]>).filter((call) =>
+      call[0] && typeof call[0] === 'object' && (call[0] as { type?: string }).type === 'reset'
+    )).toHaveLength(resetSelectionCallCount)
 
     await act(async () => {
       const messageHandler = [...(listeners.get('message') ?? [])][0]

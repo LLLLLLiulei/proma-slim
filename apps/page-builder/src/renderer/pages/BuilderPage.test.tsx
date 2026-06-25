@@ -3829,7 +3829,20 @@ describe('BuilderPage', () => {
       selectionActionState: 'idle',
     })
     expect(getPreviewSelectionActionState(getLastPreviewPaneProps())).toBe('idle')
+    expect(getLastAgentViewProps()).not.toHaveProperty('composerNotice')
     expect(getLastAgentViewProps()).not.toHaveProperty('messageDecorator')
+
+    const resetPayload = await (getLastAgentViewProps() as {
+      prepareSendPayload?: (input: { userMessage: string; sessionId: string; workspaceId: string }) => Promise<{
+        composedUserMessage?: string
+      }>
+    }).prepareSendPayload?.({
+      userMessage: '继续修改',
+      sessionId: session.id,
+      workspaceId: workspace.id,
+    })
+
+    expect(resetPayload?.composedUserMessage).not.toContain('<page_builder_selection>')
   })
 
   test('clears the visible selection after sending and does not retain an implicit follow-up target', async () => {
