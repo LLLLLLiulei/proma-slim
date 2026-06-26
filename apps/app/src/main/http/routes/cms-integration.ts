@@ -26,6 +26,7 @@ import {
   handoffExpired,
   invalidCmsRequest,
   previewNotReady,
+  projectBusy,
   toCmsIntegrationErrorResponse,
 } from '../../lib/cms-integration/cms-integration-errors'
 import {
@@ -62,6 +63,10 @@ interface CmsHandoffCreateBody {
 
 interface CmsSyncExportBody {
   downloadCmsRemoteAssets?: unknown
+}
+
+interface CmsProjectSaveTemplateBody {
+  name?: unknown
 }
 
 interface CmsTemplateRenameBody {
@@ -362,6 +367,54 @@ cmsIntegrationRoutes.post('/projects/:projectId/handoffs', async (c) => {
     target,
     openMode,
   })
+})
+
+cmsIntegrationRoutes.post('/projects/:projectId/templates', async (c) => {
+  const config = resolveCmsIntegrationConfig()
+  assertCmsIntegrationModeEnabled(config)
+  assertCmsIntegrationSecretConfigured(config)
+  assertIntegrationSecret(c.req.raw, config)
+
+  const publicOrigin = config.publicOrigin
+  if (!publicOrigin) {
+    throw invalidCmsRequest('AI_PAGE_BUILDER_PUBLIC_ORIGIN 不能为空且必须是合法 origin')
+  }
+
+  const projectId = c.req.param('projectId').trim()
+  if (!projectId) {
+    throw cmsProjectNotFound()
+  }
+
+  const body = await readOptionalJsonBody<CmsProjectSaveTemplateBody>(c.req.raw)
+  const name = readRequiredBodyString(body.name, 'name')
+
+  await validateCmsLogin({
+    cmsBaseUrl: config.cmsBaseUrl,
+    cmsCookie: c.req.header('x-cms-cookie'),
+  })
+
+  const binding = getSharedCmsProjectBindingStore().findByProjectId(projectId)
+  const internals = binding ? resolveBindingInternals(binding) : null
+  if (!binding || !internals) {
+    throw cmsProjectNotFound()
+  }
+
+  try {
+    const result = await pageBuilderTemplateService.saveWorkspaceAsTemplate(internals.workspace, { name }, {
+      sourceMode: 'cms-integrated',
+      cmsProjectId: binding.projectId,
+      cmsSiteId: binding.siteId,
+      ...(binding.externalRecordId ? { cmsExternalRecordId: binding.externalRecordId } : {}),
+    })
+    return c.json({
+      template: toCmsTemplateSummary(result.template, {
+        publicOrigin,
+        basePath: config.basePath,
+      }),
+    }, 201)
+  } catch (error) {
+    throw mapTemplateSaveServiceErrorToCmsIntegration(error)
+  }
 })
 
 cmsIntegrationRoutes.post('/projects/:projectId/export', async (c) => {
@@ -700,6 +753,34 @@ function mapTemplateServiceErrorToCmsTemplateOperation(error: unknown): CmsInteg
 
     if (error.code === 'forbidden' || error.code === 'unsafe-file') {
       return cmsTemplateOperationForbidden(error.message)
+    }
+
+    return cmsTemplateOperationFailed(error.message)
+  }
+
+  return cmsTemplateOperationFailed()
+}
+
+function mapTemplateSaveServiceErrorToCmsIntegration(error: unknown): CmsIntegrationError {
+  if (error instanceof PageBuilderTemplateServiceError) {
+    if (error.code === 'invalid-input') {
+      return invalidCmsRequest(error.message)
+    }
+
+    if (error.code === 'entry-missing' || error.code === 'export-active') {
+      return projectBusy(error.message)
+    }
+
+    if (error.code === 'size-limit') {
+      return cmsTemplateSizeLimit(error.message)
+    }
+
+    if (error.code === 'forbidden' || error.code === 'unsafe-file') {
+      return cmsTemplateOperationForbidden(error.message)
+    }
+
+    if (error.code === 'not-found') {
+      return cmsProjectNotFound(error.message)
     }
 
     return cmsTemplateOperationFailed(error.message)

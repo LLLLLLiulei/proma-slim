@@ -818,6 +818,115 @@ describe('cms integration routes', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
+  test('POST /api/integrations/cms/projects/:projectId/templates authenticates and saves a static snapshot template', async () => {
+    enableCmsIntegration(configDir)
+    const fetchMock = createLoginFetchMock()
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+    const app = createApp()
+
+    const created = await createBoundCmsProject(app, {
+      externalRecordId: 'cms-project-save-template-api',
+      projectName: 'CMS Save Template API',
+      siteId: '14',
+    })
+    createPreviewFiles(configDir, created.binding)
+
+    const unauthorized = await app.fetch(new Request(`http://localhost/api/integrations/cms/projects/${created.projectId}/templates`, {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer wrong-secret',
+        'content-type': 'application/json',
+        'x-cms-cookie': 'JSESSIONID=abc',
+      },
+      body: JSON.stringify({ name: 'CMS API 静态模板' }),
+    }))
+    expect(unauthorized.status).toBe(401)
+    expect(await unauthorized.json()).toMatchObject({ code: 'integration_unauthorized' })
+
+    const expiredLogin = await app.fetch(new Request(`http://localhost/api/integrations/cms/projects/${created.projectId}/templates`, {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer integration-secret',
+        'content-type': 'application/json',
+        'x-cms-cookie': 'expired=true',
+      },
+      body: JSON.stringify({ name: 'CMS API 静态模板' }),
+    }))
+    expect(expiredLogin.status).toBe(401)
+    expect(await expiredLogin.json()).toMatchObject({ code: 'cms_login_expired' })
+
+    const invalidName = await app.fetch(new Request(`http://localhost/api/integrations/cms/projects/${created.projectId}/templates`, {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer integration-secret',
+        'content-type': 'application/json',
+        'x-cms-cookie': 'JSESSIONID=abc',
+      },
+      body: JSON.stringify({ name: '   ' }),
+    }))
+    expect(invalidName.status).toBe(400)
+    expect(await invalidName.json()).toMatchObject({ code: 'invalid_request' })
+
+    const missingProject = await app.fetch(new Request('http://localhost/api/integrations/cms/projects/pbp_missing/templates', {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer integration-secret',
+        'content-type': 'application/json',
+        'x-cms-cookie': 'JSESSIONID=abc',
+      },
+      body: JSON.stringify({ name: 'CMS API 静态模板' }),
+    }))
+    expect(missingProject.status).toBe(404)
+    expect(await missingProject.json()).toMatchObject({ code: 'project_not_found' })
+
+    const response = await app.fetch(new Request(`http://localhost/api/integrations/cms/projects/${created.projectId}/templates`, {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer integration-secret',
+        'content-type': 'application/json',
+        'x-cms-cookie': 'JSESSIONID=abc',
+      },
+      body: JSON.stringify({ name: '  CMS API 静态模板  ' }),
+    }))
+
+    expect(response.status).toBe(201)
+    const payload = await response.json() as {
+      template: {
+        id: string
+        name: string
+        previewUrl: string
+        sourceKind: string
+        deletable: boolean
+      }
+    }
+    expect(payload.template).toEqual(expect.objectContaining({
+      name: 'CMS API 静态模板',
+      previewUrl: `https://builder.example.com/pagebuilder/api/page-builder/templates/${payload.template.id}/preview/`,
+      sourceKind: 'saved-project',
+      deletable: true,
+    }))
+    expect(payload.template).not.toHaveProperty('downloadUrl')
+
+    const manifest = JSON.parse(
+      readFileSync(join(configDir, 'page-builder-templates', payload.template.id, 'template.json'), 'utf-8'),
+    ) as Record<string, unknown>
+    expect(manifest).toEqual(expect.objectContaining({
+      name: 'CMS API 静态模板',
+      sourceProject: expect.objectContaining({
+        workspaceId: created.binding.workspaceId,
+        workspaceName: 'CMS Save Template API',
+        sourceMode: 'cms-integrated',
+        cmsProjectId: created.projectId,
+        cmsSiteId: '14',
+        cmsExternalRecordId: 'cms-project-save-template-api',
+      }),
+    }))
+    const templateHtml = readFileSync(join(configDir, 'page-builder-templates', payload.template.id, 'workspace-files', 'index.html'), 'utf-8')
+    expect(templateHtml).toContain('CMS Preview')
+    expect(existsSync(join(configDir, 'page-builder-templates', payload.template.id, 'workspace-files', '.proma', 'cms-rendering-manifest.json'))).toBe(false)
+    expect(fetchMock).toHaveBeenCalledTimes(4)
+  })
+
   test('POST /api/integrations/cms/projects creates empty page-builder project binding and supports authenticated idempotency', async () => {
     enableCmsIntegration(configDir)
     const fetchMock = createLoginFetchMock()
