@@ -860,7 +860,7 @@ describe('createHttpApp', () => {
     expect(existsSync(templatesRoot) ? readdirSync(templatesRoot).filter((entry) => !entry.startsWith('.')) : []).toEqual([])
   })
 
-  test('workspace routes reject save-as-template when static export reports critical resource warnings', async () => {
+  test('workspace routes allow save-as-template when static export reports resource warnings', async () => {
     const app = createApp()
     const workspace = createAgentWorkspace('Template With Resource Warning', { template: 'page-builder' })
     const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
@@ -924,10 +924,11 @@ describe('createHttpApp', () => {
         body: JSON.stringify({ name: '资源失败模板' }),
       }))
 
-      expect(response.status).toBe(409)
-      expect(await response.json()).toEqual({ error: '模板资源下载失败，无法保存' })
+      expect(response.status).toBe(201)
+      const payload = await response.json() as { template: { id: string; name: string } }
+      expect(payload.template.name).toBe('资源失败模板')
       const templatesRoot = join(homedir(), '.proma', 'page-builder-templates')
-      expect(existsSync(templatesRoot) ? readdirSync(templatesRoot) : []).toEqual([])
+      expect(existsSync(join(templatesRoot, payload.template.id, 'workspace-files', 'index.html'))).toBe(true)
     } finally {
       pageBuilderStaticExportService.exportWorkspaceStaticPackage = originalExport
     }

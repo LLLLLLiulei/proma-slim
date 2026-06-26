@@ -1262,6 +1262,74 @@ describe('cms integration routes', () => {
     expect(report.summary.failureCount).toBe(0)
   })
 
+  test('POST /api/integrations/cms/projects/:projectId/export returns ZIP with warnings when resource localization fails', async () => {
+    enableCmsIntegration(configDir)
+    const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === 'https://cdn.example.com/missing-export.png') {
+        return new Response('not-found', { status: 404 })
+      }
+
+      const cookie = new Headers(init?.headers).get('cookie') ?? ''
+      if (cookie.includes('expired')) {
+        return jsonResponse({ status: 1, data: { logined: false } })
+      }
+
+      return jsonResponse({
+        status: 1,
+        data: {
+          logined: true,
+          userName: 'cms-user',
+          realName: 'CMS User',
+        },
+      })
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+    const app = createApp()
+    const { projectId, binding } = await createBoundCmsProject(app, {
+      externalRecordId: 'cms-sync-export-resource-warning',
+      projectName: 'CMS Sync Export Resource Warning',
+    })
+    createPreviewFiles(configDir, binding)
+    const workspace = listAgentWorkspaces().find((entry) => entry.id === binding.workspaceId)
+    expect(workspace).toBeTruthy()
+    const workspaceFilesDir = join(configDir, 'agent-workspaces', workspace!.slug, 'workspace-files')
+    writeFileSync(
+      join(workspaceFilesDir, 'index.html'),
+      '<!doctype html><html><body><h1>CMS Warning Export</h1><img src="https://cdn.example.com/missing-export.png"></body></html>',
+      'utf-8',
+    )
+
+    const response = await exportCmsProject(app, projectId)
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toContain('application/zip')
+    const entries = unzipSync(new Uint8Array(await response.arrayBuffer()))
+    expect(strFromU8(entries['index.html']!)).toContain('https://cdn.example.com/missing-export.png')
+    const report = JSON.parse(strFromU8(entries['export-report.json']!)) as {
+      warnings: Array<{ code: string; resourceUrl?: string }>
+      retainedExternalLinks: Array<{ resourceUrl: string; reason: string }>
+      summary: {
+        warningCount: number
+        failureCount: number
+        hasWarnings: boolean
+      }
+    }
+    expect(report.summary).toMatchObject({
+      warningCount: 1,
+      failureCount: 0,
+      hasWarnings: true,
+    })
+    expect(report.warnings).toContainEqual(expect.objectContaining({
+      code: 'resource-download-failed',
+      resourceUrl: 'https://cdn.example.com/missing-export.png',
+    }))
+    expect(report.retainedExternalLinks).toContainEqual({
+      resourceUrl: 'https://cdn.example.com/missing-export.png',
+      reason: 'resource-download-failed',
+    })
+  })
+
   test('POST /api/integrations/cms/projects/:projectId/export rejects standalone, auth, login, project, and payload failures structurally', async () => {
     const standaloneApp = createApp()
     const standalone = await exportCmsProject(standaloneApp, 'missing-project')

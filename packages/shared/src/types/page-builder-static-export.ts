@@ -35,11 +35,11 @@ export interface PageBuilderStaticExportJobCreateRequest extends PageBuilderStat
 
 export interface PageBuilderStaticExportRetainedExternalLink {
   resourceUrl: string
-  reason: 'external-link' | 'attachment-download-failed' | 'cms-remote-asset-skipped'
+  reason: 'external-link' | 'attachment-download-failed' | 'cms-remote-asset-skipped' | 'resource-download-failed'
 }
 
 export interface PageBuilderStaticExportWarning {
-  code: 'attachment-download-failed' | 'cms-remote-asset-skipped'
+  code: 'attachment-download-failed' | 'cms-remote-asset-skipped' | 'resource-download-failed'
   message: string
   resourceUrl?: string
 }

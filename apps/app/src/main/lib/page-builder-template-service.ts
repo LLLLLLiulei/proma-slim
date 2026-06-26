@@ -1248,16 +1248,6 @@ export class PageBuilderTemplateService {
       })
     }
 
-    for (const warning of staticExportReport.warnings ?? []) {
-      if (warning.code === 'attachment-download-failed' || warning.code === 'cms-remote-asset-skipped') {
-        issues.push({
-          code: 'resource-download-failed',
-          message: warning.message,
-          detail: warning.resourceUrl,
-        })
-      }
-    }
-
     for (const filePath of collectFiles(templateDir, (candidate) => /\.(?:html?|json|js|css|txt|md)$/i.test(candidate))) {
       const content = readFileSync(filePath, 'utf-8')
       if (containsSensitiveData(content)) {

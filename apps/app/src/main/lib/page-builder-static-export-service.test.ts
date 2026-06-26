@@ -54,6 +54,14 @@ async function waitForTerminalJob(
     props?: Record<string, string>
   } | null
   downloadUrl?: string | null
+  reportSummary?: {
+    localizedResourceCount: number
+    retainedExternalLinkCount: number
+    warningCount: number
+    unsupportedRuntimeDependencyCount: number
+    failureCount: number
+    hasWarnings: boolean
+  } | null
 }> {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     const job = service.getJob(workspaceId, jobId)
@@ -1178,7 +1186,7 @@ describe('page-builder static export service', () => {
     ).toBe('Landing Page Export-20260407153045.zip')
   })
 
-  test('fails the job when a critical rendering resource cannot be localized', async () => {
+  test('keeps a remote image URL and completes with warning when the resource cannot be localized', async () => {
     const workspace = createAgentWorkspace('Static Export Failure', { template: 'page-builder' })
     const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
 
@@ -1195,6 +1203,10 @@ describe('page-builder static export service', () => {
     const {
       PageBuilderStaticExportService,
     } = await import('./page-builder-static-export-service')
+    const {
+      getPageBuilderStaticExportReportPath,
+      getPageBuilderStaticExportStagingDir,
+    } = await import('./page-builder-static-export-paths')
     const service = new PageBuilderStaticExportService({
       fetchFn: fetchMock as unknown as typeof fetch,
       randomUUID: () => 'job-critical-failure',
@@ -1203,8 +1215,35 @@ describe('page-builder static export service', () => {
     const createdJob = service.createJob(workspace)
     const finishedJob = await waitForTerminalJob(service, workspace.id, createdJob.jobId)
 
-    expect(finishedJob.status).toBe('failed')
-    expect(finishedJob.errorMessage).toContain('hero.png')
+    expect(finishedJob.status).toBe('completed')
+    expect(finishedJob.errorMessage).toBeNull()
+    expect(finishedJob.reportSummary).toMatchObject({
+      warningCount: 1,
+      failureCount: 0,
+      hasWarnings: true,
+    })
+
+    const stagedHtml = readFileSync(join(getPageBuilderStaticExportStagingDir(createdJob.jobId), 'index.html'), 'utf-8')
+    expect(stagedHtml).toContain('https://cdn.example.com/hero.png')
+
+    const report = JSON.parse(readFileSync(getPageBuilderStaticExportReportPath(createdJob.jobId), 'utf-8')) as {
+      warnings: Array<{ code: string; resourceUrl?: string; message: string }>
+      retainedExternalLinks: Array<{ resourceUrl: string; reason: string }>
+      summary: { warningCount: number; failureCount: number; hasWarnings: boolean }
+    }
+    expect(report.summary).toMatchObject({
+      warningCount: 1,
+      failureCount: 0,
+      hasWarnings: true,
+    })
+    expect(report.warnings).toContainEqual(expect.objectContaining({
+      code: 'resource-download-failed',
+      resourceUrl: 'https://cdn.example.com/hero.png',
+    }))
+    expect(report.retainedExternalLinks).toContainEqual({
+      resourceUrl: 'https://cdn.example.com/hero.png',
+      reason: 'resource-download-failed',
+    })
   })
 
   test('allows remote resources whose combined size exceeds the previous total budget', async () => {
@@ -1288,7 +1327,7 @@ describe('page-builder static export service', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
-  test('fails immediately on a remote fetch error without automatic retries', async () => {
+  test('keeps a remote image URL without automatic retries when fetch throws', async () => {
     const workspace = createAgentWorkspace('Static Export No Retry Failure', { template: 'page-builder' })
     const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
 
@@ -1307,6 +1346,9 @@ describe('page-builder static export service', () => {
     const {
       PageBuilderStaticExportService,
     } = await import('./page-builder-static-export-service')
+    const {
+      getPageBuilderStaticExportReportPath,
+    } = await import('./page-builder-static-export-paths')
     const service = new PageBuilderStaticExportService({
       fetchFn: fetchMock as unknown as typeof fetch,
       randomUUID: () => 'job-no-retry-failure',
@@ -1315,9 +1357,92 @@ describe('page-builder static export service', () => {
     const createdJob = service.createJob(workspace)
     const finishedJob = await waitForTerminalJob(service, workspace.id, createdJob.jobId)
 
-    expect(finishedJob.status).toBe('failed')
-    expect(finishedJob.errorMessage).toContain('network down')
+    expect(finishedJob.status).toBe('completed')
+    expect(finishedJob.errorMessage).toBeNull()
+    expect(finishedJob.reportSummary).toMatchObject({
+      warningCount: 1,
+      failureCount: 0,
+      hasWarnings: true,
+    })
     expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    const report = JSON.parse(readFileSync(getPageBuilderStaticExportReportPath(createdJob.jobId), 'utf-8')) as {
+      warnings: Array<{ code: string; resourceUrl?: string; message: string }>
+    }
+    expect(report.warnings).toContainEqual(expect.objectContaining({
+      code: 'resource-download-failed',
+      resourceUrl: 'https://cdn.example.com/no-retry.png',
+      message: expect.stringContaining('network down') as unknown as string,
+    }))
+  })
+
+  test('keeps absolute URLs for failed resources inside localized remote CSS', async () => {
+    const workspace = createAgentWorkspace('Static Export CSS Resource Warning', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(
+      join(workspaceFilesDir, 'index.html'),
+      '<!doctype html><html><head><link rel="stylesheet" href="https://cdn.example.com/theme.css"></head><body><h1>CSS Warning</h1></body></html>',
+      'utf-8',
+    )
+
+    const fetchMock = mock(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === 'https://cdn.example.com/theme.css') {
+        return new Response('@font-face { font-family: test; src: url("./missing.woff2"); }', {
+          status: 200,
+          headers: { 'content-type': 'text/css' },
+        })
+      }
+
+      if (url === 'https://cdn.example.com/missing.woff2') {
+        return new Response('missing', { status: 404 })
+      }
+
+      throw new Error(`未预期的远程请求: ${url}`)
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const {
+      PageBuilderStaticExportService,
+    } = await import('./page-builder-static-export-service')
+    const {
+      getPageBuilderStaticExportReportPath,
+      getPageBuilderStaticExportStagingDir,
+    } = await import('./page-builder-static-export-paths')
+    const service = new PageBuilderStaticExportService({
+      fetchFn: fetchMock as unknown as typeof fetch,
+      randomUUID: () => 'job-css-resource-warning',
+    })
+
+    const createdJob = service.createJob(workspace)
+    const finishedJob = await waitForTerminalJob(service, workspace.id, createdJob.jobId)
+
+    expect(finishedJob.status).toBe('completed')
+    expect(finishedJob.reportSummary).toMatchObject({
+      localizedResourceCount: 1,
+      warningCount: 1,
+      failureCount: 0,
+      hasWarnings: true,
+    })
+
+    const exportedAssetsDir = join(getPageBuilderStaticExportStagingDir(createdJob.jobId), 'assets', 'exported')
+    const exportedCss = readFileSync(join(exportedAssetsDir, 'cef87eb394f5f753.css'), 'utf-8')
+    expect(exportedCss).toContain('https://cdn.example.com/missing.woff2')
+
+    const report = JSON.parse(readFileSync(getPageBuilderStaticExportReportPath(createdJob.jobId), 'utf-8')) as {
+      warnings: Array<{ code: string; resourceUrl?: string }>
+      retainedExternalLinks: Array<{ resourceUrl: string; reason: string }>
+    }
+    expect(report.warnings).toContainEqual(expect.objectContaining({
+      code: 'resource-download-failed',
+      resourceUrl: 'https://cdn.example.com/missing.woff2',
+    }))
+    expect(report.retainedExternalLinks).toContainEqual({
+      resourceUrl: 'https://cdn.example.com/missing.woff2',
+      reason: 'resource-download-failed',
+    })
   })
 
   test('allows more remote resources than the previous count limit', async () => {

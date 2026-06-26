@@ -654,9 +654,13 @@ export class PageBuilderStaticExportService {
         return resolved.url
       }
 
-      const localizedPath = await this.localizeRemoteResource(resolved.url, context, 'stylesheet')
-      await this.processCssFile(localizedPath, context, resolved.url)
-      return toRelativeReference(currentFilePath, localizedPath)
+      const localized = await this.tryLocalizeRemoteResource(resolved.url, context, 'stylesheet')
+      if (!localized) {
+        return resolved.url
+      }
+
+      await this.processCssFile(localized, context, resolved.url)
+      return toRelativeReference(currentFilePath, localized)
     }
 
     return rawHref
@@ -683,8 +687,8 @@ export class PageBuilderStaticExportService {
         return resolved.url
       }
 
-      const localizedPath = await this.localizeRemoteResource(resolved.url, context, kind)
-      return toRelativeReference(currentFilePath, localizedPath)
+      const localized = await this.tryLocalizeRemoteResource(resolved.url, context, kind)
+      return localized ? toRelativeReference(currentFilePath, localized) : resolved.url
     }
 
     return rawValue
@@ -803,8 +807,9 @@ export class PageBuilderStaticExportService {
           continue
         }
 
-        const localizedPath = await this.localizeRemoteResource(resolved.url, context, inferResourceKindFromUrl(resolved.url))
-        nextCss += `url(${quote || '"'}${toRelativeReference(currentFilePath, localizedPath)}${quote || '"'})`
+        const localized = await this.tryLocalizeRemoteResource(resolved.url, context, inferResourceKindFromUrl(resolved.url))
+        const nextReference = localized ? toRelativeReference(currentFilePath, localized) : resolved.url
+        nextCss += `url(${quote || '"'}${nextReference}${quote || '"'})`
         lastIndex = index + fullMatch.length
         continue
       }
@@ -870,6 +875,19 @@ export class PageBuilderStaticExportService {
     return outputPath
   }
 
+  private async tryLocalizeRemoteResource(
+    resourceUrl: string,
+    context: ExportContext,
+    kind: PageBuilderStaticExportLocalizedResource['kind'],
+  ): Promise<string | null> {
+    try {
+      return await this.localizeRemoteResource(resourceUrl, context, kind)
+    } catch (error) {
+      this.recordResourceDownloadFailure(resourceUrl, context, error)
+      return null
+    }
+  }
+
   private async fetchRemoteResource(resourceUrl: string, context: ExportContext): Promise<Response> {
     if (context.cmsGateway && isCmsResourceUrl(resourceUrl, context.cmsBaseUrl)) {
       context.onPhase?.('downloading')
@@ -892,6 +910,19 @@ export class PageBuilderStaticExportService {
     context.collector.warnings.push({
       code: 'cms-remote-asset-skipped',
       message: `已跳过 CMS 远程资源下载，保留源站地址: ${resourceUrl}`,
+      resourceUrl,
+    })
+  }
+
+  private recordResourceDownloadFailure(resourceUrl: string, context: ExportContext, error: unknown): void {
+    const reason = error instanceof Error ? error.message : String(error)
+    context.collector.retainedExternalLinks.push({
+      resourceUrl,
+      reason: 'resource-download-failed',
+    })
+    context.collector.warnings.push({
+      code: 'resource-download-failed',
+      message: `资源离线化失败，已保留原始链接: ${resourceUrl}；原因: ${reason}`,
       resourceUrl,
     })
   }
