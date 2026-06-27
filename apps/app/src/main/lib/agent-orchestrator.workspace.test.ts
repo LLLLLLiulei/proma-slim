@@ -37,6 +37,7 @@ import {
 
 type CapturedQueryInput = Omit<AgentQueryInput, 'prompt'> & {
   prompt: AgentQueryInput['prompt'] | AsyncIterable<unknown>
+  env?: Record<string, string | undefined>
   additionalDirectories?: string[]
   mcpServers?: Record<string, unknown>
   allowedTools?: string[]
@@ -117,6 +118,23 @@ describe('AgentOrchestrator workspace runtime', () => {
   let originalInternalAppOrigin: string | undefined
   let originalRuntimeEnv: string | undefined
   let originalPageBuilderBasePath: string | undefined
+  const originalAgentSdkEnv = new Map<string, string | undefined>()
+  const agentSdkEnvKeysToRestore = [
+    'ANTHROPIC_AUTH_TOKEN',
+    'ANTHROPIC_MODEL',
+    'ANTHROPIC_DEFAULT_OPUS_MODEL',
+    'ANTHROPIC_DEFAULT_SONNET_MODEL',
+    'ANTHROPIC_DEFAULT_HAIKU_MODEL',
+    'ANTHROPIC_UNSUPPORTED_FLAG',
+    'CLAUDE_CODE_SUBAGENT_MODEL',
+    'CLAUDE_CODE_EFFORT_LEVEL',
+    'CLAUDE_CODE_AUTO_COMPACT_WINDOW',
+    'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC',
+    'CLAUDE_CODE_UNSUPPORTED_FLAG',
+    'API_TIMEOUT_MS',
+    'AI_PAGE_BUILDER_ANTHROPIC_API_KEY',
+    'AI_PAGE_BUILDER_ANTHROPIC_BASE_URL',
+  ]
 
   beforeEach(() => {
     configDir = mkdtempSync(join(tmpdir(), 'proma-orchestrator-workspace-'))
@@ -136,6 +154,11 @@ describe('AgentOrchestrator workspace runtime', () => {
     originalInternalAppOrigin = process.env.AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN
     originalRuntimeEnv = process.env.AI_PAGE_BUILDER_RUNTIME_ENV
     originalPageBuilderBasePath = process.env.AI_PAGE_BUILDER_BASE_PATH
+    originalAgentSdkEnv.clear()
+    for (const key of agentSdkEnvKeysToRestore) {
+      originalAgentSdkEnv.set(key, process.env[key])
+      delete process.env[key]
+    }
     process.env.ANTHROPIC_API_KEY = 'test-api-key'
     process.env.ANTHROPIC_BASE_URL = 'https://api.anthropic.com'
   })
@@ -203,6 +226,14 @@ describe('AgentOrchestrator workspace runtime', () => {
     } else {
       process.env.AI_PAGE_BUILDER_BASE_PATH = originalPageBuilderBasePath
     }
+    for (const key of agentSdkEnvKeysToRestore) {
+      const originalValue = originalAgentSdkEnv.get(key)
+      if (originalValue === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = originalValue
+      }
+    }
     rmSync(configDir, { recursive: true, force: true })
     rmSync(claudeHomeDir, { recursive: true, force: true })
   })
@@ -232,6 +263,62 @@ describe('AgentOrchestrator workspace runtime', () => {
     expect(adapter.lastInput?.plugins).toEqual([
       { type: 'local', path: getAgentWorkspacePath(workspace.slug) },
     ])
+  })
+
+  test('passes whitelisted Agent SDK env from process env using auth token credentials', async () => {
+    const adapter = new RecordingAdapter()
+    const orchestrator = new AgentOrchestrator(adapter, new AgentEventBus())
+    const workspace = createAgentWorkspace('DeepSeek Runtime Docs')
+    const session = createAgentSession('DeepSeek Runtime Session', undefined, workspace.id)
+
+    delete process.env.ANTHROPIC_API_KEY
+    process.env.ANTHROPIC_AUTH_TOKEN = 'deepseek-token'
+    process.env.ANTHROPIC_BASE_URL = 'https://api.deepseek.com/anthropic/'
+    process.env.ANTHROPIC_MODEL = 'deepseek-v4-pro[1m]'
+    process.env.ANTHROPIC_DEFAULT_OPUS_MODEL = 'deepseek-v4-pro[1m]'
+    process.env.ANTHROPIC_DEFAULT_SONNET_MODEL = 'deepseek-v4-pro[1m]'
+    process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL = 'deepseek-v4-flash'
+    process.env.CLAUDE_CODE_SUBAGENT_MODEL = 'deepseek-v4-flash'
+    process.env.CLAUDE_CODE_EFFORT_LEVEL = 'max'
+    process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW = '1000000'
+    process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1'
+    process.env.API_TIMEOUT_MS = '3000000'
+    process.env.ANTHROPIC_UNSUPPORTED_FLAG = 'should-not-pass'
+    process.env.CLAUDE_CODE_UNSUPPORTED_FLAG = 'should-not-pass'
+
+    await orchestrator.sendMessage(
+      {
+        sessionId: session.id,
+        userMessage: 'hello',
+        channelId: '',
+      },
+      {
+        onError: (message) => {
+          throw new Error(message)
+        },
+        onComplete: () => {},
+        onTitleUpdated: () => {},
+      },
+    )
+
+    expect(adapter.lastInput?.env).toEqual(expect.objectContaining({
+      ANTHROPIC_AUTH_TOKEN: 'deepseek-token',
+      ANTHROPIC_BASE_URL: 'https://api.deepseek.com/anthropic',
+      ANTHROPIC_MODEL: 'deepseek-v4-pro[1m]',
+      ANTHROPIC_DEFAULT_OPUS_MODEL: 'deepseek-v4-pro[1m]',
+      ANTHROPIC_DEFAULT_SONNET_MODEL: 'deepseek-v4-pro[1m]',
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: 'deepseek-v4-flash',
+      CLAUDE_CODE_SUBAGENT_MODEL: 'deepseek-v4-flash',
+      CLAUDE_CODE_EFFORT_LEVEL: 'max',
+      CLAUDE_CODE_AUTO_COMPACT_WINDOW: '1000000',
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
+      API_TIMEOUT_MS: '3000000',
+    }))
+    expect(adapter.lastInput?.env?.ANTHROPIC_API_KEY).toBeUndefined()
+    expect(adapter.lastInput?.env?.ANTHROPIC_UNSUPPORTED_FLAG).toBeUndefined()
+    expect(adapter.lastInput?.env?.CLAUDE_CODE_UNSUPPORTED_FLAG).toBeUndefined()
+    expect(process.env.ANTHROPIC_AUTH_TOKEN).toBe('deepseek-token')
+    expect(process.env.ANTHROPIC_MODEL).toBe('deepseek-v4-pro[1m]')
   })
 
   test('writes request payload and prompt sidecars when diagnostic context is provided', async () => {
@@ -1338,6 +1425,8 @@ describe('AgentOrchestrator workspace runtime', () => {
     const attachmentPath = resolveAgentSessionAttachmentPath(workspace.slug, session.id, attachments[0]!.localPath)
 
     delete process.env.ANTHROPIC_API_KEY
+    delete process.env.ANTHROPIC_AUTH_TOKEN
+    delete process.env.AI_PAGE_BUILDER_ANTHROPIC_API_KEY
 
     const onErrors: string[] = []
     await orchestrator.sendMessage(
@@ -1356,7 +1445,7 @@ describe('AgentOrchestrator workspace runtime', () => {
       },
     )
 
-    expect(onErrors).toEqual(['未检测到 ANTHROPIC_API_KEY 或 AI_PAGE_BUILDER_ANTHROPIC_API_KEY 环境变量，请先在终端配置后再发送消息'])
+    expect(onErrors).toEqual(['未检测到 Agent SDK 凭证，请配置 ANTHROPIC_API_KEY、ANTHROPIC_AUTH_TOKEN 或 AI_PAGE_BUILDER_ANTHROPIC_API_KEY 后再发送消息'])
     expect(getAgentSessionMessages(session.id)).toEqual([])
     expect(existsSync(attachmentPath)).toBe(false)
   })

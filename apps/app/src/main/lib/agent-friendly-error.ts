@@ -1,5 +1,5 @@
-export const LOGIN_CONFIGURATION_ERROR_MESSAGE = 'Claude Code 当前未登录，请先在终端完成登录，或检查 ANTHROPIC_API_KEY / ANTHROPIC_BASE_URL 是否已正确配置。'
-export const AUTHENTICATION_ERROR_MESSAGE = 'Anthropic 认证失败，请检查 ANTHROPIC_API_KEY 是否正确，或确认当前环境已完成 Claude Code 登录。'
+export const LOGIN_CONFIGURATION_ERROR_MESSAGE = 'Claude Code 当前未登录，请先在终端完成登录，或检查 Agent SDK 凭证与 ANTHROPIC_BASE_URL 是否已正确配置。'
+export const AUTHENTICATION_ERROR_MESSAGE = 'Agent SDK 认证失败，请检查 ANTHROPIC_API_KEY 或 ANTHROPIC_AUTH_TOKEN 是否正确，或确认当前环境已完成 Claude Code 登录。'
 export const BASE_URL_CONFIGURATION_ERROR_MESSAGE = 'Anthropic 服务地址不可用，请检查 ANTHROPIC_BASE_URL 是否正确且网络可访问。'
 
 interface FriendlyErrorRule {

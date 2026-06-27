@@ -63,12 +63,19 @@ cp build/.env.cms.example /tmp/page-builder-cms.env
 
 另外，Docker 构建上下文是仓库根目录。如果把私有 env 文件放在仓库内，请确认它已经被 `.gitignore` 和 `.dockerignore` 排除，否则可能进入构建上下文。
 
+当前 Docker Compose 不使用 `server.env_file` 直接注入整份 env 文件；需要进入 `server` 容器的变量会在 `server.environment` 中显式声明，`--env-file` 只负责为 compose 变量替换提供取值。
+
+注意：Docker Compose 做变量替换时，宿主机同名环境变量可能优先于 `--env-file`。内置 `./build/start-page-builder.sh` 会在调用 compose 前清理本期支持的 Agent SDK env 和旧兼容变量，确保指定 env 文件中的模型、凭证和 timeout 配置优先生效。直接手写 `docker compose --env-file ...` 命令时，如宿主机已设置同名 `ANTHROPIC_*` 或 `CLAUDE_CODE_*`，需要先手动 `unset` 或改用启动脚本。
+
 ### 关键变量
 
 | 变量 | 说明 |
 | --- | --- |
-| `AI_PAGE_BUILDER_ANTHROPIC_API_KEY` | 必填。注入给容器内 `ANTHROPIC_API_KEY`。 |
-| `AI_PAGE_BUILDER_ANTHROPIC_BASE_URL` | 可选。Anthropic 兼容接口地址。 |
+| `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` | Agent SDK 凭证，二选一即可。`ANTHROPIC_AUTH_TOKEN` 适合 DeepSeek 等 Bearer token 网关。 |
+| `ANTHROPIC_BASE_URL` | 可选。Anthropic-compatible 接口地址，例如 `https://api.deepseek.com/anthropic`。 |
+| `ANTHROPIC_MODEL` / `ANTHROPIC_DEFAULT_*_MODEL` | 可选。Agent SDK 模型与 sonnet/opus/haiku 别名映射。 |
+| `CLAUDE_CODE_SUBAGENT_MODEL` / `CLAUDE_CODE_EFFORT_LEVEL` / `CLAUDE_CODE_AUTO_COMPACT_WINDOW` / `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` / `API_TIMEOUT_MS` | 可选。透传给 Agent SDK 的受支持运行参数。 |
+| `AI_PAGE_BUILDER_ANTHROPIC_API_KEY` / `AI_PAGE_BUILDER_ANTHROPIC_BASE_URL` | 兼容旧配置。仅当官方 `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL` 未设置时作为 fallback。 |
 | `PAGE_BUILDER_PORT` | web 服务映射到宿主机的端口，默认 `3333`。 |
 | `AI_PAGE_BUILDER_HOST_DATA_DIR` | 宿主机持久化数据目录，会挂载到容器 `/home/bun/.ai-page-builder`。 |
 | `AI_PAGE_BUILDER_BASE_PATH` | 浏览器公开访问路径前缀。根路径部署留空，子路径可填 `/pagebuilder`。 |
@@ -125,7 +132,21 @@ standalone 模式适合不通过 CMS handoff 直接打开 PageBuilder。首页�
 脚本默认等价于：
 
 ```bash
-docker compose \
+env -u ANTHROPIC_BASE_URL \
+  -u ANTHROPIC_AUTH_TOKEN \
+  -u ANTHROPIC_API_KEY \
+  -u ANTHROPIC_MODEL \
+  -u ANTHROPIC_DEFAULT_OPUS_MODEL \
+  -u ANTHROPIC_DEFAULT_SONNET_MODEL \
+  -u ANTHROPIC_DEFAULT_HAIKU_MODEL \
+  -u CLAUDE_CODE_SUBAGENT_MODEL \
+  -u CLAUDE_CODE_EFFORT_LEVEL \
+  -u CLAUDE_CODE_AUTO_COMPACT_WINDOW \
+  -u CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC \
+  -u API_TIMEOUT_MS \
+  -u AI_PAGE_BUILDER_ANTHROPIC_API_KEY \
+  -u AI_PAGE_BUILDER_ANTHROPIC_BASE_URL \
+  docker compose \
   --env-file build/.env.standalone.example \
   -f build/docker-compose.yml \
   up -d --build server playwright web
@@ -505,8 +526,17 @@ ccr.ccs.tencentyun.com/ai-page-builder/page-builder-web:latest
 
 ```dotenv
 PAGE_BUILDER_IMAGE_TAG=v202606171630
-AI_PAGE_BUILDER_ANTHROPIC_API_KEY=...
-AI_PAGE_BUILDER_ANTHROPIC_BASE_URL=...
+ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic
+ANTHROPIC_AUTH_TOKEN=...
+ANTHROPIC_MODEL=deepseek-v4-pro[1m]
+ANTHROPIC_DEFAULT_OPUS_MODEL=deepseek-v4-pro[1m]
+ANTHROPIC_DEFAULT_SONNET_MODEL=deepseek-v4-pro[1m]
+ANTHROPIC_DEFAULT_HAIKU_MODEL=deepseek-v4-flash
+CLAUDE_CODE_SUBAGENT_MODEL=deepseek-v4-flash
+CLAUDE_CODE_EFFORT_LEVEL=max
+CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000
+CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+API_TIMEOUT_MS=3000000
 PAGE_BUILDER_PORT=3333
 AI_PAGE_BUILDER_HOST_DATA_DIR=/data/ai-page-builder
 AI_PAGE_BUILDER_BASE_PATH=
@@ -712,14 +742,16 @@ bun test \
 
 ## 常见问题
 
-### `AI_PAGE_BUILDER_ANTHROPIC_API_KEY` 未设置
+### Agent SDK 凭证未设置
 
-默认 compose 中 `server` 要求 `AI_PAGE_BUILDER_ANTHROPIC_API_KEY` 必填。如果缺失，compose 会在变量展开阶段失败。
+`server` 不再在 compose 变量展开阶段强制要求旧 `AI_PAGE_BUILDER_ANTHROPIC_API_KEY`。应用启动后发起对话时，需要能解析到 `ANTHROPIC_API_KEY`、`ANTHROPIC_AUTH_TOKEN` 或旧 `AI_PAGE_BUILDER_ANTHROPIC_API_KEY` 任一凭证。
 
 处理方式：
 
 ```dotenv
-AI_PAGE_BUILDER_ANTHROPIC_API_KEY=your-key
+ANTHROPIC_AUTH_TOKEN=your-token
+# 或
+ANTHROPIC_API_KEY=your-key
 ```
 
 ### 端口被占用

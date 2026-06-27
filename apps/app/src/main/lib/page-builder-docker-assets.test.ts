@@ -8,6 +8,20 @@ const IMAGE_SEARCH_ENV_KEYS = new Set([
   'PIXABAY_API_KEY',
   'UNSPLASH_ACCESS_KEY',
 ])
+const AGENT_SDK_ENV_KEYS = [
+  'ANTHROPIC_BASE_URL',
+  'ANTHROPIC_AUTH_TOKEN',
+  'ANTHROPIC_API_KEY',
+  'ANTHROPIC_MODEL',
+  'ANTHROPIC_DEFAULT_OPUS_MODEL',
+  'ANTHROPIC_DEFAULT_SONNET_MODEL',
+  'ANTHROPIC_DEFAULT_HAIKU_MODEL',
+  'CLAUDE_CODE_SUBAGENT_MODEL',
+  'CLAUDE_CODE_EFFORT_LEVEL',
+  'CLAUDE_CODE_AUTO_COMPACT_WINDOW',
+  'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC',
+  'API_TIMEOUT_MS',
+] as const
 const PREFIXED_IMAGE_SEARCH_ENV_PATTERN = /\b[A-Z0-9]+_(?:IMAGE_SEARCH_PROVIDERS|PEXELS_API_KEY|PIXABAY_API_KEY|UNSPLASH_ACCESS_KEY)\b/g
 
 function readRepoFile(relativePath: string): string {
@@ -25,17 +39,33 @@ function expectOnlyImageSearchEnvKeys(content: string) {
   expect(invalid).toEqual([])
 }
 
+function expectAgentSdkEnvWhitelist(serverBlock: string) {
+  for (const key of AGENT_SDK_ENV_KEYS) {
+    expect(serverBlock).toContain(`${key}: \${${key}:-}`)
+  }
+  expect(serverBlock).toContain('AI_PAGE_BUILDER_ANTHROPIC_API_KEY: ${AI_PAGE_BUILDER_ANTHROPIC_API_KEY:-}')
+  expect(serverBlock).toContain('AI_PAGE_BUILDER_ANTHROPIC_BASE_URL: ${AI_PAGE_BUILDER_ANTHROPIC_BASE_URL:-}')
+  expect(serverBlock).not.toContain('AI_PAGE_BUILDER_ANTHROPIC_API_KEY:?')
+  expect(serverBlock).not.toContain('\n    env_file:')
+}
+
+function expectStartScriptClearsHostAgentSdkEnv(script: string) {
+  for (const key of AGENT_SDK_ENV_KEYS) {
+    expect(script).toContain(`-u ${key}`)
+  }
+  expect(script).toContain('-u AI_PAGE_BUILDER_ANTHROPIC_API_KEY')
+  expect(script).toContain('-u AI_PAGE_BUILDER_ANTHROPIC_BASE_URL')
+}
+
 describe('page-builder docker assets', () => {
   test('compose defines a default internal playwright sidecar and docker runtime defaults', () => {
     const compose = readRepoFile('../../../../../build/docker-compose.yml')
+    const serverBlock = readComposeServiceBlock(compose, 'server')
 
     expect(compose).toContain('\n  playwright:\n')
     expect(compose).toContain('image: mcr.microsoft.com/playwright:v1.57.0-jammy')
     expect(compose).toContain('AI_PAGE_BUILDER_RUNTIME_ENV: docker')
-    expect(compose).toContain('ANTHROPIC_API_KEY: ${AI_PAGE_BUILDER_ANTHROPIC_API_KEY:?Set AI_PAGE_BUILDER_ANTHROPIC_API_KEY')
-    expect(compose).toContain('ANTHROPIC_BASE_URL: ${AI_PAGE_BUILDER_ANTHROPIC_BASE_URL:-}')
-    expect(compose).not.toContain('ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY')
-    expect(compose).not.toContain('ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL')
+    expectAgentSdkEnvWhitelist(serverBlock)
     expect(compose).toContain('AI_PAGE_BUILDER_PLAYWRIGHT_MCP_URL: ${AI_PAGE_BUILDER_PLAYWRIGHT_MCP_URL:-http://playwright:8931/mcp}')
     expect(compose).toContain('AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN: ${AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN:-http://server:8888}')
     expect(compose).toContain('AI_PAGE_BUILDER_TEMPLATE_IMPORT_MAX_ZIP_MB: ${AI_PAGE_BUILDER_TEMPLATE_IMPORT_MAX_ZIP_MB:-100}')
@@ -55,13 +85,25 @@ describe('page-builder docker assets', () => {
     expect(compose).not.toContain('\n    depends_on:\n      - playwright\n')
   })
 
+  test('start script clears host Agent SDK env before compose reads the env file', () => {
+    const script = readRepoFile('../../../../../build/start-page-builder.sh')
+
+    expectStartScriptClearsHostAgentSdkEnv(script)
+    expect(script).toContain('run_docker_compose')
+    expect(script).toContain('--env-file "${ENV_FILE}"')
+  })
+
   test('env example documents default playwright runtime overrides', () => {
     const envExample = readRepoFile('../../../../../build/.env.standalone.example')
 
     expect(envExample).toContain('AI_PAGE_BUILDER_ANTHROPIC_API_KEY=')
     expect(envExample).toContain('AI_PAGE_BUILDER_ANTHROPIC_BASE_URL=')
-    expect(envExample).not.toMatch(/^ANTHROPIC_API_KEY=/m)
-    expect(envExample).not.toMatch(/^ANTHROPIC_BASE_URL=/m)
+    expect(envExample).toMatch(/^ANTHROPIC_AUTH_TOKEN=/m)
+    expect(envExample).toMatch(/^ANTHROPIC_BASE_URL=/m)
+    expect(envExample).toMatch(/^ANTHROPIC_MODEL=/m)
+    expect(envExample).toMatch(/^CLAUDE_CODE_AUTO_COMPACT_WINDOW=/m)
+    expect(envExample).toMatch(/^API_TIMEOUT_MS=/m)
+    expect(envExample).toContain('DeepSeek')
     expect(envExample).toContain('AI_PAGE_BUILDER_PLAYWRIGHT_MCP_URL=')
     expect(envExample).toContain('AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN=')
     expect(envExample).toContain('Playwright MCP sidecar')
@@ -111,8 +153,11 @@ describe('page-builder docker assets', () => {
     expect(cmsEnvExample).toContain('AI_PAGE_BUILDER_BASE_PATH=/pagebuilder')
     expect(cmsEnvExample).toContain('AI_PAGE_BUILDER_ANTHROPIC_API_KEY=')
     expect(cmsEnvExample).toContain('AI_PAGE_BUILDER_ANTHROPIC_BASE_URL=')
-    expect(cmsEnvExample).not.toMatch(/^ANTHROPIC_API_KEY=/m)
-    expect(cmsEnvExample).not.toMatch(/^ANTHROPIC_BASE_URL=/m)
+    expect(cmsEnvExample).toMatch(/^ANTHROPIC_AUTH_TOKEN=/m)
+    expect(cmsEnvExample).toMatch(/^ANTHROPIC_BASE_URL=/m)
+    expect(cmsEnvExample).toMatch(/^ANTHROPIC_MODEL=/m)
+    expect(cmsEnvExample).toMatch(/^CLAUDE_CODE_EFFORT_LEVEL=/m)
+    expect(cmsEnvExample).toMatch(/^API_TIMEOUT_MS=/m)
     expect(cmsEnvExample).toContain('AI_PAGE_BUILDER_PUBLIC_ORIGIN=')
     expect(cmsEnvExample).toContain('AI_PAGE_BUILDER_HANDOFF_TTL_MS=')
     expect(cmsEnvExample).toContain('AI_PAGE_BUILDER_ACCESS_SESSION_TTL_MS=')
@@ -148,6 +193,7 @@ describe('page-builder docker assets', () => {
     expect(serverBlock).toContain('AI_PAGE_BUILDER_SYNC_EXPORT_TIMEOUT_MS: ${AI_PAGE_BUILDER_SYNC_EXPORT_TIMEOUT_MS:-0}')
     expect(serverBlock).toContain('AI_PAGE_BUILDER_TEMPLATE_IMPORT_MAX_ZIP_MB: ${AI_PAGE_BUILDER_TEMPLATE_IMPORT_MAX_ZIP_MB:-100}')
     expect(serverBlock).toContain('AI_PAGE_BUILDER_TEMPLATE_IMPORT_MAX_UNCOMPRESSED_MB: ${AI_PAGE_BUILDER_TEMPLATE_IMPORT_MAX_UNCOMPRESSED_MB:-500}')
+    expectAgentSdkEnvWhitelist(serverBlock)
     expect(webBlock).toContain('AI_PAGE_BUILDER_BASE_PATH: ${AI_PAGE_BUILDER_BASE_PATH:-}')
     expect(webBlock).not.toContain('args:')
     expect(compose).not.toContain('/pagebuilder/api')
@@ -219,7 +265,7 @@ describe('page-builder docker assets', () => {
     expect(serverBlock).toContain('restart: unless-stopped')
     expect(webBlock).toContain('restart: unless-stopped')
     expect(playwrightBlock).toContain('restart: unless-stopped')
-    expect(serverBlock).toContain('ANTHROPIC_API_KEY: ${AI_PAGE_BUILDER_ANTHROPIC_API_KEY:?Set AI_PAGE_BUILDER_ANTHROPIC_API_KEY}')
+    expectAgentSdkEnvWhitelist(serverBlock)
     expect(serverBlock).toContain('AI_PAGE_BUILDER_ACCESS_SESSION_RENEW_THRESHOLD_MS: ${AI_PAGE_BUILDER_ACCESS_SESSION_RENEW_THRESHOLD_MS:-}')
     expect(serverBlock).toContain('AI_PAGE_BUILDER_TEMPLATE_IMPORT_MAX_ZIP_MB: ${AI_PAGE_BUILDER_TEMPLATE_IMPORT_MAX_ZIP_MB:-100}')
     expect(serverBlock).toContain('AI_PAGE_BUILDER_TEMPLATE_IMPORT_MAX_UNCOMPRESSED_MB: ${AI_PAGE_BUILDER_TEMPLATE_IMPORT_MAX_UNCOMPRESSED_MB:-500}')

@@ -1,4 +1,6 @@
-import { createWriteStream } from 'node:fs'
+import { createWriteStream, existsSync, readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { applyAgentSdkEnvFileOverrides } from '../src/main/lib/agent-runtime-env'
 import { resolveDevServerLoggingRuntime } from '../src/main/lib/dev-server-logging'
 
 interface DevServerCliOptions {
@@ -35,6 +37,33 @@ function parseArgs(argv: string[]): DevServerCliOptions {
   return { entryPath, logFileName }
 }
 
+function findWorkspaceRoot(startDir: string): string {
+  let current = startDir
+
+  while (true) {
+    const packageJsonPath = join(current, 'package.json')
+    if (existsSync(packageJsonPath) && readFileSync(packageJsonPath, 'utf-8').includes('"workspaces"')) {
+      return current
+    }
+
+    const parent = dirname(current)
+    if (parent === current) return startDir
+    current = parent
+  }
+}
+
+function applyLocalAgentSdkEnvOverrides(): void {
+  if (process.env.NODE_ENV !== 'development') return
+
+  const envFilePath = join(findWorkspaceRoot(process.cwd()), '.env.local')
+  if (!existsSync(envFilePath)) return
+
+  const result = applyAgentSdkEnvFileOverrides(readFileSync(envFilePath, 'utf-8'), process.env)
+  if (result.appliedKeys.length > 0) {
+    console.log(`[开发服务] 已使用 .env.local 覆盖 Agent SDK 环境变量: ${result.appliedKeys.join(', ')}`)
+  }
+}
+
 async function pipeToOutputs(
   stream: ReadableStream<Uint8Array> | null | undefined,
   target: NodeJS.WriteStream,
@@ -56,6 +85,8 @@ async function pipeToOutputs(
 
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2))
+  applyLocalAgentSdkEnvOverrides()
+
   const runtime = resolveDevServerLoggingRuntime({
     cwd: process.cwd(),
     entryPath: options.entryPath,

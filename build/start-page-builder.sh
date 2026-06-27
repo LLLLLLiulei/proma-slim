@@ -6,6 +6,26 @@ REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 ENV_FILE="${SCRIPT_DIR}/.env.standalone.example"
 COMPOSE_FILE="${SCRIPT_DIR}/docker-compose.yml"
 PLATFORM=""
+AGENT_SDK_ENV_UNSET_ARGS=(
+  -u ANTHROPIC_BASE_URL
+  -u ANTHROPIC_AUTH_TOKEN
+  -u ANTHROPIC_API_KEY
+  -u ANTHROPIC_MODEL
+  -u ANTHROPIC_DEFAULT_OPUS_MODEL
+  -u ANTHROPIC_DEFAULT_SONNET_MODEL
+  -u ANTHROPIC_DEFAULT_HAIKU_MODEL
+  -u CLAUDE_CODE_SUBAGENT_MODEL
+  -u CLAUDE_CODE_EFFORT_LEVEL
+  -u CLAUDE_CODE_AUTO_COMPACT_WINDOW
+  -u CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC
+  -u API_TIMEOUT_MS
+  -u AI_PAGE_BUILDER_ANTHROPIC_API_KEY
+  -u AI_PAGE_BUILDER_ANTHROPIC_BASE_URL
+)
+
+run_docker_compose() {
+  env "${AGENT_SDK_ENV_UNSET_ARGS[@]}" docker compose "$@"
+}
 
 usage() {
   cat <<'EOF'
@@ -105,12 +125,12 @@ if [ -n "${PLATFORM}" ]; then
     --file "${SCRIPT_DIR}/Dockerfile.page-builder-web" \
     "${REPO_ROOT}"
 
-  docker compose \
+  run_docker_compose \
     --env-file "${ENV_FILE}" \
     -f "${COMPOSE_FILE}" \
     up -d --no-build server playwright web
 else
-  docker compose \
+  run_docker_compose \
     --env-file "${ENV_FILE}" \
     -f "${COMPOSE_FILE}" \
     up -d --build server playwright web

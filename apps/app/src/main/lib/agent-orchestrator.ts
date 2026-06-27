@@ -59,7 +59,7 @@ import { buildSystemPromptAppend, buildDynamicContext } from './agent-prompt-bui
 import { permissionService } from './agent-permission-service'
 import { askUserService } from './agent-ask-user-service'
 import { mapAgentFriendlyError } from './agent-friendly-error'
-import { resolveAnthropicRuntimeEnv } from './agent-runtime-env'
+import { AGENT_SDK_ENV_KEYS, type AgentSdkRuntimeEnv, resolveAgentSdkRuntimeEnv } from './agent-runtime-env'
 import { applyPromaAgentToolGuardrails } from './agent-tool-guardrails'
 import {
   areAllWorkersIdle,
@@ -531,6 +531,35 @@ function normalizeAnthropicBaseUrlForSdk(baseUrl: string): string {
     .replace(/\/v\d+$/, '')
 }
 
+function shouldStripInheritedAgentSdkEnv(key: string): boolean {
+  return key.startsWith('ANTHROPIC_')
+    || key.startsWith('CLAUDE_CODE_')
+    || key === 'API_TIMEOUT_MS'
+}
+
+function normalizeAgentSdkRuntimeEnvForSdk(env: AgentSdkRuntimeEnv): AgentSdkRuntimeEnv {
+  const normalized: AgentSdkRuntimeEnv = { ...env }
+  if (normalized.ANTHROPIC_BASE_URL) {
+    normalized.ANTHROPIC_BASE_URL = normalizeAnthropicBaseUrlForSdk(normalized.ANTHROPIC_BASE_URL)
+  }
+  return normalized
+}
+
+function syncAgentSdkRuntimeEnvToProcessEnv(env: AgentSdkRuntimeEnv): void {
+  for (const key of Object.keys(process.env)) {
+    if (shouldStripInheritedAgentSdkEnv(key)) {
+      delete process.env[key]
+    }
+  }
+
+  for (const key of AGENT_SDK_ENV_KEYS) {
+    const value = env[key]
+    if (value) {
+      process.env[key] = value
+    }
+  }
+}
+
 async function withSdkConfigDir<T>(
   sdkConfigDir: string | undefined,
   operation: () => Promise<T>,
@@ -799,29 +828,24 @@ export class AgentOrchestrator {
   /**
    * 构建 SDK 环境变量
    *
-   * 注入 API Key、Base URL、代理、Shell 配置等。
+   * 注入受控 Agent SDK env、代理、Shell 配置等。
    */
-  private async buildSdkEnv(
-    apiKey: string,
-    baseUrl: string | undefined,
-  ): Promise<Record<string, string | undefined>> {
-    const DEFAULT_ANTHROPIC_URL = 'https://api.anthropic.com'
-
-    // 从 process.env 继承系统变量，但清理所有 ANTHROPIC_ 前缀的变量，
-    // 防止本地开发环境（如 ANTHROPIC_AUTH_TOKEN、ANTHROPIC_API_KEY、
-    // ANTHROPIC_BASE_URL 等）干扰 SDK 的认证和请求目标。
+  private async buildSdkEnv(agentSdkRuntimeEnv: AgentSdkRuntimeEnv): Promise<Record<string, string | undefined>> {
+    // 从 process.env 继承系统变量，但清理所有 Agent SDK env 命名空间变量，
+    // 防止本地 shell 中的未知 ANTHROPIC_* / CLAUDE_CODE_* 覆盖受控配置。
     // 即使 index.ts 启动时已清理过一次，initializeRuntime() 中的
     // loadShellEnv() 可能从 shell 配置文件（~/.zshrc 等）重新注入这些变量。
     const cleanEnv: Record<string, string | undefined> = {}
     for (const [key, value] of Object.entries(process.env)) {
-      if (!key.startsWith('ANTHROPIC_')) {
+      if (!shouldStripInheritedAgentSdkEnv(key)) {
         cleanEnv[key] = value
       }
     }
 
+    const normalizedAgentSdkRuntimeEnv = normalizeAgentSdkRuntimeEnvForSdk(agentSdkRuntimeEnv)
     const sdkEnv: Record<string, string | undefined> = {
       ...cleanEnv,
-      ANTHROPIC_API_KEY: apiKey,
+      ...normalizedAgentSdkRuntimeEnv,
       // 提升输出 token 上限，避免 "exceeded 32000 output token maximum" 错误
       CLAUDE_CODE_MAX_OUTPUT_TOKENS: '64000',
       // 启用 Agent Teams（实验性多 Agent 协作）
@@ -830,12 +854,6 @@ export class AgentOrchestrator {
       CLAUDE_CODE_ENABLE_TASKS: 'true',
       // 配置隔离：让 SDK 使用独立的配置目录，不读取用户的 ~/.claude.json
       CLAUDE_CONFIG_DIR: getSdkConfigDir(),
-    }
-
-    // 显式控制 ANTHROPIC_BASE_URL：仅在用户配置了自定义 Base URL 时注入
-    // 使用统一的 normalizeAnthropicBaseUrlForSdk 规范化，SDK 内部会自动拼接 /v1/messages
-    if (baseUrl && baseUrl !== DEFAULT_ANTHROPIC_URL) {
-      sdkEnv.ANTHROPIC_BASE_URL = normalizeAnthropicBaseUrlForSdk(baseUrl)
     }
 
     const proxyUrl = await getEffectiveProxyUrl()
@@ -1191,33 +1209,25 @@ export class AgentOrchestrator {
       }
     }
 
-    // 2. 直接从环境变量读取 API Key（不再依赖渠道系统）
-    const anthropicEnv = resolveAnthropicRuntimeEnv()
-    const apiKey = anthropicEnv.apiKey
-    if (!apiKey) {
+    // 2. 直接从环境变量读取 Agent SDK 凭证与受控运行时 env（不再依赖渠道系统）
+    const agentSdkRuntimeEnv = resolveAgentSdkRuntimeEnv()
+    if (!agentSdkRuntimeEnv.hasCredential) {
       rollbackPendingAttachments()
-      logTurnPhase('error', 'api_key_missing', {}, '缺少 Agent API Key')
-      callbacks.onError('未检测到 ANTHROPIC_API_KEY 或 AI_PAGE_BUILDER_ANTHROPIC_API_KEY 环境变量，请先在终端配置后再发送消息')
+      logTurnPhase('error', 'agent_sdk_credential_missing', {}, '缺少 Agent SDK 凭证')
+      callbacks.onError('未检测到 Agent SDK 凭证，请配置 ANTHROPIC_API_KEY、ANTHROPIC_AUTH_TOKEN 或 AI_PAGE_BUILDER_ANTHROPIC_API_KEY 后再发送消息')
       return
     }
-    const baseUrl = anthropicEnv.baseUrl
+    const normalizedAgentSdkRuntimeEnv = normalizeAgentSdkRuntimeEnvForSdk(agentSdkRuntimeEnv.env)
 
     // 3. 构建环境变量
-    // 同步凭证到 process.env（SDK in-process 代码可能直接读取 process.env）
+    // 同步受控 Agent SDK env 到 process.env（SDK in-process 代码可能直接读取 process.env）
     // 先清理再注入，确保 SDK 无论从 env 选项还是 process.env 都拿到正确值
-    delete process.env.ANTHROPIC_API_KEY
-    delete process.env.ANTHROPIC_AUTH_TOKEN
-    delete process.env.ANTHROPIC_BASE_URL
-    process.env.ANTHROPIC_API_KEY = apiKey
-    // 使用与 buildSdkEnv 相同的规范化逻辑，确保 process.env 和 sdkEnv 中的 URL 一致
-    if (baseUrl && baseUrl !== 'https://api.anthropic.com') {
-      process.env.ANTHROPIC_BASE_URL = normalizeAnthropicBaseUrlForSdk(baseUrl)
-    }
+    syncAgentSdkRuntimeEnvToProcessEnv(normalizedAgentSdkRuntimeEnv)
 
     let sdkEnv: Record<string, string | undefined>
     let sdk: typeof import('@anthropic-ai/claude-agent-sdk')
     try {
-      sdkEnv = await this.buildSdkEnv(apiKey, baseUrl)
+      sdkEnv = await this.buildSdkEnv(normalizedAgentSdkRuntimeEnv)
       sdk = await import('@anthropic-ai/claude-agent-sdk')
     } catch (error) {
       rollbackPendingAttachments()
