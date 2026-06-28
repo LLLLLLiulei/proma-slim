@@ -2,8 +2,10 @@ import * as React from 'react'
 import Editor, { loader, type BeforeMount, type OnMount } from '@monaco-editor/react'
 import { shouldHandleCodeEditorSaveShortcut } from '@page-builder/lib/code-editor-shortcuts'
 import {
-  PAGE_BUILDER_CODE_EDITOR_THEME,
+  PAGE_BUILDER_CODE_EDITOR_THEME_OPTIONS,
   createPageBuilderCodeEditorOptions,
+  getPageBuilderCodeEditorThemeName,
+  type PageBuilderCodeEditorThemeId,
 } from '@page-builder/lib/code-editor-theme'
 import { createPageBuilderMonacoLoaderConfig } from '@page-builder/lib/monaco-loader-config'
 import { getPageBuilderPublicBasePath } from '@page-builder/lib/public-base-path'
@@ -13,8 +15,9 @@ import { getPageBuilderPublicBasePath } from '@page-builder/lib/public-base-path
 loader.config(createPageBuilderMonacoLoaderConfig(getPageBuilderPublicBasePath()))
 
 const configureMonacoBeforeMount: BeforeMount = (monacoInstance) => {
-  // 在浅色 vs 基础上增强 token 着色（仿 GitHub/VSCode Light+），不改保存逻辑。
-  monacoInstance.editor.defineTheme('page-builder-light', PAGE_BUILDER_CODE_EDITOR_THEME)
+  for (const theme of PAGE_BUILDER_CODE_EDITOR_THEME_OPTIONS) {
+    monacoInstance.editor.defineTheme(theme.monacoThemeName, theme.theme)
+  }
 }
 
 export interface CodeEditorProps {
@@ -22,6 +25,7 @@ export interface CodeEditorProps {
   language: string
   active?: boolean
   readOnly?: boolean
+  themeId?: PageBuilderCodeEditorThemeId
   /** 拖动分隔条期间设为 false，避免 minimap 随容器宽度连续变化反复重绘闪烁 */
   minimapEnabled?: boolean
   onChange?: (value: string) => void
@@ -33,6 +37,7 @@ export function CodeEditor({
   language,
   active = true,
   readOnly,
+  themeId = 'light',
   minimapEnabled = true,
   onChange,
   onSave,
@@ -92,7 +97,7 @@ export function CodeEditor({
     <Editor
       value={value}
       language={language}
-      theme="page-builder-light"
+      theme={getPageBuilderCodeEditorThemeName(themeId)}
       beforeMount={configureMonacoBeforeMount}
       onMount={handleMount}
       onChange={(next) => onChange?.(next ?? '')}

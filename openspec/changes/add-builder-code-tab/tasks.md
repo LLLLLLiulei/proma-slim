@@ -36,13 +36,13 @@
 - [x] 4.2 保存必须持有有效编辑锁；保存 409 时通知 BuilderPage 走现有编辑锁失效处理
 - [x] 4.3 保存成功后刷新预览：`onSaved(previewState)` → BuilderPage `writeNextPreviewState`，复用现有 `revision` 轮询，不新建 SSE
 - [x] 4.4 未保存改动保护：`beforeunload` 拦截 + 关闭 Tab 确认；切 Tab 保留编辑器状态（hidden 不卸载）
-- [x] 4.5 Monaco 主题固定浅色（`vs`）；应用 dark mode 对齐留作后续增强
+- [x] 4.5 Monaco 主题支持浅色 / 深色切换；主题切换开关位于底部状态栏，偏好仅本地持久化，不影响保存和只读逻辑
 
 ## 5. 验证
 
 - [x] 5.1 后端单测：`workspace-files-service` 覆盖 list/read/save/path/version/conflict/不存在文件不创建
 - [x] 5.2 前端单测：`workspace-files-api` 覆盖 list/read/save URL、method、body、编辑锁 header、baseVersion、非 2xx 抛 ApiError、客户端不暴露 create/delete
-- [x] 5.3 前端单测：`code-editor-shortcuts` 覆盖保存快捷键只在代码 Tab 激活、编辑器聚焦、非只读时生效
+- [x] 5.3 前端单测：`code-editor-shortcuts` 覆盖保存快捷键只在代码 Tab 激活、编辑器聚焦、非只读时生效；`code-editor-theme` / `code-editor-theme-preference` / `CodeEditorStatusBar` 覆盖主题配置、偏好读写和底部主题切换开关
 - [x] 5.4 `bun run typecheck`（app + page-builder）
 - [ ] 5.5 端到端验证（手动）：切代码 Tab → 文件树 → 编辑 index.html 保存 → 预览刷新；Agent 运行时只读打开且不能保存；图片预览与二进制提示；外部修改后旧 draft 保存冲突
 - [x] 5.6 生产构建：`bun run --filter='@ai-page-builder/page-builder' build`，确认 Monaco worker 资源正确打包

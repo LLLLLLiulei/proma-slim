@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { useAtom } from 'jotai'
-import { ImageOff, LoaderCircle, Save } from 'lucide-react'
+import { ImageOff, LoaderCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { ApiError, resolveApiUrl, type WorkspacePreviewState } from '@/lib/api'
 import type { PageBuilderEditLockCredentials } from '@ai-page-builder/shared'
@@ -12,11 +12,13 @@ import {
   type CodeEditorSessionMap,
   type OpenCodeFile,
 } from '@page-builder/atoms/builder-code-atoms'
+import { usePageBuilderCodeEditorThemePreference } from '@page-builder/lib/code-editor-theme-preference'
 import { workspaceFilesApi } from '@page-builder/lib/workspace-files-api'
 import { useBuilderActiveTab } from './BuilderRightPanel'
 import { CodeExplorer } from './CodeExplorer'
 import { CodeEditorTabs } from './CodeEditorTabs'
 import { CodeEditor } from './CodeEditor'
+import { CodeEditorStatusBar } from './CodeEditorStatusBar'
 
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico'])
 const ENTRY_HTML_PATH = 'index.html'
@@ -71,6 +73,7 @@ export function BuilderCodeTab({ workspaceId, readOnly, editLock, onSaved, onEdi
   const [sessions, setSessions] = useAtom(codeEditorSessionsAtom)
   const session = getCodeEditorSession(sessions, workspaceId)
   const activeTab = useBuilderActiveTab()
+  const [editorThemeId, setEditorThemeId] = usePageBuilderCodeEditorThemePreference()
 
   const activeFile = session.openFiles.find((file) => file.path === session.activePath) ?? null
 
@@ -285,6 +288,7 @@ export function BuilderCodeTab({ workspaceId, readOnly, editLock, onSaved, onEdi
                 value={activeFile.draftContent}
                 language={activeFile.language}
                 readOnly={readOnly}
+                themeId={editorThemeId}
                 minimapEnabled={!isDragging}
                 onChange={(value) => handleChange(activeFile.path, value)}
                 onSave={() => void saveFile(activeFile.path)}
@@ -309,17 +313,12 @@ export function BuilderCodeTab({ workspaceId, readOnly, editLock, onSaved, onEdi
           )}
         </div>
         {activeFile?.viewMode === 'editor' && (
-          <div className="flex items-center justify-between border-t border-border/55 px-3 py-1 text-xs text-muted-foreground">
-            <span>{activeFile.language}</span>
-            <button
-              type="button"
-              disabled={readOnly || !editLock || activeFile.draftContent === activeFile.savedContent}
-              onClick={() => void saveFile(activeFile.path)}
-              className="inline-flex items-center gap-1 rounded px-2 py-0.5 hover:bg-muted disabled:opacity-40"
-            >
-              <Save className="size-3" /> 保存 (⌘S)
-            </button>
-          </div>
+          <CodeEditorStatusBar
+            themeId={editorThemeId}
+            saveDisabled={readOnly || !editLock || activeFile.draftContent === activeFile.savedContent}
+            onThemeChange={setEditorThemeId}
+            onSave={() => void saveFile(activeFile.path)}
+          />
         )}
       </div>
     </div>

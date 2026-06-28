@@ -170,3 +170,28 @@
 - **WHEN** 用户在存在未保存改动时关闭页面或关闭文件 Tab
 - **THEN** 系统 SHALL 弹出确认提示
 - **AND** 系统 SHALL 仅在用户确认后才放弃未保存改动
+
+### Requirement: 代码编辑器必须支持 Monaco 主题切换
+
+系统 SHALL 在代码 Tab 底部状态栏提供 Monaco 编辑器主题切换开关，允许用户在浅色与深色主题之间切换。主题切换 SHALL 只影响 Monaco 编辑区，不影响 Page Builder 外层 UI、文件树、聊天区、保存语义、编辑锁或文件内容。系统 SHALL 默认使用浅色主题，并 SHALL 将用户选择保存为浏览器本地偏好；当本地偏好缺失或非法时 SHALL 回退浅色主题。
+
+#### Scenario: 用户在底部状态栏切换编辑器主题
+
+- **WHEN** 用户在代码 Tab 打开一个可编辑文本文件
+- **THEN** 系统 SHALL 在底部状态栏左侧展示保存按钮、右侧展示主题切换开关
+- **WHEN** 用户将主题从浅色切换为深色
+- **THEN** 系统 SHALL 将 Monaco 编辑区切换为深色主题
+- **AND** 系统 SHALL 不改变文件内容或触发保存
+
+#### Scenario: 只读状态仍允许切换主题
+
+- **WHEN** 当前工作区处于 Agent 运行时只读状态
+- **AND** 用户打开代码 Tab 查看文本文件
+- **THEN** 系统 SHALL 禁止编辑和保存
+- **AND** 系统 SHALL 仍允许用户切换 Monaco 编辑器主题
+
+#### Scenario: 主题偏好在刷新后保留
+
+- **WHEN** 用户选择深色主题
+- **AND** 用户刷新页面后重新进入代码 Tab
+- **THEN** 系统 SHALL 继续使用深色 Monaco 编辑器主题

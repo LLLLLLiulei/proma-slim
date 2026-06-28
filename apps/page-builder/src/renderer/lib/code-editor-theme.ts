@@ -1,6 +1,17 @@
 import type * as monaco from 'monaco-editor'
 
-export const PAGE_BUILDER_CODE_EDITOR_THEME: monaco.editor.IStandaloneThemeData = {
+export type PageBuilderCodeEditorThemeId = 'light' | 'dark'
+
+export interface PageBuilderCodeEditorThemeDefinition {
+  id: PageBuilderCodeEditorThemeId
+  label: string
+  monacoThemeName: string
+  theme: monaco.editor.IStandaloneThemeData
+}
+
+export const DEFAULT_PAGE_BUILDER_CODE_EDITOR_THEME_ID: PageBuilderCodeEditorThemeId = 'light'
+
+const PAGE_BUILDER_CODE_EDITOR_LIGHT_THEME: monaco.editor.IStandaloneThemeData = {
   base: 'vs',
   inherit: true,
   rules: [
@@ -72,6 +83,110 @@ export const PAGE_BUILDER_CODE_EDITOR_THEME: monaco.editor.IStandaloneThemeData 
     'editorBracketHighlight.foreground6': '#0550AE',
     'editorOverviewRuler.border': '#D0D7DE',
   },
+}
+
+const PAGE_BUILDER_CODE_EDITOR_DARK_THEME: monaco.editor.IStandaloneThemeData = {
+  base: 'vs-dark',
+  inherit: true,
+  rules: [
+    { token: 'comment', foreground: '8B949E', fontStyle: 'italic' },
+    { token: 'keyword', foreground: 'FF7B72' },
+    { token: 'string', foreground: 'A5D6FF' },
+    { token: 'number', foreground: '79C0FF' },
+    { token: 'regexp', foreground: 'D2A8FF' },
+    { token: 'type', foreground: 'FFA657' },
+    { token: 'class', foreground: 'FFA657' },
+    { token: 'namespace', foreground: 'FFA657' },
+    { token: 'function', foreground: 'D2A8FF' },
+    { token: 'identifier.function', foreground: 'D2A8FF' },
+    { token: 'variable', foreground: 'C9D1D9' },
+    { token: 'delimiter', foreground: '8B949E' },
+    { token: 'delimiter.bracket', foreground: '8B949E' },
+    { token: 'operator', foreground: '8B949E' },
+
+    { token: 'tag', foreground: '7EE787' },
+    { token: 'tag.html', foreground: '7EE787' },
+    { token: 'metatag.html', foreground: 'FF7B72' },
+    { token: 'delimiter.html', foreground: '8B949E' },
+    { token: 'delimiter.angle.html', foreground: '8B949E' },
+    { token: 'attribute.name', foreground: '79C0FF' },
+    { token: 'attribute.name.html', foreground: '79C0FF' },
+    { token: 'attribute.value', foreground: 'A5D6FF' },
+    { token: 'attribute.value.html', foreground: 'A5D6FF' },
+
+    { token: 'tag.css', foreground: '7EE787' },
+    { token: 'attribute.name.css', foreground: '79C0FF' },
+    { token: 'attribute.value.css', foreground: 'FFA657' },
+    { token: 'keyword.css', foreground: 'FF7B72' },
+    { token: 'number.css', foreground: '79C0FF' },
+    { token: 'string.css', foreground: 'A5D6FF' },
+    { token: 'type.css', foreground: 'FFA657' },
+    { token: 'operator.css', foreground: '8B949E' },
+
+    { token: 'keyword.js', foreground: 'FF7B72' },
+    { token: 'keyword.ts', foreground: 'FF7B72' },
+    { token: 'string.js', foreground: 'A5D6FF' },
+    { token: 'string.ts', foreground: 'A5D6FF' },
+    { token: 'number.js', foreground: '79C0FF' },
+    { token: 'number.ts', foreground: '79C0FF' },
+    { token: 'regexp.js', foreground: 'D2A8FF' },
+    { token: 'regexp.ts', foreground: 'D2A8FF' },
+    { token: 'identifier.function.js', foreground: 'D2A8FF' },
+    { token: 'identifier.function.ts', foreground: 'D2A8FF' },
+    { token: 'type.identifier.ts', foreground: 'FFA657' },
+  ],
+  colors: {
+    'editor.background': '#0D1117',
+    'editor.foreground': '#C9D1D9',
+    'editorCursor.foreground': '#58A6FF',
+    'editorLineNumber.foreground': '#6E7681',
+    'editorLineNumber.activeForeground': '#C9D1D9',
+    'editor.selectionBackground': '#264F78',
+    'editor.inactiveSelectionBackground': '#1F6FEB40',
+    'editor.lineHighlightBackground': '#161B22',
+    'editorWhitespace.foreground': '#30363D',
+    'editorIndentGuide.background': '#30363D',
+    'editorIndentGuide.activeBackground': '#8B949E',
+    'editorBracketMatch.background': '#1F6FEB33',
+    'editorBracketMatch.border': '#58A6FF',
+    'editorBracketHighlight.foreground1': '#58A6FF',
+    'editorBracketHighlight.foreground2': '#7EE787',
+    'editorBracketHighlight.foreground3': '#FFA657',
+    'editorBracketHighlight.foreground4': '#D2A8FF',
+    'editorBracketHighlight.foreground5': '#FF7B72',
+    'editorBracketHighlight.foreground6': '#79C0FF',
+    'editorOverviewRuler.border': '#30363D',
+  },
+}
+
+export const PAGE_BUILDER_CODE_EDITOR_THEMES: Record<PageBuilderCodeEditorThemeId, PageBuilderCodeEditorThemeDefinition> = {
+  light: {
+    id: 'light',
+    label: '浅色',
+    monacoThemeName: 'page-builder-light',
+    theme: PAGE_BUILDER_CODE_EDITOR_LIGHT_THEME,
+  },
+  dark: {
+    id: 'dark',
+    label: '深色',
+    monacoThemeName: 'page-builder-dark',
+    theme: PAGE_BUILDER_CODE_EDITOR_DARK_THEME,
+  },
+}
+
+export const PAGE_BUILDER_CODE_EDITOR_THEME_OPTIONS = [
+  PAGE_BUILDER_CODE_EDITOR_THEMES.light,
+  PAGE_BUILDER_CODE_EDITOR_THEMES.dark,
+]
+
+export const PAGE_BUILDER_CODE_EDITOR_THEME = PAGE_BUILDER_CODE_EDITOR_THEMES.light.theme
+
+export function parsePageBuilderCodeEditorThemeId(value: unknown): PageBuilderCodeEditorThemeId {
+  return value === 'dark' ? 'dark' : DEFAULT_PAGE_BUILDER_CODE_EDITOR_THEME_ID
+}
+
+export function getPageBuilderCodeEditorThemeName(themeId: PageBuilderCodeEditorThemeId): string {
+  return PAGE_BUILDER_CODE_EDITOR_THEMES[themeId].monacoThemeName
 }
 
 export interface PageBuilderCodeEditorOptionsInput {

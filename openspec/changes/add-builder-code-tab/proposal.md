@@ -6,6 +6,7 @@ Page Builder 当前只能通过对话（Agent）或预览内联编辑间接修�
 
 - 右侧栏顶部新增「聊天 / 代码」双 Tab 切换；聊天 Tab 保留现有 `AgentView` 全部功能不变，不改主应用 `AgentView` 本身。
 - 代码 Tab 采用轻量 VSCode 风格：左侧 Explorer 递归列出 `workspace-files/` 下已有文件，右侧 Monaco 编辑器支持多文件 Tab、状态栏和保存快捷键。
+- 状态栏提供 Monaco 编辑器主题切换，仅切换编辑区主题；默认浅色，可切换深色，并以浏览器本地偏好持久化。
 - **只允许打开和保存已有文本文件内容**；禁止新建文件、文件夹、删除、重命名。
 - 图片文件以预览形式展示，其他二进制文件给出“二进制不可编辑”提示。
 - 后端新增「工作区文件」API，挂载到 `/api/workspaces/:workspaceId/files`，仅提供 `list` / `read` / `save`：`GET /files`、`GET /files/*`、`PUT /files/*`。
@@ -20,7 +21,7 @@ Page Builder 当前只能通过对话（Agent）或预览内联编辑间接修�
 
 ### New Capabilities
 
-- `page-builder-code-editor`: Page Builder 右侧栏代码 Tab 能力——文件树 + 多 Tab + Monaco，对当前工作区 `workspace-files/` 下已有文本文件提供浏览 / 编辑 / 保存，受编辑锁、Agent 运行时只读和文件版本冲突保护约束，保存后驱动预览刷新；并定义支撑该能力的工作区文件读取与保存 API 契约。
+- `page-builder-code-editor`: Page Builder 右侧栏代码 Tab 能力——文件树 + 多 Tab + Monaco，对当前工作区 `workspace-files/` 下已有文本文件提供浏览 / 编辑 / 保存，支持底部状态栏切换 Monaco 浅/深色主题，受编辑锁、Agent 运行时只读和文件版本冲突保护约束，保存后驱动预览刷新；并定义支撑该能力的工作区文件读取与保存 API 契约。
 
 ### Modified Capabilities
 
@@ -28,7 +29,7 @@ Page Builder 当前只能通过对话（Agent）或预览内联编辑间接修�
 
 ## Impact
 
-- **前端 `apps/page-builder/src/renderer/`**：新增 `components/builder/BuilderRightPanel.tsx`、`BuilderCodeTab.tsx`、`CodeExplorer.tsx`、`CodeEditorTabs.tsx`、`CodeEditor.tsx`、`atoms/builder-code-atoms.ts`、`lib/workspace-files-api.ts`、`lib/code-editor-shortcuts.ts`；修改 `pages/BuilderPage.tsx`（右侧栏改用 `BuilderRightPanel`、Agent 只读联动、保存刷新预览）、`package.json`（新增 Monaco 依赖）。
+- **前端 `apps/page-builder/src/renderer/`**：新增 `components/builder/BuilderRightPanel.tsx`、`BuilderCodeTab.tsx`、`CodeExplorer.tsx`、`CodeEditorTabs.tsx`、`CodeEditor.tsx`、`CodeEditorStatusBar.tsx`、`atoms/builder-code-atoms.ts`、`lib/workspace-files-api.ts`、`lib/code-editor-shortcuts.ts`、`lib/code-editor-theme.ts`、`lib/code-editor-theme-preference.ts`；修改 `pages/BuilderPage.tsx`（右侧栏改用 `BuilderRightPanel`、Agent 只读联动、保存刷新预览）、`package.json`（新增 Monaco 依赖）。
 - **后端 `apps/app/src/main/`**：新增 `http/routes/workspace-files.ts`、`lib/workspace-files-service.ts`（list / read / save，save 仅保存已有文件）；修改 `http/routes/workspaces.ts`（挂载新路由）。
 - **依赖**：新增 `@monaco-editor/react`、`monaco-editor`（page-builder workspace）。
 - **构建体积**：Monaco 本地打包会增加 bundle 体积；当前通过 Vite `?worker` 本地打包 worker，后续可继续按需裁剪/懒加载优化。

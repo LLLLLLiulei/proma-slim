@@ -15,6 +15,7 @@ Page Builder 构建页右侧栏目前直接渲染主应用共享组件 `AgentVie
 - 复用现有编辑锁、预览 `revision` 轮询，不引入新运行时服务或 SSE 通道。
 - Agent 运行时代码 Tab 可打开文件查看，但必须只读且禁止保存。
 - 保存时使用文件内容版本检测外部修改，避免覆盖 Agent 或其他流程刚写入的内容。
+- 状态栏支持切换 Monaco 编辑器浅色 / 深色主题，偏好保存在浏览器本地。
 - 不改主应用 `AgentView`。
 
 **Non-Goals:**
@@ -68,6 +69,10 @@ HTML 保存后仍扫描并写入 CMS rendering manifest。这是派生索引刷�
 
 `list` / `read` / `save` 均限制在 `workspace-files/` 下。路径解析拒绝空路径、`.`、任何 `..` segment、`.proma` 派生目录，并防止最终 resolved path 越出根目录。路由层对 URL 路径段做 decode，支持空格/中文文件名。
 
+### Decision 9：主题切换只作用于 Monaco 编辑区
+
+代码 Tab 底部状态栏提供浅色 / 深色主题切换开关。该偏好仅传给 Monaco `theme`，不切换文件树、文件 Tab、聊天区或 Page Builder 全局主题；Agent 运行时只读状态也不禁用主题切换，因为主题切换不写文件、不需要编辑锁。偏好保存到浏览器 `localStorage`，默认浅色，非法或缺失值回退浅色。
+
 ## Risks / Trade-offs
 
 - **[手动编辑可能写出无效 HTML/CMS 标签]** → 最新需求明确要求直接保存且不校验；系统不阻止，后续可通过 Agent 或用户再次修改修复。
@@ -75,6 +80,7 @@ HTML 保存后仍扫描并写入 CMS rendering manifest。这是派生索引刷�
 - **[CMS manifest 可能只代表最近保存的 HTML 文件]** → 当前 Page Builder 主要以 `index.html` 为入口；多 HTML 文件 CMS manifest 聚合不在本次范围。
 - **[用户与 Agent 并发写同一文件]** → 编辑锁使 Agent 运行时只读；文件版本冲突检测防止旧内容覆盖新内容。
 - **[Monaco bundle 体积增加]** → 当前可接受；后续可继续做动态加载和语言裁剪。
+- **[深色编辑区与浅色外层 UI 存在视觉对比]** → 本次需求明确只切换 Monaco 编辑器主题，不联动 Page Builder 外层 UI。
 - **[大文件卡顿]** → 后端 `>10MB` 拒绝加载，`>5MB` 前端提示大文件。
 
 ## Migration Plan
@@ -83,5 +89,4 @@ HTML 保存后仍扫描并写入 CMS rendering manifest。这是派生索引刷�
 
 ## Open Questions
 
-- 应用是否需要 dark mode 下的 Monaco 主题跟随？当前固定浅色主题，后续增强。
 - 移动端是否需要完整代码编辑能力？当前主要面向桌面布局，移动端文件选择体验可后续单独优化。
