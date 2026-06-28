@@ -1,10 +1,12 @@
 import * as React from 'react'
-import { useAtomValue, useSetAtom } from 'jotai'
-import { Check, Pencil, X } from 'lucide-react'
+import { useAtom, useAtomValue, useSetAtom } from 'jotai'
+import { Check, Code, MessageSquare, Pencil, X } from 'lucide-react'
 import { toast } from 'sonner'
 import type { PageBuilderEditLockCredentials } from '@ai-page-builder/shared'
 import { agentWorkspacesAtom } from '@/atoms/agent-atoms'
 import { api } from '@/lib/api'
+import { builderActiveTabAtom } from '@page-builder/atoms/builder-code-atoms'
+import { cn } from '@/lib/utils'
 import { isPageBuilderEditLockRejected } from '@page-builder/lib/edit-lock-errors'
 
 export function ProjectTitleBar({
@@ -30,6 +32,7 @@ export function ProjectTitleBar({
   const [editing, setEditing] = React.useState(false)
   const [draftName, setDraftName] = React.useState('')
   const inputRef = React.useRef<HTMLInputElement>(null)
+  const [activeTab, setActiveTab] = useAtom(builderActiveTabAtom)
 
   React.useEffect(() => {
     if (!editing) return
@@ -141,6 +144,28 @@ export function ProjectTitleBar({
           另存模板
         </button>
       ) : null}
+      {/* 对话 / 代码 Tab，分段控件样式，置于标题栏最右 */}
+      <div role="tablist" className="flex shrink-0 items-center gap-0.5 rounded-lg bg-muted/70 p-0.5">
+        {(['chat', 'code'] as const).map((value) => (
+          <button
+            key={value}
+            role="tab"
+            type="button"
+            aria-selected={activeTab === value}
+            onClick={() => setActiveTab(value)}
+            className={cn(
+              'inline-flex items-center gap-1 rounded-md px-3 py-1 text-xs font-medium transition-colors',
+              activeTab === value
+                ? 'bg-background text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground',
+            )}
+          >
+            {value === 'chat'
+              ? <><MessageSquare className="size-3.5" />对话</>
+              : <><Code className="size-3.5" />代码</>}
+          </button>
+        ))}
+      </div>
     </div>
   )
 }

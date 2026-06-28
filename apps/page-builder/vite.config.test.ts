@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test'
 import { toPageBuilderBaseHref } from '@ai-page-builder/shared'
-import { createPageBuilderDevProxy, pageBuilderViteBase } from './vite.config'
+import {
+  createPageBuilderMonacoAssetsPlugin,
+  createPageBuilderDevProxy,
+  pageBuilderViteBase,
+} from './vite.config'
 
 describe('page-builder Vite base path', () => {
   test('builds runtime-neutral relative assets for one reusable web image', () => {
@@ -33,5 +37,24 @@ describe('page-builder Vite dev proxy', () => {
     expect(Object.keys(proxy)).toEqual(['/api', '/pagebuilder/api'])
     expect(proxy['/pagebuilder/api']?.target).toBe('http://127.0.0.1:3000')
     expect(proxy['/pagebuilder/api']?.rewrite?.('/pagebuilder/api/status')).toBe('/api/status')
+  })
+})
+
+describe('page-builder Monaco assets plugin', () => {
+  test('emits the local Monaco AMD loader and zh-cn language pack for production builds', () => {
+    const plugin = createPageBuilderMonacoAssetsPlugin()
+    const emittedFiles: string[] = []
+
+    ;(plugin.generateBundle as Function).call({
+      emitFile(asset: { type: string; fileName: string; source: unknown }) {
+        if (asset.type === 'asset') {
+          emittedFiles.push(asset.fileName)
+        }
+      },
+    })
+
+    expect(emittedFiles).toContain('monaco/vs/loader.js')
+    expect(emittedFiles).toContain('monaco/vs/nls.messages.zh-cn.js')
+    expect(emittedFiles).toContain('monaco/vs/editor/editor.main.js')
   })
 })

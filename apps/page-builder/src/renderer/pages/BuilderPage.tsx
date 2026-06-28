@@ -91,6 +91,8 @@ import {
   type PageBuilderCmsGuidanceNotice,
   type PageBuilderPreviewSelectionEvent,
 } from '@page-builder/lib/preview-selection'
+import { BuilderCodeTab } from '@page-builder/components/builder/BuilderCodeTab'
+import { BuilderRightPanel } from '@page-builder/components/builder/BuilderRightPanel'
 import { CmsBrowserDialog } from '@page-builder/components/builder/CmsBrowserDialog'
 import { PreviewPane } from '@page-builder/components/builder/PreviewPane'
 import { ProjectTitleBar } from '@page-builder/components/builder/ProjectTitleBar'
@@ -892,6 +894,10 @@ export function BuilderPage({
     ))
   }, [workspaceId])
 
+  const handleCodeFileSaved = React.useCallback((nextState: WorkspacePreviewState) => {
+    writeNextPreviewState(nextState)
+  }, [writeNextPreviewState])
+
   const handleStaticExportSettled = React.useCallback((job: PageBuilderStaticExportJob) => {
     if (handledStaticExportJobsRef.current.has(job.jobId)) {
       return
@@ -1648,23 +1654,36 @@ export function BuilderPage({
             workspaceId={workspaceId}
           />
           <div className="min-h-0 flex-1 overflow-hidden bg-background/40">
-            <AgentView
-              allowAttachments
-              beforeSendMessage={handleBeforeSendMessage}
-              defaultMentionedSkills={[PAGE_BUILDER_GUIDED_GENERATION_SKILL]}
-              initialUserMessage={loadState.initialUserMessage}
-              onSendError={handleAgentSendError}
-              onMessageSent={handleMessageSent}
-              onInitialUserMessageHandled={handleInitialUserMessageHandled}
-              onProgrammaticSendSettled={handleCmsAutoHandoffSettled}
-              prepareSendPayload={prepareSendPayload}
-              programmaticSendRequest={cmsAutoHandoffRequest}
-              sendMessageOptions={editLockRequestOptions}
-              sessionId={sessionId}
-              showComposerMeta={false}
-              showHeader={false}
-              {...(composerNotice ? { composerNotice } : {})}
-              {...(messageDecorator ? { messageDecorator } : {})}
+            <BuilderRightPanel
+              chatContent={
+                <AgentView
+                  allowAttachments
+                  beforeSendMessage={handleBeforeSendMessage}
+                  defaultMentionedSkills={[PAGE_BUILDER_GUIDED_GENERATION_SKILL]}
+                  initialUserMessage={loadState.initialUserMessage}
+                  onSendError={handleAgentSendError}
+                  onMessageSent={handleMessageSent}
+                  onInitialUserMessageHandled={handleInitialUserMessageHandled}
+                  onProgrammaticSendSettled={handleCmsAutoHandoffSettled}
+                  prepareSendPayload={prepareSendPayload}
+                  programmaticSendRequest={cmsAutoHandoffRequest}
+                  sendMessageOptions={editLockRequestOptions}
+                  sessionId={sessionId}
+                  showComposerMeta={false}
+                  showHeader={false}
+                  {...(composerNotice ? { composerNotice } : {})}
+                  {...(messageDecorator ? { messageDecorator } : {})}
+                />
+              }
+              codeTab={
+                <BuilderCodeTab
+                  workspaceId={workspaceId}
+                  readOnly={isAgentStreaming || !editingEnabled}
+                  editLock={editLockCredentials ?? undefined}
+                  onSaved={handleCodeFileSaved}
+                  onEditLockRejected={handlePageBuilderEditLockRejected}
+                />
+              }
             />
           </div>
         </section>

@@ -71,6 +71,7 @@ import {
   handlePageBuilderCmsContents,
   handlePageBuilderCmsSites,
 } from './page-builder-cms-browser-handlers'
+import { registerWorkspaceFilesRoutes } from './workspace-files'
 
 export const workspaceRoutes = new Hono<HttpAppEnv>()
 
@@ -193,6 +194,8 @@ workspaceRoutes.use('/:workspaceId/*', createCmsBuilderAccessMiddleware({
   workspaceId: (c) => c.var.workspace.id,
   requireOrigin: (c) => c.req.method !== 'GET',
 }))
+
+registerWorkspaceFilesRoutes(workspaceRoutes)
 
 workspaceRoutes.patch('/:workspaceId', async (c) => {
   if (c.var.cmsBuilderAccess) {
