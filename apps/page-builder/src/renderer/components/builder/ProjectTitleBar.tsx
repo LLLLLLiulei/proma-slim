@@ -94,7 +94,7 @@ export function ProjectTitleBar({
   }
 
   return (
-    <div className="flex h-11 items-center justify-between gap-3 border-b border-border/70 px-3">
+    <div className="flex min-h-11 items-center justify-between gap-3 border-b border-border/70 px-3 py-1.5">
       {showTabGroup ? (
         <div role="tablist" className="flex shrink-0 items-center gap-0.5 rounded-lg bg-muted/70 p-0.5">
           {showChatTab ? (
@@ -104,7 +104,7 @@ export function ProjectTitleBar({
               aria-selected={resolvedActiveTab === 'chat'}
               onClick={() => setActiveTab('chat')}
               className={cn(
-                'inline-flex items-center gap-1 rounded-md px-3 py-1 text-xs font-medium transition-colors',
+                'inline-flex h-8 items-center gap-1 rounded-md px-3 text-xs font-medium transition-colors',
                 resolvedActiveTab === 'chat'
                   ? 'bg-background text-foreground shadow-sm'
                   : 'text-muted-foreground hover:text-foreground',
@@ -120,7 +120,7 @@ export function ProjectTitleBar({
               aria-selected={resolvedActiveTab === 'code'}
               onClick={() => setActiveTab('code')}
               className={cn(
-                'inline-flex items-center gap-1 rounded-md px-3 py-1 text-xs font-medium transition-colors',
+                'inline-flex h-8 items-center gap-1 rounded-md px-3 text-xs font-medium transition-colors',
                 resolvedActiveTab === 'code'
                   ? 'bg-background text-foreground shadow-sm'
                   : 'text-muted-foreground hover:text-foreground',
@@ -152,7 +152,7 @@ export function ProjectTitleBar({
               value={draftName}
             />
             <button
-              className="p-1 text-muted-foreground transition-colors hover:text-foreground"
+              className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
               onClick={() => { void saveName() }}
               onMouseDown={(event) => event.preventDefault()}
               type="button"
@@ -160,7 +160,7 @@ export function ProjectTitleBar({
               <Check className="size-3.5" />
             </button>
             <button
-              className="p-1 text-muted-foreground transition-colors hover:text-foreground"
+              className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
               onClick={() => setEditing(false)}
               onMouseDown={(event) => event.preventDefault()}
               type="button"
@@ -173,7 +173,7 @@ export function ProjectTitleBar({
             <span className="truncate text-sm font-medium text-foreground">{workspace.name}</span>
             <button
               aria-label="编辑项目名"
-              className="p-1 text-muted-foreground transition-colors hover:text-foreground"
+              className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
               disabled={editingDisabled}
               onClick={() => {
                 if (editingDisabled) return

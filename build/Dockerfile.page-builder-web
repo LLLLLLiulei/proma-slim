@@ -30,6 +30,7 @@ COPY --from=build /app/apps/page-builder/src/server/prod-server.js ./apps/page-b
 ENV PORT=3333
 ENV AI_PAGE_BUILDER_SERVER_ORIGIN=http://server:8888
 ENV AI_PAGE_BUILDER_BASE_PATH=
+ENV AI_PAGE_BUILDER_HIDDEN_TOOLBAR_ITEMS=
 
 EXPOSE 3333
 

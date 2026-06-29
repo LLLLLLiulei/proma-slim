@@ -76,6 +76,7 @@ services:
       PORT: 3333
       AI_PAGE_BUILDER_SERVER_ORIGIN: http://server:8888
       AI_PAGE_BUILDER_BASE_PATH: /pagebuilder
+      AI_PAGE_BUILDER_HIDDEN_TOOLBAR_ITEMS: ${AI_PAGE_BUILDER_HIDDEN_TOOLBAR_ITEMS:-saveTemplate,export,projectName}
     expose:
       - "3333"
 

@@ -83,6 +83,7 @@ window.__AI_PAGE_BUILDER_RUNTIME_CONFIG__ = {
 - 左侧渲染 `对话 / 代码` Tab 组。
 - 右侧渲染项目名称、编辑按钮和编辑态输入框。
 - 不再渲染 `另存模板`。
+- 顶部栏高度、垂直 padding、Tab 按钮和项目名称编辑按钮尺寸应与预览工具栏保持一致，避免左右两侧顶部区域视觉错位。
 
 `BuilderRightPanel` 继续保持聊天区和代码区始终挂载，通过 active tab 控制显示隐藏，避免 Tab 切换丢失内部状态。
 

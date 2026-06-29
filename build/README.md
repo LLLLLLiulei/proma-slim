@@ -79,6 +79,7 @@ cp build/.env.cms.example /tmp/page-builder-cms.env
 | `PAGE_BUILDER_PORT` | web 服务映射到宿主机的端口，默认 `3333`。 |
 | `AI_PAGE_BUILDER_HOST_DATA_DIR` | 宿主机持久化数据目录，会挂载到容器 `/home/bun/.ai-page-builder`。 |
 | `AI_PAGE_BUILDER_BASE_PATH` | 浏览器公开访问路径前缀。根路径部署留空，子路径可填 `/pagebuilder`。 |
+| `AI_PAGE_BUILDER_HIDDEN_TOOLBAR_ITEMS` | 可选。Builder 工作台工具栏隐藏项，逗号分隔；standalone 留空表示全部展示，CMS 模式建议默认 `saveTemplate,export,projectName`。支持 `pcPreview,mobilePreview,select,refresh,openInNewWindow,export,saveTemplate,chatTab,codeTab,projectName`。 |
 | `AI_PAGE_BUILDER_TEMPLATE_IMPORT_MAX_ZIP_MB` | 模板 ZIP 导入原始文件大小上限，单位 MB，默认 `100`。 |
 | `AI_PAGE_BUILDER_TEMPLATE_IMPORT_MAX_UNCOMPRESSED_MB` | 模板 ZIP 解压后累计文件大小上限，单位 MB，默认 `500`。 |
 | `AI_PAGE_BUILDER_PLAYWRIGHT_MCP_URL` | server 访问 Playwright MCP sidecar 的地址，默认 `http://playwright:8931/mcp`。 |
@@ -540,6 +541,7 @@ API_TIMEOUT_MS=3000000
 PAGE_BUILDER_PORT=3333
 AI_PAGE_BUILDER_HOST_DATA_DIR=/data/ai-page-builder
 AI_PAGE_BUILDER_BASE_PATH=
+AI_PAGE_BUILDER_HIDDEN_TOOLBAR_ITEMS=
 AI_PAGE_BUILDER_TEMPLATE_IMPORT_MAX_ZIP_MB=100
 AI_PAGE_BUILDER_TEMPLATE_IMPORT_MAX_UNCOMPRESSED_MB=500
 AI_PAGE_BUILDER_PLAYWRIGHT_MCP_URL=http://playwright:8931/mcp
@@ -553,6 +555,7 @@ AI_PAGE_BUILDER_INTEGRATION_MODE=cms
 AI_PAGE_BUILDER_INTEGRATION_SECRET=...
 AI_PAGE_BUILDER_CMS_BASE_URL=https://cms.example.com/manager
 AI_PAGE_BUILDER_PUBLIC_ORIGIN=https://builder.example.com
+AI_PAGE_BUILDER_HIDDEN_TOOLBAR_ITEMS=saveTemplate,export,projectName
 AI_PAGE_BUILDER_HANDOFF_TTL_MS=120000
 AI_PAGE_BUILDER_ACCESS_SESSION_TTL_MS=28800000
 AI_PAGE_BUILDER_ACCESS_SESSION_RENEW_THRESHOLD_MS=3600000

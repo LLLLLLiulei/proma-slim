@@ -79,10 +79,23 @@ describe('ProjectTitleBar', () => {
       </Provider>,
     )
 
-    const titleBar = renderer.toJSON() as { children: Array<{ props: Record<string, unknown> }> }
+    const titleBar = renderer.toJSON() as unknown as {
+      props: { className: string }
+      children: Array<{ props: Record<string, unknown> }>
+    }
     const [tabGroup, projectTitle] = titleBar.children
+    const chatTab = findButtonByText(renderer, '对话')
+    const codeTab = findButtonByText(renderer, '代码')
+    const editButton = findButtonByAriaLabel(renderer, '编辑项目名')
+    const titleBarClasses = String(titleBar.props.className).split(/\s+/)
 
+    expect(titleBarClasses).toContain('min-h-11')
+    expect(titleBarClasses).toContain('py-1.5')
+    expect(titleBarClasses).not.toContain('h-11')
     expect(tabGroup?.props.role).toBe('tablist')
+    expect(chatTab.props.className).toContain('h-8')
+    expect(codeTab.props.className).toContain('h-8')
+    expect(editButton.props.className).toContain('size-8')
     expect(JSON.stringify(projectTitle)).toContain('未命名项目')
     expect(JSON.stringify(renderer.toJSON())).not.toContain('另存模板')
   })
