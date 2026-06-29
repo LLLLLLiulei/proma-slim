@@ -24,6 +24,7 @@ interface PlainTextInputProps {
   onChange: (value: string) => void
   onSubmit: () => void
   onPasteFiles?: (files: File[]) => void
+  placeholder?: string
   disabled?: boolean
   submitDisabled?: boolean
 }
@@ -176,6 +177,43 @@ afterEach(() => {
 })
 
 describe('AgentView rendering extension points', () => {
+  test('passes a custom composer placeholder to the plain text input', async () => {
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: 'Page Builder Project',
+      slug: 'page-builder-project',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const composerPlaceholder = '告诉我你想怎么调整页面，例如：优化首屏视觉、增加产品介绍区、修改文案或排查样式问题。'
+    const { AgentView, getLastPlainTextInputProps } = await loadAgentView()
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <HydrateAgentViewState sessions={[session]} workspaces={[workspace]}>
+            <AgentView
+              composerPlaceholder={composerPlaceholder}
+              sessionId={session.id}
+            />
+          </HydrateAgentViewState>
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(getLastPlainTextInputProps()?.placeholder).toBe(composerPlaceholder)
+  })
+
   test('keeps the composer editable while streaming but blocks sending', async () => {
     const workspace: AgentWorkspace = {
       id: 'workspace-1',

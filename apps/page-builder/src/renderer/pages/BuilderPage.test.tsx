@@ -2958,6 +2958,7 @@ describe('BuilderPage', () => {
       showHeader: false,
       showComposerMeta: false,
       defaultMentionedSkills: ['page-builder-guided-generation'],
+      composerPlaceholder: '告诉我你想怎么调整页面，例如：优化首屏视觉、增加产品介绍区、修改文案或排查样式问题。',
       initialUserMessage: '生成一个企业官网',
     })
     expect(getLastAgentViewProps()).not.toHaveProperty('messageDecorator')

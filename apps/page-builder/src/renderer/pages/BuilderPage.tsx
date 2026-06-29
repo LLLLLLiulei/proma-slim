@@ -109,6 +109,7 @@ type BuilderSourceMode = 'standalone' | 'cms-integrated'
 
 const PAGE_BUILDER_GUIDED_GENERATION_SKILL = 'page-builder-guided-generation'
 const PAGE_BUILDER_CMS_REGION_AUTHORING_GUIDANCE_SKILL = 'page-builder-cms-region-authoring-guidance'
+const PAGE_BUILDER_COMPOSER_PLACEHOLDER = '告诉我你想怎么调整页面，例如：优化首屏视觉、增加产品介绍区、修改文案或排查样式问题。'
 const CMS_REGION_BLOCKED_ERROR_MESSAGE = '当前已选 CMS 区域已失效或无法确认，请重新选择该区域后再修改。'
 const EDIT_LOCK_LOST_MESSAGE = '编辑锁已失效，请从首页重新进入编辑'
 const CMS_BUILDER_CONTEXT_EXPIRED_MESSAGE = '访问已失效，请从 CMS 系统重新进入 PageBuilder'
@@ -1663,6 +1664,7 @@ export function BuilderPage({
                 <AgentView
                   allowAttachments
                   beforeSendMessage={handleBeforeSendMessage}
+                  composerPlaceholder={PAGE_BUILDER_COMPOSER_PLACEHOLDER}
                   defaultMentionedSkills={[PAGE_BUILDER_GUIDED_GENERATION_SKILL]}
                   initialUserMessage={loadState.initialUserMessage}
                   onSendError={handleAgentSendError}

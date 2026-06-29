@@ -166,6 +166,7 @@ export interface AgentViewProps {
   }) => Promise<AgentSendPayloadPreparationResult | void> | AgentSendPayloadPreparationResult | void
   composerNotice?: React.ReactNode
   composerLeadingActions?: React.ReactNode
+  composerPlaceholder?: string
   onMessageSent?: (userMessage: string) => void
   beforeSendMessage?: (input: {
     userMessage: string
@@ -332,6 +333,7 @@ export function AgentView({
   prepareSendPayload,
   composerNotice,
   composerLeadingActions,
+  composerPlaceholder,
   onMessageSent,
   beforeSendMessage,
   programmaticSendRequest = null,
@@ -1070,7 +1072,7 @@ export function AgentView({
             disabled={composerInputDisabled}
             submitDisabled={composerSendDisabled}
             autoFocusTrigger={sessionId}
-            placeholder={status && !status.ok ? '请先修复后端状态，再发送消息' : '输入消息...'}
+            placeholder={status && !status.ok ? '请先修复后端状态，再发送消息' : composerPlaceholder ?? '输入消息...'}
             workspaceId={sessionWorkspaceId}
             workspacePath={workspaceContext?.workspacePath ?? null}
             workspaceSlug={workspaceContext?.workspaceSlug ?? sessionWorkspace?.slug ?? null}
