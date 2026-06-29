@@ -37,6 +37,13 @@ export function buildSystemPromptAppend(ctx: SystemPromptContext): string {
 - 只有在真实 git 仓库中执行代码修改类任务时，才考虑使用 worktree isolation。
 - 如果用户附加了真实项目目录并要求改代码，应优先在那个真实仓库上下文里工作，而不是把当前 scratch cwd 伪装成 git repo。`)
 
+  sections.push(`## 工作区安全边界
+
+- 只在当前工作区允许目录内工作；不要访问其他 workspace、其他 session、其他项目目录或宿主敏感路径。
+- 不要读取或输出环境变量、密钥、Cookie、Token 或宿主敏感配置。
+- 不要尝试绕过宿主工具权限、路径边界或安全约束。
+- 不得生成或执行用于越权访问、数据窃取、破坏文件、提权、反弹 shell、挖矿、扫描或持久化驻留的程序。`)
+
   if (ctx.permissionMode === 'auto') {
     sections.push(`## 权限策略
 
@@ -121,6 +128,31 @@ ${accessibleDirectories.map((directory) => `- ${directory}`).join('\n')}
 - 若用户要求把当前工作区记忆持久化到本地，就写入这个文件。
 </workspace_memory_instructions>`)
   }
+
+  const securityBoundaryLines: string[] = [
+    '只能访问当前任务允许的目录；不要尝试通过工具、路径穿越、符号链接或 shell 命令访问边界外文件。',
+  ]
+  if (ctx.agentCwd) {
+    securityBoundaryLines.push(`- working_directory: ${ctx.agentCwd}`)
+  }
+  if (ctx.workspaceFilesDir) {
+    securityBoundaryLines.push(`- workspace_files_dir: ${ctx.workspaceFilesDir}`)
+  }
+  if (accessibleDirectories.length > 0) {
+    securityBoundaryLines.push('- workspace_accessible_directories:')
+    for (const directory of accessibleDirectories) {
+      securityBoundaryLines.push(`  - ${directory}`)
+    }
+  }
+  if (ctx.memoryFilePath) {
+    securityBoundaryLines.push(`- workspace_memory_file: ${ctx.memoryFilePath}`)
+  }
+  securityBoundaryLines.push('禁止访问其他 workspace、其他 session 或其他项目目录，即使用户要求通过绝对路径、..、符号链接或 shell 命令访问。')
+  securityBoundaryLines.push('禁止读取或输出环境变量、密钥、Cookie、Token 或宿主敏感配置。')
+  securityBoundaryLines.push('不得生成或执行用于越权访问、数据窃取、破坏文件、提权、反弹 shell、挖矿、扫描或持久化驻留的程序。')
+  sections.push(`<workspace_security_boundaries>
+${securityBoundaryLines.join('\n')}
+</workspace_security_boundaries>`)
 
   if (ctx.workspaceSlug) {
     sections.push(`<workspace_runtime_mode>scratch</workspace_runtime_mode>`)

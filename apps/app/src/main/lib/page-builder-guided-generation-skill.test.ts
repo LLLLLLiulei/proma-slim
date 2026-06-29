@@ -47,6 +47,7 @@ describe('page-builder-guided-generation skill docs', () => {
     expect(tasteSkill).toContain('workspace-files/index.html')
     expect(tasteSkill).toContain('plain HTML/CSS/JS authoring')
     expect(tasteSkill).toContain('Do not assume `package.json`, React, Next.js, Tailwind, npm, or any package manager exists')
+    expect(tasteSkill).not.toContain('## Runtime Security Boundaries')
     expect(tasteSkill).toContain('Default to implementation, not presentation')
     expect(redesignSkill).toContain('name: redesign-skill')
     expect(redesignSkill).toContain('execute-only refinement worker')
@@ -56,9 +57,25 @@ describe('page-builder-guided-generation skill docs', () => {
     expect(redesignSkill).toContain('workspace-files/index.html')
     expect(redesignSkill).toContain('plain HTML/CSS/JS authoring')
     expect(redesignSkill).toContain('Do not assume `package.json`, React, Next.js, Tailwind, npm, or any package manager exists')
+    expect(redesignSkill).not.toContain('## Runtime Security Boundaries')
     expect(redesignSkill).toContain('Default to implementation, not presentation')
     expect(skill).toContain('overwrite confirmation')
     expect(skill).toContain('keep the target on the current `workspace-files/` preview')
+  })
+
+  test('documents prompt-layer workspace security boundaries in owner-level page-builder docs', () => {
+    const skill = readRelativeText('../../../default-skills/page-builder-guided-generation/SKILL.md')
+    const enTemplate = readRelativeText('../../../resources/templates/page-builder-workspace-claude.md')
+
+    expect(skill).toContain('## Runtime Security Boundaries')
+    expect(skill).toContain('Work only inside the current PageBuilder project files')
+    expect(skill).toContain('Do not read or output environment variables, secrets, cookies, tokens')
+    expect(skill).toContain('Do not generate or execute programs for unauthorized access')
+
+    expect(enTemplate).toContain('## Security Boundaries')
+    expect(enTemplate).toContain('Work only inside the current PageBuilder project files')
+    expect(enTemplate).toContain('Do not read or output environment variables, secrets, cookies, tokens')
+    expect(enTemplate).toContain('Do not generate or execute programs for unauthorized access')
   })
 
   test('keeps threshold and confirmation rules in references', () => {

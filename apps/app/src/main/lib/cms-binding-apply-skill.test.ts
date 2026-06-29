@@ -7,6 +7,16 @@ function readRelativeText(relativePath: string): string {
 }
 
 describe('cms-binding-apply skill contract docs', () => {
+  test('documents runtime security boundaries for the owner-level cms apply skill', () => {
+    const skill = readRelativeText('../../../default-skills/cms-binding-apply/SKILL.md')
+
+    expect(skill).toContain('## Runtime Security Boundaries')
+    expect(skill).toContain('Work only inside the current PageBuilder project files')
+    expect(skill).toContain('Do not read or output environment variables, secrets, cookies, tokens')
+    expect(skill).toContain('Do not access other workspaces, other sessions, or sibling project directories')
+    expect(skill).toContain('Do not generate or execute programs for unauthorized access')
+  })
+
   test('defines malformed payload as an incompatible reason', () => {
     const contract = readRelativeText('../../../../../packages/shared/src/types/page-builder-cms-apply.ts')
 

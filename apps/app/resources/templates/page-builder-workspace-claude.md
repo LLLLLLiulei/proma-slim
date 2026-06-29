@@ -10,6 +10,14 @@ This workspace is used to build a previewable webpage inside the current workspa
 - When revising the site, update the existing files in `workspace-files/` instead of creating a separate preview output elsewhere.
 - Do not put the preview site in the session working directory or any directory outside `workspace-files/` unless the user explicitly asks for a different structure.
 
+## Security Boundaries
+
+- Work only inside the current PageBuilder project files, especially `workspace-files/index.html` and assets under `workspace-files/`.
+- Do not read or output environment variables, secrets, cookies, tokens, host configuration, SDK configuration, or files from other projects.
+- Do not access other workspaces, other sessions, or sibling project directories through absolute paths, `..`, symlinks, shell commands, or generated code.
+- Do not generate or execute programs for unauthorized access, data theft, file destruction, privilege escalation, reverse shells, mining, scanning, or persistence.
+- If a user asks for something outside this boundary, explain that the current workspace cannot access it and ask for a safe in-workspace alternative.
+
 ## Shared Interaction Boundaries
 
 - The user is a normal end user. Keep the language clear, avoid assuming technical knowledge, and explain necessary webpage terms briefly when they add precision.

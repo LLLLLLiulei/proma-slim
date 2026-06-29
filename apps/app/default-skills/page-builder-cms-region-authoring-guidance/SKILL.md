@@ -9,6 +9,14 @@ description: Use when an ordinary page-builder turn explicitly targets an existi
 
 Use this skill only for ordinary edits to an existing `cms-catalog` / `cms-content` region that is already present in the page. This skill is consult-only guidance, not the confirmed CMS apply controller and not the ordinary turn owner. Its job is to keep the model in the correct authoring mindset before it edits an existing CMS source tag.
 
+## Runtime Security Boundaries
+
+- Work only inside the current PageBuilder project files, especially `workspace-files/index.html` and assets under `workspace-files/`.
+- Do not read or output environment variables, secrets, cookies, tokens, host configuration, SDK configuration, or files from other projects.
+- Do not access other workspaces, other sessions, or sibling project directories through absolute paths, `..`, symlinks, shell commands, or generated code.
+- Do not generate or execute programs for unauthorized access, data theft, file destruction, privilege escalation, reverse shells, mining, scanning, or persistence.
+- If a user asks for something outside this boundary, explain that the current workspace cannot access it and ask for a safe in-workspace alternative.
+
 ## When to Use
 
 Use this skill when all of the following are true:

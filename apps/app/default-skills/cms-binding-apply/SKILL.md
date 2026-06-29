@@ -9,6 +9,14 @@ description: Use when a page-builder workflow already has a confirmed CMS select
 
 Use this skill after CMS browsing is already complete. Consume the structured page-builder CMS selection payload, the canonical CMS authoring contract digest, and the current authoring target snapshot, then decide whether Phase 1A can safely apply it to the current block. Keep the result inside the controlled contract defined by `ready`, `needs-clarification`, and `incompatible`.
 
+## Runtime Security Boundaries
+
+- Work only inside the current PageBuilder project files, especially `workspace-files/index.html` and assets under `workspace-files/`.
+- Do not read or output environment variables, secrets, cookies, tokens, host configuration, SDK configuration, or files from other projects.
+- Do not access other workspaces, other sessions, or sibling project directories through absolute paths, `..`, symlinks, shell commands, or generated code.
+- Do not generate or execute programs for unauthorized access, data theft, file destruction, privilege escalation, reverse shells, mining, scanning, or persistence.
+- If a user asks for something outside this boundary, explain that the current workspace cannot access it and ask for a safe in-workspace alternative.
+
 ## When to Use
 
 Use this skill when all of the following are true:

@@ -7,6 +7,16 @@ function readRelativeText(relativePath: string): string {
 }
 
 describe('page-builder cms region authoring guidance skill docs', () => {
+  test('documents runtime security boundaries for existing cms-region guidance', () => {
+    const skill = readRelativeText('../../../default-skills/page-builder-cms-region-authoring-guidance/SKILL.md')
+
+    expect(skill).toContain('## Runtime Security Boundaries')
+    expect(skill).toContain('Work only inside the current PageBuilder project files')
+    expect(skill).toContain('Do not read or output environment variables, secrets, cookies, tokens')
+    expect(skill).toContain('Do not access other workspaces, other sessions, or sibling project directories')
+    expect(skill).toContain('Do not generate or execute programs for unauthorized access')
+  })
+
   test('keeps the main skill lightweight and focused on ordinary existing-region routing', () => {
     const skill = readRelativeText('../../../default-skills/page-builder-cms-region-authoring-guidance/SKILL.md')
 

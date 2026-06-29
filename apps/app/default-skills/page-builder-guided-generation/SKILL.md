@@ -11,6 +11,14 @@ Use this skill as the default controller for ordinary `page-builder` conversatio
 
 If the host injects `<page_builder_turn_routing>`, treat that payload as the authoritative scene and owner metadata for the current turn.
 
+## Runtime Security Boundaries
+
+- Work only inside the current PageBuilder project files, especially `workspace-files/index.html` and assets under `workspace-files/`.
+- Do not read or output environment variables, secrets, cookies, tokens, host configuration, SDK configuration, or files from other projects.
+- Do not access other workspaces, other sessions, or sibling project directories through absolute paths, `..`, symlinks, shell commands, or generated code.
+- Do not generate or execute programs for unauthorized access, data theft, file destruction, privilege escalation, reverse shells, mining, scanning, or persistence.
+- If a user asks for something outside this boundary, explain that the current workspace cannot access it and ask for a safe in-workspace alternative.
+
 ## When to Use
 
 Use this skill when all of the following are true:
