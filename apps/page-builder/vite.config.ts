@@ -4,6 +4,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { normalizePageBuilderPublicBasePath } from '../../packages/shared/src/utils/page-builder-public-path'
+import { normalizePageBuilderHiddenToolbarItems } from './src/renderer/lib/toolbar-visibility'
 import pkg from './package.json' with { type: 'json' }
 
 export const pageBuilderViteBase = './'
@@ -126,10 +127,17 @@ export function createPageBuilderDevProxy(basePath = process.env.AI_PAGE_BUILDER
   return proxy
 }
 
+export function resolvePageBuilderDevHiddenToolbarItems(
+  value = process.env.AI_PAGE_BUILDER_HIDDEN_TOOLBAR_ITEMS,
+): string[] {
+  return normalizePageBuilderHiddenToolbarItems(value)
+}
+
 export default defineConfig({
   plugins: [createPageBuilderMonacoAssetsPlugin(), react()],
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
+    __AI_PAGE_BUILDER_HIDDEN_TOOLBAR_ITEMS__: JSON.stringify(resolvePageBuilderDevHiddenToolbarItems()),
   },
   root: resolve(__dirname, 'src/renderer'),
   base: pageBuilderViteBase,

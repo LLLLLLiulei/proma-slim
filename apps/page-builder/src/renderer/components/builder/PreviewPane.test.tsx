@@ -61,55 +61,121 @@ afterEach(() => {
 })
 
 describe('PreviewPane', () => {
-  test('renders a compact toolbar with device toggle, block selection, export, refresh, and new-window controls', async () => {
+  test('renders preview toolbar actions with visible text and save-template action', async () => {
+    const onRequestSaveTemplate = mock(() => {})
     const { PreviewPane } = await loadPreviewPane()
-    const renderer = create(<PreviewPane previewUrl="https://example.com/preview" />)
+    const renderer = create(
+      <PreviewPane
+        onRequestSaveTemplate={onRequestSaveTemplate}
+        previewUrl="https://example.com/preview"
+      />,
+    )
 
     const toolbar = renderer.root.find((node) =>
       node.type === 'div'
       && typeof node.props.className === 'string'
-      && node.props.className.includes('h-11')
       && node.props.className.includes('border-b border-border/70')
     )
     const buttons = renderer.root.findAllByType('button')
     const desktopButton = findButton(renderer, 'PC 预览')
     const mobileButton = findButton(renderer, 'Mobile 预览')
-    const exportButton = findButton(renderer, '导出静态包')
-    const json = JSON.stringify(renderer.toJSON())
     const viewportShell = renderer.root.find((node) =>
       node.type === 'div' && node.props['data-preview-viewport-shell'] === true
     )
     const deviceToggleGroup = renderer.root.find((node) =>
       node.type === 'div' && node.props['data-preview-device-toggle-group'] === true
     )
-    const selectionActionGroup = renderer.root.find((node) =>
-      node.type === 'div' && node.props['data-preview-selection-action-group'] === true
-    )
+    const selectionButton = findButton(renderer, '选择区块')
+    const exportButton = findButton(renderer, '导出静态包')
+    const refreshButton = findButton(renderer, '刷新预览')
+    const saveTemplateButton = findButton(renderer, '另存模板')
+    const openButton = findButton(renderer, '新窗口打开预览')
+    const json = JSON.stringify(renderer.toJSON())
 
-    expect(toolbar.props.className).toContain('h-11')
+    expect(toolbar.props.className).toContain('border-b border-border/70')
     expect(buttons.map((button) => button.props['aria-label'])).toEqual([
       'PC 预览',
       'Mobile 预览',
       '选择区块',
-      '导出静态包',
       '刷新预览',
       '新窗口打开预览',
+      '导出静态包',
+      '另存模板',
     ])
     expect(desktopButton.props['aria-pressed']).toBe(true)
     expect(mobileButton.props['aria-pressed']).toBe(false)
-    expect(findButton(renderer, '选择区块').props['aria-pressed']).toBe(false)
+    expect(selectionButton.props['aria-pressed']).toBe(false)
     expect(deviceToggleGroup.findAllByType('button').map((button) => button.props['aria-label'])).toEqual([
       'PC 预览',
       'Mobile 预览',
     ])
-    expect(selectionActionGroup.findAllByType('button').map((button) => button.props['aria-label'])).toEqual([
-      '选择区块',
-    ])
     expect(viewportShell.props['data-preview-device-mode']).toBe('desktop')
-    expect(json).not.toContain('实时预览')
-    expect(exportButton.props.className).toContain('size-8')
-    expect(exportButton.children.some((child: unknown) => typeof child === 'string')).toBe(false)
-    expect(json).not.toContain('第一阶段使用精简 iframe 容器承载页面预览。')
+    expect(json).toContain('选择')
+    expect(json).toContain('导出')
+    expect(json).toContain('刷新')
+    expect(json).toContain('另存模板')
+    expect(json).toContain('新窗口打开')
+    expect(exportButton.props.className).not.toContain('size-8')
+    expect(refreshButton.props.className).not.toContain('size-8')
+    expect(openButton.props.className).not.toContain('size-8')
+    expect(selectionButton.props.className).toContain('border-input')
+    expect(selectionButton.props.className).toContain('bg-background')
+    expect(selectionButton.props.className).not.toContain('border-transparent')
+
+    await act(async () => {
+      saveTemplateButton.props.onClick()
+    })
+
+    expect(onRequestSaveTemplate).toHaveBeenCalledTimes(1)
+  })
+
+  test('hides configured preview toolbar actions without changing other controls', async () => {
+    const { PreviewPane } = await loadPreviewPane()
+    const renderer = create(
+      <PreviewPane
+        hiddenToolbarItems={['export', 'saveTemplate', 'openInNewWindow']}
+        previewUrl="https://example.com/preview"
+      />,
+    )
+
+    expect(() => findButton(renderer, '导出静态包')).toThrow()
+    expect(() => findButton(renderer, '另存模板')).toThrow()
+    expect(() => findButton(renderer, '新窗口打开预览')).toThrow()
+    expect(findButton(renderer, '选择区块').props.disabled).toBe(false)
+    expect(findButton(renderer, '刷新预览').props.disabled).toBe(false)
+  })
+
+  test('falls back to mobile preview when PC preview is hidden', async () => {
+    const { PreviewPane } = await loadPreviewPane()
+    const renderer = create(
+      <PreviewPane
+        hiddenToolbarItems={['pcPreview']}
+        previewUrl="https://example.com/preview"
+      />,
+    )
+
+    expect(() => findButton(renderer, 'PC 预览')).toThrow()
+    expect(findButton(renderer, 'Mobile 预览').props['aria-pressed']).toBe(true)
+    expect(renderer.root.find((node) =>
+      node.type === 'div' && node.props['data-preview-viewport-shell'] === true
+    ).props['data-preview-device-mode']).toBe('mobile')
+  })
+
+  test('hides device toggle group and uses desktop mode when both preview modes are hidden', async () => {
+    const { PreviewPane } = await loadPreviewPane()
+    const renderer = create(
+      <PreviewPane
+        hiddenToolbarItems={['pcPreview', 'mobilePreview']}
+        previewUrl="https://example.com/preview"
+      />,
+    )
+
+    expect(renderer.root.findAll((node) =>
+      node.type === 'div' && node.props['data-preview-device-toggle-group'] === true
+    )).toHaveLength(0)
+    expect(renderer.root.find((node) =>
+      node.type === 'div' && node.props['data-preview-viewport-shell'] === true
+    ).props['data-preview-device-mode']).toBe('desktop')
   })
 
   test('reflects the preview block-selection toggle states and forwards toggle requests', async () => {

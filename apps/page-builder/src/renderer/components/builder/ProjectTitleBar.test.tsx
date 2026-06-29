@@ -6,6 +6,7 @@ import { act, create } from 'react-test-renderer'
 import type { AgentWorkspace } from '@ai-page-builder/shared'
 import { agentWorkspacesAtom } from '@/atoms/agent-atoms'
 import { api } from '@/lib/api'
+import { builderActiveTabAtom } from '@page-builder/atoms/builder-code-atoms'
 import { ProjectTitleBar } from './ProjectTitleBar'
 
 const originalUpdateWorkspace = api.updateWorkspace
@@ -44,6 +45,14 @@ function flattenElementText(node: React.ReactNode): string {
   }).join('')
 }
 
+
+function findButtonByAriaLabel(renderer: ReturnType<typeof create>, label: string) {
+  return renderer.root.find((node) =>
+    node.type === 'button'
+    && node.props['aria-label'] === label,
+  )
+}
+
 function findButtonByText(renderer: ReturnType<typeof create>, label: string) {
   return renderer.root.find((node) =>
     node.type === 'button'
@@ -52,7 +61,7 @@ function findButtonByText(renderer: ReturnType<typeof create>, label: string) {
 }
 
 describe('ProjectTitleBar', () => {
-  test('renders the current workspace name as the project title', () => {
+  test('renders tabs on the left and the current workspace name on the right', () => {
     const store = createStore()
     const workspaces: AgentWorkspace[] = [{
       id: 'workspace-1',
@@ -70,8 +79,12 @@ describe('ProjectTitleBar', () => {
       </Provider>,
     )
 
-    const json = renderer.toJSON()
-    expect(JSON.stringify(json)).toContain('未命名项目')
+    const titleBar = renderer.toJSON() as { children: Array<{ props: Record<string, unknown> }> }
+    const [tabGroup, projectTitle] = titleBar.children
+
+    expect(tabGroup?.props.role).toBe('tablist')
+    expect(JSON.stringify(projectTitle)).toContain('未命名项目')
+    expect(JSON.stringify(renderer.toJSON())).not.toContain('另存模板')
   })
 
   test('updates the workspace name instead of touching session metadata', async () => {
@@ -104,10 +117,8 @@ describe('ProjectTitleBar', () => {
       )
     })
 
-    const buttons = renderer.root.findAll((node) => node.type === 'button')
-
     await act(async () => {
-      buttons[0]!.props.onClick()
+      findButtonByAriaLabel(renderer, '编辑项目名').props.onClick()
     })
 
     const input = renderer.root.findByType('input')
@@ -158,9 +169,8 @@ describe('ProjectTitleBar', () => {
       )
     })
 
-    const buttons = renderer.root.findAll((node) => node.type === 'button')
     await act(async () => {
-      buttons[0]!.props.onClick()
+      findButtonByAriaLabel(renderer, '编辑项目名').props.onClick()
     })
 
     const input = renderer.root.findByType('input')
@@ -183,9 +193,8 @@ describe('ProjectTitleBar', () => {
     expect(store.get(agentWorkspacesAtom)[0]?.name).toBe('未命名项目')
   })
 
-  test('renders the save-template action and invokes the callback', async () => {
+  test('hides project name and edit affordance when projectName is hidden', () => {
     const store = createStore()
-    const onRequestSaveTemplate = mock(() => {})
     const workspaces: AgentWorkspace[] = [{
       id: 'workspace-1',
       name: '营销专题',
@@ -199,24 +208,49 @@ describe('ProjectTitleBar', () => {
       <Provider store={store}>
         <HydrateWorkspaces workspaces={workspaces}>
           <ProjectTitleBar
-            onRequestSaveTemplate={onRequestSaveTemplate}
+            hiddenToolbarItems={['projectName']}
             workspaceId="workspace-1"
           />
         </HydrateWorkspaces>
       </Provider>,
     )
 
-    await act(async () => {
-      findButtonByText(renderer, '另存模板').props.onClick()
-    })
-
-    expect(onRequestSaveTemplate).toHaveBeenCalledTimes(1)
-    expect(JSON.stringify(renderer.toJSON())).toContain('营销专题')
+    expect(JSON.stringify(renderer.toJSON())).not.toContain('营销专题')
+    expect(renderer.root.findAll((node) =>
+      node.type === 'button' && node.props['aria-label'] === '编辑项目名'
+    )).toHaveLength(0)
   })
 
-  test('does not invoke the save-template action when it is disabled', async () => {
+  test('falls back to code tab when chat tab is hidden', async () => {
     const store = createStore()
-    const onRequestSaveTemplate = mock(() => {})
+    store.set(builderActiveTabAtom, 'chat')
+    const workspaces: AgentWorkspace[] = [{
+      id: 'workspace-1',
+      name: '营销专题',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }]
+
+    await act(async () => {
+      create(
+        <Provider store={store}>
+          <HydrateWorkspaces workspaces={workspaces}>
+            <ProjectTitleBar
+              hiddenToolbarItems={['chatTab']}
+              workspaceId="workspace-1"
+            />
+          </HydrateWorkspaces>
+        </Provider>,
+      )
+    })
+
+    expect(store.get(builderActiveTabAtom)).toBe('code')
+  })
+
+  test('does not render an empty top bar when tabs and project name are hidden', () => {
+    const store = createStore()
     const workspaces: AgentWorkspace[] = [{
       id: 'workspace-1',
       name: '营销专题',
@@ -230,21 +264,13 @@ describe('ProjectTitleBar', () => {
       <Provider store={store}>
         <HydrateWorkspaces workspaces={workspaces}>
           <ProjectTitleBar
-            onRequestSaveTemplate={onRequestSaveTemplate}
-            saveTemplateDisabled
+            hiddenToolbarItems={['chatTab', 'codeTab', 'projectName']}
             workspaceId="workspace-1"
           />
         </HydrateWorkspaces>
       </Provider>,
     )
 
-    const button = findButtonByText(renderer, '另存模板')
-    expect(button.props.disabled).toBe(true)
-
-    await act(async () => {
-      button.props.onClick()
-    })
-
-    expect(onRequestSaveTemplate).not.toHaveBeenCalled()
+    expect(renderer.toJSON()).toBeNull()
   })
 })

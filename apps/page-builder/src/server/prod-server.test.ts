@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import {
   createPageBuilderProdFetchHandler,
   resolvePageBuilderProdAppOrigin,
+  resolvePageBuilderProdHiddenToolbarItems,
   resolvePageBuilderProdPublicBasePath,
 } from './prod-server'
 
@@ -47,6 +48,15 @@ describe('page-builder production server', () => {
     expect(resolvePageBuilderProdPublicBasePath({})).toBe('')
   })
 
+
+  test('resolves hidden toolbar items env as a normalized key list', () => {
+    expect(resolvePageBuilderProdHiddenToolbarItems({
+      AI_PAGE_BUILDER_HIDDEN_TOOLBAR_ITEMS: ' export, saveTemplate,unknown,export ',
+    })).toEqual(['export', 'saveTemplate'])
+
+    expect(resolvePageBuilderProdHiddenToolbarItems({})).toEqual([])
+  })
+
   test('serves static assets from dist', async () => {
     const distDir = createTempDistDir()
     tempDirs.push(distDir)
@@ -84,7 +94,7 @@ describe('page-builder production server', () => {
     expect(await builderResponse.text()).toContain('page-builder')
   })
 
-  test('injects runtime public base path config when serving index.html', async () => {
+  test('injects runtime public base path and hidden toolbar config when serving index.html', async () => {
     const distDir = createTempDistDir()
     tempDirs.push(distDir)
 
@@ -92,6 +102,7 @@ describe('page-builder production server', () => {
       distDir,
       appOrigin: 'http://app:3000',
       publicBasePath: '/ai/pagebuilder',
+      hiddenToolbarItems: ['export', 'saveTemplate'],
     })
 
     const response = await handler(new Request('http://localhost/ai/pagebuilder/'))
@@ -101,6 +112,7 @@ describe('page-builder production server', () => {
     expect(html).toContain('<base href="/ai/pagebuilder/">')
     expect(html).toContain('window.__AI_PAGE_BUILDER_RUNTIME_CONFIG__')
     expect(html).toContain('"basePath":"/ai/pagebuilder"')
+    expect(html).toContain('"hiddenToolbarItems":["export","saveTemplate"]')
     expect(html).toContain('page-builder')
   })
 

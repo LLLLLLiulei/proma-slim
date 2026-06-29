@@ -54,7 +54,7 @@ import { Button } from '@/components/ui/button'
 import { ApiError, api } from '@/lib/api'
 import { clearBootstrapPayload, readBootstrapPayload } from '@page-builder/lib/bootstrap-cache'
 import { resolveBuilderContext } from '@page-builder/lib/builder-context'
-import { getPageBuilderPublicBasePath } from '@page-builder/lib/public-base-path'
+import { getPageBuilderHiddenToolbarItems, getPageBuilderPublicBasePath } from '@page-builder/lib/public-base-path'
 import { buildBuilderPath, buildHomePath } from '@page-builder/lib/routes'
 import {
   clearPageBuilderEditLockFragment,
@@ -420,6 +420,7 @@ export function BuilderPage({
   const currentWorkspaceName = React.useMemo(() => (
     workspaces.find((workspace) => workspace.id === workspaceId)?.name ?? '未命名项目'
   ), [workspaces, workspaceId])
+  const hiddenToolbarItems = React.useMemo(() => getPageBuilderHiddenToolbarItems(), [])
 
   React.useEffect(() => {
     editLockLeaseRef.current = editLockLease
@@ -1595,6 +1596,7 @@ export function BuilderPage({
       >
         <PreviewPane
           exportStaticPending={exportStaticPending}
+          hiddenToolbarItems={hiddenToolbarItems}
           imageReplacementPending={isReplacingImage}
           interactionLocked={isAgentStreaming || !editingEnabled}
           onInlineTextSaveRequest={handleInlineTextSaveRequest}
@@ -1611,10 +1613,19 @@ export function BuilderPage({
             setCmsSelectionEntryPoint('block-toolbar')
             setCmsBrowserOpen(true)
           } : undefined}
+          onRequestSaveTemplate={handleRequestSaveTemplate}
           onRequestReplaceImage={handleRequestReplaceImage}
           onSelectionEvent={handleSelectionEvent}
           previewUrl={previewUrl}
           requiresSameOrigin={previewState?.requiresSameOrigin === true}
+          saveTemplateDisabled={isAgentStreaming || !editingEnabled || isSavingTemplate}
+          saveTemplateTitle={
+            !editingEnabled
+              ? (editLockLostMessage ?? EDIT_LOCK_LOST_MESSAGE)
+              : isAgentStreaming
+                ? '当前项目正在生成中，请稍后再另存模板'
+                : '另存为模板'
+          }
           selectionActionState={selectionActionState}
           selectionModeEnabled={selectionModeEnabled}
           selectionToggleDisabled={isAgentStreaming || !editingEnabled}
@@ -1641,20 +1652,13 @@ export function BuilderPage({
           <ProjectTitleBar
             editLock={editLockCredentials ?? undefined}
             editingDisabled={!editingEnabled}
+            hiddenToolbarItems={hiddenToolbarItems}
             onEditLockRejected={handlePageBuilderEditLockRejected}
-            onRequestSaveTemplate={handleRequestSaveTemplate}
-            saveTemplateDisabled={isAgentStreaming || !editingEnabled || isSavingTemplate}
-            saveTemplateTitle={
-              !editingEnabled
-                ? (editLockLostMessage ?? EDIT_LOCK_LOST_MESSAGE)
-                : isAgentStreaming
-                  ? '当前项目正在生成中，请稍后再另存模板'
-                  : '另存为模板'
-            }
             workspaceId={workspaceId}
           />
           <div className="min-h-0 flex-1 overflow-hidden bg-background/40">
             <BuilderRightPanel
+              hiddenToolbarItems={hiddenToolbarItems}
               chatContent={
                 <AgentView
                   allowAttachments

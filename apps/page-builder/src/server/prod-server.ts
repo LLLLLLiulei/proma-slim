@@ -6,6 +6,10 @@ import {
   stripPageBuilderPublicBasePath,
   toPageBuilderBaseHref,
 } from '@ai-page-builder/shared'
+import {
+  normalizePageBuilderHiddenToolbarItems,
+  type PageBuilderToolbarItemKey,
+} from '../renderer/lib/toolbar-visibility'
 
 const DEFAULT_PORT = 3333
 const DEFAULT_APP_ORIGIN = 'http://127.0.0.1:8888'
@@ -14,6 +18,7 @@ export interface PageBuilderProdServerOptions {
   distDir: string
   appOrigin: string
   publicBasePath?: string | null
+  hiddenToolbarItems?: readonly PageBuilderToolbarItemKey[] | null
   fetchImpl?: (request: Request, init?: RequestInit) => Promise<Response>
 }
 
@@ -75,9 +80,10 @@ function escapeHtmlAttribute(value: string): string {
     .replace(/>/g, '&gt;')
 }
 
-function runtimeConfigScript(publicBasePath: string): string {
+function runtimeConfigScript(publicBasePath: string, hiddenToolbarItems: readonly PageBuilderToolbarItemKey[]): string {
   const json = JSON.stringify({
     basePath: publicBasePath,
+    hiddenToolbarItems,
   }).replace(/</g, '\\u003c')
 
   return `<script>window.__AI_PAGE_BUILDER_RUNTIME_CONFIG__=${json};</script>`
@@ -89,9 +95,13 @@ function stripExistingRuntimeInjection(html: string): string {
     .replace(/\s*<script>\s*window\.__AI_PAGE_BUILDER_RUNTIME_CONFIG__=.*?<\/script>\s*/si, '\n')
 }
 
-function injectRuntimeConfigIntoIndexHtml(html: string, publicBasePath: string): string {
+function injectRuntimeConfigIntoIndexHtml(
+  html: string,
+  publicBasePath: string,
+  hiddenToolbarItems: readonly PageBuilderToolbarItemKey[],
+): string {
   const baseTag = `<base href="${escapeHtmlAttribute(toPageBuilderBaseHref(publicBasePath))}">`
-  const runtimeScript = runtimeConfigScript(publicBasePath)
+  const runtimeScript = runtimeConfigScript(publicBasePath, hiddenToolbarItems)
   const headInjection = `${baseTag}\n    ${runtimeScript}`
   const cleanedHtml = stripExistingRuntimeInjection(html)
 
@@ -102,9 +112,13 @@ function injectRuntimeConfigIntoIndexHtml(html: string, publicBasePath: string):
   return `${headInjection}\n${cleanedHtml}`
 }
 
-async function indexHtmlResponse(filePath: string, publicBasePath: string): Promise<Response> {
+async function indexHtmlResponse(
+  filePath: string,
+  publicBasePath: string,
+  hiddenToolbarItems: readonly PageBuilderToolbarItemKey[],
+): Promise<Response> {
   const html = await Bun.file(filePath).text()
-  return new Response(injectRuntimeConfigIntoIndexHtml(html, publicBasePath), {
+  return new Response(injectRuntimeConfigIntoIndexHtml(html, publicBasePath, hiddenToolbarItems), {
     headers: {
       'content-type': 'text/html;charset=utf-8',
       'content-security-policy': "frame-ancestors 'self'",
@@ -116,6 +130,7 @@ export function createPageBuilderProdFetchHandler(options: PageBuilderProdServer
   const fetchImpl = options.fetchImpl ?? ((request: Request, init?: RequestInit) => fetch(request, init))
   const normalizedDistDir = resolve(options.distDir)
   const publicBasePath = normalizePageBuilderPublicBasePath(options.publicBasePath)
+  const hiddenToolbarItems = normalizePageBuilderHiddenToolbarItems(options.hiddenToolbarItems)
 
   return async (request: Request): Promise<Response> => {
     const url = new URL(request.url)
@@ -137,7 +152,7 @@ export function createPageBuilderProdFetchHandler(options: PageBuilderProdServer
 
     if (existsSync(requestedPath) && statSync(requestedPath).isFile()) {
       if (requestedPath === getFallbackIndexPath(normalizedDistDir)) {
-        return indexHtmlResponse(requestedPath, publicBasePath)
+        return indexHtmlResponse(requestedPath, publicBasePath, hiddenToolbarItems)
       }
       return staticFileResponse(requestedPath)
     }
@@ -151,7 +166,7 @@ export function createPageBuilderProdFetchHandler(options: PageBuilderProdServer
       return new Response(`page-builder static entry not found: ${fallbackPath}`, { status: 404 })
     }
 
-    return indexHtmlResponse(fallbackPath, publicBasePath)
+    return indexHtmlResponse(fallbackPath, publicBasePath, hiddenToolbarItems)
   }
 }
 
@@ -186,6 +201,12 @@ export function resolvePageBuilderProdPublicBasePath(env: EnvSource = process.en
   return normalizePageBuilderPublicBasePath(env.AI_PAGE_BUILDER_BASE_PATH)
 }
 
+export function resolvePageBuilderProdHiddenToolbarItems(
+  env: EnvSource = process.env,
+): PageBuilderToolbarItemKey[] {
+  return normalizePageBuilderHiddenToolbarItems(env.AI_PAGE_BUILDER_HIDDEN_TOOLBAR_ITEMS)
+}
+
 function getAppOrigin(): string {
   return resolvePageBuilderProdAppOrigin()
 }
@@ -194,16 +215,22 @@ function getPublicBasePath(): string {
   return resolvePageBuilderProdPublicBasePath()
 }
 
+function getHiddenToolbarItems(): PageBuilderToolbarItemKey[] {
+  return resolvePageBuilderProdHiddenToolbarItems()
+}
+
 export function startPageBuilderProdServer(): void {
   const distDir = getDistDir()
   const appOrigin = getAppOrigin()
   const publicBasePath = getPublicBasePath()
+  const hiddenToolbarItems = getHiddenToolbarItems()
   const port = getPort()
 
   const handler = createPageBuilderProdFetchHandler({
     distDir,
     appOrigin,
     publicBasePath,
+    hiddenToolbarItems,
   })
 
   const server = Bun.serve({
@@ -222,6 +249,7 @@ export function startPageBuilderProdServer(): void {
   console.log(`[Page Builder Web] dist: ${distDir}`)
   console.log(`[Page Builder Web] app origin: ${appOrigin}`)
   console.log(`[Page Builder Web] public base path: ${publicBasePath || '/'}`)
+  console.log(`[Page Builder Web] hidden toolbar items: ${hiddenToolbarItems.join(',') || '(none)'}`)
 }
 
 if (import.meta.main) {
