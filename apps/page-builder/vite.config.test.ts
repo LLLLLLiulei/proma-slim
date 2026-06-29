@@ -4,6 +4,7 @@ import {
   createPageBuilderMonacoAssetsPlugin,
   createPageBuilderDevProxy,
   pageBuilderViteBase,
+  resolvePageBuilderDevHiddenToolbarItems,
 } from './vite.config'
 
 describe('page-builder Vite base path', () => {
@@ -37,6 +38,15 @@ describe('page-builder Vite dev proxy', () => {
     expect(Object.keys(proxy)).toEqual(['/api', '/pagebuilder/api'])
     expect(proxy['/pagebuilder/api']?.target).toBe('http://127.0.0.1:3000')
     expect(proxy['/pagebuilder/api']?.rewrite?.('/pagebuilder/api/status')).toBe('/api/status')
+  })
+})
+
+describe('page-builder Vite toolbar config', () => {
+  test('normalizes hidden toolbar items for the dev runtime define', () => {
+    expect(resolvePageBuilderDevHiddenToolbarItems(' export,unknown,saveTemplate,export ')).toEqual([
+      'export',
+      'saveTemplate',
+    ])
   })
 })
 

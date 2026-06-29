@@ -237,6 +237,16 @@ function installWindowHarness(): {
       open,
     },
   })
+  Object.defineProperty(globalThis, 'document', {
+    configurable: true,
+    value: {
+      body: {
+        style: {
+          userSelect: '',
+        },
+      },
+    },
+  })
 
   return {
     localStorage,
@@ -1299,7 +1309,7 @@ describe('BuilderPage', () => {
       await Promise.resolve()
     })
 
-    expect(getListenerCount('beforeunload')).toBe(0)
+    const baselineBeforeUnloadListeners = getListenerCount('beforeunload')
 
     const runningStreamState: AgentStreamState = {
       running: true,
@@ -1316,7 +1326,7 @@ describe('BuilderPage', () => {
       await Promise.resolve()
     })
 
-    expect(getListenerCount('beforeunload')).toBe(1)
+    expect(getListenerCount('beforeunload')).toBe(baselineBeforeUnloadListeners + 1)
 
     const preventDefault = mock(() => {})
     const event = {
@@ -1344,7 +1354,7 @@ describe('BuilderPage', () => {
       await Promise.resolve()
     })
 
-    expect(getListenerCount('beforeunload')).toBe(0)
+    expect(getListenerCount('beforeunload')).toBe(baselineBeforeUnloadListeners)
 
     await act(async () => {
       renderer.unmount()
@@ -2259,6 +2269,52 @@ describe('BuilderPage', () => {
     })
   })
 
+  test('passes runtime hidden toolbar items into preview and right-side toolbar components', async () => {
+    installWindowHarness()
+    ;(globalThis.window as typeof globalThis.window & {
+      __AI_PAGE_BUILDER_RUNTIME_CONFIG__?: { hiddenToolbarItems?: unknown }
+    }).__AI_PAGE_BUILDER_RUNTIME_CONFIG__ = {
+      hiddenToolbarItems: ['export', 'projectName', 'unknown', 'export'],
+    }
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '可隐藏标题项目',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const { BuilderPage, getLastPreviewPaneProps } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      mockPreviewPane: true,
+    })
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      hiddenToolbarItems: ['export', 'projectName'],
+    })
+    expect(JSON.stringify(renderer.toJSON())).not.toContain('可隐藏标题项目')
+  })
+
   test('saves the current standalone builder project as a template with edit lock credentials', async () => {
     installWindowHarness()
     const workspace: AgentWorkspace = {
@@ -2289,6 +2345,7 @@ describe('BuilderPage', () => {
 
     const {
       BuilderPage,
+      getLastPreviewPaneProps,
       getToastSuccess,
     } = await loadBuilderPage({
       sessions: [session],
@@ -2316,7 +2373,7 @@ describe('BuilderPage', () => {
     })
 
     await act(async () => {
-      findButtonByText(renderer, '另存模板').props.onClick()
+      ;(getLastPreviewPaneProps() as { onRequestSaveTemplate?: () => void }).onRequestSaveTemplate?.()
       await Promise.resolve()
     })
 
@@ -2364,7 +2421,7 @@ describe('BuilderPage', () => {
       updatedAt: 1,
     }
 
-    const { BuilderPage } = await loadBuilderPage({
+    const { BuilderPage, getLastPreviewPaneProps } = await loadBuilderPage({
       sessions: [session],
       workspaces: [workspace],
       getCmsIntegrationStatusImpl: async () => ({ integrationMode: 'cms', enabled: true }),
@@ -2383,7 +2440,7 @@ describe('BuilderPage', () => {
     })
 
     await act(async () => {
-      findButtonByText(renderer, '另存模板').props.onClick()
+      ;(getLastPreviewPaneProps() as { onRequestSaveTemplate?: () => void }).onRequestSaveTemplate?.()
       await Promise.resolve()
     })
 
@@ -2408,7 +2465,7 @@ describe('BuilderPage', () => {
       updatedAt: 1,
     }
 
-    const { BuilderPage } = await loadBuilderPage({
+    const { BuilderPage, getLastPreviewPaneProps } = await loadBuilderPage({
       sessions: [session],
       workspaces: [workspace],
       getCmsIntegrationStatusImpl: async () => ({
@@ -2431,7 +2488,7 @@ describe('BuilderPage', () => {
     })
 
     await act(async () => {
-      findButtonByText(renderer, '另存模板').props.onClick()
+      ;(getLastPreviewPaneProps() as { onRequestSaveTemplate?: () => void }).onRequestSaveTemplate?.()
       await Promise.resolve()
     })
 
@@ -2461,6 +2518,7 @@ describe('BuilderPage', () => {
 
     const {
       BuilderPage,
+      getLastPreviewPaneProps,
       getToastError,
     } = await loadBuilderPage({
       sessions: [session],
@@ -2481,7 +2539,7 @@ describe('BuilderPage', () => {
     })
 
     await act(async () => {
-      findButtonByText(renderer, '另存模板').props.onClick()
+      ;(getLastPreviewPaneProps() as { onRequestSaveTemplate?: () => void }).onRequestSaveTemplate?.()
       await Promise.resolve()
     })
 
@@ -2539,7 +2597,7 @@ describe('BuilderPage', () => {
     })
 
     await act(async () => {
-      findButtonByText(renderer, '另存模板').props.onClick()
+      ;(getLastPreviewPaneProps() as { onRequestSaveTemplate?: () => void }).onRequestSaveTemplate?.()
       await Promise.resolve()
     })
 
@@ -2578,7 +2636,7 @@ describe('BuilderPage', () => {
     })
     const store = createStore()
 
-    const { BuilderPage } = await loadBuilderPage({
+    const { BuilderPage, getLastPreviewPaneProps } = await loadBuilderPage({
       sessions: [session],
       workspaces: [workspace],
       mockPreviewPane: true,
@@ -2606,11 +2664,12 @@ describe('BuilderPage', () => {
       await Promise.resolve()
     })
 
-    const button = findButtonByText(renderer, '另存模板')
-    expect(button.props.disabled).toBe(true)
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      saveTemplateDisabled: true,
+    })
 
     await act(async () => {
-      button.props.onClick()
+      ;(getLastPreviewPaneProps() as { onRequestSaveTemplate?: () => void }).onRequestSaveTemplate?.()
       await Promise.resolve()
     })
 
@@ -2813,6 +2872,7 @@ describe('BuilderPage', () => {
     const separator = renderer.root.find((node) =>
       node.props['aria-label'] === '调整预览与对话宽度'
     )
+    const baselinePointerMoveListeners = windowHarness.getListenerCount('pointermove')
 
     await act(async () => {
       separator.props.onPointerDown({
@@ -2825,7 +2885,7 @@ describe('BuilderPage', () => {
     })
 
     expect(separatorNode.setPointerCapture).toHaveBeenCalledWith(1)
-    expect(windowHarness.getListenerCount('pointermove')).toBe(1)
+    expect(windowHarness.getListenerCount('pointermove')).toBe(baselinePointerMoveListeners + 1)
     expect(localStorageSetItem.mock.calls.length).toBe(persistedCallCountBeforeDrag)
 
     await act(async () => {
@@ -2847,7 +2907,7 @@ describe('BuilderPage', () => {
 
     expect(separatorNode.releasePointerCapture).toHaveBeenCalledWith(1)
     expect(localStorageSetItem.mock.calls.length).toBe(persistedCallCountBeforeDrag + 1)
-    expect(windowHarness.getListenerCount('pointermove')).toBe(0)
+    expect(windowHarness.getListenerCount('pointermove')).toBe(baselinePointerMoveListeners)
   })
 
   test('hydrates the builder runtime and passes the bootstrap prompt into the embedded AgentView', async () => {

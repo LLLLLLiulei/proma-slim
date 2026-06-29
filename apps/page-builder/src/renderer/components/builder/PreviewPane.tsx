@@ -1,5 +1,14 @@
 import * as React from 'react'
-import { Download, ExternalLink, Laptop, LoaderCircle, MousePointerClick, RefreshCw, Smartphone } from 'lucide-react'
+import {
+  Download,
+  ExternalLink,
+  Laptop,
+  LoaderCircle,
+  MousePointerClick,
+  RefreshCw,
+  Save,
+  Smartphone,
+} from 'lucide-react'
 import type {
   PageBuilderPreviewAnchorRect,
   PageBuilderPreviewBridgeMessage,
@@ -18,6 +27,12 @@ import {
 import { Button } from '@/components/ui/button'
 import { PageBuilderBlockActionBar } from '@page-builder/components/builder/PageBuilderBlockActionBar'
 import type { PageBuilderPreviewSelectionEvent } from '@page-builder/lib/preview-selection'
+import {
+  getPageBuilderVisiblePreviewDeviceMode,
+  isPageBuilderToolbarItemHidden,
+  normalizePageBuilderHiddenToolbarItems,
+  type PageBuilderToolbarItemKey,
+} from '@page-builder/lib/toolbar-visibility'
 import { cn } from '@/lib/utils'
 
 const BLOCK_ACTION_BAR_ESTIMATED_WIDTH = 336
@@ -115,15 +130,19 @@ function resolveEmbeddedPreviewUrl(previewUrl: string): string {
 
 export function PreviewPane({
   exportStaticPending = false,
+  hiddenToolbarItems: hiddenToolbarItemsInput,
   onRequestExportStatic,
   onInlineTextSaveRequest,
   onRequestDeleteBlock,
   onRequestOpenCmsBrowser,
+  onRequestSaveTemplate,
   onRequestReplaceImage,
   imageReplacementPending = false,
   interactionLocked = false,
   previewUrl,
   requiresSameOrigin = false,
+  saveTemplateDisabled = false,
+  saveTemplateTitle,
   selectionActionState = 'idle',
   selectionModeEnabled = false,
   selectionToggleDisabled = false,
@@ -131,15 +150,19 @@ export function PreviewPane({
   onSelectionEvent,
 }: {
   exportStaticPending?: boolean
+  hiddenToolbarItems?: readonly PageBuilderToolbarItemKey[] | null
   onRequestExportStatic?: () => void | Promise<void>
   onInlineTextSaveRequest?: (request: PageBuilderInlineTextSaveRequest) => Promise<PageBuilderInlineTextSaveResult>
   onRequestDeleteBlock?: (selector: string) => void
   onRequestOpenCmsBrowser?: () => void
+  onRequestSaveTemplate?: () => void
   onRequestReplaceImage?: (request: PageBuilderImageReplacementPayload) => void
   imageReplacementPending?: boolean
   interactionLocked?: boolean
   previewUrl: string | null
   requiresSameOrigin?: boolean
+  saveTemplateDisabled?: boolean
+  saveTemplateTitle?: string
   selectionActionState?: PreviewSelectionActionState
   selectionModeEnabled?: boolean
   selectionToggleDisabled?: boolean
@@ -153,6 +176,10 @@ export function PreviewPane({
   const [bridgeReady, setBridgeReady] = React.useState(false)
   const [previewDeviceMode, setPreviewDeviceMode] = React.useState<PreviewDeviceMode>('desktop')
   const [selectedAnchor, setSelectedAnchor] = React.useState<SelectedAnchorState | null>(null)
+  const hiddenToolbarItems = React.useMemo(
+    () => normalizePageBuilderHiddenToolbarItems(hiddenToolbarItemsInput),
+    [hiddenToolbarItemsInput],
+  )
   const embeddedPreviewUrl = React.useMemo(() => {
     if (!previewUrl) {
       return previewUrl
@@ -163,6 +190,25 @@ export function PreviewPane({
   const previewSandbox = requiresSameOrigin
     ? 'allow-forms allow-scripts allow-same-origin'
     : 'allow-forms allow-scripts'
+  const resolvedPreviewDeviceMode = getPageBuilderVisiblePreviewDeviceMode(previewDeviceMode, hiddenToolbarItems)
+  const showPcPreviewToggle = !isPageBuilderToolbarItemHidden(hiddenToolbarItems, 'pcPreview')
+  const showMobilePreviewToggle = !isPageBuilderToolbarItemHidden(hiddenToolbarItems, 'mobilePreview')
+  const showDeviceToggleGroup = showPcPreviewToggle || showMobilePreviewToggle
+  const showSelectionAction = !isPageBuilderToolbarItemHidden(hiddenToolbarItems, 'select')
+  const showExportAction = !isPageBuilderToolbarItemHidden(hiddenToolbarItems, 'export')
+  const showRefreshAction = !isPageBuilderToolbarItemHidden(hiddenToolbarItems, 'refresh')
+  const showSaveTemplateAction = !isPageBuilderToolbarItemHidden(hiddenToolbarItems, 'saveTemplate') && !!onRequestSaveTemplate
+  const showOpenInNewWindowAction = !isPageBuilderToolbarItemHidden(hiddenToolbarItems, 'openInNewWindow')
+  const showPreviewActions = showSelectionAction
+    || showExportAction
+    || showRefreshAction
+    || showSaveTemplateAction
+    || showOpenInNewWindowAction
+
+  React.useEffect(() => {
+    if (resolvedPreviewDeviceMode === previewDeviceMode) return
+    setPreviewDeviceMode(resolvedPreviewDeviceMode)
+  }, [previewDeviceMode, resolvedPreviewDeviceMode])
 
   const handleRefresh = React.useCallback(() => {
     if (!previewUrl) return
@@ -354,8 +400,8 @@ export function PreviewPane({
     viewportShellRef.current?.getBoundingClientRect?.() ?? frameRef.current?.getBoundingClientRect?.(),
   )
   const selectedImageTargetDescriptor = selectedAnchor?.imageTargetDescriptor ?? null
-  const isMobilePreview = previewDeviceMode === 'mobile'
-  const viewportShellWidth = previewDeviceMode === 'mobile'
+  const isMobilePreview = resolvedPreviewDeviceMode === 'mobile'
+  const viewportShellWidth = resolvedPreviewDeviceMode === 'mobile'
     ? `min(${MOBILE_PREVIEW_VIEWPORT_WIDTH}px, 100%)`
     : '100%'
   const selectionToggleTitle = selectionActionState === 'selected'
@@ -368,114 +414,148 @@ export function PreviewPane({
     ? 'border border-primary/70 bg-primary text-primary-foreground hover:bg-primary'
     : selectionActionState === 'armed'
       ? 'border border-primary/35 bg-primary/10 text-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.35)] ring-1 ring-primary/15 hover:border-primary/45 hover:bg-primary/14 hover:text-primary'
-      : 'border border-transparent text-foreground hover:bg-muted/70 hover:text-foreground'
+      : 'text-foreground'
+  const actionButtonClassName = 'h-8 gap-1.5 px-2.5 text-xs'
 
   return (
     <section className="page-builder-pane flex min-h-[560px] min-w-0 flex-col overflow-hidden rounded-2xl lg:h-full lg:min-h-0">
-      <div className="flex h-11 items-center justify-between gap-3 border-b border-border/70 px-3">
-        <div
-          className="flex items-center gap-1 rounded-md border border-border/70 bg-background/80 p-0.5"
-          data-preview-device-toggle-group={true}
-        >
-          <Button
-            aria-label="PC 预览"
-            aria-pressed={previewDeviceMode === 'desktop'}
-            className={cn(
-              'size-7 rounded-[6px] border-0 shadow-none',
-              previewDeviceMode === 'desktop'
-                ? 'bg-accent text-accent-foreground hover:bg-accent'
-                : 'text-muted-foreground hover:bg-muted/70 hover:text-foreground',
-            )}
-            onClick={() => setPreviewDeviceMode('desktop')}
-            size="icon-sm"
-            title="PC 预览"
-            type="button"
-            variant="ghost"
-          >
-            <Laptop className="size-3.5" />
-          </Button>
-          <Button
-            aria-label="Mobile 预览"
-            aria-pressed={previewDeviceMode === 'mobile'}
-            className={cn(
-              'size-7 rounded-[6px] border-0 shadow-none',
-              previewDeviceMode === 'mobile'
-                ? 'bg-accent text-accent-foreground hover:bg-accent'
-                : 'text-muted-foreground hover:bg-muted/70 hover:text-foreground',
-            )}
-            onClick={() => setPreviewDeviceMode('mobile')}
-            size="icon-sm"
-            title="Mobile 预览"
-            type="button"
-            variant="ghost"
-          >
-            <Smartphone className="size-3.5" />
-          </Button>
-        </div>
-        <div className="flex items-center gap-2">
+      <div className="flex min-h-11 flex-wrap items-center justify-between gap-2 border-b border-border/70 px-3 py-1.5">
+        {showDeviceToggleGroup ? (
           <div
             className="flex items-center gap-1 rounded-md border border-border/70 bg-background/80 p-0.5"
-            data-preview-selection-action-group={true}
+            data-preview-device-toggle-group={true}
           >
-            <Button
-              aria-label="选择区块"
-              aria-pressed={selectionActionState !== 'idle'}
-              className={cn(
-                'size-7 rounded-[6px] shadow-none',
-                selectionToggleClassName,
-              )}
-              disabled={selectionToggleDisabledState}
-              onClick={onToggleSelectionMode}
-              size="icon-sm"
-              title={selectionToggleTitle}
-              type="button"
-              variant="ghost"
-            >
-              <MousePointerClick className="size-3.5" />
-            </Button>
+            {showPcPreviewToggle ? (
+              <Button
+                aria-label="PC 预览"
+                aria-pressed={resolvedPreviewDeviceMode === 'desktop'}
+                className={cn(
+                  'size-7 rounded-[6px] border-0 shadow-none',
+                  resolvedPreviewDeviceMode === 'desktop'
+                    ? 'bg-accent text-accent-foreground hover:bg-accent'
+                    : 'text-muted-foreground hover:bg-muted/70 hover:text-foreground',
+                )}
+                onClick={() => setPreviewDeviceMode('desktop')}
+                size="icon-sm"
+                title="PC 预览"
+                type="button"
+                variant="ghost"
+              >
+                <Laptop className="size-3.5" />
+              </Button>
+            ) : null}
+            {showMobilePreviewToggle ? (
+              <Button
+                aria-label="Mobile 预览"
+                aria-pressed={resolvedPreviewDeviceMode === 'mobile'}
+                className={cn(
+                  'size-7 rounded-[6px] border-0 shadow-none',
+                  resolvedPreviewDeviceMode === 'mobile'
+                    ? 'bg-accent text-accent-foreground hover:bg-accent'
+                    : 'text-muted-foreground hover:bg-muted/70 hover:text-foreground',
+                )}
+                onClick={() => setPreviewDeviceMode('mobile')}
+                size="icon-sm"
+                title="Mobile 预览"
+                type="button"
+                variant="ghost"
+              >
+                <Smartphone className="size-3.5" />
+              </Button>
+            ) : null}
           </div>
-          <Button
-            aria-label="导出静态包"
-            aria-busy={exportStaticPending}
-            className="size-8"
-            disabled={!previewUrl || exportStaticPending}
-            onClick={() => {
-              void onRequestExportStatic?.()
-            }}
-            size="icon"
-            title="导出静态包"
-            type="button"
-            variant="outline"
-          >
-            {exportStaticPending
-              ? <LoaderCircle className="size-3.5 animate-spin" />
-              : <Download className="size-3.5" />}
-          </Button>
-          <Button
-            aria-label="刷新预览"
-            className="size-8"
-            disabled={!previewUrl}
-            onClick={handleRefresh}
-            size="icon"
-            title="刷新预览"
-            type="button"
-            variant="outline"
-          >
-            <RefreshCw className="size-3.5" />
-          </Button>
-          <Button
-            aria-label="新窗口打开预览"
-            className="size-8"
-            disabled={!previewUrl}
-            onClick={handleOpenInNewWindow}
-            size="icon"
-            title="新窗口打开预览"
-            type="button"
-            variant="outline"
-          >
-            <ExternalLink className="size-3.5" />
-          </Button>
-        </div>
+        ) : <div aria-hidden={true} />}
+        {showPreviewActions ? (
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {showSelectionAction ? (
+              <Button
+                aria-label="选择区块"
+                aria-pressed={selectionActionState !== 'idle'}
+                className={cn(
+                  actionButtonClassName,
+                  selectionToggleClassName,
+                )}
+                disabled={selectionToggleDisabledState}
+                onClick={onToggleSelectionMode}
+                size="sm"
+                title={selectionToggleTitle}
+                type="button"
+                variant="outline"
+              >
+                <MousePointerClick className="size-3.5" />
+                <span>选择</span>
+              </Button>
+            ) : null}
+            {showRefreshAction ? (
+              <Button
+                aria-label="刷新预览"
+                className={actionButtonClassName}
+                disabled={!previewUrl}
+                onClick={handleRefresh}
+                size="sm"
+                title="刷新预览"
+                type="button"
+                variant="outline"
+              >
+                <RefreshCw className="size-3.5" />
+                <span>刷新</span>
+              </Button>
+            ) : null}
+            {showOpenInNewWindowAction ? (
+              <Button
+                aria-label="新窗口打开预览"
+                className={actionButtonClassName}
+                disabled={!previewUrl}
+                onClick={handleOpenInNewWindow}
+                size="sm"
+                title="新窗口打开预览"
+                type="button"
+                variant="outline"
+              >
+                <ExternalLink className="size-3.5" />
+                <span>新窗口打开</span>
+              </Button>
+            ) : null}
+            {showExportAction ? (
+              <Button
+                aria-label="导出静态包"
+                aria-busy={exportStaticPending}
+                className={actionButtonClassName}
+                disabled={!previewUrl || exportStaticPending}
+                onClick={() => {
+                  void onRequestExportStatic?.()
+                }}
+                size="sm"
+                title="导出静态包"
+                type="button"
+                variant="outline"
+              >
+                {exportStaticPending
+                  ? <LoaderCircle className="size-3.5 animate-spin" />
+                  : <Download className="size-3.5" />}
+                <span>导出</span>
+              </Button>
+            ) : null}
+            {showSaveTemplateAction ? (
+              <Button
+                aria-label="另存模板"
+                className={actionButtonClassName}
+                disabled={saveTemplateDisabled}
+                onClick={() => {
+                  if (saveTemplateDisabled) return
+                  onRequestSaveTemplate()
+                }}
+                size="sm"
+                title={saveTemplateTitle}
+                type="button"
+                variant="outline"
+              >
+                <Save className="size-3.5" />
+                <span>另存模板</span>
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       <div className="min-h-0 flex-1 p-2.5">
@@ -498,7 +578,7 @@ export function PreviewPane({
                   ? 'overflow-hidden rounded-xl border border-border/70 shadow-[0_10px_28px_rgba(15,23,42,0.08)]'
                   : '',
               )}
-              data-preview-device-mode={previewDeviceMode}
+              data-preview-device-mode={resolvedPreviewDeviceMode}
               data-preview-viewport-shell={true}
               style={{ width: viewportShellWidth }}
             >
