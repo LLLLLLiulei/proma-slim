@@ -1,5 +1,13 @@
 import { spawnSync } from 'node:child_process'
-import { expect, test } from 'bun:test'
+import { afterEach, expect, test } from 'bun:test'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+afterEach(() => {
+  delete process.env.AI_PAGE_BUILDER_BASE_PATH
+  delete process.env.PROMA_PAGE_BUILDER_CMS_RENDERING_PREVIEW_PATH
+})
 
 test('cms rendering preview asset URLs use the configured public base path and keep version queries', async () => {
   process.env.AI_PAGE_BUILDER_BASE_PATH = '/pagebuilder'
@@ -10,8 +18,23 @@ test('cms rendering preview asset URLs use the configured public base path and k
 
   expect(previewUrl).toStartWith('/pagebuilder/api/page-builder/cms-rendering-preview.js?v=')
   expect(vueUrl).toStartWith('/pagebuilder/api/page-builder/cms-rendering-vue.js?v=')
+})
 
-  delete process.env.AI_PAGE_BUILDER_BASE_PATH
+test('cms rendering preview reads a configured prebuilt asset', async () => {
+  const tempDir = mkdtempSync(join(tmpdir(), 'proma-cms-rendering-preview-'))
+  const previewPath = join(tempDir, 'cms-rendering-preview.js')
+
+  try {
+    writeFileSync(previewPath, 'console.info("prebuilt-cms-rendering-preview")', 'utf-8')
+    process.env.PROMA_PAGE_BUILDER_CMS_RENDERING_PREVIEW_PATH = previewPath
+
+    const module = await import(`./page-builder-cms-rendering-preview.ts?prebuilt=${Date.now()}-${Math.random()}`)
+    const script = await module.readPageBuilderCmsRenderingPreviewScript()
+
+    expect(script).toBe('console.info("prebuilt-cms-rendering-preview")')
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
 })
 
 test('cms rendering preview bundle excludes server-only linkedom dependency', () => {

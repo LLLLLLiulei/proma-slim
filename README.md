@@ -21,8 +21,8 @@ AI Page Builder 是一个基于 AI Agent 的单页网页创建与编辑系统。
 
 | 层级 | 技术 |
 | --- | --- |
-| 运行时 | Bun 1.2.5 |
-| 后端 | Hono + `Bun.serve` |
+| 运行时 | 本地开发/构建使用 Bun 1.2.5；Docker 生产容器使用 Node 22 |
+| 后端 | Hono；Docker 生产容器使用 Hono Node server |
 | 前端 | React 18 + TypeScript + Vite 6 |
 | 状态/UI | Jotai、Radix UI、Tailwind CSS、Ant Design（Page Builder 局部使用） |
 | Agent SDK | `@anthropic-ai/claude-agent-sdk` |

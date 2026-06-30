@@ -59,6 +59,7 @@ import {
 } from '../../lib/page-builder-template-service'
 import { getAgentSessionMeta, listAgentSessions } from '../../lib/agent-session-manager'
 import { HttpError } from '../errors'
+import { createFileResponse } from '../file-response'
 import { json, noContent, readJsonBody } from '../responses'
 import type { HttpAppEnv } from '../types'
 import { workspaceMiddleware } from '../middleware/workspace'
@@ -464,7 +465,7 @@ workspaceRoutes.get('/:workspaceId/page-builder/export-static-jobs/:jobId', (c) 
 workspaceRoutes.get('/:workspaceId/page-builder/export-static-jobs/:jobId/download', (c) => {
   try {
     const artifact = pageBuilderStaticExportService.resolveDownload(c.var.workspace.id, c.req.param('jobId'))
-    return new Response(Bun.file(artifact.filePath), {
+    return createFileResponse(artifact.filePath, {
       headers: {
         'cache-control': 'private, no-store',
         'content-disposition': `attachment; filename="${artifact.fallbackFileName}"; filename*=UTF-8''${encodeURIComponent(artifact.fileName)}`,

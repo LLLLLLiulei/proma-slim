@@ -17,12 +17,36 @@ WORKDIR /app
 COPY . .
 
 RUN bun run --filter='@ai-page-builder/app' build
+RUN bun apps/app/scripts/build-server-runtime-assets.ts /app/apps/app/dist-server
+RUN bun build apps/app/src/main/index.ts \
+  --target=node \
+  --format=esm \
+  --external sharp \
+  --external @anthropic-ai/claude-agent-sdk \
+  --external node-stream-zip \
+  --external vue \
+  --outfile /app/apps/app/src/main/index.mjs
 
-FROM oven/bun:1.2.5 AS runtime
+FROM node:22-bookworm-slim AS runtime
 USER root
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates git \
-  && rm -rf /var/lib/apt/lists/*
+ARG DEBIAN_MIRROR=
+ARG DEBIAN_SECURITY_MIRROR=
+RUN set -eux; \
+  if [ -n "${DEBIAN_MIRROR}" ]; then \
+    sed -i "s|http://deb.debian.org/debian|${DEBIAN_MIRROR}|g" /etc/apt/sources.list.d/debian.sources; \
+  fi; \
+  if [ -n "${DEBIAN_SECURITY_MIRROR}" ]; then \
+    sed -i "s|http://deb.debian.org/debian-security|${DEBIAN_SECURITY_MIRROR}|g" /etc/apt/sources.list.d/debian.sources; \
+  fi; \
+  for attempt in 1 2 3 4 5; do \
+    apt-get update -o Acquire::Retries=5 \
+      && apt-get install -y --no-install-recommends -o Acquire::Retries=5 ca-certificates git \
+      && break; \
+    if [ "${attempt}" = "5" ]; then exit 1; fi; \
+    rm -rf /var/lib/apt/lists/*; \
+    sleep $((attempt * 2)); \
+  done; \
+  rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -41,9 +65,14 @@ ENV NODE_ENV=production
 ENV PORT=8888
 ENV AI_PAGE_BUILDER_CONFIG_DIR=/home/bun/.ai-page-builder
 ENV AI_PAGE_BUILDER_SDK_HOME=/home/bun/.ai-page-builder/sdk-config
+ENV PROMA_DEFAULT_SKILLS_DIR=/app/apps/app/default-skills
+ENV PROMA_WORKSPACE_TEMPLATES_DIR=/app/apps/app/resources/templates
+ENV PROMA_PAGE_BUILDER_PREVIEW_BRIDGE_PATH=/app/apps/app/dist-server/page-builder-preview-bridge.js
+ENV PROMA_PAGE_BUILDER_CMS_RENDERING_PREVIEW_PATH=/app/apps/app/dist-server/cms-rendering-preview.js
+ENV PROMA_PAGE_BUILDER_CMS_RENDERING_VUE_PATH=/app/node_modules/vue/dist/vue.esm-browser.prod.js
 
 WORKDIR /app/apps/app
 
 EXPOSE 8888
 
-CMD ["sh", "-lc", "PROMA_CONFIG_DIR=\"${AI_PAGE_BUILDER_CONFIG_DIR:-/home/bun/.ai-page-builder}\" PROMA_CLAUDE_HOME=\"${AI_PAGE_BUILDER_SDK_HOME:-/home/bun/.ai-page-builder/sdk-config}\" PROMA_CMS_BASE_URL=\"${AI_PAGE_BUILDER_CMS_BASE_URL:-}\" PROMA_CMS_USERNAME=\"${AI_PAGE_BUILDER_CMS_USERNAME:-}\" PROMA_CMS_PASSWORD=\"${AI_PAGE_BUILDER_CMS_PASSWORD:-}\" exec bun run start"]
+CMD ["sh", "-lc", "PROMA_CONFIG_DIR=\"${AI_PAGE_BUILDER_CONFIG_DIR:-/home/bun/.ai-page-builder}\" PROMA_CLAUDE_HOME=\"${AI_PAGE_BUILDER_SDK_HOME:-/home/bun/.ai-page-builder/sdk-config}\" PROMA_CMS_BASE_URL=\"${AI_PAGE_BUILDER_CMS_BASE_URL:-}\" PROMA_CMS_USERNAME=\"${AI_PAGE_BUILDER_CMS_USERNAME:-}\" PROMA_CMS_PASSWORD=\"${AI_PAGE_BUILDER_CMS_PASSWORD:-}\" exec node src/main/index.mjs"]

@@ -8,6 +8,7 @@ import {
   injectCmsRenderingPreview,
 } from '@ai-page-builder/page-builder-cms-rendering/preview'
 import { HttpError } from '../http/errors'
+import { createFileResponse } from '../http/file-response'
 import { getWorkspaceFilesDir } from './config-paths'
 import {
   getPageBuilderCmsRenderingPreviewAssetUrl,
@@ -337,7 +338,7 @@ export function createWorkspacePreviewResponse(
     )
   }
 
-  return new Response(Bun.file(resolvedPath), {
+  return createFileResponse(resolvedPath, {
     headers: {
       'cache-control': 'no-store',
     },

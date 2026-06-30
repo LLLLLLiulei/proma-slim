@@ -47,6 +47,8 @@ services:
     image: mcr.microsoft.com/playwright:v1.57.0-jammy
     init: true
     ipc: host
+    security_opt:
+      - seccomp=unconfined
     volumes:
       - type: bind
         source: ./.cms-verify-data

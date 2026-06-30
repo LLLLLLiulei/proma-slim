@@ -56,6 +56,8 @@ services:
     restart: unless-stopped
     init: true
     ipc: host
+    security_opt:
+      - seccomp=unconfined
     volumes:
       - type: bind
         source: ${AI_PAGE_BUILDER_HOST_DATA_DIR:-${HOME:?Set HOME in your shell}/.ai-page-builder}

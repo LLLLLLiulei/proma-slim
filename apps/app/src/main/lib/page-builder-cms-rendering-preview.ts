@@ -33,6 +33,11 @@ function resolveCmsRenderingPreviewEntryPath(): string {
   return getCmsRenderingPreviewBuildPaths().bootstrapEntryPath
 }
 
+function resolveBundledCmsRenderingPreviewPath(): string | null {
+  const configuredPath = process.env.PROMA_PAGE_BUILDER_CMS_RENDERING_PREVIEW_PATH?.trim()
+  return configuredPath ? configuredPath : null
+}
+
 function resolveCmsRenderingSourceRoot(): string {
   return getCmsRenderingPreviewBuildPaths().sourceRootPath
 }
@@ -73,6 +78,11 @@ function collectRevisionEntries(dir: string, rootDir: string, entries: string[])
 }
 
 function getCmsRenderingPreviewVersion(): string {
+  const bundledPath = resolveBundledCmsRenderingPreviewPath()
+  if (bundledPath) {
+    return createHash('sha1').update(readFileSync(bundledPath)).digest('hex')
+  }
+
   const rootDir = resolveCmsRenderingSourceRoot()
   const revisionEntries: string[] = []
   collectRevisionEntries(rootDir, rootDir, revisionEntries)
@@ -95,6 +105,14 @@ export function getPageBuilderCmsRenderingVueAssetUrl(): string {
 }
 
 export async function readPageBuilderCmsRenderingPreviewScript(): Promise<string> {
+  const bundledPath = resolveBundledCmsRenderingPreviewPath()
+  if (bundledPath) {
+    if (!existsSync(bundledPath)) {
+      throw new Error(`CMS rendering preview 预构建脚本不存在: ${bundledPath}`)
+    }
+    return readFileSync(bundledPath, 'utf-8')
+  }
+
   const entryPath = resolveCmsRenderingPreviewEntryPath()
   if (!existsSync(entryPath)) {
     throw new Error(`CMS rendering preview bootstrap 不存在: ${entryPath}`)

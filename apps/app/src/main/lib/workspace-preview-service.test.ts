@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
+import { fileURLToPath } from 'node:url'
 import { getPageBuilderPreviewBridgeAssetUrl } from './page-builder-preview-bridge'
 import { createWorkspacePreviewResponse, getWorkspacePreviewState } from './workspace-preview-service'
 import { createAgentWorkspace } from './workspace-service'
@@ -38,6 +39,12 @@ afterEach(() => {
 })
 
 describe('workspace preview service', () => {
+  test('does not use Bun.file for preview file responses', () => {
+    const source = readFileSync(fileURLToPath(new URL('./workspace-preview-service.ts', import.meta.url)), 'utf-8')
+
+    expect(source).not.toContain('Bun.file')
+  })
+
   test('rejects preview traversal attempts that escape workspace-files', () => {
     const workspace = createAgentWorkspace('Preview Traversal')
 
@@ -299,3 +306,18 @@ describe('workspace preview service', () => {
     expect(html).not.toContain('src="/api/page-builder/cms/assets?url=')
   })
 })
+
+  test('serves non-HTML preview assets with a content type', async () => {
+    const workspace = createAgentWorkspace('Preview Asset Without Bun', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+
+    mkdirSync(join(workspaceFilesDir, 'assets'), { recursive: true })
+    writeFileSync(join(workspaceFilesDir, 'index.html'), '<html><body>ready</body></html>', 'utf-8')
+    writeFileSync(join(workspaceFilesDir, 'assets', 'site.css'), 'body { color: blue; }', 'utf-8')
+
+    const response = createWorkspacePreviewResponse(workspace, '/assets/site.css')
+
+    expect(response.headers.get('cache-control')).toBe('no-store')
+    expect(response.headers.get('content-type')).toContain('text/css')
+    expect(await response.text()).toBe('body { color: blue; }')
+  })

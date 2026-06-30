@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs'
 import { extname, resolve } from 'node:path'
 import { HttpError } from './errors'
+import { createFileResponse } from './file-response'
 
 export interface HttpAppOptions {
   distDir: string
@@ -23,7 +24,7 @@ function fallbackStaticPath(distDir: string): string {
 }
 
 function staticFileResponse(filePath: string): Response {
-  return new Response(Bun.file(filePath))
+  return createFileResponse(filePath)
 }
 
 export async function serveStatic(request: Request, options: HttpAppOptions): Promise<Response> {

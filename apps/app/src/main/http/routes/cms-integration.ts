@@ -46,6 +46,7 @@ import {
 } from '../../lib/page-builder-template-service'
 import { createAgentWorkspace, getAgentWorkspace } from '../../lib/workspace-service'
 import { getWorkspacePreviewState } from '../../lib/workspace-preview-service'
+import { createFileResponse } from '../file-response'
 import type { HttpAppEnv } from '../types'
 
 interface CmsProjectCreateBody {
@@ -442,7 +443,7 @@ cmsIntegrationRoutes.post('/projects/:projectId/export', async (c) => {
     timeoutMs: config.syncExportTimeoutMs,
   })
 
-  return new Response(Bun.file(artifact.filePath), {
+  return createFileResponse(artifact.filePath, {
     headers: {
       'cache-control': 'private, no-store',
       'content-disposition': `attachment; filename="${artifact.fallbackFileName}"; filename*=UTF-8''${encodeURIComponent(artifact.fileName)}`,

@@ -17,7 +17,7 @@
 | `build-page-builder-multiarch.sh` | 构建 PageBuilder server/web 镜像并加载到本地 Docker。当前本地 `--load` 流程一次只支持一个平台。 |
 | `push-page-builder-tencent.sh` | 将本地镜像重新打 tag 并推送到腾讯云 CCR。 |
 | `Dockerfile.page-builder-app` | 构建后端 server 镜像，运行 `@ai-page-builder/app`。 |
-| `Dockerfile.page-builder-web` | 构建 PageBuilder web 镜像，运行生产 `prod-server.js`。 |
+| `Dockerfile.page-builder-web` | 构建 PageBuilder web 镜像，运行生产 `prod-server.mjs`。 |
 | `docker-compose.yml` | 本地构建并运行的默认 compose。 |
 | `docker-compose.release.yml` | 发布部署 compose，直接拉取远端镜像，不在本机构建。 |
 | `docker-compose.cms-verify.yml` | CMS 集成验证 compose，包含 `server`、`web`、`playwright`、`cms-mock`、`nginx`。 |
@@ -46,7 +46,7 @@ bun --version
 - `docker compose` 需要 Docker Compose v2。
 - `build-page-builder-multiarch.sh` 和 `start-page-builder.sh --platform ...` 需要 `docker buildx`。
 - `cms-verify/smoke-test.ts` 需要宿主机可执行 `bun`。
-- 首次构建会拉取 `oven/bun:1.2.5`、`mcr.microsoft.com/playwright:v1.57.0-jammy`、`nginx:1.29-alpine` 等镜像。
+- 首次构建会拉取构建阶段使用的 `oven/bun:1.2.5`、运行阶段使用的 `node:22-bookworm-slim`、`mcr.microsoft.com/playwright:v1.57.0-jammy`、`nginx:1.29-alpine` 等镜像。
 
 ## 环境变量文件
 

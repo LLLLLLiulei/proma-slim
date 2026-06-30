@@ -57,13 +57,20 @@ function expectStartScriptClearsHostAgentSdkEnv(script: string) {
   expect(script).toContain('-u AI_PAGE_BUILDER_ANTHROPIC_BASE_URL')
 }
 
+function expectPlaywrightSeccompUnconfined(playwrightBlock: string) {
+  expect(playwrightBlock).toContain('ipc: host')
+  expect(playwrightBlock).toContain('security_opt:\n      - seccomp=unconfined')
+}
+
 describe('page-builder docker assets', () => {
   test('compose defines a default internal playwright sidecar and docker runtime defaults', () => {
     const compose = readRepoFile('../../../../../build/docker-compose.yml')
     const serverBlock = readComposeServiceBlock(compose, 'server')
+    const playwrightBlock = readComposeServiceBlock(compose, 'playwright')
 
     expect(compose).toContain('\n  playwright:\n')
     expect(compose).toContain('image: mcr.microsoft.com/playwright:v1.57.0-jammy')
+    expectPlaywrightSeccompUnconfined(playwrightBlock)
     expect(compose).toContain('AI_PAGE_BUILDER_RUNTIME_ENV: docker')
     expectAgentSdkEnvWhitelist(serverBlock)
     expect(compose).toContain('AI_PAGE_BUILDER_PLAYWRIGHT_MCP_URL: ${AI_PAGE_BUILDER_PLAYWRIGHT_MCP_URL:-http://playwright:8931/mcp}')
@@ -203,9 +210,44 @@ describe('page-builder docker assets', () => {
     expect(compose).not.toContain('/pagebuilder/api')
   })
 
+  test('server Dockerfile uses Node 22 runtime and preserves runtime resources', () => {
+    const appPackageJson = readRepoFile('../../../../../apps/app/package.json')
+    const dockerfile = readRepoFile('../../../../../build/Dockerfile.page-builder-app')
+    const compose = readRepoFile('../../../../../build/docker-compose.yml')
+    const releaseCompose = readRepoFile('../../../../../build/docker-compose.release.yml')
+    const serverBlock = readComposeServiceBlock(compose, 'server')
+    const releaseServerBlock = readComposeServiceBlock(releaseCompose, 'server')
+
+    expect(appPackageJson).toContain('"@hono/node-server"')
+    expect(dockerfile).toContain("RUN bun run --filter='@ai-page-builder/app' build")
+    expect(dockerfile).toContain('bun build apps/app/src/main/index.ts')
+    expect(dockerfile).toContain('--target=node')
+    expect(dockerfile).toContain('--format=esm')
+    expect(dockerfile).toContain('--outfile /app/apps/app/src/main/index.mjs')
+    expect(dockerfile).toContain('FROM node:22-bookworm-slim AS runtime')
+    expect(dockerfile).toContain('COPY --from=deps /app/node_modules ./node_modules')
+    expect(dockerfile).toContain('PROMA_DEFAULT_SKILLS_DIR=/app/apps/app/default-skills')
+    expect(dockerfile).toContain('PROMA_WORKSPACE_TEMPLATES_DIR=/app/apps/app/resources/templates')
+    expect(dockerfile).toContain('PROMA_PAGE_BUILDER_PREVIEW_BRIDGE_PATH=/app/apps/app/dist-server/page-builder-preview-bridge.js')
+    expect(dockerfile).toContain('PROMA_PAGE_BUILDER_CMS_RENDERING_PREVIEW_PATH=/app/apps/app/dist-server/cms-rendering-preview.js')
+    expect(dockerfile).toContain('exec node src/main/index.mjs')
+    expect(dockerfile).not.toContain('FROM oven/bun:1.2.5 AS runtime')
+    expect(dockerfile).not.toContain('exec bun run start')
+
+    expect(serverBlock).toContain('AI_PAGE_BUILDER_CONFIG_DIR: /home/bun/.ai-page-builder')
+    expect(serverBlock).toContain('AI_PAGE_BUILDER_SDK_HOME: /home/bun/.ai-page-builder/sdk-config')
+    expect(serverBlock).toContain('source: ${AI_PAGE_BUILDER_HOST_DATA_DIR:-${HOME:?Set HOME in your shell}/.ai-page-builder}')
+    expectAgentSdkEnvWhitelist(serverBlock)
+    expect(releaseServerBlock).toContain('image: ccr.ccs.tencentyun.com/ai-page-builder/page-builder-server:${PAGE_BUILDER_IMAGE_TAG:-latest}')
+    expect(releaseServerBlock).toContain('AI_PAGE_BUILDER_CONFIG_DIR: /home/bun/.ai-page-builder')
+    expect(releaseServerBlock).toContain('source: ${AI_PAGE_BUILDER_HOST_DATA_DIR:-${HOME:?Set HOME in your shell}/.ai-page-builder}')
+    expectAgentSdkEnvWhitelist(releaseServerBlock)
+  })
+
   test('cms verification compose keeps mock and nginx out of the default stack', () => {
     const defaultCompose = readRepoFile('../../../../../build/docker-compose.yml')
     const verifyCompose = readRepoFile('../../../../../build/docker-compose.cms-verify.yml')
+    const verifyPlaywrightBlock = readComposeServiceBlock(verifyCompose, 'playwright')
     const nginxConfig = readRepoFile('../../../../../build/nginx/cms-verify.conf')
     const cmsMock = readRepoFile('../../../../../build/cms-mock/server.ts')
     const smokeTest = readRepoFile('../../../../../build/cms-verify/smoke-test.ts')
@@ -216,6 +258,7 @@ describe('page-builder docker assets', () => {
     expect(verifyCompose).toContain('container_name: cms-verify-server')
     expect(verifyCompose).toContain('container_name: cms-verify-web')
     expect(verifyCompose).toContain('container_name: cms-verify-playwright')
+    expectPlaywrightSeccompUnconfined(verifyPlaywrightBlock)
     expect(verifyCompose).toContain('container_name: cms-verify-cms-mock')
     expect(verifyCompose).toContain('container_name: cms-verify-nginx')
     expect(verifyCompose).toContain('AI_PAGE_BUILDER_INTEGRATION_MODE: cms')
@@ -284,5 +327,6 @@ describe('page-builder docker assets', () => {
     expect(webBlock).toContain('AI_PAGE_BUILDER_BASE_PATH: ${AI_PAGE_BUILDER_BASE_PATH:-}')
     expect(webBlock).toContain('${PAGE_BUILDER_PORT:-3333}:3333')
     expect(playwrightBlock).toContain('--host 0.0.0.0 --port 8931 --headless')
+    expectPlaywrightSeccompUnconfined(playwrightBlock)
   })
 })

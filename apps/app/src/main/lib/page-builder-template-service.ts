@@ -22,6 +22,7 @@ import type {
   PageBuilderTemplateValidationReport,
   PageBuilderStaticExportReport,
 } from '@ai-page-builder/shared'
+import { createFileResponse } from '../http/file-response'
 import { getUserPageBuilderTemplatesDir, getWorkspaceFilesDir } from './config-paths'
 import { createAgentSession } from './agent-session-manager'
 import { buildPageBuilderPublicUrl } from './page-builder-public-url'
@@ -973,7 +974,7 @@ export class PageBuilderTemplateService {
       })
     }
 
-    return new Response(Bun.file(previewFile.filePath), {
+    return createFileResponse(previewFile.filePath, {
       headers: {
         'cache-control': 'no-store',
       },
