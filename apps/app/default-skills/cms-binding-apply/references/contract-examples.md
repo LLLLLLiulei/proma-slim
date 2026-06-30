@@ -54,6 +54,9 @@ In the current runtime chain, a `ready` result is not enough to write by itself:
 
 ### Ready result
 
+Keep the `ready` decision flat. Do not write `supportedRenderModes` as `{"item":"replace-current"}`.
+For fixed content ids: Do not write `source.ids` as `{"item":[...]}`; use a flat ordered string array.
+
 ```json
 {
   "status": "ready",

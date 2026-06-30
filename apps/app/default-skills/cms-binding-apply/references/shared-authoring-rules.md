@@ -8,7 +8,8 @@ Use this file for the boundaries that apply to both `cms-catalog` and `cms-conte
 - A single outer `<template v-slot:...>` or `<template #...>` wrapper is tolerated and will be unwrapped automatically when it matches the receiving field.
 - Do not pass an outer `cms-*` tag inside those fields.
 - The generated CMS component exposes the unified slot scope `{ items, loading, error, empty }`; declare the slot scope explicitly as a subset of that shape.
-- Keep major HTML containers inside the slot so the dynamic region has one coherent root structure per state.
+- Keep major HTML containers inside the slot when the current decision owns that region.
+- If the current decision preserves an existing outer shell, provide only compatible inner nodes, such as `li` items for an existing `ul` / `ol` shell.
 - Keep Vue authoring inside the current `cms-*` source tag only.
 - Do not call undeclared project helpers. Slot expressions should use declared slot variables, supported item fields, guards, inline member expressions, and Vue-executable safe native globals such as `Date`, `Math`, and `JSON`; when a tool reports a helper/template error or your draft violates these expression boundaries, fix the template and retry.
 - Do not use host globals or imperative browser APIs inside CMS slots: `window`, `document`, `globalThis`, `eval`, `Function`, `fetch`, storage, timers, DOM queries/mutations, or page-wide side effects.
@@ -44,7 +45,8 @@ Prefer:
 
 - Treat the operation as an in-place replacement of the selected target.
 - Do not append a sibling `cms-catalog` / `cms-content` beside the selected target.
-- `templateBody`, `emptyTemplate`, and `errorTemplate` should hold the full dynamic region content for their state; when a single matching outer slot wrapper is present, the runtime unwraps it automatically.
+- `templateBody`, `emptyTemplate`, and `errorTemplate` should hold the dynamic structure owned by the CMS slot for their state; when a single matching outer slot wrapper is present, the runtime unwraps it automatically.
+- If the current decision preserves an existing outer shell, do not generate a second major container in the template field.
 - If `targetSelection.kind === cms-island`, preserve the runtime locator tuple `htmlPath + sourceSelector + parentBlockSelector + component`.
 - Only the confirmed CMS browser selection flow may create a new `cms-catalog` / `cms-content` or rebind an existing one.
 - Ordinary page generation or ordinary page iteration must not invent new `cms-*` tags on their own.
@@ -73,6 +75,8 @@ Treat this as a structural compatibility decision. A content-topic mismatch alon
 ## Anti-pattern: major container outside the CMS slot
 
 Avoid leaving the main container outside and using the slot only for scattered item nodes.
+This anti-pattern applies only when the current decision says the CMS slot owns the major region.
+If the current decision preserves an existing outer shell, keep that shell outside and pass only compatible inner nodes in the slot.
 
 ```html
 <ul class="nav-list">

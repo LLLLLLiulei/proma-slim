@@ -26,7 +26,7 @@ import { z } from 'zod'
 export const PAGE_BUILDER_CMS_APPLY_TOOL_ID = 'apply_cms_binding'
 export const PAGE_BUILDER_CMS_APPLY_TOOL_NAME = 'mcp__cms__apply_cms_binding'
 export const PAGE_BUILDER_CMS_TEMPLATE_FIELD_GUIDANCE =
-  'Each template field should contain the complete dynamic region structure for that state. Prefer passing slot inner content only. A single outer <template v-slot:...> or <template #...> wrapper is tolerated and will be unwrapped automatically, but outer cms-* tags are still forbidden. Prefer the cms-* tag as the source root and keep major HTML containers inside the slot.'
+  'Each template field should contain the dynamic structure owned by the CMS slot under the current decision. The tool generates the outer cms-catalog/cms-content source tag; callers should pass slot inner content only. A single outer <template v-slot:...> or <template #...> wrapper is tolerated and will be unwrapped automatically, but outer cms-* tags are still forbidden. If the current decision preserves an existing outer shell, pass only compatible inner nodes such as li items for an existing ul/ol shell.'
 export const PAGE_BUILDER_CMS_TEMPLATE_BODY_DESCRIPTION =
   `${PAGE_BUILDER_CMS_TEMPLATE_FIELD_GUIDANCE} Use templateBody for the default-state region.`
 export const PAGE_BUILDER_CMS_EMPTY_TEMPLATE_DESCRIPTION =
@@ -108,8 +108,8 @@ export interface ApplyPageBuilderCmsBindingInput {
   targetBlock: PageBuilderCmsBindingTargetBlock
   kind: PageBuilderCmsBindingKind
   source: Record<string, unknown>
-  // Template fields should carry the complete dynamic region for each state
-  // rather than item-level fragments with the major container left outside.
+  // Template fields carry the structure currently owned by the CMS slot;
+  // preserved shells keep their major container outside these fields.
   templateBody: string
   emptyTemplate?: string
   errorTemplate?: string

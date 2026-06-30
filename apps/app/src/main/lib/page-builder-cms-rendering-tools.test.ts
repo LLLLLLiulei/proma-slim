@@ -210,10 +210,11 @@ describe('page-builder cms rendering apply tool', () => {
     }))
   })
 
-  test('documents template fields as the place for the complete dynamic region structure', () => {
+  test('documents template fields as the decision-owned cms slot structure', () => {
     const source = readFileSync(fileURLToPath(new URL('./page-builder-cms-rendering-tools.ts', import.meta.url)), 'utf-8')
 
-    expect(source).toContain('complete dynamic region')
+    expect(source).not.toContain('complete dynamic region')
+    expect(source).toContain('dynamic structure owned by the CMS slot')
     expect(source).toContain('templateBody')
     expect(source).toContain('emptyTemplate')
     expect(source).toContain('errorTemplate')

@@ -103,11 +103,17 @@ describe('cms-binding-apply skill contract docs', () => {
   })
 
   test('moves shared slot, html-first, and anti-pattern guidance into shared authoring rules', () => {
+    const skill = readRelativeText('../../../default-skills/cms-binding-apply/SKILL.md')
     const shared = readRelativeText('../../../default-skills/cms-binding-apply/references/shared-authoring-rules.md')
 
     expect(shared).toContain('Prefer slot inner content directly')
     expect(shared).toContain('single outer `<template v-slot:...>` or `<template #...>` wrapper is tolerated')
-    expect(shared).toContain('major HTML containers inside the slot')
+    expect(shared).toContain('Keep major HTML containers inside the slot when the current decision owns that region')
+    expect(shared).toContain('If the current decision preserves an existing outer shell')
+    expect(shared).toContain('This anti-pattern applies only when the current decision says the CMS slot owns the major region')
+    expect(skill).not.toContain('Prefer `cms-catalog` / `cms-content` as the source root')
+    expect(skill).not.toContain('complete dynamic region structure')
+    expect(skill).toContain('Keep major HTML containers inside the slot only when the current decision owns that region')
     expect(shared).toContain('`{ items, loading, error, empty }`')
     expect(shared).toContain('Do not nest a second `cms-catalog` / `cms-content` inside CMS slot content')
     expect(shared).toContain('Keep page-builder authoring HTML-first')
@@ -271,9 +277,16 @@ describe('cms-binding-apply skill contract docs', () => {
   test('documents object-shaped decide payloads and forbids bypassing the decision chain after failure', () => {
     const skill = readRelativeText('../../../default-skills/cms-binding-apply/SKILL.md')
     const downstream = readRelativeText('../../../default-skills/cms-binding-apply/references/downstream-integration.md')
+    const examples = readRelativeText('../../../default-skills/cms-binding-apply/references/contract-examples.md')
 
     expect(skill).toContain('Pass `decision` as a nested object')
     expect(skill).toContain('Do not JSON-stringify `decision`')
+    expect(skill).toContain('`supportedRenderModes` is always `["replace-current"]`')
+    expect(skill).toContain('Do not use `{"item":"replace-current"}`')
+    expect(skill).toContain('Do not use `{"item":[...]}`')
+    expect(skill).toContain('`content-list fixed ids`')
+    expect(examples).toContain('Do not write `supportedRenderModes` as `{"item":"replace-current"}`')
+    expect(examples).toContain('Do not write `source.ids` as `{"item":[...]}`')
     expect(skill).toContain('If `mcp__cms__decide_cms_binding` fails')
     expect(skill).toContain('Do not edit `workspace-files/index.html`')
     expect(downstream).toContain('If the caller sends `decision` as a JSON string')

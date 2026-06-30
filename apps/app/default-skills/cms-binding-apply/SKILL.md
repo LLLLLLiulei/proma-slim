@@ -102,11 +102,14 @@ When the result is `ready`, continue in the same turn instead of stopping at an 
 
 - Call `mcp__cms__decide_cms_binding` in the same turn with the current `handoffId` and the structured `ready` decision.
 - Pass `decision` as a nested object. Do not JSON-stringify `decision`; if you currently have JSON text, parse it into an object before calling `mcp__cms__decide_cms_binding`.
+- `supportedRenderModes` is always `["replace-current"]`. Do not use `{"item":"replace-current"}` or other slot-keyed objects.
+- For fixed content ids, `source.ids` is always a flat string array. Do not use `{"item":[...]}` or other slot-keyed objects.
 - Only when `mcp__cms__decide_cms_binding` returns `status = ready` plus a `decisionId`, call `mcp__cms__apply_cms_binding` in the same turn.
 - If `mcp__cms__decide_cms_binding` fails, stop, correct the payload, and retry the tool call. Do not edit `workspace-files/index.html`, and do not handwrite `cms-catalog` / `cms-content` as a fallback bypass.
 - Pass only `decisionId`, `templateBody`, `emptyTemplate`, and `errorTemplate` into `mcp__cms__apply_cms_binding`. Do not try to resend `targetSelection`, `siteId`, `source`, or other raw binding identity fields.
-- Keep these two minimal `ready` shapes in mind when preparing the tool call:
+- Keep these minimal `ready` shapes in mind when preparing the tool call:
   `content-list`: `{"status":"ready","targetBlockKind":"content-list","supportedRenderModes":["replace-current"],"renderMode":"replace-current","applyStrategy":"replace-current","mappingKind":"catalog-content-list","toolKind":"content-list","source":{"siteId":"14","catalogId":"news"}}`
+  `content-list fixed ids`: `{"status":"ready","targetBlockKind":"content-list","supportedRenderModes":["replace-current"],"renderMode":"replace-current","applyStrategy":"replace-current","mappingKind":"catalog-content-list","toolKind":"content-list","source":{"siteId":"1","catalogId":"16","ids":["257","254","251"]}}`
   `catalog-nav`: `{"status":"ready","targetBlockKind":"nav","supportedRenderModes":["replace-current"],"renderMode":"replace-current","applyStrategy":"replace-current","mappingKind":"catalog-nav","toolKind":"catalog-nav","source":{"siteId":"14","parentId":"root","take":6}}`
 - Do not reply that the skill is only a template, and do not edit workspace files directly.
 - Keep page-builder authoring HTML-first. `cms-catalog` / `cms-content` are host-managed source tags; this flow should author the selected source tag plus its slot templates, not a page-wide Vue app.
@@ -122,8 +125,9 @@ When the result is `ready`, continue in the same turn instead of stopping at an 
 - For `contents-by-ids`, never pass `source.pageSize`.
 - For `catalog-nav`, never pass `source.pageSize`; use `source.take` instead when an explicit catalog count is needed.
 - Prefer passing slot inner content directly in `templateBody`, `emptyTemplate`, and `errorTemplate`. A single outer `<template v-slot:...>` or `<template #...>` wrapper is tolerated and will be unwrapped automatically when it matches the receiving field, but an outer `cms-*` tag is still forbidden.
-- Prefer `cms-catalog` / `cms-content` as the source root of the dynamic region, and keep major HTML containers inside the slot.
-- Treat `templateBody`, `emptyTemplate`, and `errorTemplate` as the place for the complete dynamic region structure of each state.
+- Keep major HTML containers inside the slot only when the current decision owns that region.
+- If the current decision preserves an existing outer shell, pass only compatible inner nodes in `templateBody`, `emptyTemplate`, and `errorTemplate`, such as `li` items for an existing `ul` / `ol` shell.
+- Treat `templateBody`, `emptyTemplate`, and `errorTemplate` as the place for the dynamic structure owned by the CMS slot for each state.
 - The generated CMS component exposes the unified slot scope `{ items, loading, error, empty }`; declare the slot scope explicitly as a subset of that shape.
 - Keep Vue authoring inside the current `cms-*` source tag only. Do not add `v-*`, `@*`, `:` bindings, or `{{ ... }}` to surrounding non-CMS shell HTML.
 - Do not call undeclared project helpers in slot templates. Use contract fields, guards, inline member expressions, and Vue-executable safe native globals such as `Date`, `Math`, and `JSON` only; if the apply tool reports a template/helper error or your draft violates these expression boundaries, fix the template and retry.
