@@ -94,6 +94,7 @@
         "@ai-page-builder/ui": "workspace:*",
         "@emoji-mart/data": "^1.2.1",
         "@emoji-mart/react": "^1.1.1",
+        "@hono/node-server": "^2.0.6",
         "@monaco-editor/react": "^4.6.0",
         "@radix-ui/react-alert-dialog": "^1.1.15",
         "@radix-ui/react-dialog": "^1.1.15",
@@ -116,6 +117,7 @@
         "antd": "^6.3.5",
         "class-variance-authority": "0.7.1",
         "clsx": "^2.1.1",
+        "hono": "^4.12.8",
         "jotai": "^2.17.1",
         "katex": "^0.16",
         "lowlight": "^3.3.0",
@@ -348,6 +350,8 @@
     "@floating-ui/react-dom": ["@floating-ui/react-dom@2.1.7", "", { "dependencies": { "@floating-ui/dom": "^1.7.5" }, "peerDependencies": { "react": ">=16.8.0", "react-dom": ">=16.8.0" } }, "sha512-0tLRojf/1Go2JgEVm+3Frg9A3IW8bJgKgdO0BN5RkF//ufuz2joZM63Npau2ff3J6lUVYgDSNzNkR+aH3IVfjg=="],
 
     "@floating-ui/utils": ["@floating-ui/utils@0.2.10", "", {}, "sha512-aGTxbpbg8/b5JfU1HXSrbH3wXZuLPJcNEcZQFMxLs3oSzgtVu6nFPkbbGGUvBcUjKV2YyB9Wxxabo+HEH9tcRQ=="],
+
+    "@hono/node-server": ["@hono/node-server@2.0.6", "https://registry.npmmirror.com/@hono/node-server/-/node-server-2.0.6.tgz", { "peerDependencies": { "hono": "^4" } }, "sha512-7DeRlKG57JDBNZ5Qj2jwVdgwQy4b0tLubRLl3zCf91/rCf9i7p1V5FtW/yWibm1uUHE493ts9ZXH/7g/LQWl+g=="],
 
     "@img/colour": ["@img/colour@1.1.0", "https://registry.npmmirror.com/@img/colour/-/colour-1.1.0.tgz", {}, "sha512-Td76q7j57o/tLVdgS746cYARfSyxk8iEfRxewL9h4OMzYhbW4TAcppl0mT4eyqXddh6L/jwoM75mo7ixa/pCeQ=="],
 

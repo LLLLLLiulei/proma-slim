@@ -1,11 +1,15 @@
-import { existsSync, statSync } from 'node:fs'
+import { existsSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import { extname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { serve } from '@hono/node-server'
+import { serveStatic } from '@hono/node-server/serve-static'
 import {
   normalizePageBuilderPublicBasePath,
   stripPageBuilderPublicBasePath,
   toPageBuilderBaseHref,
 } from '@ai-page-builder/shared'
+import { Hono } from 'hono'
 import {
   normalizePageBuilderHiddenToolbarItems,
   type PageBuilderToolbarItemKey,
@@ -68,10 +72,6 @@ async function proxyApiRequest(
   return fetchImpl(proxiedRequest, { redirect: 'manual' })
 }
 
-function staticFileResponse(filePath: string): Response {
-  return new Response(Bun.file(filePath))
-}
-
 function escapeHtmlAttribute(value: string): string {
   return value
     .replace(/&/g, '&amp;')
@@ -117,7 +117,7 @@ async function indexHtmlResponse(
   publicBasePath: string,
   hiddenToolbarItems: readonly PageBuilderToolbarItemKey[],
 ): Promise<Response> {
-  const html = await Bun.file(filePath).text()
+  const html = await readFile(filePath, 'utf-8')
   return new Response(injectRuntimeConfigIntoIndexHtml(html, publicBasePath, hiddenToolbarItems), {
     headers: {
       'content-type': 'text/html;charset=utf-8',
@@ -126,13 +126,15 @@ async function indexHtmlResponse(
   })
 }
 
-export function createPageBuilderProdFetchHandler(options: PageBuilderProdServerOptions) {
+export function createPageBuilderProdApp(options: PageBuilderProdServerOptions): Hono {
   const fetchImpl = options.fetchImpl ?? ((request: Request, init?: RequestInit) => fetch(request, init))
   const normalizedDistDir = resolve(options.distDir)
   const publicBasePath = normalizePageBuilderPublicBasePath(options.publicBasePath)
   const hiddenToolbarItems = normalizePageBuilderHiddenToolbarItems(options.hiddenToolbarItems)
+  const app = new Hono()
 
-  return async (request: Request): Promise<Response> => {
+  app.use('*', async (c, next) => {
+    const request = c.req.raw
     const url = new URL(request.url)
     const upstreamPathname = stripPageBuilderPublicBasePath(url.pathname, publicBasePath)
 
@@ -140,25 +142,25 @@ export function createPageBuilderProdFetchHandler(options: PageBuilderProdServer
       return proxyApiRequest(request, options.appOrigin, fetchImpl, upstreamPathname)
     }
 
-    let requestedPath: string
-    try {
-      requestedPath = normalizeStaticPath(normalizedDistDir, upstreamPathname)
-    } catch (response) {
-      if (response instanceof Response) {
-        return response
+    if (upstreamPathname === '/' || upstreamPathname === '/index.html') {
+      const fallbackPath = getFallbackIndexPath(normalizedDistDir)
+      if (!existsSync(fallbackPath)) {
+        return new Response(`page-builder static entry not found: ${fallbackPath}`, { status: 404 })
       }
-      throw response
-    }
-
-    if (existsSync(requestedPath) && statSync(requestedPath).isFile()) {
-      if (requestedPath === getFallbackIndexPath(normalizedDistDir)) {
-        return indexHtmlResponse(requestedPath, publicBasePath, hiddenToolbarItems)
-      }
-      return staticFileResponse(requestedPath)
+      return indexHtmlResponse(fallbackPath, publicBasePath, hiddenToolbarItems)
     }
 
     if (isStaticAssetRequest(upstreamPathname)) {
-      return new Response('Not Found', { status: 404 })
+      try {
+        normalizeStaticPath(normalizedDistDir, upstreamPathname)
+      } catch (response) {
+        if (response instanceof Response) {
+          return response
+        }
+        throw response
+      }
+
+      return next()
     }
 
     const fallbackPath = getFallbackIndexPath(normalizedDistDir)
@@ -167,7 +169,26 @@ export function createPageBuilderProdFetchHandler(options: PageBuilderProdServer
     }
 
     return indexHtmlResponse(fallbackPath, publicBasePath, hiddenToolbarItems)
-  }
+  })
+
+  app.use('*', serveStatic({
+    root: normalizedDistDir,
+    rewriteRequestPath: (path) => stripPageBuilderPublicBasePath(path, publicBasePath),
+  }))
+
+  app.notFound(() => new Response('Not Found', { status: 404 }))
+
+  app.onError((error) => {
+    console.error('[Page Builder Web] Unhandled server error:', error)
+    return new Response('Internal Server Error', { status: 500 })
+  })
+
+  return app
+}
+
+export function createPageBuilderProdFetchHandler(options: PageBuilderProdServerOptions) {
+  const app = createPageBuilderProdApp(options)
+  return (request: Request): Promise<Response> => Promise.resolve(app.fetch(request))
 }
 
 function getPort(): number {
@@ -226,26 +247,19 @@ export function startPageBuilderProdServer(): void {
   const hiddenToolbarItems = getHiddenToolbarItems()
   const port = getPort()
 
-  const handler = createPageBuilderProdFetchHandler({
+  const app = createPageBuilderProdApp({
     distDir,
     appOrigin,
     publicBasePath,
     hiddenToolbarItems,
   })
 
-  const server = Bun.serve({
+  serve({
+    fetch: app.fetch,
     port,
-    idleTimeout: 255,
-    fetch(request) {
-      return handler(request)
-    },
-    error(error) {
-      console.error('[Page Builder Web] Unhandled server error:', error)
-      return new Response('Internal Server Error', { status: 500 })
-    },
+  }, (info) => {
+    console.log(`[Page Builder Web] listening on http://0.0.0.0:${info.port}`)
   })
-
-  console.log(`[Page Builder Web] listening on http://0.0.0.0:${server.port}`)
   console.log(`[Page Builder Web] dist: ${distDir}`)
   console.log(`[Page Builder Web] app origin: ${appOrigin}`)
   console.log(`[Page Builder Web] public base path: ${publicBasePath || '/'}`)

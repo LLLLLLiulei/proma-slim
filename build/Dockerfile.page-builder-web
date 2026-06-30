@@ -18,14 +18,15 @@ COPY . .
 
 RUN bun run --filter='@ai-page-builder/page-builder' build
 RUN bun build apps/page-builder/src/server/prod-server.ts \
-  --target=bun \
-  --outfile /app/apps/page-builder/src/server/prod-server.js
+  --target=node \
+  --format=esm \
+  --outfile /app/apps/page-builder/src/server/prod-server.mjs
 
-FROM oven/bun:1.2.5 AS runtime
+FROM node:22-bookworm-slim AS runtime
 WORKDIR /app
 
 COPY --from=build /app/apps/page-builder/dist ./apps/page-builder/dist
-COPY --from=build /app/apps/page-builder/src/server/prod-server.js ./apps/page-builder/src/server/prod-server.js
+COPY --from=build /app/apps/page-builder/src/server/prod-server.mjs ./apps/page-builder/src/server/prod-server.mjs
 
 ENV PORT=3333
 ENV AI_PAGE_BUILDER_SERVER_ORIGIN=http://server:8888
@@ -34,4 +35,4 @@ ENV AI_PAGE_BUILDER_HIDDEN_TOOLBAR_ITEMS=
 
 EXPOSE 3333
 
-CMD ["sh", "-lc", "PROMA_APP_ORIGIN=\"${AI_PAGE_BUILDER_SERVER_ORIGIN:-http://server:8888}\" exec bun apps/page-builder/src/server/prod-server.js"]
+CMD ["sh", "-lc", "PROMA_APP_ORIGIN=\"${AI_PAGE_BUILDER_SERVER_ORIGIN:-http://server:8888}\" exec node apps/page-builder/src/server/prod-server.mjs"]

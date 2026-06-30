@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  createPageBuilderProdApp,
   createPageBuilderProdFetchHandler,
   resolvePageBuilderProdAppOrigin,
   resolvePageBuilderProdHiddenToolbarItems,
@@ -69,7 +70,24 @@ describe('page-builder production server', () => {
     const response = await handler(new Request('http://localhost/assets/app.js'))
 
     expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toContain('javascript')
     expect(await response.text()).toContain('console.log("page-builder")')
+  })
+
+  test('creates a Hono app that serves through the production handler', async () => {
+    const distDir = createTempDistDir()
+    tempDirs.push(distDir)
+
+    const app = createPageBuilderProdApp({
+      distDir,
+      appOrigin: 'http://app:3000',
+    })
+
+    const response = await app.request('http://localhost/assets/app.js')
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toContain('javascript')
+    expect(await response.text()).toBe('console.log("page-builder")')
   })
 
   test('falls back to index.html for root and builder routes', async () => {
