@@ -106,6 +106,24 @@ export function getAgentSessionMeta(id: string): AgentSessionMeta | undefined {
   return index.sessions.find((s) => s.id === id)
 }
 
+function normalizeAssistantMessageForSession(
+  message: AgentMessage,
+): AgentMessage {
+  if (message.role !== 'assistant') {
+    return message
+  }
+
+  const repairedContent = reconstructAssistantContent(
+    message.content,
+    message.events,
+  )
+
+  return {
+    ...message,
+    content: repairedContent,
+  }
+}
+
 /**
  * 创建新会话
  */
@@ -156,22 +174,7 @@ export function getAgentSessionMessages(id: string): AgentMessage[] {
     const lines = raw.split('\n').filter((line) => line.trim())
     return lines.map((line) => {
       const message = JSON.parse(line) as AgentMessage
-      if (message.role !== 'assistant') {
-        return message
-      }
-
-      const repairedContent = reconstructAssistantContent(
-        message.content,
-        message.events,
-      )
-      if (repairedContent === message.content) {
-        return message
-      }
-
-      return {
-        ...message,
-        content: repairedContent,
-      }
+      return normalizeAssistantMessageForSession(message)
     })
   } catch (error) {
     console.error(`[Agent 会话] 读取消息失败 (${id}):`, error)
@@ -186,7 +189,7 @@ export function appendAgentMessage(id: string, message: AgentMessage): void {
   const filePath = getAgentSessionMessagesPath(id)
 
   try {
-    const line = JSON.stringify(message) + '\n'
+    const line = JSON.stringify(normalizeAssistantMessageForSession(message)) + '\n'
     appendFileSync(filePath, line, 'utf-8')
   } catch (error) {
     console.error(`[Agent 会话] 追加消息失败 (${id}):`, error)
