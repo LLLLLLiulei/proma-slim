@@ -26,6 +26,9 @@ When this skill is used inside `page-builder`, the following rules override the 
 - Do not start with dependency checks, install commands, framework migration advice, or component-library assumptions in a plain page-builder workspace.
 - Keep page-builder authoring HTML-first. Existing `cms-catalog` / `cms-content` regions are host-managed CMS islands, not permission to convert the page into a framework app.
 - Keep Vue template syntax only inside the current CMS source tag's slot templates, and do not add page-wide Vue runtime, CDN/importmap bootstrap, or `createApp` / `mount`.
+- Keep user-facing output product-level. After writing files, summarize visible page changes only; do not list file paths, CSS selectors, class names, color tokens, or implementation details unless the user asks.
+- For minor fixes, reply with one concise result sentence and skip technical implementation notes.
+- Do not expose internal file safety analysis. Inspect files silently and continue the page task.
 
 ## 1. ACTIVE BASELINE CONFIGURATION
 * DESIGN_VARIANCE: 8 (1=Perfect Symmetry, 10=Artsy Chaos)

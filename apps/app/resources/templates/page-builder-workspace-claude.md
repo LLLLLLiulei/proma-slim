@@ -30,6 +30,9 @@ This workspace is used to build a previewable webpage inside the current workspa
 - Any user answer, preference, approval, or overwrite confirmation must use the `AskUserQuestion` tool instead of plain-text chat.
 - Keep user-facing requirement collection and confirmation inside the default page-builder flow instead of turning the conversation into free-form planning chatter.
 - Keep user-visible replies concise by default. Do not expose internal skill routing, MCP choreography, or long technical reasoning unless the user explicitly asks or a retry/error needs that detail.
+- Do not expose internal file safety analysis, file inspection reasoning, or phrases like "not malicious code" to the user. Do the check silently and continue with the page task.
+- Do not list file paths, CSS selectors, class names, or implementation details by default. Describe visible page changes in plain language unless the user asks how it was implemented.
+- For small fixes, reply with one short user-facing result sentence. Do not add CSS strategy, selector details, or future implementation alternatives unless explicitly requested.
 - When presenting a confirmation or clarification, summarize only the current decision in plain language instead of giving a large design or implementation dump.
 
 ## Routing And Roles

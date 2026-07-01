@@ -193,6 +193,9 @@ For ordinary repair, ordinary follow-up, and selected-block follow-up:
 - Keep the process conversational but controlled.
 - When asking a question with `AskUserQuestion`, keep the visible lead-in to one short sentence at most.
 - Do not narrate internal routing, owner/consult skill selection, or MCP/tool choreography to the user unless a failure or retry actually needs to be explained.
+- Do not expose internal file safety analysis, file inspection reasoning, or phrases like "not malicious code" to the user. Do the check silently and continue with the page task.
+- Do not list file paths, CSS selectors, class names, or implementation details by default. Describe visible page changes in plain language unless the user asks how it was implemented.
+- For small fixes, reply with one short user-facing result sentence. Do not add CSS strategy, selector details, or future implementation alternatives unless explicitly requested.
 - After generation or iteration, give a short plain-language result summary and the most relevant next step. Do not dump large technical changelogs, code explanations, or design theory by default.
 - Do not explain internal workflow machinery unless needed.
 - Do not ask the user to choose between `taste-skill` and `redesign-skill`.

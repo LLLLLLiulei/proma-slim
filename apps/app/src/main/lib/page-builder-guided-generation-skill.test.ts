@@ -28,6 +28,9 @@ describe('page-builder-guided-generation skill docs', () => {
     expect(skill).toContain('draft placeholders or pending labels')
     expect(skill).toContain('Keep this confirmation summary short and user-facing')
     expect(skill).toContain('Do not narrate internal routing')
+    expect(skill).toContain('Do not expose internal file safety analysis')
+    expect(skill).toContain('Do not list file paths, CSS selectors, class names, or implementation details by default')
+    expect(skill).toContain('For small fixes, reply with one short user-facing result sentence')
   })
 
   test('documents downstream design skill orchestration', () => {
@@ -123,6 +126,9 @@ describe('page-builder-guided-generation skill docs', () => {
     expect(enTemplate).toContain('<page_builder_turn_routing>')
     expect(enTemplate).toContain('current workspace')
     expect(enTemplate).toContain('Keep user-visible replies concise by default')
+    expect(enTemplate).toContain('Do not expose internal file safety analysis')
+    expect(enTemplate).toContain('Do not list file paths, CSS selectors, class names, or implementation details by default')
+    expect(enTemplate).toContain('For small fixes, reply with one short user-facing result sentence')
     expect(enTemplate).toContain('HTML-first')
     expect(enTemplate).toContain('host-managed CMS source tags')
     expect(enTemplate).toContain('consult the canonical CMS guidance surfaced for that turn before editing it')
