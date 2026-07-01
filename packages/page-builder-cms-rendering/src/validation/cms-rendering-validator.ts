@@ -126,14 +126,6 @@ export function validateCmsRendering(
 
   validateAuthorManagedVueRuntime(root, htmlPath, diagnostics)
 
-  for (const element of Array.from(root.querySelectorAll('*'))) {
-    if (element.closest(CMS_ISLAND_SELECTOR)) {
-      continue
-    }
-
-    validateOutsideCmsVueSyntax(element, htmlPath, diagnostics)
-  }
-
   for (const nestedIsland of Array.from(root.querySelectorAll(CMS_ISLAND_SELECTOR)).filter((element) => !isTopLevelCmsIsland(element))) {
     diagnostics.push(createDiagnostic({
       severity: 'error',
@@ -516,31 +508,6 @@ export function validateCmsRendering(
     warnings,
     infos,
   }
-}
-
-function validateOutsideCmsVueSyntax(
-  element: Element,
-  htmlPath: string,
-  diagnostics: CmsRenderingDiagnostic[],
-): void {
-  const hasVueAttribute = Array.from(element.attributes).some((attribute) =>
-    attribute.name.startsWith('v-') || attribute.name.startsWith(':') || attribute.name.startsWith('@'),
-  )
-  const hasVueInterpolation = Array.from(element.childNodes).some((node) =>
-    node.nodeType === node.TEXT_NODE && /{{[\s\S]+?}}/.test(node.textContent ?? ''),
-  )
-
-  if (!hasVueAttribute && !hasVueInterpolation) {
-    return
-  }
-
-  diagnostics.push(createDiagnostic({
-    severity: 'error',
-    code: 'OUTSIDE_CMS_VUE_SYNTAX',
-    message: 'Vue template syntax is only supported inside cms-* islands.',
-    element,
-    htmlPath,
-  }))
 }
 
 function validateAuthorManagedVueRuntime(

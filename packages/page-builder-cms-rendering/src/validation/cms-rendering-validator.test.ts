@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { validateCmsRendering } from './cms-rendering-validator'
 
 describe('validateCmsRendering', () => {
-  test('reports error diagnostics for invalid cms structures and vue syntax outside cms islands', () => {
+  test('reports error diagnostics for invalid cms structures without blocking vue syntax outside cms islands', () => {
     const result = validateCmsRendering(`
       <!doctype html>
       <html>
@@ -30,12 +30,12 @@ describe('validateCmsRendering', () => {
 
     expect(result.valid).toBe(false)
     expect(result.errors.map((diagnostic) => diagnostic.code)).toEqual(expect.arrayContaining([
-      'OUTSIDE_CMS_VUE_SYNTAX',
       'MISSING_CATALOG_ID',
       'DANGEROUS_TAG',
       'NESTED_CMS_ISLAND',
       'MISSING_DEFAULT_SLOT',
     ]))
+    expect(result.errors.map((diagnostic) => diagnostic.code)).not.toContain('OUTSIDE_CMS_VUE_SYNTAX')
 
     expect(result.errors).toEqual(expect.arrayContaining([
       expect.objectContaining({
@@ -51,6 +51,24 @@ describe('validateCmsRendering', () => {
         blockId: 'pb_blk_slotless',
       }),
     ]))
+  })
+
+  test('ignores vue-style syntax in ordinary page html outside cms islands', () => {
+    const result = validateCmsRendering(`
+      <!doctype html>
+      <html>
+        <body>
+          <section data-proma-block-id="pb_blk_plain">
+            <p v-if="visible" :title="title" @click="open">{{ title }}</p>
+          </section>
+        </body>
+      </html>
+    `, {
+      htmlPath: 'index.html',
+    })
+
+    expect(result.errors.map((diagnostic) => diagnostic.code)).not.toContain('OUTSIDE_CMS_VUE_SYNTAX')
+    expect(result.valid).toBe(true)
   })
 
   test('reports warning and info diagnostics for recoverable authoring issues', () => {
