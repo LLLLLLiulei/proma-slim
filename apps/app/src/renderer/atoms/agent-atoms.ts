@@ -113,6 +113,12 @@ export interface AgentStreamState {
   startedAt?: number
   /** 最近一次流式活动时间戳（用于 stale busy 自愈） */
   lastActivityAt?: number
+  /** 最近写入文本的 SDK assistant message id */
+  lastTextTurnId?: string
+  /** 当前仍在接收 delta 的 SDK assistant message id */
+  openTextTurnId?: string
+  /** 当前文本片段是否已经通过 delta 写入 */
+  openTextSegmentHasDelta?: boolean
   /** 重试状态（扩展版） */
   retrying?: {
     /** 当前第几次尝试 */
@@ -266,6 +272,40 @@ function appendToolHistory(history: string[], toolName: string): string[] {
   return next.length > MAX_TOOL_HISTORY ? next.slice(next.length - MAX_TOOL_HISTORY) : next
 }
 
+function appendAssistantText(
+  prev: AgentStreamState,
+  text: string,
+  turnId: string | undefined,
+  keepSegmentOpen: boolean,
+): AgentStreamState {
+  const separator = prev.content
+    && turnId
+    && prev.lastTextTurnId
+    && turnId !== prev.lastTextTurnId
+    ? '\n\n'
+    : ''
+
+  return {
+    ...prev,
+    content: prev.content + separator + text,
+    lastTextTurnId: turnId ?? prev.lastTextTurnId,
+    openTextTurnId: keepSegmentOpen ? turnId : undefined,
+    openTextSegmentHasDelta: keepSegmentOpen,
+  }
+}
+
+function closeAssistantTextSegment(
+  prev: AgentStreamState,
+  turnId: string | undefined,
+): AgentStreamState {
+  return {
+    ...prev,
+    lastTextTurnId: turnId ?? prev.openTextTurnId ?? prev.lastTextTurnId,
+    openTextTurnId: undefined,
+    openTextSegmentHasDelta: false,
+  }
+}
+
 /**
  * 处理 AgentEvent 并更新流式状态（纯函数）
  */
@@ -277,21 +317,26 @@ export function applyAgentEvent(
     case 'text_delta':
       // 开始接收文本 - 清除重试状态（重试成功）
       return {
-        ...prev,
+        ...appendAssistantText(prev, event.text, event.turnId, true),
         ...clearCompactNotice(prev),
-        content: prev.content + event.text,
         retrying: undefined,
         statusNotice: undefined,
       }
 
-    case 'text_complete':
+    case 'text_complete': {
       // 用完整文本替换增量累积的文本（用于回放场景：只需 text_complete 即可重建文本状态）
+      const completesOpenStream = prev.openTextSegmentHasDelta === true
+        && (!event.turnId || !prev.openTextTurnId || event.turnId === prev.openTextTurnId)
+      const textState = completesOpenStream
+        ? closeAssistantTextSegment(prev, event.turnId)
+        : appendAssistantText(prev, event.text, event.turnId, false)
+
       return {
-        ...prev,
+        ...textState,
         ...clearCompactNotice(prev),
-        content: event.text,
         statusNotice: undefined,
       }
+    }
 
     case 'tool_start': {
       const existing = prev.toolActivities.find((t) => t.toolUseId === event.toolUseId)

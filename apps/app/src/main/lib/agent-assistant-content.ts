@@ -9,48 +9,45 @@ export function reconstructAssistantContent(
   }
 
   let reconstructedText = ''
-  let currentDeltaSegment = ''
-  let segmentHasDelta = false
+  let hasOpenStreamedText = false
+  let openTextTurnId: string | undefined
+  let lastTextTurnId: string | undefined
 
-  const resetCurrentSegment = () => {
-    currentDeltaSegment = ''
-    segmentHasDelta = false
+  const appendSegmentText = (text: string, turnId: string | undefined): void => {
+    if (
+      reconstructedText
+      && turnId
+      && lastTextTurnId
+      && turnId !== lastTextTurnId
+    ) {
+      reconstructedText += '\n\n'
+    }
+
+    reconstructedText += text
+    if (turnId) {
+      lastTextTurnId = turnId
+    }
   }
 
   for (const event of accumulatedEvents) {
     if (event.type === 'text_delta') {
-      reconstructedText += event.text
-      currentDeltaSegment += event.text
-      segmentHasDelta = true
+      appendSegmentText(event.text, event.turnId)
+      hasOpenStreamedText = true
+      openTextTurnId = event.turnId
       continue
     }
 
     if (event.type === 'text_complete') {
-      if (!segmentHasDelta) {
-        reconstructedText += event.text
-      } else if (currentDeltaSegment !== event.text) {
-        if (currentDeltaSegment && reconstructedText.endsWith(currentDeltaSegment)) {
-          reconstructedText =
-            reconstructedText.slice(0, reconstructedText.length - currentDeltaSegment.length)
-            + event.text
-        } else if (!reconstructedText.endsWith(event.text)) {
-          reconstructedText += event.text
-        }
-      }
-      resetCurrentSegment()
-      continue
-    }
+      const completesOpenStream = hasOpenStreamedText
+        && (!event.turnId || !openTextTurnId || event.turnId === openTextTurnId)
 
-    if (
-      event.type === 'tool_start'
-      || event.type === 'tool_result'
-      || event.type === 'task_started'
-      || event.type === 'task_notification'
-      || event.type === 'complete'
-      || event.type === 'typed_error'
-      || event.type === 'error'
-    ) {
-      resetCurrentSegment()
+      if (!completesOpenStream) {
+        appendSegmentText(event.text, event.turnId)
+      } else if (event.turnId) {
+        lastTextTurnId = event.turnId
+      }
+      hasOpenStreamedText = false
+      openTextTurnId = undefined
     }
   }
 

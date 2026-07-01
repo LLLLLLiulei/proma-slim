@@ -13,6 +13,48 @@ function createBaseStreamState(overrides?: Partial<AgentStreamState>): AgentStre
 }
 
 describe('applyAgentEvent compact lifecycle', () => {
+  test('separates streaming assistant text segments with different turn ids', () => {
+    const firstDelta = applyAgentEvent(createBaseStreamState(), {
+      type: 'text_delta',
+      text: '好的！我先看看当前工作区是否已有页面。',
+      turnId: 'turn-1',
+    })
+    const firstComplete = applyAgentEvent(firstDelta, {
+      type: 'text_complete',
+      text: '好的！我先看看当前工作区是否已有页面。',
+      isIntermediate: true,
+      turnId: 'turn-1',
+    })
+    const secondDelta = applyAgentEvent(firstComplete, {
+      type: 'text_delta',
+      text: '好的，当前是空白工作区，我们从零开始。',
+      turnId: 'turn-2',
+    })
+
+    expect(secondDelta.content).toBe(
+      '好的！我先看看当前工作区是否已有页面。\n\n好的，当前是空白工作区，我们从零开始。',
+    )
+  })
+
+  test('appends text-complete-only assistant segments instead of replacing previous content', () => {
+    const firstComplete = applyAgentEvent(createBaseStreamState(), {
+      type: 'text_complete',
+      text: '确认通过，现在开始生成页面。',
+      isIntermediate: true,
+      turnId: 'turn-1',
+    })
+    const secondComplete = applyAgentEvent(firstComplete, {
+      type: 'text_complete',
+      text: '现在开始生成企业数字化转型课程推广专题页面。',
+      isIntermediate: true,
+      turnId: 'turn-2',
+    })
+
+    expect(secondComplete.content).toBe(
+      '确认通过，现在开始生成页面。\n\n现在开始生成企业数字化转型课程推广专题页面。',
+    )
+  })
+
   test('derives a compacting notice and keeps the compacting flag while compaction starts', () => {
     const next = applyAgentEvent(
       createBaseStreamState(),
