@@ -324,10 +324,10 @@ describe('page-builder CMS binding decision store', () => {
     })
   })
 
-  test('rejects stale handoffs before a decision is created', () => {
+  test('creates decisions from handoffs even when the current revision changed', () => {
     const store = createStoreWithCatalogHandoff('rev-1')
 
-    expect(() => store.createDecision({
+    const result = store.createDecision({
       workspaceId: 'workspace-1',
       handoffId: 'handoff-1',
       sessionId: 'session-1',
@@ -345,32 +345,9 @@ describe('page-builder CMS binding decision store', () => {
           parentId: 'catalog-parent',
         },
       },
-    })).toThrow(PageBuilderCmsBindingDecisionStoreError)
+    })
 
-    try {
-      store.createDecision({
-        workspaceId: 'workspace-1',
-        handoffId: 'handoff-1',
-        sessionId: 'session-1',
-        currentRevision: 'rev-2',
-        decision: {
-          status: 'ready',
-          targetBlockKind: 'nav',
-          supportedRenderModes: ['replace-current'],
-          renderMode: 'replace-current',
-          applyStrategy: 'replace-current',
-          mappingKind: 'catalog-nav',
-          toolKind: 'catalog-nav',
-          source: {
-            siteId: '14',
-            parentId: 'catalog-parent',
-          },
-        },
-      })
-    } catch (error) {
-      expect(error).toBeInstanceOf(PageBuilderCmsBindingDecisionStoreError)
-      expect((error as PageBuilderCmsBindingDecisionStoreError).code).toBe('handoff-stale')
-    }
+    expect(result.status).toBe('ready')
   })
 
   test('rejects creating a decision from a different session than the registered handoff', () => {
@@ -422,7 +399,7 @@ describe('page-builder CMS binding decision store', () => {
     })).toThrow('不能混用 ids')
   })
 
-  test('invalidates stale decisions and consumes successful ones', () => {
+  test('keeps decisions usable across revision changes and consumes successful ones', () => {
     const store = createStoreWithCatalogHandoff()
     const created = store.createDecision({
       workspaceId: 'workspace-1',
@@ -447,19 +424,23 @@ describe('page-builder CMS binding decision store', () => {
       throw new Error('expected ready decision result')
     }
 
-    expect(() => store.readDecisionForApply({
+    const staleRevisionRecord = store.readDecisionForApply({
       workspaceId: 'workspace-1',
       decisionId: created.decisionId,
       sessionId: 'session-1',
       currentRevision: 'rev-2',
-    } as never)).toThrow('原 decision 已失效')
+    } as never)
 
-    expect(() => store.readDecisionForApply({
+    expect(staleRevisionRecord.decisionId).toBe(created.decisionId)
+
+    const originalRevisionRecord = store.readDecisionForApply({
       workspaceId: 'workspace-1',
       decisionId: created.decisionId,
       sessionId: 'session-1',
       currentRevision: 'rev-1',
-    } as never)).toThrow('原 decision 已失效')
+    } as never)
+
+    expect(originalRevisionRecord.decisionId).toBe(created.decisionId)
 
     const fresh = store.createDecision({
       workspaceId: 'workspace-1',

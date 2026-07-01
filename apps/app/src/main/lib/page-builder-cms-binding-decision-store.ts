@@ -13,7 +13,7 @@ import type {
   PageBuilderCmsBindingStructureGuardrails,
 } from '@ai-page-builder/shared'
 
-type DecisionRecordState = 'ready' | 'consumed' | 'invalidated'
+type DecisionRecordState = 'ready' | 'consumed'
 
 interface PageBuilderCmsBindingHandoffRecord {
   handoffId: string
@@ -31,11 +31,9 @@ interface PageBuilderCmsBindingDecisionRecord {
 
 type PageBuilderCmsBindingDecisionStoreErrorCode =
   | 'handoff-not-found'
-  | 'handoff-stale'
   | 'handoff-session-mismatch'
   | 'decision-not-found'
   | 'decision-consumed'
-  | 'decision-stale'
   | 'decision-session-mismatch'
   | 'decision-conflict'
 
@@ -98,10 +96,6 @@ export function createPageBuilderCmsBindingDecisionStore() {
         )
       }
 
-      if (handoff.input.authoringRevision !== input.currentRevision) {
-        throw new PageBuilderCmsBindingDecisionStoreError('handoff-stale', '当前页面已发生变化，请重新确认 CMS 选择后再应用')
-      }
-
       if (input.decision.status !== 'ready') {
         return input.decision
       }
@@ -145,15 +139,6 @@ export function createPageBuilderCmsBindingDecisionStore() {
 
       if (record.state === 'consumed') {
         throw new PageBuilderCmsBindingDecisionStoreError('decision-consumed', '该 CMS binding decision 已经成功使用，不能重复写入')
-      }
-
-      if (record.state === 'invalidated') {
-        throw new PageBuilderCmsBindingDecisionStoreError('decision-stale', '当前页面已变化，原 decision 已失效，请重新执行 CMS apply 决策')
-      }
-
-      if (record.plan.authoringRevision !== input.currentRevision) {
-        record.state = 'invalidated'
-        throw new PageBuilderCmsBindingDecisionStoreError('decision-stale', '当前页面已变化，原 decision 已失效，请重新执行 CMS apply 决策')
       }
 
       return record

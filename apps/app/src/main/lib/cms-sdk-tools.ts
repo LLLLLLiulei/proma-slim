@@ -38,7 +38,7 @@ const LIST_CATALOGS_TOOL_GUIDANCE =
     '列出 CMS 栏目树，返回 normalized `items` 与 `tree`。',
     '如果当前 CMS handoff / selection 已提供 `siteId`，请显式传入该 `siteId`。',
     '未传 siteId 时仅查询工具会使用默认站点 1；CMS apply decision 仍必须使用 confirmed selection.siteId，不要猜测。',
-    'ids 为栏目 ID 数组，用于精确查询指定栏目；精确 ids 查询不能与 contentType 或 searchKeyword 混用。',
+    'ids 为栏目 ID 数组，用于精确查询指定栏目；建议使用 string[]，数字 ID 会规范化为字符串；精确 ids 查询不能与 contentType 或 searchKeyword 混用。',
     '示例：按关键字查询 => {"siteId":"1","searchKeyword":"新闻"}；按栏目 ids 查询 => {"siteId":"1","ids":["16","17"]}。',
   ].join(' ')
 
@@ -46,7 +46,7 @@ const LIST_CONTENTS_TOOL_GUIDANCE =
   [
     '列出 CMS 内容摘要，返回 `pageIndex`、`pageSize`、`total`、`totalPages` 与 `items`。',
     '支持两种模式：栏目分页查询 => 传 siteId、catalogId，可选 keyword、pageIndex、pageSize；pageIndex 从 0 开始。',
-    '固定内容查询 => 传 siteId、catalogId、ids，其中 ids 必须是 string[]。',
+    '固定内容查询 => 传 siteId、catalogId、ids，其中 ids 建议是 string[]，数字 ID 会规范化为字符串。',
     '固定 ids 模式不能传 keyword、pageIndex 或 pageSize。',
     'pageSize 仅用于本次查询分页，不要自动复制到后续 CMS binding decision。',
     '未传 siteId 时仅查询工具会使用默认站点 1；CMS apply decision 仍必须使用 confirmed selection.siteId，不要猜测。',
@@ -60,7 +60,7 @@ const DECIDE_CMS_BINDING_TOOL_GUIDANCE =
     '调用顺序固定为：先 `mcp__cms__decide_cms_binding`，只有返回 `status=ready` 且拿到 `decisionId` 后，才能继续调用 `mcp__cms__apply_cms_binding`。',
     '`decision` 必须作为嵌套对象传入，不要发送 JSON 字符串；legacy string payload 只用于兼容恢复。',
     'supportedRenderModes 始终是 ["replace-current"]，不要使用 {"item":"replace-current"} 或其他 slot-keyed 对象。',
-    'content-list 固定内容 ids 必须写成扁平字符串数组，例如 "ids":["257","254","251"]；不要使用 {"item":[...]} 或其他 slot-keyed 对象。',
+    'content-list 固定内容 ids 建议写成扁平字符串数组，例如 "ids":["257","254","251"]；数字 ID 会规范化为字符串；不要使用 {"item":[...]} 或其他 slot-keyed 对象。',
     '最小 ready 示例：',
     'content-list => {"status":"ready","targetBlockKind":"content-list","supportedRenderModes":["replace-current"],"renderMode":"replace-current","applyStrategy":"replace-current","mappingKind":"catalog-content-list","toolKind":"content-list","source":{"siteId":"14","catalogId":"news"}}',
     'content-list fixed ids => {"status":"ready","targetBlockKind":"content-list","supportedRenderModes":["replace-current"],"renderMode":"replace-current","applyStrategy":"replace-current","mappingKind":"catalog-content-list","toolKind":"content-list","source":{"siteId":"1","catalogId":"16","ids":["257","254","251"]}}',
@@ -69,7 +69,7 @@ const DECIDE_CMS_BINDING_TOOL_GUIDANCE =
 
 const APPLY_CMS_BINDING_TOOL_GUIDANCE =
   [
-    '消费已持久化的 `decisionId`，将 CMS 数据绑定到当前 page-builder 区块，写入 cms-catalog 或 cms-content 标记并触发统一 HTML mutation pipeline。',
+    '消费已持久化的 `decisionId`，将 CMS 数据绑定到当前 page-builder 区块，并写入 cms-catalog 或 cms-content 标记。',
     '调用前提：必须先由 `mcp__cms__decide_cms_binding` 返回 `status=ready` 和 `decisionId`。',
     '该工具只接受 `decisionId`、`templateBody`、`emptyTemplate`、`errorTemplate`；不要传 targetSelection、siteId、source props 或其他 raw binding identity 字段。',
     '工具会自动生成外层 cms-catalog / cms-content；调用者只提供 slot 内部内容，不要包含外层 `cms-catalog` / `cms-content` 标签。',
@@ -79,9 +79,14 @@ const APPLY_CMS_BINDING_TOOL_GUIDANCE =
     '不要根据 CMS 浏览弹框当前的分页大小推断页面绑定的 `pageSize`。固定内容 ids 禁止传 `pageSize`；如需限制栏目数量请使用 `take`。',
   ].join(' ')
 
+const cmsIdLikeSchema = z.union([
+  z.string().min(1),
+  z.number().int().nonnegative().transform((value) => String(value)),
+])
+
 const catalogSourceSchema = z.object({
-  siteId: z.string().min(1),
-  ids: z.array(z.string().min(1)).optional(),
+  siteId: cmsIdLikeSchema,
+  ids: z.array(cmsIdLikeSchema).optional(),
   level: z.string().optional(),
   parentId: z.string().optional(),
   contentType: z.string().optional(),
@@ -90,9 +95,9 @@ const catalogSourceSchema = z.object({
 }).strict()
 
 const contentSourceSchema = z.object({
-  siteId: z.string().min(1),
-  ids: z.array(z.string().min(1)).optional(),
-  catalogId: z.string().min(1),
+  siteId: cmsIdLikeSchema,
+  ids: z.array(cmsIdLikeSchema).optional(),
+  catalogId: cmsIdLikeSchema,
   keyword: z.string().optional(),
   pageIndex: z.union([z.string(), z.number().int().min(0)]).optional(),
   pageSize: z.union([z.string(), z.number().int().min(1).max(100)]).optional(),
@@ -154,7 +159,7 @@ const decisionInputSchema = z.union([
 const decisionLooseObjectSchema = z.object({}).passthrough()
 
 const DECIDE_CMS_BINDING_DECISION_FIELD_GUIDANCE =
-  'Pass `decision` as a nested object. Do not JSON-stringify it. supportedRenderModes is always ["replace-current"], never {"item":"replace-current"}. For content fixed IDs, source.ids is a flat string array, never {"item":[...]}. If a legacy JSON string was used, parse it back into an object and retry. Minimal ready examples: content-list => {"status":"ready","targetBlockKind":"content-list","supportedRenderModes":["replace-current"],"renderMode":"replace-current","applyStrategy":"replace-current","mappingKind":"catalog-content-list","toolKind":"content-list","source":{"siteId":"14","catalogId":"news"}} ; content-list fixed ids => {"status":"ready","targetBlockKind":"content-list","supportedRenderModes":["replace-current"],"renderMode":"replace-current","applyStrategy":"replace-current","mappingKind":"catalog-content-list","toolKind":"content-list","source":{"siteId":"1","catalogId":"16","ids":["257","254","251"]}} ; catalog-nav => {"status":"ready","targetBlockKind":"nav","supportedRenderModes":["replace-current"],"renderMode":"replace-current","applyStrategy":"replace-current","mappingKind":"catalog-nav","toolKind":"catalog-nav","source":{"siteId":"14","parentId":"root","take":6}}.'
+  'Pass `decision` as a nested object. Do not JSON-stringify it. supportedRenderModes is always ["replace-current"], never {"item":"replace-current"}. For content fixed IDs, source.ids is a flat array; strings are canonical and numeric ids are normalized to strings, never {"item":[...]}. If a legacy JSON string was used, parse it back into an object and retry. Minimal ready examples: content-list => {"status":"ready","targetBlockKind":"content-list","supportedRenderModes":["replace-current"],"renderMode":"replace-current","applyStrategy":"replace-current","mappingKind":"catalog-content-list","toolKind":"content-list","source":{"siteId":"14","catalogId":"news"}} ; content-list fixed ids => {"status":"ready","targetBlockKind":"content-list","supportedRenderModes":["replace-current"],"renderMode":"replace-current","applyStrategy":"replace-current","mappingKind":"catalog-content-list","toolKind":"content-list","source":{"siteId":"1","catalogId":"16","ids":["257","254","251"]}} ; catalog-nav => {"status":"ready","targetBlockKind":"nav","supportedRenderModes":["replace-current"],"renderMode":"replace-current","applyStrategy":"replace-current","mappingKind":"catalog-nav","toolKind":"catalog-nav","source":{"siteId":"14","parentId":"root","take":6}}.'
 
 const decideCmsBindingToolInputSchema = z.strictObject({
   handoffId: z.string().min(1),
@@ -219,8 +224,8 @@ export function buildCmsRuntimeToolBundle(
     'list_catalogs',
     LIST_CATALOGS_TOOL_GUIDANCE,
     {
-      siteId: z.string().min(1).describe('CMS site id. If omitted, this query tool defaults to site 1 only for lookup; CMS apply decisions must use confirmed selection.siteId.').optional(),
-      ids: z.array(z.string().min(1)).describe('Exact catalog ids as a flat string array, e.g. ["16","17"]. Do not combine with contentType or searchKeyword.').optional(),
+      siteId: cmsIdLikeSchema.describe('CMS site id. If omitted, this query tool defaults to site 1 only for lookup; CMS apply decisions must use confirmed selection.siteId. Numeric ids are normalized to strings.').optional(),
+      ids: z.array(cmsIdLikeSchema).describe('Exact catalog ids as a flat string/number array, e.g. ["16","17"]. Numeric ids are normalized to strings. Do not combine with contentType or searchKeyword.').optional(),
       contentType: z.string().describe('Optional catalog content type filter for tree/search mode only; do not combine with ids.').optional(),
       searchKeyword: z.string().describe('Optional catalog keyword filter for tree/search mode only; do not combine with ids.').optional(),
     },
@@ -237,9 +242,9 @@ export function buildCmsRuntimeToolBundle(
     'list_contents',
     LIST_CONTENTS_TOOL_GUIDANCE,
     {
-      siteId: z.string().min(1).describe('CMS site id. If omitted, this query tool defaults to site 1 only for lookup; CMS apply decisions must use confirmed selection.siteId.').optional(),
-      ids: z.array(z.string().min(1)).describe('Exact content ids as a flat string array, e.g. ["257","254"]. Requires catalogId and cannot be combined with keyword, pageIndex, or pageSize.').optional(),
-      catalogId: z.string().min(1).describe('CMS catalog id. Required for content paging and fixed content ids lookup.').optional(),
+      siteId: cmsIdLikeSchema.describe('CMS site id. If omitted, this query tool defaults to site 1 only for lookup; CMS apply decisions must use confirmed selection.siteId. Numeric ids are normalized to strings.').optional(),
+      ids: z.array(cmsIdLikeSchema).describe('Exact content ids as a flat string/number array, e.g. ["257","254"]. Numeric ids are normalized to strings. Requires catalogId and cannot be combined with keyword, pageIndex, or pageSize.').optional(),
+      catalogId: cmsIdLikeSchema.describe('CMS catalog id. Required for content paging and fixed content ids lookup. Numeric ids are normalized to strings.').optional(),
       keyword: z.string().describe('Optional content keyword for catalog paging mode only; do not combine with ids.').optional(),
       pageIndex: z.number().int().min(0).describe('Zero-based page index for this lookup only; do not copy into CMS binding decisions unless explicitly intended.').optional(),
       pageSize: z.number().int().min(1).max(100).describe('Page size for this lookup only; fixed ids mode must not pass pageSize.').optional(),
@@ -392,7 +397,7 @@ function normalizeDecideCmsBindingDecisionInput(
       )
     }
 
-    const normalizedDecision = decisionInputSchema.safeParse(rawDecision)
+    const normalizedDecision = parseDecisionWithRelevantSchema(rawDecision)
     if (!normalizedDecision.success) {
       throw new CmsSdkToolError(
         'input-invalid',
@@ -420,7 +425,7 @@ function normalizeDecideCmsBindingDecisionInput(
     )
   }
 
-  const normalizedDecision = decisionInputSchema.safeParse(parsedDecision)
+  const normalizedDecision = parseDecisionWithRelevantSchema(parsedDecision)
   if (!normalizedDecision.success) {
     throw new CmsSdkToolError(
       'input-invalid',
@@ -429,6 +434,48 @@ function normalizeDecideCmsBindingDecisionInput(
   }
 
   return normalizedDecision.data
+}
+
+function parseDecisionWithRelevantSchema(rawDecision: unknown) {
+  const relevantSchema = resolveRelevantDecisionSchema(rawDecision)
+  return relevantSchema.safeParse(rawDecision)
+}
+
+function resolveRelevantDecisionSchema(rawDecision: unknown): typeof decisionInputSchema {
+  if (!isRecord(rawDecision)) {
+    return decisionInputSchema
+  }
+
+  if (rawDecision.status === 'needs-clarification') {
+    return clarificationDecisionSchema as unknown as typeof decisionInputSchema
+  }
+
+  if (rawDecision.status === 'incompatible') {
+    return incompatibleDecisionSchema as unknown as typeof decisionInputSchema
+  }
+
+  if (rawDecision.status !== 'ready') {
+    return decisionInputSchema
+  }
+
+  if (
+    rawDecision.toolKind === 'content-list'
+    || rawDecision.mappingKind === 'catalog-content-list'
+    || rawDecision.targetBlockKind === 'content-list'
+  ) {
+    return contentReadyDecisionSchema as unknown as typeof decisionInputSchema
+  }
+
+  if (
+    rawDecision.toolKind === 'catalog-nav'
+    || rawDecision.mappingKind === 'catalog-nav'
+    || rawDecision.targetBlockKind === 'nav'
+    || rawDecision.targetBlockKind === 'catalog-list'
+  ) {
+    return catalogReadyDecisionSchema as unknown as typeof decisionInputSchema
+  }
+
+  return decisionInputSchema
 }
 
 async function executeCmsTool<T>(
@@ -520,12 +567,6 @@ function formatCmsDecisionStoreError(error: PageBuilderCmsBindingDecisionStoreEr
         '基于当前最新选中区域和作者态上下文重新发起 CMS handoff，然后重新调用 `mcp__cms__decide_cms_binding`。',
         '不要猜测 `handoffId`，也不要直接调用 `mcp__cms__apply_cms_binding`。',
       )
-    case 'handoff-stale':
-      return formatGuidedToolError(
-        `当前 CMS handoff 已过期：${safeMessage}`,
-        '基于当前最新页面状态重新发起 CMS handoff，然后重新调用 `mcp__cms__decide_cms_binding`。',
-        '不要猜测 `handoffId`，也不要直接调用 `mcp__cms__apply_cms_binding`。',
-      )
     case 'handoff-session-mismatch':
       return formatGuidedToolError(
         `当前 CMS handoff 与当前会话不匹配：${safeMessage}`,
@@ -534,11 +575,10 @@ function formatCmsDecisionStoreError(error: PageBuilderCmsBindingDecisionStoreEr
       )
     case 'decision-not-found':
     case 'decision-consumed':
-    case 'decision-stale':
     case 'decision-session-mismatch':
       return formatGuidedToolError(
         `当前 decisionId 不可继续用于正式 CMS apply：${safeMessage}`,
-        '基于当前有效 handoff 重新执行 `mcp__cms__decide_cms_binding`；如果 handoff 也已过期，先重新发起 handoff。',
+        '基于当前会话中的 CMS 选择结果重新执行 `mcp__cms__decide_cms_binding`，拿到新的 `decisionId` 后再 apply。',
         '不要重复使用当前 decisionId，也不要在未拿到新的 decisionId 时继续调用 `mcp__cms__apply_cms_binding`。',
       )
     case 'decision-conflict':
@@ -574,8 +614,8 @@ function formatCmsApplyToolError(error: PageBuilderCmsBindingApplyError): string
       )
     case 'mutation-failed':
       return formatGuidedToolError(
-        `CMS apply 写回失败：${safeMessage}`,
-        '停止当前 CMS 调用链并交由宿主侧排查页面写回或 mutation pipeline 状态。',
+        `CMS apply 未完成：${safeMessage}`,
+        '停止当前 CMS 调用链；请把该失败作为未应用处理，并交由宿主侧排查页面校验或写回状态。',
         '不要宣称本次 CMS 绑定已成功，也不要继续执行依赖这次 apply 成功的后续操作。',
       )
   }
@@ -600,7 +640,12 @@ function formatCmsZodToolError(toolName: CmsRuntimeToolName, error: z.ZodError):
 }
 
 function formatGuidedToolError(summary: string, nextStep: string, forbiddenAction: string): string {
-  return `${summary} 下一步：${nextStep} ${forbiddenAction}`
+  return [
+    '状态：CMS 工具未完成',
+    `原因：${summary}`,
+    `下一步：${nextStep}`,
+    `不要：${forbiddenAction}`,
+  ].join('\n')
 }
 
 function extractCmsToolErrorMessage(error: unknown): string {
@@ -661,16 +706,12 @@ function collectDecisionFieldFixes(rawDecision: unknown): string[] {
   const fixes: string[] = []
   const supportedRenderModes = rawDecision.supportedRenderModes
   if (!Array.isArray(supportedRenderModes)) {
-    fixes.push(`supportedRenderModes 应为 ["replace-current"]；不要使用 {"item":...} 包装`)
+    fixes.push('supportedRenderModes 应为 ["replace-current"]')
   } else if (
     supportedRenderModes.length !== 1
     || supportedRenderModes.some((mode) => mode !== 'replace-current')
   ) {
     fixes.push('supportedRenderModes 必须严格等于 ["replace-current"]')
-  }
-
-  if (!Object.prototype.hasOwnProperty.call(rawDecision, 'targetBlockKind')) {
-    fixes.push('字段 targetBlockKind 缺失')
   }
 
   const source = rawDecision.source
@@ -680,13 +721,147 @@ function collectDecisionFieldFixes(rawDecision: unknown): string[] {
   if (isRecord(source) && Object.prototype.hasOwnProperty.call(source, 'ids')) {
     const ids = source.ids
     if (!Array.isArray(ids)) {
-      fixes.push(`source.ids 应为 string[]；不要使用 {"item":...} 包装`)
-    } else if (ids.some((id) => typeof id !== 'string' || !id.trim())) {
-      fixes.push('source.ids 应为非空字符串数组')
+      fixes.push(`source.ids 应为 string[]/number[]；不要使用 {"item":...} 包装`)
+    } else {
+      const invalidIndex = ids.findIndex((id) => !isValidCmsIdLikeValue(id))
+      if (invalidIndex >= 0) {
+        fixes.push('source.ids 应为 string[] 或 number[]')
+        fixes.push(`source.ids[${invalidIndex}] 必须是非空字符串或数字`)
+      }
     }
   }
 
+  appendReadyDecisionDiscriminatorFixes(rawDecision, fixes)
+
   return fixes
+}
+
+type ReadyDecisionToolKind = 'content-list' | 'catalog-nav'
+
+function appendReadyDecisionDiscriminatorFixes(rawDecision: Record<string, unknown>, fixes: string[]): void {
+  const targetToolKind = inferToolKindFromTargetBlockKind(rawDecision.targetBlockKind)
+  const mappingToolKind = inferToolKindFromMappingKind(rawDecision.mappingKind)
+  const explicitToolKind = isReadyDecisionToolKind(rawDecision.toolKind) ? rawDecision.toolKind : null
+
+  appendTargetBlockKindFix(rawDecision, fixes, mappingToolKind ?? explicitToolKind)
+  appendMappingKindFix(rawDecision, fixes, targetToolKind ?? explicitToolKind)
+  appendToolKindFix(rawDecision, fixes, mappingToolKind ?? targetToolKind)
+}
+
+function appendTargetBlockKindFix(
+  rawDecision: Record<string, unknown>,
+  fixes: string[],
+  expectedToolKind: ReadyDecisionToolKind | null,
+): void {
+  if (!Object.prototype.hasOwnProperty.call(rawDecision, 'targetBlockKind')) {
+    fixes.push('字段 targetBlockKind 缺失；content-list 使用 "content-list"，catalog-nav 使用 "nav|catalog-list"')
+    return
+  }
+
+  const actualToolKind = inferToolKindFromTargetBlockKind(rawDecision.targetBlockKind)
+  if (!actualToolKind) {
+    fixes.push('字段 targetBlockKind 无效；content-list 使用 "content-list"，catalog-nav 使用 "nav|catalog-list"')
+    return
+  }
+
+  if (expectedToolKind && actualToolKind !== expectedToolKind) {
+    fixes.push(`字段 targetBlockKind 与 mappingKind/toolKind 不一致；${formatTargetBlockKindExpectation(expectedToolKind)}`)
+  }
+}
+
+function appendMappingKindFix(
+  rawDecision: Record<string, unknown>,
+  fixes: string[],
+  expectedToolKind: ReadyDecisionToolKind | null,
+): void {
+  if (!Object.prototype.hasOwnProperty.call(rawDecision, 'mappingKind')) {
+    fixes.push(expectedToolKind
+      ? `字段 mappingKind 缺失；当前应为 "${mappingKindForToolKind(expectedToolKind)}"`
+      : '字段 mappingKind 缺失')
+    return
+  }
+
+  const actualToolKind = inferToolKindFromMappingKind(rawDecision.mappingKind)
+  if (!actualToolKind) {
+    fixes.push(expectedToolKind
+      ? `字段 mappingKind 无效；当前应为 "${mappingKindForToolKind(expectedToolKind)}"`
+      : '字段 mappingKind 无效；content-list 使用 "catalog-content-list"，catalog-nav 使用 "catalog-nav"')
+    return
+  }
+
+  if (expectedToolKind && actualToolKind !== expectedToolKind) {
+    fixes.push(`字段 mappingKind 与 targetBlockKind/toolKind 不一致；当前应为 "${mappingKindForToolKind(expectedToolKind)}"`)
+  }
+}
+
+function appendToolKindFix(
+  rawDecision: Record<string, unknown>,
+  fixes: string[],
+  expectedToolKind: ReadyDecisionToolKind | null,
+): void {
+  if (!Object.prototype.hasOwnProperty.call(rawDecision, 'toolKind')) {
+    fixes.push(expectedToolKind
+      ? `字段 toolKind 缺失；当前应为 "${expectedToolKind}"`
+      : '字段 toolKind 缺失')
+    return
+  }
+
+  if (!isReadyDecisionToolKind(rawDecision.toolKind)) {
+    fixes.push(expectedToolKind
+      ? `字段 toolKind 无效；当前应为 "${expectedToolKind}"`
+      : '字段 toolKind 无效；content-list 使用 "content-list"，catalog-nav 使用 "catalog-nav"')
+    return
+  }
+
+  if (expectedToolKind && rawDecision.toolKind !== expectedToolKind) {
+    fixes.push(`字段 toolKind 与 targetBlockKind/mappingKind 不一致；当前应为 "${expectedToolKind}"`)
+  }
+}
+
+function inferToolKindFromTargetBlockKind(value: unknown): ReadyDecisionToolKind | null {
+  if (value === 'content-list') {
+    return 'content-list'
+  }
+
+  if (value === 'nav' || value === 'catalog-list') {
+    return 'catalog-nav'
+  }
+
+  return null
+}
+
+function inferToolKindFromMappingKind(value: unknown): ReadyDecisionToolKind | null {
+  if (value === 'catalog-content-list') {
+    return 'content-list'
+  }
+
+  if (value === 'catalog-nav') {
+    return 'catalog-nav'
+  }
+
+  return null
+}
+
+function isReadyDecisionToolKind(value: unknown): value is ReadyDecisionToolKind {
+  return value === 'content-list' || value === 'catalog-nav'
+}
+
+function mappingKindForToolKind(toolKind: ReadyDecisionToolKind): string {
+  return toolKind === 'content-list' ? 'catalog-content-list' : 'catalog-nav'
+}
+
+function formatTargetBlockKindExpectation(toolKind: ReadyDecisionToolKind): string {
+  return toolKind === 'content-list'
+    ? '当前应为 "content-list"'
+    : '当前应为 "nav" 或 "catalog-list"'
+}
+
+function isValidCmsIdLikeValue(value: unknown): boolean {
+  if (typeof value === 'string') {
+    return value.trim().length > 0
+  }
+
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0
 }
 
 function formatFirstAdditionalIssueSummary(error: z.ZodError, existingFixes: string[]): string | null {
@@ -903,11 +1078,11 @@ function formatCmsSdkValidationToolError(toolName: CmsRuntimeToolName, validatio
 function formatSpecificSdkValidationDetail(toolName: CmsRuntimeToolName, validationDetail: string): string {
   const safeDetail = sanitizeCmsToolErrorMessage(validationDetail)
   if (toolName === 'list_contents' && /\bids\b/.test(safeDetail) && /array|string\[\]|expected array/i.test(safeDetail)) {
-    return 'ids 必须是 string[]，不要写成字符串或 {"item":[...]} 对象。正确形态：{"siteId":"...","catalogId":"...","ids":["..."]}。'
+    return 'ids 必须是数组，元素应为字符串或数字；不要写成字符串或 {"item":[...]} 对象。正确形态：{"siteId":"...","catalogId":"...","ids":["..."]}。'
   }
 
   if (toolName === 'list_catalogs' && /\bids\b/.test(safeDetail) && /array|string\[\]|expected array/i.test(safeDetail)) {
-    return 'ids 必须是 string[]，不要写成字符串或 {"item":[...]} 对象。正确形态：{"siteId":"...","ids":["..."]}。'
+    return 'ids 必须是数组，元素应为字符串或数字；不要写成字符串或 {"item":[...]} 对象。正确形态：{"siteId":"...","ids":["..."]}。'
   }
 
   return safeDetail

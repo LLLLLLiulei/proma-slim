@@ -242,19 +242,22 @@ describe('cms sdk runtime tools', () => {
     const tools = getRegisteredTools(bundle)
 
     expect(tools.list_catalogs?.description).toContain('ids 为栏目 ID 数组')
+    expect(tools.list_catalogs?.description).toContain('数字 ID 会规范化为字符串')
     expect(tools.list_catalogs?.description).toContain('不能与 contentType 或 searchKeyword 混用')
     expect(tools.list_catalogs?.description).toContain('未传 siteId 时仅查询工具会使用默认站点 1')
     expect(tools.list_catalogs?.description).toContain('{"siteId":"1","ids":["16","17"]}')
 
     expect(tools.list_contents?.description).toContain('栏目分页查询')
     expect(tools.list_contents?.description).toContain('固定内容查询')
-    expect(tools.list_contents?.description).toContain('ids 必须是 string[]')
+    expect(tools.list_contents?.description).toContain('ids 建议是 string[]')
+    expect(tools.list_contents?.description).toContain('数字 ID 会规范化为字符串')
     expect(tools.list_contents?.description).toContain('固定 ids 模式不能传 keyword、pageIndex 或 pageSize')
     expect(tools.list_contents?.description).toContain('pageSize 仅用于本次查询分页')
     expect(tools.list_contents?.description).toContain('未传 siteId 时仅查询工具会使用默认站点 1')
     expect(tools.list_contents?.description).toContain('{"siteId":"1","catalogId":"16","ids":["257","254","251"]}')
 
     expect(tools.decide_cms_binding?.description).toContain('"ids":["257","254","251"]')
+    expect(tools.decide_cms_binding?.description).toContain('数字 ID 会规范化为字符串')
     expect(tools.decide_cms_binding?.description).toContain('不要使用 {"item":[...]}')
     expect(tools.decide_cms_binding?.description).toContain('supportedRenderModes 始终是 ["replace-current"]')
     expect(tools.decide_cms_binding?.description).toContain('不要使用 {"item":"replace-current"}')
@@ -398,8 +401,8 @@ describe('cms sdk runtime tools', () => {
     ])
   })
 
-  test('rejects stale decisions after the page revision changes', async () => {
-    const workspace = createAgentWorkspace('CMS Tool Stale Decision', { template: 'page-builder' })
+  test('applies persisted decisions even after the page revision changes', async () => {
+    const workspace = createAgentWorkspace('CMS Tool Non Expiring Decision', { template: 'page-builder' })
     const entryPath = prepareWorkspaceHtml(
       workspace.slug,
       '<!doctype html><html><body><section id="latest-news" data-proma-block-id="pb_blk_news"><div>placeholder</div></section></body></html>',
@@ -434,14 +437,14 @@ describe('cms sdk runtime tools', () => {
       'utf-8',
     )
 
-    await expectToolRejects(tools.apply_cms_binding!, {
+    const applyResult = await invokeTool<{ applied: true }>(tools.apply_cms_binding!, {
       decisionId: decision.decisionId,
-      templateBody: '<section class="news-list"></section>',
-    }, [
-      '当前页面已变化，原 decision 已失效',
-      '重新执行 `mcp__cms__decide_cms_binding`',
-      '不要重复使用当前 decisionId',
-    ])
+      templateBody: '<section class="news-list"><article v-for="item in items" :key="item.id">{{ item.title }}</article></section>',
+    })
+
+    expect(applyResult.applied).toBe(true)
+    expect(readFileSync(entryPath, 'utf-8')).toContain('<cms-content ')
+    expect(readFileSync(entryPath, 'utf-8')).toContain('catalog-id="news"')
   })
 
   test('keeps the decision reusable when apply fails before a successful write', async () => {
@@ -856,6 +859,176 @@ describe('cms sdk runtime tools', () => {
     ])
   })
 
+  test('normalizes numeric cms decision source ids into canonical strings', async () => {
+    const workspace = createAgentWorkspace('CMS Tool Numeric Decision Ids', { template: 'page-builder' })
+    prepareWorkspaceHtml(
+      workspace.slug,
+      '<!doctype html><html><body><section id="latest-news" data-proma-block-id="pb_blk_news"><div>placeholder</div></section></body></html>',
+    )
+    const selection = createContentSelection()
+    const handoffId = registerContentHandoff(workspace, 'session-1', {
+      ...selection,
+      siteId: '1',
+      sourceType: 'contents-by-ids',
+      selectionMode: 'fixed-items',
+      catalogId: '7',
+      contentIds: ['922', '910', '895'],
+      snapshot: {
+        contents: [
+          { id: '922', catalogId: '7', title: '内容 922', summary: '', publishUrl: '' },
+          { id: '910', catalogId: '7', title: '内容 910', summary: '', publishUrl: '' },
+          { id: '895', catalogId: '7', title: '内容 895', summary: '', publishUrl: '' },
+        ],
+      },
+    })
+    const bundle = buildCmsRuntimeToolBundle(createGateway() as never, {
+      workspace,
+      sessionId: 'session-1',
+    })
+    const tools = getRegisteredTools(bundle)
+
+    const result = await invokeTool<{ status: string; decisionId: string }>(tools.decide_cms_binding!, {
+      handoffId,
+      decision: {
+        status: 'ready',
+        targetBlockKind: 'content-list',
+        supportedRenderModes: ['replace-current'],
+        renderMode: 'replace-current',
+        applyStrategy: 'replace-current',
+        mappingKind: 'catalog-content-list',
+        toolKind: 'content-list',
+        source: {
+          siteId: 1,
+          catalogId: 7,
+          ids: [922, 910, 895],
+        },
+      },
+    })
+
+    expect(result.status).toBe('ready')
+    const record = pageBuilderCmsBindingDecisionStore.readDecisionForApply({
+      workspaceId: workspace.id,
+      decisionId: result.decisionId,
+      sessionId: 'session-1',
+      currentRevision: getWorkspacePreviewState(workspace).revision!,
+    })
+    expect(record.plan.source).toEqual({
+      siteId: '1',
+      catalogId: '7',
+      ids: ['922', '910', '895'],
+    })
+  })
+
+  test('reports content-list source type fixes without leaking catalog-nav union branch errors', async () => {
+    const workspace = createAgentWorkspace('CMS Tool Numeric Decision Id Error', { template: 'page-builder' })
+    prepareWorkspaceHtml(
+      workspace.slug,
+      '<!doctype html><html><body><section id="latest-news" data-proma-block-id="pb_blk_news"><div>placeholder</div></section></body></html>',
+    )
+    const handoffId = registerContentHandoff(workspace, 'session-1')
+    const bundle = buildCmsRuntimeToolBundle(createGateway() as never, {
+      workspace,
+      sessionId: 'session-1',
+    })
+    const tools = getRegisteredTools(bundle)
+
+    const errorMessage = await getToolErrorMessage(tools.decide_cms_binding!, {
+      handoffId,
+      decision: {
+        status: 'ready',
+        targetBlockKind: 'content-list',
+        supportedRenderModes: ['replace-current'],
+        renderMode: 'replace-current',
+        applyStrategy: 'replace-current',
+        mappingKind: 'catalog-content-list',
+        toolKind: 'content-list',
+        source: {
+          siteId: '1',
+          catalogId: '7',
+          ids: [922, {}, 895],
+        },
+      },
+    })
+
+    expect(errorMessage).toContain('source.ids 应为 string[] 或 number[]')
+    expect(errorMessage).toContain('source.ids[1] 必须是非空字符串或数字')
+    expect(errorMessage).not.toContain('expected "catalog-nav"')
+    expect(errorMessage).not.toContain('字段 toolKind')
+  })
+
+  test('reports missing ready discriminator fields with retry-oriented cms guidance', async () => {
+    const workspace = createAgentWorkspace('CMS Tool Missing Decision Discriminators', { template: 'page-builder' })
+    prepareWorkspaceHtml(
+      workspace.slug,
+      '<!doctype html><html><body><section id="latest-news" data-proma-block-id="pb_blk_news"><div>placeholder</div></section></body></html>',
+    )
+    const handoffId = registerContentHandoff(workspace, 'session-1')
+    const bundle = buildCmsRuntimeToolBundle(createGateway() as never, {
+      workspace,
+      sessionId: 'session-1',
+    })
+    const tools = getRegisteredTools(bundle)
+
+    const errorMessage = await getToolErrorMessage(tools.decide_cms_binding!, {
+      handoffId,
+      decision: {
+        status: 'ready',
+        supportedRenderModes: ['replace-current'],
+        renderMode: 'replace-current',
+        applyStrategy: 'replace-current',
+        source: {
+          siteId: '1',
+          catalogId: '7',
+        },
+      },
+    })
+
+    expect(errorMessage).toContain('字段 targetBlockKind 缺失')
+    expect(errorMessage).toContain('字段 mappingKind 缺失')
+    expect(errorMessage).toContain('字段 toolKind 缺失')
+    expect(errorMessage).toContain('content-list 使用')
+    expect(errorMessage).not.toContain('Invalid input')
+    expect(errorMessage).not.toContain('Invalid option')
+    expect(errorMessage).not.toContain('expected one of')
+  })
+
+  test('reports inconsistent ready discriminator fields without raw zod expected messages', async () => {
+    const workspace = createAgentWorkspace('CMS Tool Conflicting Decision Discriminators', { template: 'page-builder' })
+    prepareWorkspaceHtml(
+      workspace.slug,
+      '<!doctype html><html><body><section id="latest-news" data-proma-block-id="pb_blk_news"><div>placeholder</div></section></body></html>',
+    )
+    const handoffId = registerContentHandoff(workspace, 'session-1')
+    const bundle = buildCmsRuntimeToolBundle(createGateway() as never, {
+      workspace,
+      sessionId: 'session-1',
+    })
+    const tools = getRegisteredTools(bundle)
+
+    const errorMessage = await getToolErrorMessage(tools.decide_cms_binding!, {
+      handoffId,
+      decision: {
+        status: 'ready',
+        targetBlockKind: 'content-list',
+        supportedRenderModes: ['replace-current'],
+        renderMode: 'replace-current',
+        applyStrategy: 'replace-current',
+        mappingKind: 'catalog-content-list',
+        toolKind: 'catalog-nav',
+        source: {
+          siteId: '1',
+          catalogId: '7',
+        },
+      },
+    })
+
+    expect(errorMessage).toContain('字段 toolKind 与 targetBlockKind/mappingKind 不一致')
+    expect(errorMessage).toContain('当前应为 "content-list"')
+    expect(errorMessage).not.toContain('Invalid input')
+    expect(errorMessage).not.toContain('expected "content-list"')
+    expect(errorMessage).not.toContain('expected "catalog-nav"')
+  })
+
   test('forwards explicit siteId through the sdk list tools', async () => {
     const workspace = createAgentWorkspace('CMS Tool Site Context', { template: 'page-builder' })
     const catalogCalls: unknown[] = []
@@ -950,6 +1123,51 @@ describe('cms sdk runtime tools', () => {
     }])
   })
 
+  test('normalizes numeric list tool ids into strings before calling the gateway', async () => {
+    const workspace = createAgentWorkspace('CMS Tool Numeric List Ids', { template: 'page-builder' })
+    const catalogCalls: unknown[] = []
+    const contentCalls: unknown[] = []
+    const gateway = {
+      listCatalogs: async (query: unknown) => {
+        catalogCalls.push(query)
+        return { items: [], tree: [] }
+      },
+      listContents: async (query: unknown) => {
+        contentCalls.push(query)
+        return { pageIndex: 0, pageSize: 20, total: 0, totalPages: 0, items: [] }
+      },
+    }
+
+    const bundle = buildCmsRuntimeToolBundle(gateway as never, {
+      workspace,
+      sessionId: 'session-1',
+    })
+    const tools = getRegisteredTools(bundle)
+
+    const parsedCatalogArgs = tools.list_catalogs!.inputSchema.parse({
+      siteId: 14,
+      ids: [102, 101],
+    })
+    await tools.list_catalogs!.handler(parsedCatalogArgs, undefined)
+
+    const parsedContentArgs = tools.list_contents!.inputSchema.parse({
+      siteId: 14,
+      catalogId: 101,
+      ids: [502, 501],
+    })
+    await tools.list_contents!.handler(parsedContentArgs, undefined)
+
+    expect(catalogCalls).toEqual([{
+      siteId: '14',
+      ids: ['102', '101'],
+    }])
+    expect(contentCalls).toEqual([{
+      siteId: '14',
+      catalogId: '101',
+      ids: ['502', '501'],
+    }])
+  })
+
   test('rejects fixed content ids without catalogId at the sdk schema boundary', async () => {
     const workspace = createAgentWorkspace('CMS Tool Fixed Ids Validation', { template: 'page-builder' })
     const bundle = buildCmsRuntimeToolBundle(createGateway() as never, {
@@ -1027,7 +1245,7 @@ describe('cms sdk runtime tools', () => {
     })
 
     expect(errorMessage).toContain('CMS tool 输入不合法')
-    expect(errorMessage).toContain('ids 必须是 string[]')
+    expect(errorMessage).toContain('ids 必须是数组，元素应为字符串或数字')
     expect(errorMessage).toContain('正确形态：{"siteId":"...","catalogId":"...","ids":["..."]}')
     expect(errorMessage).toContain('修正 tool 参数后重试')
     expect(errorMessage).toContain('不要在不改动参数的情况下重复提交同一次调用')
@@ -1133,8 +1351,8 @@ describe('cms sdk runtime tools', () => {
     ])
   })
 
-  test('returns handoff refresh guidance when decide_cms_binding sees a stale handoff', async () => {
-    const workspace = createAgentWorkspace('CMS Tool Stale Handoff Guidance', { template: 'page-builder' })
+  test('creates decisions from handoffs even after the page revision changes', async () => {
+    const workspace = createAgentWorkspace('CMS Tool Non Expiring Handoff', { template: 'page-builder' })
     const entryPath = prepareWorkspaceHtml(
       workspace.slug,
       '<!doctype html><html><body><section id="latest-news" data-proma-block-id="pb_blk_news"><div>placeholder</div></section></body></html>',
@@ -1151,14 +1369,37 @@ describe('cms sdk runtime tools', () => {
     })
     const tools = getRegisteredTools(bundle)
 
-    await expectToolRejects(tools.decide_cms_binding!, {
+    const result = await invokeTool<{ status: string; decisionId: string }>(tools.decide_cms_binding!, {
       handoffId,
       decision: createReadyContentDecision(),
-    }, [
-      '当前页面已发生变化',
-      '重新发起 CMS handoff',
-      '不要猜测 `handoffId`',
-    ])
+    })
+
+    expect(result.status).toBe('ready')
+    expect(result.decisionId).toBeTruthy()
+  })
+
+  test('formats cms tool errors with clear status reason next-step fields', async () => {
+    const workspace = createAgentWorkspace('CMS Tool Structured Error Guidance', { template: 'page-builder' })
+    prepareWorkspaceHtml(
+      workspace.slug,
+      '<!doctype html><html><body><section id="latest-news" data-proma-block-id="pb_blk_news"><div>placeholder</div></section></body></html>',
+    )
+    const bundle = buildCmsRuntimeToolBundle(createGateway() as never, {
+      workspace,
+      sessionId: 'session-1',
+    })
+    const tools = getRegisteredTools(bundle)
+
+    const errorMessage = await getToolErrorMessage(tools.apply_cms_binding!, {
+      decisionId: 'missing-decision',
+      templateBody: '<section class="news-list"></section>',
+    })
+
+    expect(errorMessage).toContain('状态：CMS 工具未完成')
+    expect(errorMessage).toContain('原因：')
+    expect(errorMessage).toContain('下一步：')
+    expect(errorMessage).toContain('不要：')
+    expect(errorMessage).not.toContain('mutation pipeline')
   })
 
   test('returns authoring revision guidance when apply_cms_binding cannot read the current revision', async () => {
