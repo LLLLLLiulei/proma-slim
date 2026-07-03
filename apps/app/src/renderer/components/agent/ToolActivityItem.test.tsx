@@ -25,7 +25,7 @@ describe('ToolActivityItem', () => {
       input: { question: '下一步怎么处理？' },
     }))
 
-    expect(markup).toContain('向用户提问')
+    expect(markup).toContain('问题澄清')
     expect(markup).not.toContain('AskUserQuestion')
   })
 
@@ -35,7 +35,7 @@ describe('ToolActivityItem', () => {
       input: { decisionId: 'decision-1' },
     }))
 
-    expect(markup).toContain('CMS / 应用内容绑定')
+    expect(markup).toContain('CMS / 应用 CMS 绑定')
     expect(markup).not.toContain('mcp__cms__apply_cms_binding')
   })
 
@@ -55,7 +55,7 @@ describe('ToolActivityItem', () => {
       input: { skill: '550e8400-e29b-41d4-a716-446655440000:page-builder-guided-generation' },
     }))
 
-    expect(markup).toContain('调用技能')
+    expect(markup).toContain('使用技能')
     expect(markup).toContain('页面引导生成')
     expect(markup).not.toContain('page-builder-guided-generation')
   })

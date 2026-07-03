@@ -107,6 +107,21 @@ describe('cms-binding-apply skill contract docs', () => {
     expect(typecheck).toContain("targetBlockKind: 'nav'")
   })
 
+  test('documents catalog-list ready decisions without inventing catalog-list tool kinds', () => {
+    const skill = readRelativeText('../../../default-skills/cms-binding-apply/SKILL.md')
+    const examples = readRelativeText('../../../default-skills/cms-binding-apply/references/contract-examples.md')
+
+    expect(skill).toContain('`catalog-list` targets still use `mappingKind: "catalog-nav"` and `toolKind: "catalog-nav"`')
+    expect(examples).toContain('## Catalog-list decision example')
+    expect(examples).toContain('"targetBlockKind": "catalog-list"')
+    expect(examples).toContain('"mappingKind": "catalog-nav"')
+    expect(examples).toContain('"toolKind": "catalog-nav"')
+    expect(examples).toContain('"level": "children"')
+    expect(skill).toContain('"source":{"siteId":"14","level":"children","parentId":"7","take":6}')
+    expect(examples).not.toContain('"mappingKind": "catalog-list"')
+    expect(examples).not.toContain('"toolKind": "catalog-list"')
+  })
+
   test('moves shared slot, html-first, and anti-pattern guidance into shared authoring rules', () => {
     const skill = readRelativeText('../../../default-skills/cms-binding-apply/SKILL.md')
     const shared = readRelativeText('../../../default-skills/cms-binding-apply/references/shared-authoring-rules.md')
@@ -276,7 +291,41 @@ describe('cms-binding-apply skill contract docs', () => {
     expect(skill).toContain('single outer `<template v-slot:...>` or `<template #...>` wrapper is tolerated and will be unwrapped automatically')
     expect(downstream).toContain('must first materialize a persisted decision through `mcp__cms__decide_cms_binding`')
     expect(downstream).toContain('`mcp__cms__apply_cms_binding` must now consume `decisionId` plus template fields only')
-    expect(downstream).toContain('fail closed on missing, stale, conflicting, replayed, or non-unique decisions')
+    expect(downstream).toContain('fail closed on missing, conflicting, already-consumed, replayed, or non-unique decisions')
+  })
+
+  test('separates apply tool payload examples from generated cms source examples', () => {
+    const skill = readRelativeText('../../../default-skills/cms-binding-apply/SKILL.md')
+    const shared = readRelativeText('../../../default-skills/cms-binding-apply/references/shared-authoring-rules.md')
+    const catalog = readRelativeText('../../../default-skills/cms-binding-apply/references/cms-catalog-authoring.md')
+    const content = readRelativeText('../../../default-skills/cms-binding-apply/references/cms-content-authoring.md')
+    const allGuidance = [skill, shared, catalog, content].join('\n')
+
+    expect(shared).toContain('Tool payload example')
+    expect(shared).toContain('Generated authoring source example')
+    expect(shared).toContain('Do not pass the generated authoring source example as `templateBody`, `emptyTemplate`, or `errorTemplate`')
+    expect(shared).toContain('formal apply tool automatically generates the slot wrapper')
+    expect(allGuidance).not.toContain('declare the slot scope explicitly')
+    expect(allGuidance).not.toContain('level="1"')
+  })
+
+  test('does not teach semantic placeholder ids for cms source identity', () => {
+    const skill = readRelativeText('../../../default-skills/cms-binding-apply/SKILL.md')
+    const shared = readRelativeText('../../../default-skills/cms-binding-apply/references/shared-authoring-rules.md')
+    const catalog = readRelativeText('../../../default-skills/cms-binding-apply/references/cms-catalog-authoring.md')
+    const content = readRelativeText('../../../default-skills/cms-binding-apply/references/cms-content-authoring.md')
+    const examples = readRelativeText('../../../default-skills/cms-binding-apply/references/contract-examples.md')
+    const allGuidance = [skill, shared, catalog, content, examples].join('\n')
+
+    expect(allGuidance).toContain('CMS source ids must come from the confirmed CMS selection')
+    expect(allGuidance).toContain('Use positive integer strings such as `"16"`, `"257"`, not semantic aliases')
+    expect(allGuidance).not.toContain('catalog-id="news"')
+    expect(allGuidance).not.toContain('parent-id="news-root"')
+    expect(allGuidance).not.toContain('ids="news,products,about"')
+    expect(allGuidance).not.toContain('"catalogId": "news"')
+    expect(allGuidance).not.toContain('"parentId": "root"')
+    expect(allGuidance).not.toContain('"ids": ["news", "products", "about"]')
+    expect(allGuidance).not.toContain('"contentIds": ["n-101"')
   })
 
   test('documents object-shaped decide payloads and forbids bypassing the decision chain after failure', () => {

@@ -30,6 +30,8 @@ Source modes:
   - use when the CMS browser confirmed a fixed catalog set
 
 Only set `take` when the user explicitly requested a catalog count or the current target already depends on that limit.
+CMS source ids must come from the confirmed CMS selection. Use positive integer strings such as `"7"`, `"16"`, not semantic aliases such as `root` or `news-root`.
+When using `parent-id`, set `level="children"`; do not combine `parent-id` with `level="root"` or omit the level.
 
 ## Slot scope
 
@@ -53,7 +55,7 @@ Use an explicit subset of the shared slot scope `{ items, loading, error, empty 
 Use this when the target block intent is `nav`.
 
 ```html
-<cms-catalog site-id="14" level="1" parent-id="news-root">
+<cms-catalog site-id="14" level="children" parent-id="7">
   <template v-slot:default="{ items }">
     <ul class="nav-list">
       <li v-for="item in items" :key="item.id">
@@ -69,7 +71,7 @@ Use this when the target block intent is `nav`.
 Use this when the target block intent is `catalog-list`.
 
 ```html
-<cms-catalog site-id="14" ids="news,products,about">
+<cms-catalog site-id="14" ids="16,17,18">
   <template v-slot:default="{ items }">
     <section class="catalog-grid">
       <article v-for="item in items" :key="item.id" class="catalog-card">

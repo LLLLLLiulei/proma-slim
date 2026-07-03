@@ -84,6 +84,7 @@ interface DynamicContext {
   accessibleDirectories?: string[]
   memoryFilePath?: string
   workspaceMcpStateLines?: string[]
+  pageBuilderCmsRuntimeMcpMode?: 'available' | 'unavailable'
   pageBuilderRuntimePlaywrightMode?: 'docker-http' | 'available'
   pageBuilderBrowserPreviewUrl?: string
 }
@@ -217,6 +218,26 @@ ${securityBoundaryLines.join('\n')}
     sections.push(`<workspace_state>
 ${workspaceStateLines.join('\n')}
 </workspace_state>`)
+  }
+
+  if (ctx.pageBuilderCmsRuntimeMcpMode) {
+    sections.push(`<page_builder_cms_runtime_mcp>${ctx.pageBuilderCmsRuntimeMcpMode}</page_builder_cms_runtime_mcp>`)
+    const cmsRuntimeLines = ctx.pageBuilderCmsRuntimeMcpMode === 'available'
+      ? [
+          'CMS MCP 是宿主运行时注入的 SDK MCP server，不是 workspace `mcp.json` 中的持久配置。',
+          '- 可使用宿主注入的 `mcp__cms__list_catalogs`、`mcp__cms__list_contents`、`mcp__cms__decide_cms_binding`、`mcp__cms__apply_cms_binding`。',
+          '- 不要向 workspace `mcp.json` 写入 CMS server 配置，也不要要求用户手动新增 CMS MCP。',
+          '- CMS 读取、decision 和 apply 必须通过这些运行时工具完成；不要伪造栏目、内容、handoffId、decisionId 或成功结果。',
+        ]
+      : [
+          '当前不能执行 CMS 读取或 CMS binding apply；CMS runtime SDK tools 未挂载或宿主 CMS 配置不可用。',
+          '- 不要伪造栏目、内容、handoffId、decisionId 或宣称 CMS 绑定成功。',
+          '- 不要向 workspace `mcp.json` 写入 CMS server 配置，也不要把 CMS 数据改写成普通静态 HTML 作为成功兜底。',
+          '- 停止 CMS 调用链，并要求宿主侧恢复 CMS runtime 后再继续。',
+        ]
+    sections.push(`<page_builder_cms_runtime_mcp_instructions>
+${cmsRuntimeLines.join('\n')}
+</page_builder_cms_runtime_mcp_instructions>`)
   }
 
   if (ctx.pageBuilderBrowserPreviewUrl) {

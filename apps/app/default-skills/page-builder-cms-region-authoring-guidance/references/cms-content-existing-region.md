@@ -20,7 +20,7 @@ Do not guess aliases such as `item.url` or `item.link`.
 In ordinary flow, keep the current binding query props unchanged and rewrite only the slot content or compatible shell.
 
 ```html
-<cms-content site-id="14" catalog-id="news" page-size="4">
+<cms-content site-id="14" catalog-id="16" page-size="4">
   <template v-slot:default="{ items }">
     <article v-for="item in items" :key="item.id" class="news-card">
       <img v-if="item.listLogoUrl" :src="item.listLogoUrl" :alt="item.title" />

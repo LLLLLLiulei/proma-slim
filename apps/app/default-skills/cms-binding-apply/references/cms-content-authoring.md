@@ -30,6 +30,7 @@ Source modes:
   - use when the CMS browser confirmed a fixed ordered content set
 
 Only set `page-size` when the user explicitly requested a count or the current target already depends on that count.
+CMS source ids must come from the confirmed CMS selection. Use positive integer strings such as `"16"`, `"257"`, not semantic aliases such as `news` or `n-101`.
 
 ## Slot scope
 
@@ -52,7 +53,7 @@ For date metadata, render `item.addedAt` directly, use a guarded member expressi
 Use this when the target block intent is `content-list`.
 
 ```html
-<cms-content site-id="14" catalog-id="news">
+<cms-content site-id="14" catalog-id="16">
   <template v-slot:default="{ items }">
     <section class="news-list">
       <article v-for="item in items" :key="item.id" class="news-card">
@@ -71,7 +72,7 @@ Use this when the target block intent is `content-list`.
 Use this when the current shell is a single highlighted card and the selection still maps to `cms-content`.
 
 ```html
-<cms-content site-id="14" catalog-id="news" ids="n-101">
+<cms-content site-id="14" catalog-id="16" ids="257">
   <template v-slot:default="{ items }">
     <a class="hero-card" :href="items[0]?.publishUrl || '#'" target="_blank" rel="noopener noreferrer">
       <img v-if="items[0]?.listLogoUrl" class="hero-card__image" :src="items[0]?.listLogoUrl" :alt="items[0]?.title || ''">

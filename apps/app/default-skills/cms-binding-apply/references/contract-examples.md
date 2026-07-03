@@ -6,6 +6,7 @@ Do not treat this file as the full authoring handbook. The canonical CMS authori
 
 Real auto-handoff payloads also include `authoringContext` and `targetSnapshot`. These examples stay minimal on purpose; do not treat them as the complete Phase 1A input shape.
 In the current runtime chain, a `ready` result is not enough to write by itself: it must be passed to `mcp__cms__decide_cms_binding`, which returns `decisionId` before `mcp__cms__apply_cms_binding` can run.
+CMS source ids must come from the confirmed CMS selection. Use positive integer strings such as `"16"`, `"257"`, not semantic aliases such as `news`, `root`, or `news-root`.
 
 ## Routing
 
@@ -46,7 +47,7 @@ In the current runtime chain, a `ready` result is not enough to write by itself:
     "selectionKind": "catalogs",
     "sourceType": "catalogs-by-ids",
     "selectionMode": "fixed-items",
-    "catalogIds": ["news", "products", "about"]
+    "catalogIds": ["16", "17", "18"]
   },
   "authoringRevision": "rev-1"
 }
@@ -68,7 +69,29 @@ For fixed content ids: Do not write `source.ids` as `{"item":[...]}`; use a flat
   "toolKind": "catalog-nav",
   "source": {
     "siteId": "14",
-    "ids": ["news", "products", "about"]
+    "ids": ["16", "17", "18"]
+  }
+}
+```
+
+## Catalog-list decision example
+
+Catalog list is a catalog presentation target, but Phase 1A still uses the catalog-nav tool chain. Do not invent `mappingKind: "catalog-list"` or `toolKind: "catalog-list"`.
+
+```json
+{
+  "status": "ready",
+  "targetBlockKind": "catalog-list",
+  "supportedRenderModes": ["replace-current"],
+  "renderMode": "replace-current",
+  "applyStrategy": "replace-current",
+  "mappingKind": "catalog-nav",
+  "toolKind": "catalog-nav",
+  "source": {
+    "siteId": "14",
+    "level": "children",
+    "parentId": "7",
+    "take": 6
   }
 }
 ```
@@ -105,8 +128,8 @@ For fixed content ids: Do not write `source.ids` as `{"item":[...]}`; use a flat
     "selectionKind": "contents",
     "sourceType": "contents-by-ids",
     "selectionMode": "fixed-items",
-    "catalogId": "news",
-    "contentIds": ["n-101", "n-102", "n-103"]
+    "catalogId": "16",
+    "contentIds": ["257", "254", "251"]
   },
   "authoringRevision": "rev-2"
 }
@@ -125,8 +148,8 @@ For fixed content ids: Do not write `source.ids` as `{"item":[...]}`; use a flat
   "toolKind": "content-list",
   "source": {
     "siteId": "14",
-    "catalogId": "news",
-    "ids": ["n-101", "n-102", "n-103"]
+    "catalogId": "16",
+    "ids": ["257", "254", "251"]
   }
 }
 ```
@@ -147,7 +170,7 @@ If the current block shell can still be driven by the available CMS fields and s
   "toolKind": "content-list",
   "source": {
     "siteId": "14",
-    "catalogId": "news"
+    "catalogId": "16"
   }
 }
 ```

@@ -180,6 +180,14 @@ export function validateCmsRendering(
       }))
     }
 
+    validateCmsSourcePropValues(
+      island,
+      component,
+      htmlPath,
+      islandIndex,
+      diagnostics,
+    )
+
     const runtimeOnlyAttrs = collectRuntimeOnlyAttributes(island)
     if (runtimeOnlyAttrs.length > 0) {
       diagnostics.push(createDiagnostic({
@@ -1143,6 +1151,155 @@ function hasConflictingContentIdsProps(island: Element): boolean {
 
 function hasNonEmptyAttribute(element: Element, attributeName: string): boolean {
   return Boolean(element.getAttribute(attributeName)?.trim())
+}
+
+function validateCmsSourcePropValues(
+  island: Element,
+  component: CmsIslandComponentName,
+  htmlPath: string,
+  islandIndex: number | undefined,
+  diagnostics: CmsRenderingDiagnostic[],
+): void {
+  validatePositiveIntegerAttribute(
+    island,
+    component,
+    'site-id',
+    htmlPath,
+    islandIndex,
+    diagnostics,
+  )
+
+  if (component === 'cms-catalog') {
+    validateCatalogLevelAttribute(island, component, htmlPath, islandIndex, diagnostics)
+    validateCatalogParentLevelConsistency(island, component, htmlPath, islandIndex, diagnostics)
+    validatePositiveIntegerAttribute(island, component, 'parent-id', htmlPath, islandIndex, diagnostics)
+    validatePositiveIntegerListAttribute(island, component, 'ids', htmlPath, islandIndex, diagnostics)
+    validatePositiveIntegerAttribute(island, component, 'take', htmlPath, islandIndex, diagnostics)
+    return
+  }
+
+  validatePositiveIntegerAttribute(island, component, 'catalog-id', htmlPath, islandIndex, diagnostics)
+  validatePositiveIntegerListAttribute(island, component, 'ids', htmlPath, islandIndex, diagnostics)
+  validatePositiveIntegerAttribute(island, component, 'page-size', htmlPath, islandIndex, diagnostics)
+}
+
+function validateCatalogLevelAttribute(
+  island: Element,
+  component: CmsIslandComponentName,
+  htmlPath: string,
+  islandIndex: number | undefined,
+  diagnostics: CmsRenderingDiagnostic[],
+): void {
+  if (!island.hasAttribute('level')) {
+    return
+  }
+
+  const value = island.getAttribute('level')?.trim() ?? ''
+  if (value === 'root' || value === 'children') {
+    return
+  }
+
+  diagnostics.push(createDiagnostic({
+    severity: 'error',
+    code: 'INVALID_SOURCE_PROP',
+    message: 'cms-catalog level must be "root" or "children".',
+    element: island,
+    component,
+    htmlPath,
+    islandIndex,
+  }))
+}
+
+function validateCatalogParentLevelConsistency(
+  island: Element,
+  component: CmsIslandComponentName,
+  htmlPath: string,
+  islandIndex: number | undefined,
+  diagnostics: CmsRenderingDiagnostic[],
+): void {
+  const level = island.getAttribute('level')?.trim()
+  const parentId = island.getAttribute('parent-id')?.trim()
+
+  if (parentId && level !== 'children') {
+    diagnostics.push(createDiagnostic({
+      severity: 'error',
+      code: 'INVALID_SOURCE_PROP',
+      message: 'cms-catalog parent-id requires level="children".',
+      element: island,
+      component,
+      htmlPath,
+      islandIndex,
+    }))
+  }
+
+  if (level === 'children' && !parentId) {
+    diagnostics.push(createDiagnostic({
+      severity: 'error',
+      code: 'INVALID_SOURCE_PROP',
+      message: 'cms-catalog level="children" requires parent-id.',
+      element: island,
+      component,
+      htmlPath,
+      islandIndex,
+    }))
+  }
+}
+
+function validatePositiveIntegerAttribute(
+  island: Element,
+  component: CmsIslandComponentName,
+  attributeName: string,
+  htmlPath: string,
+  islandIndex: number | undefined,
+  diagnostics: CmsRenderingDiagnostic[],
+): void {
+  if (!island.hasAttribute(attributeName)) {
+    return
+  }
+
+  const value = island.getAttribute(attributeName)?.trim() ?? ''
+  if (/^[1-9]\d*$/.test(value)) {
+    return
+  }
+
+  diagnostics.push(createDiagnostic({
+    severity: 'error',
+    code: 'INVALID_SOURCE_PROP',
+    message: `${component} ${attributeName} must be a positive integer.`,
+    element: island,
+    component,
+    htmlPath,
+    islandIndex,
+  }))
+}
+
+function validatePositiveIntegerListAttribute(
+  island: Element,
+  component: CmsIslandComponentName,
+  attributeName: string,
+  htmlPath: string,
+  islandIndex: number | undefined,
+  diagnostics: CmsRenderingDiagnostic[],
+): void {
+  if (!island.hasAttribute(attributeName)) {
+    return
+  }
+
+  const value = island.getAttribute(attributeName)?.trim() ?? ''
+  const ids = value.split(',').map((entry) => entry.trim()).filter(Boolean)
+  if (ids.length > 0 && ids.every((id) => /^[1-9]\d*$/.test(id))) {
+    return
+  }
+
+  diagnostics.push(createDiagnostic({
+    severity: 'error',
+    code: 'INVALID_SOURCE_PROP',
+    message: `${component} ${attributeName} must contain positive integer CMS ids.`,
+    element: island,
+    component,
+    htmlPath,
+    islandIndex,
+  }))
 }
 
 function maybeReportOutsideSlotMajorContainerWarning(

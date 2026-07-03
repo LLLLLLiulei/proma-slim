@@ -116,7 +116,7 @@ describe('page-builder cms rendering apply tool', () => {
       kind: 'content-list',
       source: {
         siteId: '14',
-        catalogId: 'news',
+        catalogId: '16',
         pageSize: 6,
       },
       templateBody: '<section class="news-list"><article v-for="item in items" :key="item.id">{{ item.title }}</article></section>',
@@ -129,13 +129,13 @@ describe('page-builder cms rendering apply tool', () => {
     expect(result.generatedHtml).toContain('PROMA CMS REGION')
     expect(result.generatedHtml).toContain('<!-- PROMA CMS REGION: 该 cms-content 是宿主管理的 CMS binding source tag；不要为这个区域再次引入整页 Vue runtime；不要添加 Vue CDN、importmap、createApp、Vue.createApp 或 app.mount(...)；Vue 模板语法只允许出现在这个 CMS 标签内部的 slot templates 中；如需更换 CMS 数据来源或 binding props，请重新走已确认的 CMS apply 流程，不要直接手写改绑。 -->')
     expect(result.generatedHtml).toContain('<!-- PROMA CMS SLOT AUTHORING: 宿主管理该 CMS 标签运行时；不要在这里补整页 Vue runtime；只在下方 slot templates 中编写 Vue 模板和字段渲染。 -->')
-    expect(result.generatedHtml).toContain('site-id="14" catalog-id="news" page-size="6"')
+    expect(result.generatedHtml).toContain('site-id="14" catalog-id="16" page-size="6"')
     expect(result.generatedHtml).toContain('<section class="news-list">')
     expect(html).toContain('data-proma-block-id="pb_blk_generated"')
     expect(html).not.toContain('data-proma-cms-source-id=')
     expect(html).toContain('<!-- PROMA CMS REGION: 该 cms-content 是宿主管理的 CMS binding source tag；不要为这个区域再次引入整页 Vue runtime；不要添加 Vue CDN、importmap、createApp、Vue.createApp 或 app.mount(...)；Vue 模板语法只允许出现在这个 CMS 标签内部的 slot templates 中；如需更换 CMS 数据来源或 binding props，请重新走已确认的 CMS apply 流程，不要直接手写改绑。 -->')
     expect(html).toContain('<!-- PROMA CMS SLOT AUTHORING: 宿主管理该 CMS 标签运行时；不要在这里补整页 Vue runtime；只在下方 slot templates 中编写 Vue 模板和字段渲染。 -->')
-    expect(html).toContain('site-id="14" catalog-id="news" page-size="6"')
+    expect(html).toContain('site-id="14" catalog-id="16" page-size="6"')
   })
 
   test('applies catalog-nav parent-source bindings with children-level props only', () => {
@@ -194,19 +194,19 @@ describe('page-builder cms rendering apply tool', () => {
       kind: 'catalog-nav',
       source: {
         siteId: '14',
-        ids: ['cat-b', 'cat-a'],
+        ids: ['17', '16'],
       } as never,
       templateBody: '<section class="catalog-grid"><article v-for="item in items" :key="item.id">{{ item.name }}</article></section>',
     })
 
     expect(result.generatedHtml).toContain('<cms-catalog ')
     expect(result.generatedHtml).not.toContain('data-proma-cms-source-id=')
-    expect(result.generatedHtml).toContain('site-id="14" ids="cat-b,cat-a"')
+    expect(result.generatedHtml).toContain('site-id="14" ids="17,16"')
     expect(result.generatedHtml).not.toContain('level=')
     expect(result.generatedHtml).not.toContain('parent-id=')
     expect(result.manifest.entry?.props).toEqual(expect.objectContaining({
       siteId: '14',
-      ids: ['cat-b', 'cat-a'],
+      ids: ['17', '16'],
     }))
   })
 
@@ -232,7 +232,7 @@ describe('page-builder cms rendering apply tool', () => {
         '<!doctype html><html><body>',
         '<section id="latest-news" data-proma-block-id="pb_blk_news">',
         '<h2>最新动态</h2>',
-        '<cms-content data-proma-cms-source-id="cms-src-news" site-id="14" catalog-id="news"><template v-slot:default="{ items }"><article v-for="item in items" :key="item.id">{{ item.title }}</article></template></cms-content>',
+        '<cms-content data-proma-cms-source-id="cms-src-news" site-id="14" catalog-id="16"><template v-slot:default="{ items }"><article v-for="item in items" :key="item.id">{{ item.title }}</article></template></cms-content>',
         '<p class="static-note">静态尾注</p>',
         '</section>',
         '</body></html>',
@@ -259,7 +259,7 @@ describe('page-builder cms rendering apply tool', () => {
       kind: 'content-list',
       source: {
         siteId: '14',
-        catalogId: 'events',
+        catalogId: '23',
         pageSize: 4,
       },
       templateBody: '<article v-for="item in items" :key="item.id">{{ item.title }}</article>',
@@ -280,8 +280,8 @@ describe('page-builder cms rendering apply tool', () => {
     expect(html).toContain('<h2>最新动态</h2>')
     expect(html).toContain('<p class="static-note">静态尾注</p>')
     expect(html).not.toContain('data-proma-cms-source-id=')
-    expect(html).toContain('site-id="14" catalog-id="events" page-size="4"')
-    expect(html).not.toContain('catalog-id="news"><template v-slot:default="{ items }"><article v-for="item in items" :key="item.id">{{ item.title }}</article></template></cms-content>')
+    expect(html).toContain('site-id="14" catalog-id="23" page-size="4"')
+    expect(html).not.toContain('catalog-id="16"><template v-slot:default="{ items }"><article v-for="item in items" :key="item.id">{{ item.title }}</article></template></cms-content>')
   })
 
   test('does not persist host-managed cms source ids when binding cms content into a static block', () => {
@@ -307,7 +307,7 @@ describe('page-builder cms rendering apply tool', () => {
       kind: 'content-list',
       source: {
         siteId: '14',
-        catalogId: 'events',
+        catalogId: '23',
       },
       templateBody: '<article v-for="item in items" :key="item.id">{{ item.title }}</article>',
     })
@@ -320,7 +320,7 @@ describe('page-builder cms rendering apply tool', () => {
       component: 'cms-content',
       props: expect.objectContaining({
         siteId: '14',
-        catalogId: 'events',
+        catalogId: '23',
       }),
     })
     expect(html).not.toContain('data-proma-cms-source-id=')
@@ -336,12 +336,12 @@ describe('page-builder cms rendering apply tool', () => {
       entryPath,
       [
         '<!doctype html><html><body><main>',
-        '<section><cms-content site-id="14" catalog-id="nested"><template v-slot:default="{ items }"><article v-for="item in items" :key="item.id">{{ item.title }}</article></template></cms-content></section>',
-        '<cms-content site-id="14" catalog-id="a"><template v-slot:default="{ items }"><article v-for="item in items" :key="item.id">{{ item.title }}</article></template></cms-content>',
-        '<cms-content site-id="14" catalog-id="b"><template v-slot:default="{ items }"><article v-for="item in items" :key="item.id">{{ item.title }}</article></template></cms-content>',
-        '<cms-content site-id="14" catalog-id="c"><template v-slot:default="{ items }"><article v-for="item in items" :key="item.id">{{ item.title }}</article></template></cms-content>',
-        '<cms-content site-id="14" catalog-id="d"><template v-slot:default="{ items }"><article v-for="item in items" :key="item.id">{{ item.title }}</article></template></cms-content>',
-        '<cms-content site-id="14" catalog-id="e"><template v-slot:default="{ items }"><article v-for="item in items" :key="item.id">{{ item.title }}</article></template></cms-content>',
+        '<section><cms-content site-id="14" catalog-id="31"><template v-slot:default="{ items }"><article v-for="item in items" :key="item.id">{{ item.title }}</article></template></cms-content></section>',
+        '<cms-content site-id="14" catalog-id="32"><template v-slot:default="{ items }"><article v-for="item in items" :key="item.id">{{ item.title }}</article></template></cms-content>',
+        '<cms-content site-id="14" catalog-id="33"><template v-slot:default="{ items }"><article v-for="item in items" :key="item.id">{{ item.title }}</article></template></cms-content>',
+        '<cms-content site-id="14" catalog-id="34"><template v-slot:default="{ items }"><article v-for="item in items" :key="item.id">{{ item.title }}</article></template></cms-content>',
+        '<cms-content site-id="14" catalog-id="35"><template v-slot:default="{ items }"><article v-for="item in items" :key="item.id">{{ item.title }}</article></template></cms-content>',
+        '<cms-content site-id="14" catalog-id="36"><template v-slot:default="{ items }"><article v-for="item in items" :key="item.id">{{ item.title }}</article></template></cms-content>',
         '</main></body></html>',
       ].join(''),
       'utf-8',
@@ -366,17 +366,17 @@ describe('page-builder cms rendering apply tool', () => {
       kind: 'content-list',
       source: {
         siteId: '14',
-        catalogId: 'events',
+        catalogId: '23',
         pageSize: 4,
       },
       templateBody: '<article v-for="item in items" :key="item.id">{{ item.title }}</article>',
     })
 
     const html = readFileSync(entryPath, 'utf-8')
-    expect(html).toContain('catalog-id="c"><template v-slot:default="{ items }"><article v-for="item in items" :key="item.id">{{ item.title }}</article></template></cms-content>')
-    expect(html).not.toContain('catalog-id="d"><template v-slot:default="{ items }"><article v-for="item in items" :key="item.id">{{ item.title }}</article></template></cms-content>')
+    expect(html).toContain('catalog-id="34"><template v-slot:default="{ items }"><article v-for="item in items" :key="item.id">{{ item.title }}</article></template></cms-content>')
+    expect(html).not.toContain('catalog-id="35"><template v-slot:default="{ items }"><article v-for="item in items" :key="item.id">{{ item.title }}</article></template></cms-content>')
     expect(html).not.toContain('data-proma-cms-source-id=')
-    expect(html).toContain('site-id="14" catalog-id="events" page-size="4"')
+    expect(html).toContain('site-id="14" catalog-id="23" page-size="4"')
   })
 
   test('accepts stringified cms-island targetSelection payloads from the SDK tool layer', () => {
@@ -387,7 +387,7 @@ describe('page-builder cms rendering apply tool', () => {
     mkdirSync(workspaceFilesDir, { recursive: true })
     writeFileSync(
       entryPath,
-      '<!doctype html><html><body><section id="latest-news" data-proma-block-id="pb_blk_news"><cms-content catalog-id="news"></cms-content></section></body></html>',
+      '<!doctype html><html><body><section id="latest-news" data-proma-block-id="pb_blk_news"><cms-content catalog-id="16"></cms-content></section></body></html>',
       'utf-8',
     )
 
@@ -410,7 +410,7 @@ describe('page-builder cms rendering apply tool', () => {
       kind: 'content-list',
       source: {
         siteId: '14',
-        catalogId: 'events',
+        catalogId: '23',
         pageSize: 4,
       },
       templateBody: '<article v-for="item in items" :key="item.id">{{ item.title }}</article>',
@@ -419,8 +419,8 @@ describe('page-builder cms rendering apply tool', () => {
     const html = readFileSync(entryPath, 'utf-8')
     expect(result.blockId).toBe('pb_blk_news')
     expect(html).not.toContain('data-proma-cms-source-id=')
-    expect(html).toContain('site-id="14" catalog-id="events" page-size="4"')
-    expect(html).not.toContain('<cms-content catalog-id="news"></cms-content>')
+    expect(html).toContain('site-id="14" catalog-id="23" page-size="4"')
+    expect(html).not.toContain('<cms-content catalog-id="16"></cms-content>')
   })
 
   test('upgrades an omitted targetSelection to source-atomic replacement when targetBlock selector already points at a cms island', () => {
@@ -434,7 +434,7 @@ describe('page-builder cms rendering apply tool', () => {
       [
         '<!doctype html><html><body>',
         '<section id="latest-news" data-proma-block-id="pb_blk_news">',
-        '<cms-content catalog-id="news">',
+        '<cms-content catalog-id="16">',
         '  <template v-slot:default="{ items }"><article v-for="item in items" :key="item.id">{{ item.title }}</article></template>',
         '</cms-content>',
         '<p class="static-note">静态尾注</p>',
@@ -455,7 +455,7 @@ describe('page-builder cms rendering apply tool', () => {
       kind: 'content-list',
       source: {
         siteId: '14',
-        catalogId: 'events',
+        catalogId: '23',
         pageSize: 4,
       },
       templateBody: '<article v-for="item in items" :key="item.id">{{ item.title }}</article>',
@@ -476,15 +476,15 @@ describe('page-builder cms rendering apply tool', () => {
       component: 'cms-content',
       props: expect.objectContaining({
         siteId: '14',
-        catalogId: 'events',
+        catalogId: '23',
         pageSize: '4',
       }),
     })
     expect(html).toContain('<p class="static-note">静态尾注</p>')
     expect(html).not.toContain('data-proma-cms-source-id=')
-    expect(html).toContain('site-id="14" catalog-id="events" page-size="4"')
-    expect(html).not.toContain('<cms-content catalog-id="news">')
-    expect(html).not.toContain('<cms-content catalog-id="news"><cms-content')
+    expect(html).toContain('site-id="14" catalog-id="23" page-size="4"')
+    expect(html).not.toContain('<cms-content catalog-id="16">')
+    expect(html).not.toContain('<cms-content catalog-id="16"><cms-content')
   })
 
   test('returns the manifest entry for the replaced cms island instead of the first island in the same block', () => {
@@ -498,10 +498,10 @@ describe('page-builder cms rendering apply tool', () => {
       [
         '<!doctype html><html><body>',
         '<section id="news-block" data-proma-block-id="pb_blk_news">',
-        '<cms-catalog site-id="1" ids="nav-a">',
+        '<cms-catalog site-id="1" ids="17">',
         '  <template v-slot:default="{ items }"><nav>{{ items.length }}</nav></template>',
         '</cms-catalog>',
-        '<cms-content catalog-id="legacy-news">',
+        '<cms-content catalog-id="16">',
         '  <template v-slot:default="{ items }"><div>{{ items.length }}</div></template>',
         '</cms-content>',
         '</section>',
@@ -529,7 +529,7 @@ describe('page-builder cms rendering apply tool', () => {
       kind: 'content-list',
       source: {
         siteId: '14',
-        catalogId: 'events',
+        catalogId: '23',
       },
       templateBody: '<article v-for="item in items" :key="item.id">{{ item.title }}</article>',
     })
@@ -540,7 +540,7 @@ describe('page-builder cms rendering apply tool', () => {
       component: 'cms-content',
       props: expect.objectContaining({
         siteId: '14',
-        catalogId: 'events',
+        catalogId: '23',
       }),
     })
     expect(result.manifest.entry?.component).not.toBe('cms-catalog')
@@ -581,8 +581,8 @@ describe('page-builder cms rendering apply tool', () => {
       join(workspaceFilesDir, 'index.html'),
       [
         '<!doctype html><html><body>',
-        '<section id="news-a" data-proma-block-id="pb_blk_a"><cms-content class="dup" catalog-id="a"></cms-content></section>',
-        '<section id="news-b" data-proma-block-id="pb_blk_b"><cms-content class="dup" catalog-id="b"></cms-content></section>',
+        '<section id="news-a" data-proma-block-id="pb_blk_a"><cms-content class="dup" catalog-id="32"></cms-content></section>',
+        '<section id="news-b" data-proma-block-id="pb_blk_b"><cms-content class="dup" catalog-id="33"></cms-content></section>',
         '</body></html>',
       ].join(''),
       'utf-8',
@@ -606,7 +606,7 @@ describe('page-builder cms rendering apply tool', () => {
         kind: 'content-list',
         source: {
           siteId: '14',
-          catalogId: 'news',
+          catalogId: '16',
         },
         templateBody: '<article></article>',
       })
@@ -628,8 +628,8 @@ describe('page-builder cms rendering apply tool', () => {
       join(workspaceFilesDir, 'index.html'),
       [
         '<!doctype html><html><body>',
-        '<section id="news-a" data-proma-block-id="pb_blk_a"><cms-content data-proma-cms-source-id="cms-src-a" catalog-id="a"></cms-content></section>',
-        '<section id="news-b" data-proma-block-id="pb_blk_b"><cms-content data-proma-cms-source-id="cms-src-b" catalog-id="b"></cms-content></section>',
+        '<section id="news-a" data-proma-block-id="pb_blk_a"><cms-content data-proma-cms-source-id="cms-src-a" catalog-id="32"></cms-content></section>',
+        '<section id="news-b" data-proma-block-id="pb_blk_b"><cms-content data-proma-cms-source-id="cms-src-b" catalog-id="33"></cms-content></section>',
         '</body></html>',
       ].join(''),
       'utf-8',
@@ -652,7 +652,7 @@ describe('page-builder cms rendering apply tool', () => {
       kind: 'content-list',
       source: {
         siteId: '14',
-        catalogId: 'news',
+        catalogId: '16',
       },
       templateBody: '<article></article>',
     })).toThrow('目标 CMS 组件不属于当前区块')
@@ -679,16 +679,16 @@ describe('page-builder cms rendering apply tool', () => {
       kind: 'content-list',
       source: {
         siteId: '14',
-        catalogId: 'news',
-        ids: ['n-2', 'n-1'],
+        catalogId: '16',
+        ids: ['258', '257'],
       } as never,
       templateBody: '<article></article>',
     })
 
     expect(result.generatedHtml).toContain('<cms-content ')
     expect(result.generatedHtml).not.toContain('data-proma-cms-source-id=')
-    expect(result.generatedHtml).toContain('site-id="14" catalog-id="news" ids="n-2,n-1"')
-    expect(readFileSync(entryPath, 'utf-8')).toContain('site-id="14" catalog-id="news" ids="n-2,n-1"')
+    expect(result.generatedHtml).toContain('site-id="14" catalog-id="16" ids="258,257"')
+    expect(readFileSync(entryPath, 'utf-8')).toContain('site-id="14" catalog-id="16" ids="258,257"')
   })
 
   test('rejects fixed ids mixed with paging or keyword query props for cms bindings', () => {
@@ -712,8 +712,8 @@ describe('page-builder cms rendering apply tool', () => {
       kind: 'content-list',
       source: {
         siteId: '14',
-        catalogId: 'news',
-        ids: ['n-1'],
+        catalogId: '16',
+        ids: ['257'],
         pageSize: 3,
       } as never,
       templateBody: '<article></article>',
@@ -727,7 +727,7 @@ describe('page-builder cms rendering apply tool', () => {
       source: {
         siteId: '14',
         parentId: '7',
-        ids: ['cat-1'],
+        ids: ['17'],
       } as never,
       templateBody: '<nav></nav>',
     })).toThrow(PageBuilderCmsBindingApplyError)
@@ -765,6 +765,36 @@ describe('page-builder cms rendering apply tool', () => {
     })).toThrow('catalog-nav 不支持 source.pageSize；如需限制栏目数量请使用 source.take')
 
     expect(readFileSync(entryPath, 'utf-8')).not.toContain('<cms-catalog')
+  })
+
+  test('rejects catalog-nav take values that runtime would ignore', () => {
+    const workspace = createAgentWorkspace('CMS Apply Invalid Take', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+    const entryPath = join(workspaceFilesDir, 'index.html')
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(
+      entryPath,
+      '<!doctype html><html><body><section id="nav" data-proma-block-id="pb_blk_nav"></section></body></html>',
+      'utf-8',
+    )
+
+    const tools = createPageBuilderCmsRenderingTools()
+
+    expect(() => tools.applyCmsBinding(workspace, {
+      targetBlock: {
+        selector: '#nav',
+      },
+      kind: 'catalog-nav',
+      source: {
+        siteId: '14',
+        level: 'root',
+        take: 0,
+      },
+      templateBody: '<nav><a v-for="item in items" :key="item.id">{{ item.name }}</a></nav>',
+    })).toThrow('source.take 必须是大于等于 1 的整数')
+
+    expect(readFileSync(entryPath, 'utf-8')).not.toContain('take="0"')
   })
 
   test('rejects template fields that already contain nested cms islands', () => {
@@ -808,6 +838,36 @@ describe('page-builder cms rendering apply tool', () => {
     expect(readFileSync(join(workspaceFilesDir, 'index.html'), 'utf-8')).not.toContain('<cms-catalog level="children" parent-id="7">\n<cms-catalog')
   })
 
+  test('reports outer cms tags in optional template fields with the affected field name', () => {
+    const workspace = createAgentWorkspace('CMS Apply Optional Outer Tag', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+    const entryPath = join(workspaceFilesDir, 'index.html')
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(
+      entryPath,
+      '<!doctype html><html><body><section id="latest-news" data-proma-block-id="pb_blk_news"></section></body></html>',
+      'utf-8',
+    )
+
+    const tools = createPageBuilderCmsRenderingTools()
+
+    expect(() => tools.applyCmsBinding(workspace, {
+      targetBlock: {
+        selector: '#latest-news',
+      },
+      kind: 'content-list',
+      source: {
+        siteId: '14',
+        catalogId: '16',
+      },
+      templateBody: '<section><article v-for="item in items" :key="item.id">{{ item.title }}</article></section>',
+      emptyTemplate: '<cms-content site-id="14" catalog-id="16"></cms-content>',
+    })).toThrow('emptyTemplate 不能包含 cms-catalog 或 cms-content')
+
+    expect(readFileSync(entryPath, 'utf-8')).not.toContain('<cms-content')
+  })
+
   test('rejects duplicate list roots only when preserved shell already owns the same list container', () => {
     const workspace = createAgentWorkspace('CMS Apply Preserved List Shell', { template: 'page-builder' })
     const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
@@ -835,7 +895,7 @@ describe('page-builder cms rendering apply tool', () => {
       kind: 'catalog-nav',
       source: {
         siteId: '14',
-        ids: ['nav-a', 'nav-b'],
+        ids: ['17', '18'],
       },
       structureGuardrails: {
         shellMode: 'preserve-target-shell',
@@ -877,8 +937,8 @@ describe('page-builder cms rendering apply tool', () => {
       kind: 'content-list',
       source: {
         siteId: '14',
-        catalogId: 'news',
-        ids: ['n-1', 'n-2'],
+        catalogId: '16',
+        ids: ['257', '258'],
       },
       templateBody: '<ul class="row row-cols-md-4"><li v-for="item in items" :key="item.id">{{ item.title }}</li></ul>',
       emptyTemplate: '<ul class="row row-cols-md-4"><li>暂无内容</li></ul>',
@@ -900,7 +960,7 @@ describe('page-builder cms rendering apply tool', () => {
       [
         '<!doctype html><html><body>',
         '<section id="nav-block" data-proma-block-id="pb_blk_nav">',
-        '<cms-catalog site-id="14" ids="old"><template v-slot:default="{ items }"><nav>{{ items.length }}</nav></template></cms-catalog>',
+        '<cms-catalog site-id="14" ids="16"><template v-slot:default="{ items }"><nav>{{ items.length }}</nav></template></cms-catalog>',
         '</section>',
         '</body></html>',
       ].join(''),
@@ -924,7 +984,7 @@ describe('page-builder cms rendering apply tool', () => {
       kind: 'catalog-nav',
       source: {
         siteId: '14',
-        ids: ['nav-a', 'nav-b'],
+        ids: ['17', '18'],
       },
       structureGuardrails: {
         shellMode: 'replace-existing-cms-island',
@@ -962,7 +1022,7 @@ describe('page-builder cms rendering apply tool', () => {
       kind: 'content-list',
       source: {
         siteId: '14',
-        catalogId: 'news',
+        catalogId: '16',
         pageSize: 3,
       },
       templateBody: [
@@ -1081,7 +1141,7 @@ describe('page-builder cms rendering apply tool', () => {
       kind: 'content-list',
       source: {
         siteId: '14',
-        catalogId: 'news',
+        catalogId: '16',
       },
       templateBody: '<section><article v-for="item in items" :key="item.id"><time>{{ getDateDay(item.addedAt) }}</time><h3>{{ item.title }}</h3></article></section>',
     })).toThrow('templateBody 使用了当前 CMS contract 未声明的 helper: getDateDay')
@@ -1112,7 +1172,7 @@ describe('page-builder cms rendering apply tool', () => {
       kind: 'content-list',
       source: {
         siteId: '14',
-        catalogId: 'news',
+        catalogId: '16',
       },
       templateBody: '<section><article v-for="item in items" :key="item.id"><a :href="item.url">{{ item.title }}</a></article></section>',
     })).toThrow('templateBody 引用了当前 CMS contract 不支持的字段')
@@ -1141,7 +1201,7 @@ describe('page-builder cms rendering apply tool', () => {
       kind: 'content-list',
       source: {
         siteId: '14',
-        catalogId: 'news',
+        catalogId: '16',
       },
       templateBody: '<section><article v-for="item in slotProps.items" :key="item.id">{{ item.title }}</article></section>',
     })).toThrow('templateBody 引用了当前 CMS contract 未声明的 slot 变量')
@@ -1170,10 +1230,40 @@ describe('page-builder cms rendering apply tool', () => {
       kind: 'content-list',
       source: {
         siteId: '14',
-        catalogId: 'news',
+        catalogId: '16',
       },
       templateBody: '<section><article v-for="item in items" :key="item.id" @click="item.publishUrl && window.location.href=item.publishUrl">{{ item.title }}</article></section>',
     })).toThrow('templateBody 包含不合法的 Vue 模板语法')
+
+    expect(readFileSync(entryPath, 'utf-8')).not.toContain('<cms-content')
+  })
+
+  test('reports invalid Vue syntax in optional templates with the affected field name', () => {
+    const workspace = createAgentWorkspace('CMS Apply Invalid Vue Error Template', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+    const entryPath = join(workspaceFilesDir, 'index.html')
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(
+      entryPath,
+      '<!doctype html><html><body><section id="latest-news" data-proma-block-id="pb_blk_news"></section></body></html>',
+      'utf-8',
+    )
+
+    const tools = createPageBuilderCmsRenderingTools()
+
+    expect(() => tools.applyCmsBinding(workspace, {
+      targetBlock: {
+        selector: '#latest-news',
+      },
+      kind: 'content-list',
+      source: {
+        siteId: '14',
+        catalogId: '16',
+      },
+      templateBody: '<section><article v-for="item in items" :key="item.id">{{ item.title }}</article></section>',
+      errorTemplate: '<p @click="error.message && window.location.href=error.message">内容加载失败</p>',
+    })).toThrow('errorTemplate 包含不合法的 Vue 模板语法')
 
     expect(readFileSync(entryPath, 'utf-8')).not.toContain('<cms-content')
   })
@@ -1199,7 +1289,7 @@ describe('page-builder cms rendering apply tool', () => {
       kind: 'content-list',
       source: {
         siteId: '14',
-        catalogId: 'news',
+        catalogId: '16',
       },
       templateBody: '<section><img v-if="items[0]?.listLogoUrl" :src="items[0].listLogoUrl" onerror="this.style.display=\'none\'"></section>',
     })).toThrow('templateBody 不能包含原生 HTML 事件属性')
@@ -1273,6 +1363,48 @@ describe('page-builder cms rendering apply tool', () => {
       templateBody: '<nav></nav>',
     })).toThrow('source.siteId 必须是大于等于 1 的整数')
 
+    expect(readFileSync(entryPath, 'utf-8')).not.toContain('<cms-catalog')
+  })
+
+  test('rejects semantic placeholder ids when generating new cms tags', () => {
+    const workspace = createAgentWorkspace('CMS Apply Semantic Ids', { template: 'page-builder' })
+    const workspaceFilesDir = join(homedir(), '.proma', 'agent-workspaces', workspace.slug, 'workspace-files')
+    const entryPath = join(workspaceFilesDir, 'index.html')
+
+    mkdirSync(workspaceFilesDir, { recursive: true })
+    writeFileSync(
+      entryPath,
+      '<!doctype html><html><body><section id="latest-news"></section><section id="main-nav"></section></body></html>',
+      'utf-8',
+    )
+
+    const tools = createPageBuilderCmsRenderingTools()
+
+    expect(() => tools.applyCmsBinding(workspace, {
+      targetBlock: {
+        selector: '#latest-news',
+      },
+      kind: 'content-list',
+      source: {
+        siteId: '14',
+        catalogId: 'news',
+      },
+      templateBody: '<section></section>',
+    })).toThrow('source.catalogId 必须是正整数 ID 字符串')
+
+    expect(() => tools.applyCmsBinding(workspace, {
+      targetBlock: {
+        selector: '#main-nav',
+      },
+      kind: 'catalog-nav',
+      source: {
+        siteId: '14',
+        parentId: 'news-root',
+      },
+      templateBody: '<nav></nav>',
+    })).toThrow('source.parentId 必须是正整数 ID 字符串')
+
+    expect(readFileSync(entryPath, 'utf-8')).not.toContain('<cms-content')
     expect(readFileSync(entryPath, 'utf-8')).not.toContain('<cms-catalog')
   })
 })

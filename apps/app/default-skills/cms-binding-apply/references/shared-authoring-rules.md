@@ -7,18 +7,33 @@ Use this file for the boundaries that apply to both `cms-catalog` and `cms-conte
 - Prefer slot inner content directly in `templateBody`, `emptyTemplate`, and `errorTemplate`.
 - A single outer `<template v-slot:...>` or `<template #...>` wrapper is tolerated and will be unwrapped automatically when it matches the receiving field.
 - Do not pass an outer `cms-*` tag inside those fields.
-- The generated CMS component exposes the unified slot scope `{ items, loading, error, empty }`; declare the slot scope explicitly as a subset of that shape.
+- The formal apply tool automatically generates the slot wrapper and declares the unified slot scope `{ items, loading, error, empty }`; write slot inner content that uses those fields.
 - Keep major HTML containers inside the slot when the current decision owns that region.
 - If the current decision preserves an existing outer shell, provide only compatible inner nodes, such as `li` items for an existing `ul` / `ol` shell.
+- CMS source ids must come from the confirmed CMS selection. Use positive integer strings such as `"16"`, `"257"`, not semantic aliases such as `news`, `root`, or `news-root`.
 - Keep Vue authoring inside the current `cms-*` source tag only.
 - Do not call undeclared project helpers. Slot expressions should use declared slot variables, supported item fields, guards, inline member expressions, and Vue-executable safe native globals such as `Date`, `Math`, and `JSON`; when a tool reports a helper/template error or your draft violates these expression boundaries, fix the template and retry.
 - Do not use host globals or imperative browser APIs inside CMS slots: `window`, `document`, `globalThis`, `eval`, `Function`, `fetch`, storage, timers, DOM queries/mutations, or page-wide side effects.
 - Do not nest a second `cms-catalog` / `cms-content` inside CMS slot content. One CMS source tag should own one dynamic region.
 
-Prefer:
+### Tool payload example
+
+Pass only slot inner content to `templateBody`, `emptyTemplate`, or `errorTemplate`:
 
 ```html
-<cms-content site-id="14" catalog-id="news">
+<section class="news-list">
+  <article v-for="item in items" :key="item.id">
+    <h3>{{ item.title }}</h3>
+  </article>
+</section>
+```
+
+### Generated authoring source example
+
+This is the full authoring source generated after the tool runs. Do not pass the generated authoring source example as `templateBody`, `emptyTemplate`, or `errorTemplate`.
+
+```html
+<cms-content site-id="14" catalog-id="16">
   <template v-slot:default="{ items, loading, error, empty }">
     <section class="news-list">
       <article v-for="item in items" :key="item.id">
@@ -57,7 +72,7 @@ If the selected block already has a strong visual structure, keep that shell and
 Treat this as a structural compatibility decision. A content-topic mismatch alone is not a structural incompatibility.
 
 ```html
-<cms-content site-id="14" catalog-id="news" ids="n-101">
+<cms-content site-id="14" catalog-id="16" ids="257">
   <template v-slot:default="{ items, loading, error, empty }">
     <a class="hero-card" :href="items[0]?.publishUrl || '#'" target="_blank" rel="noopener noreferrer">
       <img
@@ -80,7 +95,7 @@ If the current decision preserves an existing outer shell, keep that shell outsi
 
 ```html
 <ul class="nav-list">
-  <cms-catalog site-id="14" ids="news,products,about">
+  <cms-catalog site-id="14" ids="16,17,18">
     <template v-slot:default="{ items }">
       <li v-for="item in items" :key="item.id">
         <a :href="item.path" target="_blank" rel="noopener noreferrer">{{ item.name }}</a>
@@ -112,7 +127,7 @@ Avoid leaving the original selected block in place and inserting a second CMS-dr
 <div class="hero-card">
   <img src="/static/banner.jpg" alt="">
 </div>
-<cms-content site-id="14" catalog-id="news" ids="n-101">
+<cms-content site-id="14" catalog-id="16" ids="257">
   <template v-slot:default="{ items }">
     <section class="news-list">
       <article>{{ items[0]?.title }}</article>
@@ -126,10 +141,10 @@ Avoid leaving the original selected block in place and inserting a second CMS-dr
 Do not place a second `cms-catalog` / `cms-content` inside the slot content of the current CMS source tag.
 
 ```html
-<cms-content site-id="14" catalog-id="news">
+<cms-content site-id="14" catalog-id="16">
   <template v-slot:default="{ items }">
     <section class="news-list">
-      <cms-content site-id="14" catalog-id="events">
+      <cms-content site-id="14" catalog-id="23">
         <template v-slot:default="{ items: nestedItems }">
           <article v-for="item in nestedItems" :key="item.id">{{ item.title }}</article>
         </template>

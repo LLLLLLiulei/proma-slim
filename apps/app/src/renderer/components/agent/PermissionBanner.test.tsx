@@ -114,7 +114,7 @@ describe('PermissionBanner', () => {
     })
 
     const markup = JSON.stringify(renderer.toJSON())
-    expect(markup).toContain('CMS / 应用内容绑定')
+    expect(markup).toContain('CMS / 应用 CMS 绑定')
     expect(markup).not.toContain('mcp__cms__apply_cms_binding')
   })
 

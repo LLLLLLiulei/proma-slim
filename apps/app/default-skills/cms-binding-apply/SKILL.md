@@ -81,7 +81,7 @@ If `blockTypeHint` is missing, do not fail immediately. Use a conservative fallb
 2. Infer the block intent conservatively.
    Only three target block kinds are supported in Phase 1A: `nav`, `catalog-list`, and `content-list`.
 3. Match the selection to the supported mappings.
-   `catalogs-by-parent` / `catalogs-by-ids` may resolve to `nav` or `catalog-list`. `contents-by-catalog` / `contents-by-ids` resolve to `content-list`. If a catalog source lacks a stable `nav` vs `catalog-list` intent, return `needs-clarification` instead of guessing.
+   `catalogs-by-parent` / `catalogs-by-ids` may resolve to `nav` or `catalog-list`. `contents-by-catalog` / `contents-by-ids` resolve to `content-list`. If a catalog source lacks a stable `nav` vs `catalog-list` intent, return `needs-clarification` instead of guessing. `catalog-list` targets still use `mappingKind: "catalog-nav"` and `toolKind: "catalog-nav"` in Phase 1A; do not invent `mappingKind: "catalog-list"` or `toolKind: "catalog-list"`.
 4. Return one of three outcomes only.
    - `ready`: enough information, supported block kind, safe to continue
    - `needs-clarification`: one critical ambiguity remains and can be resolved with one short structured question
@@ -103,14 +103,16 @@ When the result is `ready`, continue in the same turn instead of stopping at an 
 - Call `mcp__cms__decide_cms_binding` in the same turn with the current `handoffId` and the structured `ready` decision.
 - Pass `decision` as a nested object. Do not JSON-stringify `decision`; if you currently have JSON text, parse it into an object before calling `mcp__cms__decide_cms_binding`.
 - `supportedRenderModes` is always `["replace-current"]`. Do not use `{"item":"replace-current"}` or other slot-keyed objects.
+- CMS source ids must come from the confirmed CMS selection. Use positive integer strings such as `"16"`, `"257"`, not semantic aliases such as `news`, `root`, or `news-root`.
 - For fixed content ids, `source.ids` is always a flat string array. Do not use `{"item":[...]}` or other slot-keyed objects.
 - Only when `mcp__cms__decide_cms_binding` returns `status = ready` plus a `decisionId`, call `mcp__cms__apply_cms_binding` in the same turn.
 - If `mcp__cms__decide_cms_binding` fails, stop, correct the payload, and retry the tool call. Do not edit `workspace-files/index.html`, and do not handwrite `cms-catalog` / `cms-content` as a fallback bypass.
 - Pass only `decisionId`, `templateBody`, `emptyTemplate`, and `errorTemplate` into `mcp__cms__apply_cms_binding`. Do not try to resend `targetSelection`, `siteId`, `source`, or other raw binding identity fields.
 - Keep these minimal `ready` shapes in mind when preparing the tool call:
-  `content-list`: `{"status":"ready","targetBlockKind":"content-list","supportedRenderModes":["replace-current"],"renderMode":"replace-current","applyStrategy":"replace-current","mappingKind":"catalog-content-list","toolKind":"content-list","source":{"siteId":"14","catalogId":"news"}}`
+  `content-list`: `{"status":"ready","targetBlockKind":"content-list","supportedRenderModes":["replace-current"],"renderMode":"replace-current","applyStrategy":"replace-current","mappingKind":"catalog-content-list","toolKind":"content-list","source":{"siteId":"14","catalogId":"16"}}`
   `content-list fixed ids`: `{"status":"ready","targetBlockKind":"content-list","supportedRenderModes":["replace-current"],"renderMode":"replace-current","applyStrategy":"replace-current","mappingKind":"catalog-content-list","toolKind":"content-list","source":{"siteId":"1","catalogId":"16","ids":["257","254","251"]}}`
-  `catalog-nav`: `{"status":"ready","targetBlockKind":"nav","supportedRenderModes":["replace-current"],"renderMode":"replace-current","applyStrategy":"replace-current","mappingKind":"catalog-nav","toolKind":"catalog-nav","source":{"siteId":"14","parentId":"root","take":6}}`
+  `catalog-nav`: `{"status":"ready","targetBlockKind":"nav","supportedRenderModes":["replace-current"],"renderMode":"replace-current","applyStrategy":"replace-current","mappingKind":"catalog-nav","toolKind":"catalog-nav","source":{"siteId":"14","level":"children","parentId":"7","take":6}}`
+  `catalog-list`: `{"status":"ready","targetBlockKind":"catalog-list","supportedRenderModes":["replace-current"],"renderMode":"replace-current","applyStrategy":"replace-current","mappingKind":"catalog-nav","toolKind":"catalog-nav","source":{"siteId":"14","level":"children","parentId":"7","take":6}}`
 - Do not reply that the skill is only a template, and do not edit workspace files directly.
 - Keep page-builder authoring HTML-first. `cms-catalog` / `cms-content` are host-managed source tags; this flow should author the selected source tag plus its slot templates, not a page-wide Vue app.
 - Inspect the current target block in the workspace source. Preserve the existing outer shell, classes, and major layout structure whenever they are still compatible with the selected CMS data.
@@ -128,7 +130,7 @@ When the result is `ready`, continue in the same turn instead of stopping at an 
 - Keep major HTML containers inside the slot only when the current decision owns that region.
 - If the current decision preserves an existing outer shell, pass only compatible inner nodes in `templateBody`, `emptyTemplate`, and `errorTemplate`, such as `li` items for an existing `ul` / `ol` shell.
 - Treat `templateBody`, `emptyTemplate`, and `errorTemplate` as the place for the dynamic structure owned by the CMS slot for each state.
-- The generated CMS component exposes the unified slot scope `{ items, loading, error, empty }`; declare the slot scope explicitly as a subset of that shape.
+- The formal apply tool automatically generates the slot wrapper and declares the unified slot scope `{ items, loading, error, empty }`; write slot inner content that uses those fields.
 - Keep Vue authoring inside the current `cms-*` source tag only. Do not add `v-*`, `@*`, `:` bindings, or `{{ ... }}` to surrounding non-CMS shell HTML.
 - Do not call undeclared project helpers in slot templates. Use contract fields, guards, inline member expressions, and Vue-executable safe native globals such as `Date`, `Math`, and `JSON` only; if the apply tool reports a template/helper error or your draft violates these expression boundaries, fix the template and retry.
 - Do not use host globals or imperative browser APIs in slot templates: `window`, `document`, `globalThis`, `eval`, `Function`, `fetch`, storage, timers, DOM queries/mutations, or page-wide side effects are not part of the CMS authoring surface.

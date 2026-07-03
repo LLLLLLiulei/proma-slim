@@ -60,11 +60,13 @@ const DECIDE_CMS_BINDING_TOOL_GUIDANCE =
     '调用顺序固定为：先 `mcp__cms__decide_cms_binding`，只有返回 `status=ready` 且拿到 `decisionId` 后，才能继续调用 `mcp__cms__apply_cms_binding`。',
     '`decision` 必须作为嵌套对象传入，不要发送 JSON 字符串；legacy string payload 只用于兼容恢复。',
     'supportedRenderModes 始终是 ["replace-current"]，不要使用 {"item":"replace-current"} 或其他 slot-keyed 对象。',
+    'CMS source ids 必须来自 confirmed CMS selection，使用正整数 ID 字符串；不要使用 news、root、news-root 这类语义别名。',
     'content-list 固定内容 ids 建议写成扁平字符串数组，例如 "ids":["257","254","251"]；数字 ID 会规范化为字符串；不要使用 {"item":[...]} 或其他 slot-keyed 对象。',
     '最小 ready 示例：',
-    'content-list => {"status":"ready","targetBlockKind":"content-list","supportedRenderModes":["replace-current"],"renderMode":"replace-current","applyStrategy":"replace-current","mappingKind":"catalog-content-list","toolKind":"content-list","source":{"siteId":"14","catalogId":"news"}}',
+    'content-list => {"status":"ready","targetBlockKind":"content-list","supportedRenderModes":["replace-current"],"renderMode":"replace-current","applyStrategy":"replace-current","mappingKind":"catalog-content-list","toolKind":"content-list","source":{"siteId":"14","catalogId":"16"}}',
     'content-list fixed ids => {"status":"ready","targetBlockKind":"content-list","supportedRenderModes":["replace-current"],"renderMode":"replace-current","applyStrategy":"replace-current","mappingKind":"catalog-content-list","toolKind":"content-list","source":{"siteId":"1","catalogId":"16","ids":["257","254","251"]}}',
-    'catalog-nav => {"status":"ready","targetBlockKind":"nav","supportedRenderModes":["replace-current"],"renderMode":"replace-current","applyStrategy":"replace-current","mappingKind":"catalog-nav","toolKind":"catalog-nav","source":{"siteId":"14","parentId":"root","take":6}}',
+    'catalog-nav => {"status":"ready","targetBlockKind":"nav","supportedRenderModes":["replace-current"],"renderMode":"replace-current","applyStrategy":"replace-current","mappingKind":"catalog-nav","toolKind":"catalog-nav","source":{"siteId":"14","level":"children","parentId":"7","take":6}}',
+    'catalog-list => {"status":"ready","targetBlockKind":"catalog-list","supportedRenderModes":["replace-current"],"renderMode":"replace-current","applyStrategy":"replace-current","mappingKind":"catalog-nav","toolKind":"catalog-nav","source":{"siteId":"14","level":"children","parentId":"7","take":6}}',
   ].join(' ')
 
 const APPLY_CMS_BINDING_TOOL_GUIDANCE =
@@ -79,23 +81,35 @@ const APPLY_CMS_BINDING_TOOL_GUIDANCE =
     '不要根据 CMS 浏览弹框当前的分页大小推断页面绑定的 `pageSize`。固定内容 ids 禁止传 `pageSize`；如需限制栏目数量请使用 `take`。',
   ].join(' ')
 
+const CMS_POSITIVE_ID_MESSAGE = '必须是正整数 ID 字符串；不要使用 news、root、news-root 这类语义别名'
+
 const cmsIdLikeSchema = z.union([
-  z.string().min(1),
-  z.number().int().nonnegative().transform((value) => String(value)),
+  z.string().trim().regex(/^[1-9]\d*$/, CMS_POSITIVE_ID_MESSAGE),
+  z.number().int().min(1, CMS_POSITIVE_ID_MESSAGE).transform((value) => String(value)),
+])
+
+const cmsFormalSiteIdSchema = z.union([
+  z.string().trim().regex(/^[1-9]\d*$/, 'source.siteId 必须是大于等于 1 的整数'),
+  z.number().int().min(1, 'source.siteId 必须是大于等于 1 的整数').transform((value) => String(value)),
+])
+
+const positiveIntegerishSchema = z.union([
+  z.string().trim().regex(/^[1-9]\d*$/, 'source.take 必须是大于等于 1 的整数'),
+  z.number().int().min(1, 'source.take 必须是大于等于 1 的整数'),
 ])
 
 const catalogSourceSchema = z.object({
-  siteId: cmsIdLikeSchema,
+  siteId: cmsFormalSiteIdSchema,
   ids: z.array(cmsIdLikeSchema).optional(),
-  level: z.string().optional(),
-  parentId: z.string().optional(),
+  level: z.enum(['root', 'children']).optional(),
+  parentId: cmsIdLikeSchema.optional(),
   contentType: z.string().optional(),
   searchKeyword: z.string().optional(),
-  take: z.union([z.string(), z.number().int().min(0)]).optional(),
+  take: positiveIntegerishSchema.optional(),
 }).strict()
 
 const contentSourceSchema = z.object({
-  siteId: cmsIdLikeSchema,
+  siteId: cmsFormalSiteIdSchema,
   ids: z.array(cmsIdLikeSchema).optional(),
   catalogId: cmsIdLikeSchema,
   keyword: z.string().optional(),
@@ -159,7 +173,7 @@ const decisionInputSchema = z.union([
 const decisionLooseObjectSchema = z.object({}).passthrough()
 
 const DECIDE_CMS_BINDING_DECISION_FIELD_GUIDANCE =
-  'Pass `decision` as a nested object. Do not JSON-stringify it. supportedRenderModes is always ["replace-current"], never {"item":"replace-current"}. For content fixed IDs, source.ids is a flat array; strings are canonical and numeric ids are normalized to strings, never {"item":[...]}. If a legacy JSON string was used, parse it back into an object and retry. Minimal ready examples: content-list => {"status":"ready","targetBlockKind":"content-list","supportedRenderModes":["replace-current"],"renderMode":"replace-current","applyStrategy":"replace-current","mappingKind":"catalog-content-list","toolKind":"content-list","source":{"siteId":"14","catalogId":"news"}} ; content-list fixed ids => {"status":"ready","targetBlockKind":"content-list","supportedRenderModes":["replace-current"],"renderMode":"replace-current","applyStrategy":"replace-current","mappingKind":"catalog-content-list","toolKind":"content-list","source":{"siteId":"1","catalogId":"16","ids":["257","254","251"]}} ; catalog-nav => {"status":"ready","targetBlockKind":"nav","supportedRenderModes":["replace-current"],"renderMode":"replace-current","applyStrategy":"replace-current","mappingKind":"catalog-nav","toolKind":"catalog-nav","source":{"siteId":"14","parentId":"root","take":6}}.'
+  'Pass `decision` as a nested object. Do not JSON-stringify it. supportedRenderModes is always ["replace-current"], never {"item":"replace-current"}. CMS source ids must come from the confirmed CMS selection and use positive integer strings such as "16" or "257", not semantic aliases such as news/root/news-root. For content fixed IDs, source.ids is a flat array; strings are canonical and numeric ids are normalized to strings, never {"item":[...]}. If a legacy JSON string was used, parse it back into an object and retry. Minimal ready examples: content-list => {"status":"ready","targetBlockKind":"content-list","supportedRenderModes":["replace-current"],"renderMode":"replace-current","applyStrategy":"replace-current","mappingKind":"catalog-content-list","toolKind":"content-list","source":{"siteId":"14","catalogId":"16"}} ; content-list fixed ids => {"status":"ready","targetBlockKind":"content-list","supportedRenderModes":["replace-current"],"renderMode":"replace-current","applyStrategy":"replace-current","mappingKind":"catalog-content-list","toolKind":"content-list","source":{"siteId":"1","catalogId":"16","ids":["257","254","251"]}} ; catalog-nav => {"status":"ready","targetBlockKind":"nav","supportedRenderModes":["replace-current"],"renderMode":"replace-current","applyStrategy":"replace-current","mappingKind":"catalog-nav","toolKind":"catalog-nav","source":{"siteId":"14","level":"children","parentId":"7","take":6}} ; catalog-list => {"status":"ready","targetBlockKind":"catalog-list","supportedRenderModes":["replace-current"],"renderMode":"replace-current","applyStrategy":"replace-current","mappingKind":"catalog-nav","toolKind":"catalog-nav","source":{"siteId":"14","level":"children","parentId":"7","take":6}}.'
 
 const decideCmsBindingToolInputSchema = z.strictObject({
   handoffId: z.string().min(1),
@@ -368,6 +382,12 @@ function assertValidListContentsToolArgs(args: {
   pageSize?: number
 }) {
   if (!args.ids?.length) {
+    if (!args.catalogId) {
+      throw new CmsSdkToolError(
+        'input-invalid',
+        '栏目分页查询必须提供 catalogId。正确形态：{"siteId":"...","catalogId":"...","pageIndex":0,"pageSize":20}；如需固定内容 ids 查询，也必须同时提供 catalogId。',
+      )
+    }
     return
   }
 
@@ -718,6 +738,45 @@ function collectDecisionFieldFixes(rawDecision: unknown): string[] {
   if (rawDecision.toolKind === 'content-list' && isRecord(source) && !Object.prototype.hasOwnProperty.call(source, 'catalogId')) {
     fixes.push('字段 source.catalogId 缺失')
   }
+  if (isRecord(source) && Object.prototype.hasOwnProperty.call(source, 'siteId') && !isValidFormalSiteIdValue(source.siteId)) {
+    fixes.push('source.siteId 必须是大于等于 1 的整数')
+  }
+  if (
+    rawDecision.toolKind === 'content-list'
+    && isRecord(source)
+    && Object.prototype.hasOwnProperty.call(source, 'catalogId')
+    && !isValidCmsIdLikeValue(source.catalogId)
+  ) {
+    fixes.push(`source.catalogId ${CMS_POSITIVE_ID_MESSAGE}`)
+  }
+  if (
+    rawDecision.toolKind === 'catalog-nav'
+    && isRecord(source)
+    && Object.prototype.hasOwnProperty.call(source, 'level')
+    && source.level !== undefined
+    && source.level !== 'root'
+    && source.level !== 'children'
+  ) {
+    fixes.push('source.level 只能是 "root" 或 "children"')
+  }
+  if (
+    rawDecision.toolKind === 'catalog-nav'
+    && isRecord(source)
+    && Object.prototype.hasOwnProperty.call(source, 'parentId')
+    && source.parentId !== undefined
+    && !isValidCmsIdLikeValue(source.parentId)
+  ) {
+    fixes.push(`source.parentId ${CMS_POSITIVE_ID_MESSAGE}`)
+  }
+  if (
+    rawDecision.toolKind === 'catalog-nav'
+    && isRecord(source)
+    && Object.prototype.hasOwnProperty.call(source, 'take')
+    && source.take !== undefined
+    && !isValidPositiveIntegerishValue(source.take)
+  ) {
+    fixes.push('source.take 必须是大于等于 1 的整数')
+  }
   if (isRecord(source) && Object.prototype.hasOwnProperty.call(source, 'ids')) {
     const ids = source.ids
     if (!Array.isArray(ids)) {
@@ -726,7 +785,7 @@ function collectDecisionFieldFixes(rawDecision: unknown): string[] {
       const invalidIndex = ids.findIndex((id) => !isValidCmsIdLikeValue(id))
       if (invalidIndex >= 0) {
         fixes.push('source.ids 应为 string[] 或 number[]')
-        fixes.push(`source.ids[${invalidIndex}] 必须是非空字符串或数字`)
+        fixes.push(`source.ids[${invalidIndex}] ${CMS_POSITIVE_ID_MESSAGE}`)
       }
     }
   }
@@ -858,10 +917,26 @@ function formatTargetBlockKindExpectation(toolKind: ReadyDecisionToolKind): stri
 
 function isValidCmsIdLikeValue(value: unknown): boolean {
   if (typeof value === 'string') {
-    return value.trim().length > 0
+    return /^[1-9]\d*$/.test(value.trim())
   }
 
-  return typeof value === 'number' && Number.isInteger(value) && value >= 0
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1
+}
+
+function isValidFormalSiteIdValue(value: unknown): boolean {
+  if (typeof value === 'string') {
+    return /^[1-9]\d*$/.test(value.trim())
+  }
+
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1
+}
+
+function isValidPositiveIntegerishValue(value: unknown): boolean {
+  if (typeof value === 'string') {
+    return /^[1-9]\d*$/.test(value.trim())
+  }
+
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1
 }
 
 function formatFirstAdditionalIssueSummary(error: z.ZodError, existingFixes: string[]): string | null {

@@ -43,12 +43,12 @@ describe('page-builder workspace html service', () => {
       transform(currentHtml) {
         return currentHtml.replace(
           '<section id="hero"><h1>Old</h1></section>',
-          '<section data-proma-block-id="pb_blk_news"><cms-content site-id="14" catalog-id="news"><template v-slot:default="{ items }"><article v-for="item in items" :key="item.id">{{ item.title }}</article></template></cms-content></section>',
+          '<section data-proma-block-id="pb_blk_news"><cms-content site-id="14" catalog-id="16"><template v-slot:default="{ items }"><article v-for="item in items" :key="item.id">{{ item.title }}</article></template></cms-content></section>',
         )
       },
     })
 
-    expect(readFileSync(join(workspaceFilesDir, 'index.html'), 'utf-8')).toContain('<cms-content site-id="14" catalog-id="news">')
+    expect(readFileSync(join(workspaceFilesDir, 'index.html'), 'utf-8')).toContain('<cms-content site-id="14" catalog-id="16">')
     expect(result.previewState.hasCmsRendering).toBe(true)
     expect(result.previewState.requiresSameOrigin).toBe(true)
     expect(result.manifest.entries).toEqual([
@@ -79,7 +79,7 @@ describe('page-builder workspace html service', () => {
       transform(currentHtml) {
         return currentHtml.replace(
           '<section id="hero"><h1>Old</h1></section>',
-          '<section data-proma-block-id="pb_blk_news"><cms-content site-id="14" catalog-id="news"><template v-slot:default="{ items }"><article v-for="item in items" :key="item.id">{{ item.title }}</article></template></cms-content></section>',
+          '<section data-proma-block-id="pb_blk_news"><cms-content site-id="14" catalog-id="16"><template v-slot:default="{ items }"><article v-for="item in items" :key="item.id">{{ item.title }}</article></template></cms-content></section>',
         )
       },
     })).toThrow('manifest write failed')
@@ -105,7 +105,7 @@ describe('page-builder workspace html service', () => {
         return [
           '<!doctype html><html><body>',
           '<section data-proma-block-id="pb_blk_news">',
-          '<cms-content catalog-id="news">',
+          '<cms-content catalog-id="16">',
           '  <template v-slot:default="{ items }"><style>.bad { color: red; }</style><article>{{ items.length }}</article></template>',
           '</cms-content>',
           '</section>',
@@ -135,7 +135,7 @@ describe('page-builder workspace html service', () => {
         return [
           '<!doctype html><html><body>',
           '<section data-proma-block-id="pb_blk_news">',
-          '<cms-content site-id="14" catalog-id="news">',
+          '<cms-content site-id="14" catalog-id="16">',
           '  <template v-slot:default="{ items }">',
           '    <article v-for="item in items" :key="item.id"><a :href="item.url">{{ item.title }}</a></article>',
           '  </template>',
@@ -173,7 +173,7 @@ describe('page-builder workspace html service', () => {
           '</script>',
           '</head><body>',
           '<section data-proma-block-id="pb_blk_news">',
-          '<cms-content site-id="14" catalog-id="news">',
+          '<cms-content site-id="14" catalog-id="16">',
           '  <template v-slot:default="{ items }">',
           '    <article v-for="item in items" :key="item.id">{{ item.title }}</article>',
           '  </template>',
@@ -215,7 +215,7 @@ describe('page-builder workspace html service', () => {
           '    data-proma-cms-island-html-path="index.html"',
           '    data-proma-cms-island-source-selector="#news > cms-content:nth-of-type(1)"',
           '    site-id="14"',
-          '    catalog-id="news"',
+          '    catalog-id="16"',
           '  >',
           '    <template v-slot:default="{ items }"><article v-for="item in items" :key="item.id">{{ item.title }}</article></template>',
           '  </cms-content>',

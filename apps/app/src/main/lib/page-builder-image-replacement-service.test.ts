@@ -1,12 +1,23 @@
-import { afterEach, describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { applyPageBuilderImageReplacement, savePageBuilderImageReplacement } from './page-builder-image-replacement-service'
 import { createAgentWorkspace } from './workspace-service'
 
+const originalCmsIntegrationMode = process.env.AI_PAGE_BUILDER_INTEGRATION_MODE
+
+beforeEach(() => {
+  process.env.AI_PAGE_BUILDER_INTEGRATION_MODE = 'cms'
+})
+
 afterEach(() => {
   rmSync(join(homedir(), '.proma'), { recursive: true, force: true })
+  if (originalCmsIntegrationMode === undefined) {
+    delete process.env.AI_PAGE_BUILDER_INTEGRATION_MODE
+  } else {
+    process.env.AI_PAGE_BUILDER_INTEGRATION_MODE = originalCmsIntegrationMode
+  }
 })
 
 describe('page-builder image replacement service', () => {
@@ -40,7 +51,7 @@ describe('page-builder image replacement service', () => {
     mkdirSync(workspaceFilesDir, { recursive: true })
     writeFileSync(
       join(workspaceFilesDir, 'index.html'),
-      '<!doctype html><html><body><section id="hero"><img src="./assets/original.png" alt="旧图"></section><section data-proma-block-id="pb_blk_news"><cms-content catalog-id="news"></cms-content></section></body></html>',
+      '<!doctype html><html><body><section id="hero"><img src="./assets/original.png" alt="旧图"></section><section data-proma-block-id="pb_blk_news"><cms-content site-id="14" catalog-id="16"><template v-slot:default="{ items }"><article v-for="item in items" :key="item.id">{{ item.title }}</article></template></cms-content></section></body></html>',
       'utf-8',
     )
 

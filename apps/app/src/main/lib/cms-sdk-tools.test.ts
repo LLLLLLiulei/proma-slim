@@ -136,7 +136,7 @@ function prepareWorkspaceHtml(workspaceSlug: string, html: string): string {
   return entryPath
 }
 
-function createContentSelection(selector = '#latest-news'): Extract<PageBuilderCmsSelectionResult, { selectionKind: 'contents' }> {
+function createContentSelection(selector = '#latest-news'): Extract<PageBuilderCmsSelectionResult, { sourceType: 'contents-by-catalog' }> {
   return {
     version: 6,
     siteId: '14',
@@ -147,10 +147,10 @@ function createContentSelection(selector = '#latest-news'): Extract<PageBuilderC
     selectionKind: 'contents',
     sourceType: 'contents-by-catalog',
     selectionMode: 'by-catalog',
-    catalogId: 'news',
+    catalogId: '16',
     snapshot: {
       catalog: {
-        id: 'news',
+        id: '16',
         name: '新闻',
         parentId: null,
         path: '/news',
@@ -164,10 +164,38 @@ function createContentSelection(selector = '#latest-news'): Extract<PageBuilderC
   }
 }
 
+function createCatalogSelection(selector = '#main-nav'): Extract<PageBuilderCmsSelectionResult, { sourceType: 'catalogs-by-parent' }> {
+  return {
+    version: 6,
+    siteId: '14',
+    targetSelection: createPageBuilderBlockTargetSelection(selector),
+    targetBlock: {
+      selector,
+    },
+    selectionKind: 'catalogs',
+    sourceType: 'catalogs-by-parent',
+    selectionMode: 'children-of-parent',
+    parentCatalogId: '7',
+    snapshot: {
+      parentCatalog: {
+        id: '7',
+        name: '栏目根节点',
+        parentId: null,
+        path: '/catalog-root',
+        contentType: 'article',
+        contentTypeName: '文章',
+        hasChild: true,
+        total: 8,
+        children: [],
+      },
+    },
+  }
+}
+
 function registerContentHandoff(
   workspace: { id: string; slug: string },
   sessionId: string,
-  selection = createContentSelection(),
+  selection: Extract<PageBuilderCmsSelectionResult, { selectionKind: 'contents' }> = createContentSelection(),
   options?: {
     targetOuterHtml?: string
   },
@@ -197,6 +225,36 @@ function registerContentHandoff(
   return handoffId
 }
 
+function registerCatalogHandoff(
+  workspace: { id: string; slug: string },
+  sessionId: string,
+  selection: Extract<PageBuilderCmsSelectionResult, { selectionKind: 'catalogs' }> = createCatalogSelection(),
+): string {
+  const handoffId = `handoff:${workspace.id}:${sessionId}:catalog`
+  const revision = getWorkspacePreviewState(workspace as never).revision
+  if (!revision) {
+    throw new Error('missing preview revision in test fixture')
+  }
+
+  pageBuilderCmsBindingDecisionStore.registerHandoff({
+    handoffId,
+    workspaceId: workspace.id,
+    sessionId,
+    input: buildPageBuilderCmsApplySkillInput(selection, {
+      handoffId,
+      targetSnapshot: {
+        kind: 'block',
+        selector: '#main-nav',
+        parentBlockSelector: '#main-nav',
+        targetOuterHtml: '<nav id="main-nav" data-proma-block-id="pb_blk_nav"><a>placeholder</a></nav>',
+      },
+      authoringRevision: revision,
+    }),
+  })
+
+  return handoffId
+}
+
 function createReadyContentDecision() {
   return {
     status: 'ready' as const,
@@ -208,7 +266,7 @@ function createReadyContentDecision() {
     toolKind: 'content-list' as const,
     source: {
       siteId: '14',
-      catalogId: 'news',
+      catalogId: '16',
     },
   }
 }
@@ -272,6 +330,24 @@ describe('cms sdk runtime tools', () => {
     expect(PAGE_BUILDER_CMS_TEMPLATE_FIELD_GUIDANCE).not.toContain('Prefer the cms-* tag as the source root')
   })
 
+  test('documents catalog-list ready decisions and recommends object-shaped decision payloads', () => {
+    const workspace = createAgentWorkspace('CMS Tool Catalog List Docs', { template: 'page-builder' })
+    const bundle = buildCmsRuntimeToolBundle(createGateway() as never, {
+      workspace,
+      sessionId: 'session-1',
+    })
+    const tools = getRegisteredTools(bundle)
+
+    expect(tools.decide_cms_binding?.description).toContain('`decision` 必须作为嵌套对象传入')
+    expect(tools.decide_cms_binding?.description).toContain('legacy string payload 只用于兼容恢复')
+    expect(tools.decide_cms_binding?.description).toContain('catalog-list =>')
+    expect(tools.decide_cms_binding?.description).toContain('"targetBlockKind":"catalog-list"')
+    expect(tools.decide_cms_binding?.description).toContain('"mappingKind":"catalog-nav"')
+    expect(tools.decide_cms_binding?.description).toContain('"toolKind":"catalog-nav"')
+    expect(tools.decide_cms_binding?.description).toContain('"source":{"siteId":"14","level":"children","parentId":"7","take":6}')
+    expect(tools.decide_cms_binding?.description).not.toContain('targetBlockKind":"catalog-list","mappingKind":"catalog-list"')
+  })
+
   test('creates a ready decision and applies cms binding through decisionId', async () => {
     const workspace = createAgentWorkspace('CMS Tool Apply Flow', { template: 'page-builder' })
     const entryPath = prepareWorkspaceHtml(
@@ -301,7 +377,7 @@ describe('cms sdk runtime tools', () => {
         toolKind: 'content-list',
         source: {
           siteId: '14',
-          catalogId: 'news',
+          catalogId: '16',
         },
       },
     })
@@ -426,7 +502,7 @@ describe('cms sdk runtime tools', () => {
         toolKind: 'content-list',
         source: {
           siteId: '14',
-          catalogId: 'news',
+          catalogId: '16',
         },
       },
     })
@@ -444,7 +520,7 @@ describe('cms sdk runtime tools', () => {
 
     expect(applyResult.applied).toBe(true)
     expect(readFileSync(entryPath, 'utf-8')).toContain('<cms-content ')
-    expect(readFileSync(entryPath, 'utf-8')).toContain('catalog-id="news"')
+    expect(readFileSync(entryPath, 'utf-8')).toContain('catalog-id="16"')
   })
 
   test('keeps the decision reusable when apply fails before a successful write', async () => {
@@ -472,7 +548,7 @@ describe('cms sdk runtime tools', () => {
         toolKind: 'content-list',
         source: {
           siteId: '14',
-          catalogId: 'news',
+          catalogId: '16',
         },
       },
     })
@@ -544,7 +620,7 @@ describe('cms sdk runtime tools', () => {
       cmsGateway: {
         listCatalogs: async () => ({
           items: [{
-            id: 'news',
+            id: '16',
             name: '新闻',
             parentId: null,
             path: '/news',
@@ -731,7 +807,7 @@ describe('cms sdk runtime tools', () => {
         toolKind: 'catalog-nav',
         source: {
           siteId: '14',
-          catalogId: 'news',
+          catalogId: '16',
         },
       },
     }, '`decision` 不符合合约')
@@ -742,7 +818,7 @@ describe('cms sdk runtime tools', () => {
         toolKind: 'catalog-nav',
         source: {
           siteId: '14',
-          catalogId: 'news',
+          catalogId: '16',
         },
       },
     })
@@ -919,6 +995,194 @@ describe('cms sdk runtime tools', () => {
     })
   })
 
+  test('rejects semantic placeholder ids in formal ready decisions', async () => {
+    const contentWorkspace = createAgentWorkspace('CMS Tool Semantic Content Id', { template: 'page-builder' })
+    prepareWorkspaceHtml(
+      contentWorkspace.slug,
+      '<!doctype html><html><body><section id="latest-news" data-proma-block-id="pb_blk_news"><div>placeholder</div></section></body></html>',
+    )
+    const contentSelection = createContentSelection()
+    const contentHandoffId = registerContentHandoff(contentWorkspace, 'session-1', {
+      ...contentSelection,
+      catalogId: '16',
+      snapshot: {
+        catalog: {
+          ...contentSelection.snapshot.catalog,
+          id: '16',
+        },
+      },
+    })
+    const contentBundle = buildCmsRuntimeToolBundle(createGateway() as never, {
+      workspace: contentWorkspace,
+      sessionId: 'session-1',
+    })
+    const contentTools = getRegisteredTools(contentBundle)
+
+    await expectToolRejects(contentTools.decide_cms_binding!, {
+      handoffId: contentHandoffId,
+      decision: {
+        ...createReadyContentDecision(),
+        source: {
+          siteId: '14',
+          catalogId: 'news',
+        },
+      },
+    }, [
+      'source.catalogId',
+      '正整数 ID 字符串',
+      '不要使用 news、root、news-root 这类语义别名',
+    ])
+
+    const catalogWorkspace = createAgentWorkspace('CMS Tool Semantic Parent Id', { template: 'page-builder' })
+    prepareWorkspaceHtml(
+      catalogWorkspace.slug,
+      '<!doctype html><html><body><nav id="main-nav" data-proma-block-id="pb_blk_nav"><a>placeholder</a></nav></body></html>',
+    )
+    const catalogSelection = createCatalogSelection()
+    const catalogHandoffId = registerCatalogHandoff(catalogWorkspace, 'session-1', {
+      ...catalogSelection,
+      parentCatalogId: '7',
+      snapshot: {
+        parentCatalog: {
+          ...catalogSelection.snapshot.parentCatalog,
+          id: '7',
+        },
+      },
+    })
+    const catalogBundle = buildCmsRuntimeToolBundle(createGateway() as never, {
+      workspace: catalogWorkspace,
+      sessionId: 'session-1',
+    })
+    const catalogTools = getRegisteredTools(catalogBundle)
+
+    await expectToolRejects(catalogTools.decide_cms_binding!, {
+      handoffId: catalogHandoffId,
+      decision: {
+        status: 'ready',
+        targetBlockKind: 'nav',
+        supportedRenderModes: ['replace-current'],
+        renderMode: 'replace-current',
+        applyStrategy: 'replace-current',
+        mappingKind: 'catalog-nav',
+        toolKind: 'catalog-nav',
+        source: {
+          siteId: '14',
+          parentId: 'root',
+        },
+      },
+    }, [
+      'source.parentId',
+      '正整数 ID 字符串',
+      '不要使用 news、root、news-root 这类语义别名',
+    ])
+  })
+
+  test('rejects formal ready decision source ids and take values that runtime cannot honor', async () => {
+    const contentWorkspace = createAgentWorkspace('CMS Tool Invalid Decision Site', { template: 'page-builder' })
+    prepareWorkspaceHtml(
+      contentWorkspace.slug,
+      '<!doctype html><html><body><section id="latest-news" data-proma-block-id="pb_blk_news"><div>placeholder</div></section></body></html>',
+    )
+    const contentHandoffId = registerContentHandoff(contentWorkspace, 'session-1')
+    const contentBundle = buildCmsRuntimeToolBundle(createGateway() as never, {
+      workspace: contentWorkspace,
+      sessionId: 'session-1',
+    })
+    const contentTools = getRegisteredTools(contentBundle)
+
+    await expectToolRejects(contentTools.decide_cms_binding!, {
+      handoffId: contentHandoffId,
+      decision: {
+        ...createReadyContentDecision(),
+        source: {
+          siteId: 0,
+          catalogId: '16',
+        },
+      },
+    }, [
+      'source.siteId',
+      '大于等于 1 的整数',
+      '请修正 decision 对象后重新调用 `mcp__cms__decide_cms_binding`',
+    ])
+
+    const catalogWorkspace = createAgentWorkspace('CMS Tool Invalid Decision Take', { template: 'page-builder' })
+    prepareWorkspaceHtml(
+      catalogWorkspace.slug,
+      '<!doctype html><html><body><nav id="main-nav" data-proma-block-id="pb_blk_nav"><a>placeholder</a></nav></body></html>',
+    )
+    const catalogHandoffId = registerCatalogHandoff(catalogWorkspace, 'session-1')
+    const catalogBundle = buildCmsRuntimeToolBundle(createGateway() as never, {
+      workspace: catalogWorkspace,
+      sessionId: 'session-1',
+    })
+    const catalogTools = getRegisteredTools(catalogBundle)
+
+    await expectToolRejects(catalogTools.decide_cms_binding!, {
+      handoffId: catalogHandoffId,
+      decision: {
+        status: 'ready',
+        targetBlockKind: 'catalog-list',
+        supportedRenderModes: ['replace-current'],
+        renderMode: 'replace-current',
+        applyStrategy: 'replace-current',
+        mappingKind: 'catalog-nav',
+        toolKind: 'catalog-nav',
+        source: {
+          siteId: '14',
+          parentId: '7',
+          take: 0,
+        },
+      },
+    }, [
+      'source.take',
+      '大于等于 1 的整数',
+      '请修正 decision 对象后重新调用 `mcp__cms__decide_cms_binding`',
+    ])
+
+    await expectToolRejects(catalogTools.decide_cms_binding!, {
+      handoffId: catalogHandoffId,
+      decision: {
+        status: 'ready',
+        targetBlockKind: 'catalog-list',
+        supportedRenderModes: ['replace-current'],
+        renderMode: 'replace-current',
+        applyStrategy: 'replace-current',
+        mappingKind: 'catalog-nav',
+        toolKind: 'catalog-nav',
+        source: {
+          siteId: '14',
+          level: '1',
+          parentId: '7',
+        },
+      },
+    }, [
+      'source.level',
+      '只能是 "root" 或 "children"',
+      '请修正 decision 对象后重新调用 `mcp__cms__decide_cms_binding`',
+    ])
+
+    await expectToolRejects(catalogTools.decide_cms_binding!, {
+      handoffId: catalogHandoffId,
+      decision: {
+        status: 'ready',
+        targetBlockKind: 'catalog-list',
+        supportedRenderModes: ['replace-current'],
+        renderMode: 'replace-current',
+        applyStrategy: 'replace-current',
+        mappingKind: 'catalog-nav',
+        toolKind: 'catalog-nav',
+        source: {
+          siteId: '14',
+          level: 'root',
+          parentId: '7',
+        },
+      },
+    }, [
+      '父栏目来源的 ready decision 必须使用 source.level="children"',
+      '修正 decision 对象后重新调用 `mcp__cms__decide_cms_binding`',
+    ])
+  })
+
   test('reports content-list source type fixes without leaking catalog-nav union branch errors', async () => {
     const workspace = createAgentWorkspace('CMS Tool Numeric Decision Id Error', { template: 'page-builder' })
     prepareWorkspaceHtml(
@@ -951,7 +1215,7 @@ describe('cms sdk runtime tools', () => {
     })
 
     expect(errorMessage).toContain('source.ids 应为 string[] 或 number[]')
-    expect(errorMessage).toContain('source.ids[1] 必须是非空字符串或数字')
+    expect(errorMessage).toContain('source.ids[1] 必须是正整数 ID 字符串')
     expect(errorMessage).not.toContain('expected "catalog-nav"')
     expect(errorMessage).not.toContain('字段 toolKind')
   })
@@ -1184,6 +1448,34 @@ describe('cms sdk runtime tools', () => {
       '修正 tool 参数后重试',
       '不要在不改动参数的情况下重复提交同一次调用',
     ])
+  })
+
+  test('rejects content paging without catalogId before calling the gateway', async () => {
+    const workspace = createAgentWorkspace('CMS Tool Paging Requires Catalog', { template: 'page-builder' })
+    const contentCalls: unknown[] = []
+    const gateway = {
+      listCatalogs: async () => ({ items: [], tree: [] }),
+      listContents: async (query: unknown) => {
+        contentCalls.push(query)
+        return { pageIndex: 0, pageSize: 20, total: 0, totalPages: 0, items: [] }
+      },
+    }
+    const bundle = buildCmsRuntimeToolBundle(gateway as never, {
+      workspace,
+      sessionId: 'session-1',
+    })
+    const tools = getRegisteredTools(bundle)
+
+    await expectToolRejects(tools.list_contents!, {
+      siteId: '14',
+      pageIndex: 0,
+      pageSize: 20,
+    }, [
+      '栏目分页查询必须提供 catalogId',
+      '修正 tool 参数后重试',
+      '不要在不改动参数的情况下重复提交同一次调用',
+    ])
+    expect(contentCalls).toEqual([])
   })
 
   test('rejects fixed catalog ids mixed with query filters before calling the gateway', async () => {

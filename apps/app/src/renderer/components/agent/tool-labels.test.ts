@@ -35,4 +35,8 @@ describe('tool label mappings', () => {
   test('covers the current local Playwright MCP server label', () => {
     expect(formatAgentMcpServerLabel('playwright')).toBe('浏览器自动化')
   })
+
+  test('uses neutral cms binding labels for cms apply tools', () => {
+    expect(formatAgentToolLabel('mcp__cms__apply_cms_binding')).toBe('CMS / 应用 CMS 绑定')
+  })
 })

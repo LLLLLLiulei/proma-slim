@@ -1423,6 +1423,11 @@ export class AgentOrchestrator {
         accessibleDirectories: resolvedAdditionalDirectories,
         memoryFilePath: getWorkspaceMemoryFilePath(workspaceSlug),
         workspaceMcpStateLines: buildWorkspaceMcpStateLines(resolvedMcpServers),
+        pageBuilderCmsRuntimeMcpMode: isPageBuilderWorkspace
+          ? cmsRuntimeToolBundle && Object.prototype.hasOwnProperty.call(resolvedMcpServers, CMS_RUNTIME_SERVER_NAME)
+            ? 'available'
+            : 'unavailable'
+          : undefined,
         pageBuilderRuntimePlaywrightMode: runtimePlaywrightMode ?? undefined,
         pageBuilderBrowserPreviewUrl: runtimePlaywrightPreviewUrl,
       })

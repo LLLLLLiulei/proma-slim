@@ -17,10 +17,10 @@ function createCatalogSelection(): Extract<PageBuilderCmsSelectionResult, { sele
     selectionKind: 'catalogs',
     sourceType: 'catalogs-by-parent',
     selectionMode: 'children-of-parent',
-    parentCatalogId: 'catalog-parent',
+    parentCatalogId: '7',
     snapshot: {
       parentCatalog: {
-        id: 'catalog-parent',
+        id: '7',
         name: '栏目根节点',
         parentId: null,
         path: '/catalog-root',
@@ -68,10 +68,10 @@ function createStoreWithStructuredContentHandoff(currentRevision = 'rev-1') {
     selectionKind: 'contents',
     sourceType: 'contents-by-catalog',
     selectionMode: 'by-catalog',
-    catalogId: 'news',
+    catalogId: '16',
     snapshot: {
       catalog: {
-        id: 'news',
+        id: '16',
         name: '新闻',
         parentId: null,
         path: '/news',
@@ -125,7 +125,7 @@ describe('page-builder CMS binding decision store', () => {
         toolKind: 'catalog-nav',
         source: {
           siteId: '14',
-          parentId: 'catalog-parent',
+          parentId: '7',
           take: 6,
         },
       },
@@ -158,7 +158,7 @@ describe('page-builder CMS binding decision store', () => {
       toolKind: 'catalog-nav',
       source: {
         siteId: '14',
-        parentId: 'catalog-parent',
+        parentId: '7',
         take: 6,
         level: 'children',
       },
@@ -183,7 +183,7 @@ describe('page-builder CMS binding decision store', () => {
         toolKind: 'content-list',
         source: {
           siteId: '14',
-          catalogId: 'news',
+          catalogId: '16',
         },
       },
     })
@@ -220,10 +220,10 @@ describe('page-builder CMS binding decision store', () => {
       selectionKind: 'contents',
       sourceType: 'contents-by-catalog',
       selectionMode: 'by-catalog',
-      catalogId: 'news',
+      catalogId: '16',
       snapshot: {
         catalog: {
-          id: 'news',
+          id: '16',
           name: '新闻',
           parentId: null,
           path: '/news',
@@ -267,7 +267,7 @@ describe('page-builder CMS binding decision store', () => {
         toolKind: 'content-list',
         source: {
           siteId: '14',
-          catalogId: 'news',
+          catalogId: '16',
         },
       },
     })
@@ -342,7 +342,7 @@ describe('page-builder CMS binding decision store', () => {
         toolKind: 'catalog-nav',
         source: {
           siteId: '14',
-          parentId: 'catalog-parent',
+          parentId: '7',
         },
       },
     })
@@ -368,7 +368,7 @@ describe('page-builder CMS binding decision store', () => {
         toolKind: 'catalog-nav',
         source: {
           siteId: '14',
-          parentId: 'catalog-parent',
+          parentId: '7',
         },
       },
     } as never)).toThrow('当前会话')
@@ -392,7 +392,7 @@ describe('page-builder CMS binding decision store', () => {
         toolKind: 'catalog-nav',
         source: {
           siteId: '14',
-          parentId: 'catalog-parent',
+          parentId: '7',
           ids: ['catalog-a'],
         },
       },
@@ -416,7 +416,7 @@ describe('page-builder CMS binding decision store', () => {
         toolKind: 'catalog-nav',
         source: {
           siteId: '14',
-          parentId: 'catalog-parent',
+          parentId: '7',
         },
       },
     })
@@ -457,7 +457,7 @@ describe('page-builder CMS binding decision store', () => {
         toolKind: 'catalog-nav',
         source: {
           siteId: '14',
-          parentId: 'catalog-parent',
+          parentId: '7',
         },
       },
     })

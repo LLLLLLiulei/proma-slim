@@ -80,18 +80,18 @@ const pageBuilderCmsBindingBaseSchema = z.object({
 
 const catalogNavSourceSchema = z.object({
   siteId: z.union([z.string(), z.number().int()]).optional(),
-  ids: z.union([z.string(), z.array(z.string().min(1))]).optional(),
+  ids: z.union([z.string(), z.array(z.union([z.string().min(1), z.number().int()]))]).optional(),
   level: z.string().optional(),
-  parentId: z.string().optional(),
+  parentId: z.union([z.string(), z.number().int()]).optional(),
   contentType: z.string().optional(),
   searchKeyword: z.string().optional(),
-  take: z.union([z.string(), z.number().int().nonnegative()]).optional(),
+  take: z.union([z.string(), z.number().int()]).optional(),
 }).strict()
 
 const contentListSourceSchema = z.object({
   siteId: z.union([z.string(), z.number().int()]).optional(),
-  ids: z.union([z.string(), z.array(z.string().min(1))]).optional(),
-  catalogId: z.string().min(1).optional(),
+  ids: z.union([z.string(), z.array(z.union([z.string().min(1), z.number().int()]))]).optional(),
+  catalogId: z.union([z.string().min(1), z.number().int()]).optional(),
   keyword: z.string().optional(),
   pageIndex: z.union([z.string(), z.number().int().min(0)]).optional(),
   pageSize: z.union([z.string(), z.number().int().min(1)]).optional(),
@@ -439,23 +439,22 @@ function normalizeCatalogNavSource(source: z.infer<typeof catalogNavSourceSchema
     }
   }
 
+  const parentId = normalizeOptionalBindingId(source.parentId, 'source.parentId')
+
   return {
     siteId: normalizeBindingSiteId(source.siteId),
-    level: source.parentId ? 'children' : source.level,
-    parentId: source.parentId,
+    level: parentId ? 'children' : source.level,
+    parentId,
     contentType: source.contentType,
     searchKeyword: source.searchKeyword,
-    take: source.take,
+    take: normalizeOptionalPositiveIntegerish(source.take, 'source.take'),
   }
 }
 
 function normalizeContentListSource(source: z.infer<typeof contentListSourceSchema>): NormalizedContentListSource {
   const ids = normalizeBindingIds(source.ids)
   if (ids) {
-    const catalogId = source.catalogId?.trim()
-    if (!catalogId) {
-      throw new PageBuilderCmsBindingApplyError('invalid-input', 'content-list fixed ids require source.catalogId')
-    }
+    const catalogId = normalizeRequiredBindingId(source.catalogId, 'source.catalogId')
 
     if (
       source.keyword !== undefined
@@ -472,13 +471,11 @@ function normalizeContentListSource(source: z.infer<typeof contentListSourceSche
     }
   }
 
-  if (!source.catalogId?.trim()) {
-    throw new PageBuilderCmsBindingApplyError('invalid-input', 'source.catalogId 不能为空')
-  }
+  const catalogId = normalizeRequiredBindingId(source.catalogId, 'source.catalogId')
 
   return {
     siteId: normalizeBindingSiteId(source.siteId),
-    catalogId: source.catalogId.trim(),
+    catalogId,
     keyword: source.keyword,
     pageIndex: source.pageIndex,
     pageSize: source.pageSize,
@@ -504,7 +501,7 @@ function normalizeBindingSiteId(value: string | number | undefined): string {
   throw new PageBuilderCmsBindingApplyError('invalid-input', 'source.siteId 必须是大于等于 1 的整数')
 }
 
-function normalizeBindingIds(value: string | string[] | undefined): string[] | undefined {
+function normalizeBindingIds(value: string | Array<string | number> | undefined): string[] | undefined {
   const entries = Array.isArray(value)
     ? value
     : typeof value === 'string'
@@ -516,14 +513,69 @@ function normalizeBindingIds(value: string | string[] | undefined): string[] | u
   }
 
   const normalized = entries
-    .map((entry) => entry.trim())
+    .map((entry) => typeof entry === 'number' ? String(entry) : entry.trim())
     .filter(Boolean)
 
   if (normalized.length === 0) {
     throw new PageBuilderCmsBindingApplyError('invalid-input', 'source.ids 不能为空')
   }
 
+  for (const [index, id] of normalized.entries()) {
+    if (!isPositiveCmsId(id)) {
+      throw new PageBuilderCmsBindingApplyError('invalid-input', `source.ids[${index}] 必须是正整数 ID 字符串`)
+    }
+  }
+
   return normalized
+}
+
+function normalizeRequiredBindingId(value: string | number | undefined, fieldName: string): string {
+  const normalized = normalizeOptionalBindingId(value, fieldName)
+  if (!normalized) {
+    throw new PageBuilderCmsBindingApplyError('invalid-input', `${fieldName} 不能为空`)
+  }
+
+  return normalized
+}
+
+function normalizeOptionalBindingId(value: string | number | undefined, fieldName: string): string | undefined {
+  if (value === undefined) {
+    return undefined
+  }
+
+  const normalized = typeof value === 'number' ? String(value) : value.trim()
+  if (isPositiveCmsId(normalized)) {
+    return normalized
+  }
+
+  throw new PageBuilderCmsBindingApplyError('invalid-input', `${fieldName} 必须是正整数 ID 字符串`)
+}
+
+function isPositiveCmsId(value: string): boolean {
+  return /^[1-9]\d*$/.test(value)
+}
+
+function normalizeOptionalPositiveIntegerish(
+  value: string | number | undefined,
+  fieldName: string,
+): string | number | undefined {
+  if (value === undefined) {
+    return undefined
+  }
+
+  if (typeof value === 'number') {
+    if (Number.isInteger(value) && value >= 1) {
+      return value
+    }
+    throw new PageBuilderCmsBindingApplyError('invalid-input', `${fieldName} 必须是大于等于 1 的整数`)
+  }
+
+  const normalized = value.trim()
+  if (/^[1-9]\d*$/.test(normalized)) {
+    return normalized
+  }
+
+  throw new PageBuilderCmsBindingApplyError('invalid-input', `${fieldName} 必须是大于等于 1 的整数`)
 }
 
 function parseSchema<T extends z.ZodTypeAny>(schema: T, value: unknown): z.infer<T> {
@@ -560,11 +612,20 @@ function assertCmsBindingAuthoringPreflight(
     return
   }
 
+  const templateFieldName = resolveTemplateFieldNameFromDiagnostic(firstError) ?? 'templateBody'
+
+  if (firstError.code === 'INVALID_SOURCE_PROP') {
+    throw new PageBuilderCmsBindingApplyError(
+      'invalid-input',
+      `CMS source props 不符合当前 CMS contract: ${firstError.message}`,
+    )
+  }
+
   if (firstError.code === 'UNKNOWN_ITEM_FIELD') {
     const fieldAccess = firstError.message.match(/"([^"]+)"/)?.[1] ?? 'unknown'
     throw new PageBuilderCmsBindingApplyError(
       'invalid-input',
-      `templateBody 引用了当前 CMS contract 不支持的字段: ${fieldAccess}`,
+      `${templateFieldName} 引用了当前 CMS contract 不支持的字段: ${fieldAccess}`,
     )
   }
 
@@ -572,7 +633,7 @@ function assertCmsBindingAuthoringPreflight(
     const variableName = firstError.message.match(/"([^"]+)"/)?.[1] ?? 'unknown'
     throw new PageBuilderCmsBindingApplyError(
       'invalid-input',
-      `templateBody 引用了当前 CMS contract 未声明的 slot 变量: ${variableName}`,
+      `${templateFieldName} 引用了当前 CMS contract 未声明的 slot 变量: ${variableName}`,
     )
   }
 
@@ -580,7 +641,7 @@ function assertCmsBindingAuthoringPreflight(
     const helperName = firstError.message.match(/"([^"]+)"/)?.[1] ?? 'unknown'
     throw new PageBuilderCmsBindingApplyError(
       'invalid-input',
-      `templateBody 使用了当前 CMS contract 未声明的 helper: ${helperName}；请删除该函数调用，改用 CMS contract 字段、守卫或内联成员表达式后重试`,
+      `${templateFieldName} 使用了当前 CMS contract 未声明的 helper: ${helperName}；请删除该函数调用，改用 CMS contract 字段、守卫或内联成员表达式后重试`,
     )
   }
 
@@ -601,7 +662,7 @@ function assertCmsBindingAuthoringPreflight(
   if (firstError.code === 'INLINE_EVENT_HANDLER_ATTRIBUTE') {
     throw new PageBuilderCmsBindingApplyError(
       'invalid-input',
-      'templateBody 不能包含原生 HTML 事件属性（如 onclick / onerror / onload）；请改用合法的 Vue 指令或声明式结构',
+      `${templateFieldName} 不能包含原生 HTML 事件属性（如 onclick / onerror / onload）；请改用合法的 Vue 指令或声明式结构`,
     )
   }
 
@@ -609,7 +670,7 @@ function assertCmsBindingAuthoringPreflight(
     const detail = firstError.message.replace(/^Invalid Vue template syntax in .*? slot:\s*/, '')
     throw new PageBuilderCmsBindingApplyError(
       'invalid-input',
-      `templateBody 包含不合法的 Vue 模板语法: ${detail}`,
+      `${templateFieldName} 包含不合法的 Vue 模板语法: ${detail}`,
     )
   }
 
@@ -618,6 +679,22 @@ function assertCmsBindingAuthoringPreflight(
     'invalid-input',
     `CMS 模板预检失败: ${codes}`,
   )
+}
+
+function resolveTemplateFieldNameFromDiagnostic(diagnostic: CmsRenderingDiagnostic): CmsTemplateFieldName | null {
+  if (/\bempty slot\b/i.test(diagnostic.message)) {
+    return 'emptyTemplate'
+  }
+
+  if (/\berror slot\b/i.test(diagnostic.message)) {
+    return 'errorTemplate'
+  }
+
+  if (/\bdefault slot\b/i.test(diagnostic.message)) {
+    return 'templateBody'
+  }
+
+  return null
 }
 
 function normalizeRequiredTemplateField(fieldName: CmsTemplateFieldName, value: string): string {

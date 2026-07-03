@@ -1014,6 +1014,44 @@ describe('AgentOrchestrator workspace runtime', () => {
       'mcp__cms__decide_cms_binding',
       'mcp__cms__apply_cms_binding',
     ]))
+    expect(adapter.lastInput?.prompt).toContain('<page_builder_cms_runtime_mcp>available</page_builder_cms_runtime_mcp>')
+    expect(adapter.lastInput?.prompt).toContain('CMS MCP 是宿主运行时注入的 SDK MCP server')
+    expect(adapter.lastInput?.prompt).toContain('不是 workspace `mcp.json` 中的持久配置')
+    expect(adapter.lastInput?.prompt).toContain('mcp__cms__list_catalogs')
+    expect(adapter.lastInput?.prompt).toContain('mcp__cms__apply_cms_binding')
+  })
+
+  test('warns page-builder agents not to fabricate cms data when runtime cms tools are unavailable', async () => {
+    delete process.env.PROMA_CMS_BASE_URL
+    delete process.env.PROMA_CMS_SITE_ID
+    delete process.env.PROMA_CMS_USERNAME
+    delete process.env.PROMA_CMS_PASSWORD
+
+    const adapter = new RecordingAdapter()
+    const orchestrator = new AgentOrchestrator(adapter, new AgentEventBus())
+    const workspace = createAgentWorkspace('Page Builder CMS Runtime Missing', { template: 'page-builder' })
+    const session = createAgentSession('CMS runtime missing session', undefined, workspace.id)
+
+    await orchestrator.sendMessage(
+      {
+        sessionId: session.id,
+        userMessage: '从 CMS 读取栏目并应用到页面',
+        channelId: '',
+      },
+      {
+        onError: (message) => {
+          throw new Error(message)
+        },
+        onComplete: () => {},
+        onTitleUpdated: () => {},
+      },
+    )
+
+    expect(adapter.lastInput?.mcpServers ?? {}).not.toHaveProperty('cms')
+    expect(adapter.lastInput?.prompt).toContain('<page_builder_cms_runtime_mcp>unavailable</page_builder_cms_runtime_mcp>')
+    expect(adapter.lastInput?.prompt).toContain('当前不能执行 CMS 读取或 CMS binding apply')
+    expect(adapter.lastInput?.prompt).toContain('不要伪造栏目、内容、handoffId、decisionId')
+    expect(adapter.lastInput?.prompt).toContain('不要向 workspace `mcp.json` 写入 CMS server 配置')
   })
 
   test('auto-injects runtime image search sdk tools into page-builder queries without persisting them to workspace mcp config', async () => {

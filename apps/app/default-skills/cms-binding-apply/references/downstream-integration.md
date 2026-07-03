@@ -31,7 +31,7 @@ The write path must keep page-builder authoring HTML-first: only the selected `c
 Downstream writes must reject author-managed Vue runtime/importmap/bootstrap and reject page-wide `createApp` / `mount` solutions instead of treating them as valid CMS apply output.
 Downstream writes must also reject non-Vue inline event authoring such as `onclick`, `onerror`, or assignment-style `@click` expressions that rely on `window.location`, `document.querySelector`, or direct DOM mutation.
 
-The downstream write must fail closed on missing, stale, conflicting, replayed, or non-unique decisions instead of guessing another block. It must not fall back to legacy `sourceId` or invent selector-based recovery from rendered descendants.
+The downstream write must fail closed on missing, conflicting, already-consumed, replayed, or non-unique decisions instead of guessing another block. It must not fall back to legacy `sourceId` or invent selector-based recovery from rendered descendants.
 
 ## Phase 1A boundary
 

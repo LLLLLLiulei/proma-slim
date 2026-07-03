@@ -292,9 +292,13 @@ function normalizeCatalogDecisionSource(
   }
 
   if (selection.sourceType === 'catalogs-by-parent') {
-    const parentId = normalizeRequiredString(decision.source.parentId, 'source.parentId')
+    const parentId = normalizeRequiredCmsId(decision.source.parentId, 'source.parentId')
     if (parentId !== selection.parentCatalogId) {
       throw new PageBuilderCmsBindingDecisionStoreError('decision-conflict', 'ready decision 的 source.parentId 与当前 CMS 选择不一致')
+    }
+
+    if (decision.source.level !== undefined && decision.source.level !== 'children') {
+      throw new PageBuilderCmsBindingDecisionStoreError('decision-conflict', '父栏目来源的 ready decision 必须使用 source.level="children"')
     }
 
     if (decision.source.ids?.length) {
@@ -307,8 +311,8 @@ function normalizeCatalogDecisionSource(
       parentId,
       ...(normalizeOptionalString(decision.source.contentType) ? { contentType: normalizeOptionalString(decision.source.contentType) } : {}),
       ...(normalizeOptionalString(decision.source.searchKeyword) ? { searchKeyword: normalizeOptionalString(decision.source.searchKeyword) } : {}),
-      ...(normalizeOptionalNonNegativeIntegerish(decision.source.take, 'source.take') !== undefined
-        ? { take: normalizeOptionalNonNegativeIntegerish(decision.source.take, 'source.take') }
+      ...(normalizeOptionalPositiveIntegerish(decision.source.take, 'source.take') !== undefined
+        ? { take: normalizeOptionalPositiveIntegerish(decision.source.take, 'source.take') }
         : {}),
     }
   }
@@ -343,7 +347,7 @@ function normalizeContentDecisionSource(
     throw new PageBuilderCmsBindingDecisionStoreError('decision-conflict', 'ready decision 的 source.siteId 与当前 CMS 选择不一致')
   }
 
-  const catalogId = normalizeRequiredString(decision.source.catalogId, 'source.catalogId')
+  const catalogId = normalizeRequiredCmsId(decision.source.catalogId, 'source.catalogId')
   if (catalogId !== selection.catalogId) {
     throw new PageBuilderCmsBindingDecisionStoreError('decision-conflict', 'ready decision 的 source.catalogId 与当前 CMS 选择不一致')
   }
@@ -395,6 +399,15 @@ function normalizeRequiredSiteId(value: string): string {
   return normalized
 }
 
+function normalizeRequiredCmsId(value: string | undefined, fieldName: string): string {
+  const normalized = normalizeRequiredString(value, fieldName)
+  if (!/^[1-9]\d*$/.test(normalized)) {
+    throw new PageBuilderCmsBindingDecisionStoreError('decision-conflict', `${fieldName} 必须是正整数 ID 字符串`)
+  }
+
+  return normalized
+}
+
 function normalizeRequiredString(value: string | undefined, fieldName: string): string {
   const normalized = normalizeOptionalString(value)
   if (!normalized) {
@@ -430,6 +443,12 @@ function normalizeOptionalIds(value: string[] | undefined): string[] | undefined
   const normalized = value.map((entry) => entry.trim()).filter(Boolean)
   if (normalized.length === 0) {
     return undefined
+  }
+
+  for (const [index, id] of normalized.entries()) {
+    if (!/^[1-9]\d*$/.test(id)) {
+      throw new PageBuilderCmsBindingDecisionStoreError('decision-conflict', `source.ids[${index}] 必须是正整数 ID 字符串`)
+    }
   }
 
   return normalized

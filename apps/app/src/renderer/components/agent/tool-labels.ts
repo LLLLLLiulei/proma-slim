@@ -25,7 +25,7 @@ const MCP_TOOL_LABELS: Record<string, string> = {
   mcp__cms__list_catalogs: 'CMS / 查询栏目列表',
   mcp__cms__list_contents: 'CMS / 查询内容列表',
   mcp__cms__decide_cms_binding: 'CMS / 生成绑定方案',
-  mcp__cms__apply_cms_binding: 'CMS / 应用内容绑定',
+  mcp__cms__apply_cms_binding: 'CMS / 应用 CMS 绑定',
   mcp__image_search__search_images: '图片搜索 / 搜索图片',
   mcp__image_search__download_images: '图片搜索 / 导入图片',
   mcp__playwright__browser_navigate: '浏览器自动化 / 打开页面',

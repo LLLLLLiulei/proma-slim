@@ -71,13 +71,134 @@ describe('validateCmsRendering', () => {
     expect(result.valid).toBe(true)
   })
 
+  test('reports invalid formal cms source prop values instead of silently accepting them', () => {
+    const result = validateCmsRendering(`
+      <!doctype html>
+      <html>
+        <body>
+          <section data-proma-block-id="pb_blk_catalog">
+            <cms-catalog site-id="0" level="1" parent-id="news-root" take="0">
+              <template v-slot:default="{ items }">
+                <nav><a v-for="item in items" :key="item.id">{{ item.name }}</a></nav>
+              </template>
+            </cms-catalog>
+          </section>
+          <section data-proma-block-id="pb_blk_content">
+            <cms-content site-id="0" catalog-id="news" ids="n-101" page-size="0">
+              <template v-slot:default="{ items }">
+                <article v-for="item in items" :key="item.id">{{ item.title }}</article>
+              </template>
+            </cms-content>
+          </section>
+        </body>
+      </html>
+    `, {
+      htmlPath: 'index.html',
+    })
+
+    expect(result.valid).toBe(false)
+    expect(result.errors).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        severity: 'error',
+        code: 'INVALID_SOURCE_PROP',
+        component: 'cms-catalog',
+        message: expect.stringContaining('level'),
+      }),
+      expect.objectContaining({
+        severity: 'error',
+        code: 'INVALID_SOURCE_PROP',
+        component: 'cms-catalog',
+        message: expect.stringContaining('site-id'),
+      }),
+      expect.objectContaining({
+        severity: 'error',
+        code: 'INVALID_SOURCE_PROP',
+        component: 'cms-catalog',
+        message: expect.stringContaining('parent-id'),
+      }),
+      expect.objectContaining({
+        severity: 'error',
+        code: 'INVALID_SOURCE_PROP',
+        component: 'cms-catalog',
+        message: expect.stringContaining('take'),
+      }),
+      expect.objectContaining({
+        severity: 'error',
+        code: 'INVALID_SOURCE_PROP',
+        component: 'cms-content',
+        message: expect.stringContaining('site-id'),
+      }),
+      expect.objectContaining({
+        severity: 'error',
+        code: 'INVALID_SOURCE_PROP',
+        component: 'cms-content',
+        message: expect.stringContaining('catalog-id'),
+      }),
+      expect.objectContaining({
+        severity: 'error',
+        code: 'INVALID_SOURCE_PROP',
+        component: 'cms-content',
+        message: expect.stringContaining('ids'),
+      }),
+      expect.objectContaining({
+        severity: 'error',
+        code: 'INVALID_SOURCE_PROP',
+        component: 'cms-content',
+        message: expect.stringContaining('page-size'),
+      }),
+    ]))
+  })
+
+  test('reports cms-catalog parent-id and level combinations that runtime would ignore', () => {
+    const result = validateCmsRendering(`
+      <!doctype html>
+      <html>
+        <body>
+          <cms-catalog site-id="14" parent-id="7">
+            <template v-slot:default="{ items }">
+              <nav><a v-for="item in items" :key="item.id">{{ item.name }}</a></nav>
+            </template>
+          </cms-catalog>
+          <cms-catalog site-id="14" level="root" parent-id="7">
+            <template v-slot:default="{ items }">
+              <nav><a v-for="item in items" :key="item.id">{{ item.name }}</a></nav>
+            </template>
+          </cms-catalog>
+          <cms-catalog site-id="14" level="children">
+            <template v-slot:default="{ items }">
+              <nav><a v-for="item in items" :key="item.id">{{ item.name }}</a></nav>
+            </template>
+          </cms-catalog>
+        </body>
+      </html>
+    `, {
+      htmlPath: 'index.html',
+    })
+
+    expect(result.valid).toBe(false)
+    expect(result.errors).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        severity: 'error',
+        code: 'INVALID_SOURCE_PROP',
+        component: 'cms-catalog',
+        message: 'cms-catalog parent-id requires level="children".',
+      }),
+      expect.objectContaining({
+        severity: 'error',
+        code: 'INVALID_SOURCE_PROP',
+        component: 'cms-catalog',
+        message: 'cms-catalog level="children" requires parent-id.',
+      }),
+    ]))
+  })
+
   test('reports warning and info diagnostics for recoverable authoring issues', () => {
     const result = validateCmsRendering(`
       <!doctype html>
       <html>
         <body>
           <section id="news">
-            <cms-content site-id="14" catalog-id="news" mystery="unexpected">
+            <cms-content site-id="14" catalog-id="16" mystery="unexpected">
               <template #default="{ items }">
                 <img :src="item.listLogoUrl">
               </template>
@@ -112,7 +233,7 @@ describe('validateCmsRendering', () => {
       <html>
         <body>
           <section data-proma-block-id="pb_blk_news">
-            <cms-content catalog-id="news">
+            <cms-content catalog-id="16">
               <script>alert("x")</script>
               <style>.broken { color: red; }</style>
               <template v-slot:default="{ items }">
@@ -149,7 +270,7 @@ describe('validateCmsRendering', () => {
       <html>
         <body>
           <section data-proma-block-id="pb_blk_news">
-            <cms-content site-id="14" catalog-id="news">
+            <cms-content site-id="14" catalog-id="16">
               <template v-slot:default="{ items }">
                 <article v-for="item in items" :key="item.id">
                   <time>{{ getDateDay(item.addedAt) }}</time>
@@ -189,7 +310,7 @@ describe('validateCmsRendering', () => {
       <html>
         <body>
           <section data-proma-block-id="pb_blk_news">
-            <cms-content site-id="14" catalog-id="news">
+            <cms-content site-id="14" catalog-id="16">
               <template v-slot:default="{ items }">
                 <article
                   v-for="item in items"
@@ -232,7 +353,7 @@ describe('validateCmsRendering', () => {
       <html>
         <body>
           <section data-proma-block-id="pb_blk_news">
-            <cms-content site-id="14" catalog-id="news">
+            <cms-content site-id="14" catalog-id="16">
               <template v-slot:default="{ items }">
                 <section>
                   <article v-for="item in items.slice(0, 3)" :key="item.id">
@@ -262,7 +383,7 @@ describe('validateCmsRendering', () => {
       <html>
         <body>
           <ul data-proma-block-id="pb_blk_news" class="row">
-            <cms-content site-id="14" catalog-id="news">
+            <cms-content site-id="14" catalog-id="16">
               <template v-slot:default="{ items }">
                 <ul class="row">
                   <li v-for="item in items" :key="item.id">{{ item.title }}</li>
@@ -294,7 +415,7 @@ describe('validateCmsRendering', () => {
       <html>
         <body>
           <section data-proma-block-id="pb_blk_news">
-            <cms-content site-id="14" catalog-id="news">
+            <cms-content site-id="14" catalog-id="16">
               <template v-slot:default="{ items }">
                 <article v-for="item in items" :key="item.id">
                   <a :href="item.url">{{ item.title }}</a>
@@ -326,7 +447,7 @@ describe('validateCmsRendering', () => {
       <html>
         <body>
           <section data-proma-block-id="pb_blk_news">
-            <cms-content site-id="14" catalog-id="news">
+            <cms-content site-id="14" catalog-id="16">
               <template v-slot:default="{ items }">
                 <p v-if="loading">加载中...</p>
                 <article v-for="item in items" :key="item.id">{{ item.title }}</article>
@@ -357,7 +478,7 @@ describe('validateCmsRendering', () => {
       <html>
         <body>
           <section data-proma-block-id="pb_blk_news">
-            <cms-content site-id="14" catalog-id="news">
+            <cms-content site-id="14" catalog-id="16">
               <template v-slot:default="{ items, loading, error, empty }">
                 <article v-for="item in slotProps.items" :key="item.id">{{ item.title }}</article>
               </template>
@@ -387,7 +508,7 @@ describe('validateCmsRendering', () => {
       <html>
         <body>
           <section data-proma-block-id="pb_blk_news">
-            <cms-content site-id="14" catalog-id="news">
+            <cms-content site-id="14" catalog-id="16">
               <template v-slot:default="slotProps">
                 <article v-for="item in slotProps.items" :key="item.id">{{ item.title }}</article>
               </template>
@@ -416,7 +537,7 @@ describe('validateCmsRendering', () => {
       <html>
         <body>
           <section data-proma-block-id="pb_blk_news">
-            <cms-content site-id="14" catalog-id="news">
+            <cms-content site-id="14" catalog-id="16">
               <template v-slot:default="{ items }">
                 <ul>
                   <li
@@ -454,7 +575,7 @@ describe('validateCmsRendering', () => {
       <html>
         <body>
           <section data-proma-block-id="pb_blk_news">
-            <cms-content site-id="14" catalog-id="news">
+            <cms-content site-id="14" catalog-id="16">
               <template v-slot:default="{ items }">
                 <ul>
                   <li v-for="item in items" :key="item.id">
@@ -507,7 +628,7 @@ describe('validateCmsRendering', () => {
         </head>
         <body>
           <section data-proma-block-id="pb_blk_news">
-            <cms-content site-id="14" catalog-id="news">
+            <cms-content site-id="14" catalog-id="16">
               <template v-slot:default="{ items }">
                 <article v-for="item in items" :key="item.id">{{ item.title }}</article>
               </template>
@@ -547,7 +668,7 @@ describe('validateCmsRendering', () => {
             id="news-list"
             class="hero-slot"
             data-section="news"
-            catalog-id="news"
+            catalog-id="16"
           >
             <template v-slot:default="{ items }">
               <article>{{ items.length }}</article>
@@ -567,7 +688,7 @@ describe('validateCmsRendering', () => {
       <!doctype html>
       <html>
         <body>
-          <cms-content site-id="14" catalog-id="news">
+          <cms-content site-id="14" catalog-id="16">
             <template v-slot:default="{ items }">
               <article>{{ items.length }}</article>
             </template>
@@ -592,12 +713,12 @@ describe('validateCmsRendering', () => {
       <!doctype html>
       <html>
         <body>
-          <cms-catalog ids="cat-b,cat-a">
+          <cms-catalog ids="17,16">
             <template v-slot:default="{ items }">
               <ul><li v-for="item in items">{{ item.name }}</li></ul>
             </template>
           </cms-catalog>
-          <cms-content site-id="14" catalog-id="news" ids="content-2,content-1">
+          <cms-content site-id="14" catalog-id="16" ids="258,257">
             <template v-slot:default="{ items }">
               <section><article v-for="item in items">{{ item.title }}</article></section>
             </template>
@@ -622,7 +743,7 @@ describe('validateCmsRendering', () => {
               <ul><li v-for="item in items">{{ item.name }}</li></ul>
             </template>
           </cms-catalog>
-          <cms-content ids="content-1" catalog-id="news" page-size="3">
+          <cms-content ids="content-1" catalog-id="16" page-size="3">
             <template v-slot:default="{ items }">
               <section><article v-for="item in items">{{ item.title }}</article></section>
             </template>
@@ -645,7 +766,7 @@ describe('validateCmsRendering', () => {
         <body>
           <cms-content
             site-id="14"
-            catalog-id="news"
+            catalog-id="16"
             ids="content-1,content-2"
             content-select-type="Recent"
             title="Legacy Filter"
@@ -685,7 +806,7 @@ describe('validateCmsRendering', () => {
           </section>
           <section data-proma-block-id="pb_blk_news">
             <section class="news-list">
-              <cms-content catalog-id="news">
+              <cms-content catalog-id="16">
                 <template v-slot:default="{ items }">
                   <article v-for="item in items">{{ item.title }}</article>
                 </template>
@@ -708,7 +829,7 @@ describe('validateCmsRendering', () => {
       <!doctype html>
       <html>
         <body>
-          <cms-content site-id="14" catalog-id="news">
+          <cms-content site-id="14" catalog-id="16">
             <template v-slot:default="{ items }">
               <section class="news-list">
                 <article v-for="item in items">{{ item.title }}</article>
@@ -735,7 +856,7 @@ describe('validateCmsRendering', () => {
       <!doctype html>
       <html>
         <body>
-          <cms-content site-id="14" catalog-id="news">
+          <cms-content site-id="14" catalog-id="16">
             <template v-slot:default="{ items }">
               <section class="news-list">
                 <img v-if="items[0]?.listLogoUrl" :src="items[0].listLogoUrl" alt="">
@@ -763,7 +884,7 @@ describe('validateCmsRendering', () => {
               </ul>
             </template>
           </cms-catalog>
-          <cms-content catalog-id="news">
+          <cms-content catalog-id="16">
             <template v-slot:default="{ items }">
               <section class="news-list">
                 <article v-for="item in items">{{ item.title }}</article>
@@ -795,7 +916,7 @@ describe('validateCmsRendering', () => {
             <cms-content
               data-proma-cms-island-id="cms-island-news"
               data-proma-cms-island-source-selector="#news-list > cms-content:nth-of-type(1)"
-              catalog-id="news"
+              catalog-id="16"
             >
               <template v-slot:default="{ items }">
                 <section><article v-for="item in items">{{ item.title }}</article></section>
