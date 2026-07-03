@@ -5,7 +5,10 @@ import { homedir } from 'node:os'
 import { listAgentSessions } from './agent-session-manager'
 import { getAgentWorkspacesDir } from './config-paths'
 import { createAgentWorkspace, listAgentWorkspaces } from './workspace-service'
-import { pageBuilderTemplateService } from './page-builder-template-service'
+import {
+  mayContainCmsAuthoringMarkers,
+  pageBuilderTemplateService,
+} from './page-builder-template-service'
 
 afterEach(() => {
   rmSync(join(homedir(), '.proma'), { recursive: true, force: true })
@@ -63,6 +66,39 @@ describe('PageBuilderTemplateService listTemplates', () => {
 
     const emptyKeywordResult = pageBuilderTemplateService.listTemplates({ name: '   ' })
     expect(emptyKeywordResult.templates).toHaveLength(3)
+  })
+})
+
+describe('PageBuilderTemplateService CMS marker validation', () => {
+  test('allows static snapshot attrs and CSS selectors that reference CMS runtime markers', () => {
+    const html = `<!doctype html>
+      <html>
+        <head>
+          <style>
+            [data-proma-cms-island-id] .reveal {
+              opacity: 1;
+              transform: none;
+            }
+          </style>
+        </head>
+        <body>
+          <article data-proma-cms-island-id="cms-island-news">CMS 静态快照</article>
+        </body>
+      </html>`
+
+    expect(mayContainCmsAuthoringMarkers(html)).toBe(false)
+  })
+
+  test('still rejects CMS authoring tags and CMS preview runtime scripts', () => {
+    expect(mayContainCmsAuthoringMarkers(
+      '<!doctype html><html><body><cms-content site-id="1" catalog-id="13"></cms-content></body></html>',
+    )).toBe(true)
+    expect(mayContainCmsAuthoringMarkers(
+      '<!doctype html><html><body><script data-proma-cms-rendering-config="true">window.__PROMA_CMS_RENDERING_PREVIEW__ = { hasCmsRendering: true }</script></body></html>',
+    )).toBe(true)
+    expect(mayContainCmsAuthoringMarkers(
+      '<!doctype html><html><body><script type="module" src="/api/page-builder/cms-rendering-preview.js"></script></body></html>',
+    )).toBe(true)
   })
 })
 

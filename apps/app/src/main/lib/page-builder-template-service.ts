@@ -361,12 +361,36 @@ function normalizeRenameInput(input: PageBuilderTemplateRenameRequest): Pick<Nor
   return { name }
 }
 
-function mayContainCmsAuthoringMarkers(sourceHtml: string): boolean {
+export function mayContainCmsAuthoringMarkers(sourceHtml: string): boolean {
+  if (!mayNeedCmsAuthoringMarkerScan(sourceHtml)) {
+    return false
+  }
+
+  const { document } = parseHTML(sourceHtml)
+  if (document.querySelector('cms-content, cms-catalog')) {
+    return true
+  }
+
+  return Array.from(document.querySelectorAll('script')).some(isCmsPreviewRuntimeScript)
+}
+
+function mayNeedCmsAuthoringMarkerScan(sourceHtml: string): boolean {
   return /<cms-(?:content|catalog)\b/i.test(sourceHtml)
-    || sourceHtml.includes('data-proma-cms-')
     || sourceHtml.includes('data-proma-cms-rendering-')
     || sourceHtml.includes('__PROMA_CMS_RENDERING_PREVIEW__')
     || sourceHtml.includes('cms-rendering-preview.js')
+}
+
+function isCmsPreviewRuntimeScript(script: Element): boolean {
+  for (const attribute of Array.from(script.attributes)) {
+    if (attribute.name.startsWith('data-proma-cms-rendering-')) {
+      return true
+    }
+  }
+
+  const src = script.getAttribute('src')
+  return Boolean(src?.includes('cms-rendering-preview.js'))
+    || script.textContent.includes('__PROMA_CMS_RENDERING_PREVIEW__')
 }
 
 function collectFiles(rootDir: string, predicate: (filePath: string) => boolean): string[] {
