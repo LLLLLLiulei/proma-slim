@@ -10,6 +10,9 @@ import {
   toPageBuilderBaseHref,
 } from '@ai-page-builder/shared'
 import { Hono } from 'hono'
+import { proxy } from 'hono/proxy'
+import { fetch as undiciFetch } from 'undici'
+import type { RequestInfo as UndiciRequestInfo, RequestInit as UndiciRequestInit } from 'undici'
 import {
   normalizePageBuilderHiddenToolbarItems,
   type PageBuilderToolbarItemKey,
@@ -49,6 +52,40 @@ function isStaticAssetRequest(pathname: string): boolean {
   return extname(pathname) !== ''
 }
 
+function isAbortLikeError(error: unknown): boolean {
+  return typeof error === 'object'
+    && error !== null
+    && 'name' in error
+    && (error as { name?: unknown }).name === 'AbortError'
+}
+
+function canRequestHaveBody(method: string): boolean {
+  const normalizedMethod = method.toUpperCase()
+  return normalizedMethod !== 'GET' && normalizedMethod !== 'HEAD'
+}
+
+// Hono's proxy helper defaults to global fetch; use bundled undici to avoid
+// affected Node built-in undici versions crashing on paused upstream responses.
+export function nodeSafeProxyFetch(request: Request, init?: RequestInit): Promise<Response> {
+  const body = canRequestHaveBody(request.method) ? request.body : null
+  const requestInit: UndiciRequestInit & { duplex?: 'half' } = {
+    method: request.method,
+    headers: request.headers as unknown as UndiciRequestInit['headers'],
+    body: body as unknown as UndiciRequestInit['body'],
+    redirect: init?.redirect ?? request.redirect,
+    signal: init?.signal ?? request.signal,
+  }
+
+  if (body) {
+    requestInit.duplex = 'half'
+  }
+
+  return undiciFetch(
+    request.url as unknown as UndiciRequestInfo,
+    requestInit,
+  ) as unknown as Promise<Response>
+}
+
 async function proxyApiRequest(
   request: Request,
   appOrigin: string,
@@ -57,19 +94,19 @@ async function proxyApiRequest(
 ): Promise<Response> {
   const requestUrl = new URL(request.url)
   const targetUrl = new URL(`${upstreamPathname ?? requestUrl.pathname}${requestUrl.search}`, appOrigin)
-  const proxiedRequest = new Request(targetUrl, {
-    method: request.method,
-    headers: request.headers,
-    body: request.body,
-    redirect: 'manual',
-    signal: request.signal,
-  })
+  const headers = new Headers(request.headers)
   const forwardedHost = request.headers.get('x-forwarded-host')?.trim() || requestUrl.host
   const forwardedProto = request.headers.get('x-forwarded-proto')?.split(',')[0]?.trim()
     || requestUrl.protocol.replace(/:$/, '')
-  proxiedRequest.headers.set('x-forwarded-host', forwardedHost)
-  proxiedRequest.headers.set('x-forwarded-proto', forwardedProto)
-  return fetchImpl(proxiedRequest, { redirect: 'manual' })
+  headers.set('x-forwarded-host', forwardedHost)
+  headers.set('x-forwarded-proto', forwardedProto)
+
+  return proxy(targetUrl, {
+    raw: request,
+    headers,
+    redirect: 'manual',
+    customFetch: (proxiedRequest: Request) => fetchImpl(proxiedRequest, { redirect: 'manual' }),
+  })
 }
 
 function escapeHtmlAttribute(value: string): string {
@@ -127,7 +164,7 @@ async function indexHtmlResponse(
 }
 
 export function createPageBuilderProdApp(options: PageBuilderProdServerOptions): Hono {
-  const fetchImpl = options.fetchImpl ?? ((request: Request, init?: RequestInit) => fetch(request, init))
+  const fetchImpl = options.fetchImpl ?? nodeSafeProxyFetch
   const normalizedDistDir = resolve(options.distDir)
   const publicBasePath = normalizePageBuilderPublicBasePath(options.publicBasePath)
   const hiddenToolbarItems = normalizePageBuilderHiddenToolbarItems(options.hiddenToolbarItems)
@@ -139,7 +176,16 @@ export function createPageBuilderProdApp(options: PageBuilderProdServerOptions):
     const upstreamPathname = stripPageBuilderPublicBasePath(url.pathname, publicBasePath)
 
     if (isApiRequest(upstreamPathname)) {
-      return proxyApiRequest(request, options.appOrigin, fetchImpl, upstreamPathname)
+      try {
+        return await proxyApiRequest(request, options.appOrigin, fetchImpl, upstreamPathname)
+      } catch (error) {
+        if (!isAbortLikeError(error)) {
+          console.error('[Page Builder Web] API proxy request failed:', error)
+        }
+        return new Response(isAbortLikeError(error) ? 'Client Closed Request' : 'Bad Gateway', {
+          status: isAbortLikeError(error) ? 499 : 502,
+        })
+      }
     }
 
     if (upstreamPathname === '/' || upstreamPathname === '/index.html') {

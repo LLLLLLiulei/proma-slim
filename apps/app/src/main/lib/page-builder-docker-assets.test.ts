@@ -179,7 +179,7 @@ describe('page-builder docker assets', () => {
     expect(dockerfile).toContain('--target=node')
     expect(dockerfile).toContain('--format=esm')
     expect(dockerfile).toContain('--outfile /app/apps/page-builder/src/server/prod-server.mjs')
-    expect(dockerfile).toContain('FROM node:22-bookworm-slim AS runtime')
+    expect(dockerfile).toContain('FROM node:24-bookworm-slim AS runtime')
     expect(dockerfile).not.toContain('COPY --from=deps /app/node_modules ./node_modules')
     expect(dockerfile).not.toContain('COPY --from=build /app/packages/shared ./packages/shared')
     expect(dockerfile).not.toContain('COPY --from=build /app/apps/page-builder/src/server/prod-server.ts')
@@ -210,7 +210,7 @@ describe('page-builder docker assets', () => {
     expect(compose).not.toContain('/pagebuilder/api')
   })
 
-  test('server Dockerfile uses Node 22 runtime and preserves runtime resources', () => {
+  test('server Dockerfile uses Node 24 runtime and preserves runtime resources', () => {
     const appPackageJson = readRepoFile('../../../../../apps/app/package.json')
     const dockerfile = readRepoFile('../../../../../build/Dockerfile.page-builder-app')
     const compose = readRepoFile('../../../../../build/docker-compose.yml')
@@ -224,7 +224,7 @@ describe('page-builder docker assets', () => {
     expect(dockerfile).toContain('--target=node')
     expect(dockerfile).toContain('--format=esm')
     expect(dockerfile).toContain('--outfile /app/apps/app/src/main/index.mjs')
-    expect(dockerfile).toContain('FROM node:22-bookworm-slim AS runtime')
+    expect(dockerfile).toContain('FROM node:24-bookworm-slim AS runtime')
     expect(dockerfile).toContain('COPY --from=deps /app/node_modules ./node_modules')
     expect(dockerfile).toContain('PROMA_DEFAULT_SKILLS_DIR=/app/apps/app/default-skills')
     expect(dockerfile).toContain('PROMA_WORKSPACE_TEMPLATES_DIR=/app/apps/app/resources/templates')

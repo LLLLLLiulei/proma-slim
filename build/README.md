@@ -46,7 +46,7 @@ bun --version
 - `docker compose` 需要 Docker Compose v2。
 - `build-page-builder-multiarch.sh` 和 `start-page-builder.sh --platform ...` 需要 `docker buildx`。
 - `cms-verify/smoke-test.ts` 需要宿主机可执行 `bun`。
-- 首次构建会拉取构建阶段使用的 `oven/bun:1.2.5`、运行阶段使用的 `node:22-bookworm-slim`、`mcr.microsoft.com/playwright:v1.57.0-jammy`、`nginx:1.29-alpine` 等镜像。
+- 首次构建会拉取构建阶段使用的 `oven/bun:1.2.5`、Web / Server 运行阶段使用的 `node:24-bookworm-slim`、`mcr.microsoft.com/playwright:v1.57.0-jammy`、`nginx:1.29-alpine` 等镜像。
 
 ## 环境变量文件
 

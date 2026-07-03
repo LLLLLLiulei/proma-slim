@@ -27,6 +27,7 @@
         "@anthropic-ai/claude-agent-sdk": "0.2.76",
         "@emoji-mart/data": "^1.2.1",
         "@emoji-mart/react": "^1.1.1",
+        "@hono/node-server": "^2.0.6",
         "@radix-ui/react-alert-dialog": "^1.1.15",
         "@radix-ui/react-dialog": "^1.1.15",
         "@radix-ui/react-popover": "^1.1.15",
@@ -131,6 +132,7 @@
         "remark-math": "^6",
         "sonner": "^2.0.7",
         "tailwind-merge": "^2.5.5",
+        "undici": "8.5.0",
         "use-stick-to-bottom": "^1.1.2",
         "zod": "^4.0.0",
       },
@@ -1450,6 +1452,8 @@
     "zwitch": ["zwitch@2.0.4", "", {}, "sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A=="],
 
     "@ai-page-builder/cms-vue-islands-demo/@types/bun": ["@types/bun@1.3.13", "https://registry.npmmirror.com/@types/bun/-/bun-1.3.13.tgz", { "dependencies": { "bun-types": "1.3.13" } }, "sha512-9fqXWk5YIHGGnUau9TEi+qdlTYDAnOj+xLCmSTwXfAIqXr2x4tytJb43E9uCvt09zJURKXwAtkoH4nLQfzeTXw=="],
+
+    "@ai-page-builder/page-builder/undici": ["undici@8.5.0", "https://registry.npmmirror.com/undici/-/undici-8.5.0.tgz", {}, "sha512-xamtWoB1EshgjpmlXd7GGm2VfdDtw1+rD8uhry8pSNW3If6S8E0m2T2+orSKeZXEn/aPJMviCpDBA65WJt8zhg=="],
 
     "@ai-page-builder/page-builder-cms-rendering/@types/bun": ["@types/bun@1.3.14", "https://registry.npmmirror.com/@types/bun/-/bun-1.3.14.tgz", { "dependencies": { "bun-types": "1.3.14" } }, "sha512-h1hFqFVcvAvD9j9K7ZW7vd82aSA+rTdznZa+5bwvCwqSB1jmmfLcbIWhOLx1/+boy/xmjgCs/OMUL8hRJSmnPw=="],
 

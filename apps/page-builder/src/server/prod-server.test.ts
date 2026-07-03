@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -19,6 +21,29 @@ function createTempDistDir(): string {
 }
 
 const tempDirs: string[] = []
+
+async function listenHttpServer(
+  handler: (request: IncomingMessage, response: ServerResponse) => void,
+): Promise<{ origin: string, close: () => Promise<void> }> {
+  const server = createServer(handler)
+  await new Promise<void>((resolve) => {
+    server.listen(0, '127.0.0.1', resolve)
+  })
+  const address = server.address() as AddressInfo
+
+  return {
+    origin: `http://127.0.0.1:${address.port}`,
+    close: () => new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error)
+          return
+        }
+        resolve()
+      })
+    }),
+  }
+}
 
 afterEach(() => {
   while (tempDirs.length > 0) {
@@ -239,6 +264,77 @@ describe('page-builder production server', () => {
     expect(response.status).toBe(202)
     expect(response.headers.get('x-proxied')).toBe('true')
     expect(await response.text()).toBe('stream-astream-b')
+  })
+
+  test('uses the bundled proxy fetch by default without depending on global fetch', async () => {
+    const distDir = createTempDistDir()
+    tempDirs.push(distDir)
+
+    const upstream = await listenHttpServer((request, response) => {
+      let body = ''
+      request.setEncoding('utf-8')
+      request.on('data', (chunk) => {
+        body += chunk
+      })
+      request.on('end', () => {
+        response.writeHead(203, {
+          'content-type': 'text/plain; charset=utf-8',
+          'x-upstream-method': request.method ?? '',
+          'x-upstream-path': request.url ?? '',
+        })
+        response.write('stream-a')
+        response.end(`:${body}`)
+      })
+    })
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (() => {
+      throw new Error('global fetch must not be used by the production API proxy')
+    }) as unknown as typeof fetch
+
+    try {
+      const handler = createPageBuilderProdFetchHandler({
+        distDir,
+        appOrigin: upstream.origin,
+      })
+
+      const response = await handler(new Request('http://localhost/api/proxy-test?draft=1', {
+        method: 'POST',
+        body: 'payload',
+        headers: { 'content-type': 'text/plain' },
+      }))
+
+      expect(response.status).toBe(203)
+      expect(response.headers.get('x-upstream-method')).toBe('POST')
+      expect(response.headers.get('x-upstream-path')).toBe('/api/proxy-test?draft=1')
+      expect(await response.text()).toBe('stream-a:payload')
+    } finally {
+      globalThis.fetch = originalFetch
+      await upstream.close()
+    }
+  })
+
+  test('returns bad gateway when the API proxy cannot reach the upstream server', async () => {
+    const distDir = createTempDistDir()
+    tempDirs.push(distDir)
+    const originalConsoleError = console.error
+    console.error = () => {}
+
+    try {
+      const handler = createPageBuilderProdFetchHandler({
+        distDir,
+        appOrigin: 'http://app:3000',
+        fetchImpl: async () => {
+          throw new Error('connect ECONNREFUSED')
+        },
+      })
+
+      const response = await handler(new Request('http://localhost/api/status'))
+
+      expect(response.status).toBe(502)
+      expect(await response.text()).toBe('Bad Gateway')
+    } finally {
+      console.error = originalConsoleError
+    }
   })
 
   test('handles direct base path requests by stripping the prefix once', async () => {
