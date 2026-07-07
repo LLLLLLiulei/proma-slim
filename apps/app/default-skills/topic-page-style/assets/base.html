@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>页面标题</title>
+<style>/* 粘贴 assets/base.css 全文，并按主题改写 :root 变量 */</style>
+</head>
+<body>
+
+  <!-- ① Header：三种变体选一（或替换为真实 <img> + .hero__overlay） -->
+  <header class="hero hero--gradient">
+    <div class="hero__content">
+      <h1 class="hero__title">页面主标题</h1>
+      <div class="hero__decoration"></div>
+      <p class="hero__subtitle">副标题 / 日期 / 主办方（可选）</p>
+    </div>
+  </header>
+
+  <!-- ② Tab 导航（推荐）：href 指向对应 section 的 id。叙事型页面可省略，不需要时删除此 <nav> 整段 -->
+  <nav class="tab-nav">
+    <a href="#overview" class="active">首页</a>
+    <a href="#news">资讯</a>
+    <a href="#agenda">议程</a>
+    <a href="#gallery">图集</a>
+    <a href="#contact">联系</a>
+  </nav>
+
+  <!-- ③ 内容区：每个 section 必须有 id（供 Tab 定位）和 data-layout（供 validate_page.py 自检布局节奏） -->
+  <main>
+    <section id="overview" class="section" data-layout="A">
+      <div class="page">
+        <h2 class="section-title">区块标题</h2>
+        <div class="section-body">
+          <p>内容段落...</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 两栏并排示例 1：70/30 不对称（布局 M 默认）— 主栏+侧栏 -->
+    <!--
+    <section class="section section--alt" data-layout="M">
+      <div class="page page-layout">
+        <div class="page-layout__main">
+          <h2 class="section-title">主要内容</h2>...
+        </div>
+        <aside class="page-layout__aside">
+          <h3>侧栏标题</h3>...
+        </aside>
+      </div>
+    </section>
+    -->
+
+    <!-- 两栏并排示例 2：twin-sections（布局 M --twin）— 两个平级 section 各 50% -->
+    <!--
+    <section class="section" data-layout="M-twin">
+      <div class="page page-layout page-layout--twin">
+        <div class="page-layout__main">
+          <h2 class="section-title">栏目 A</h2>...
+        </div>
+        <div class="page-layout__main">
+          <h2 class="section-title">栏目 B</h2>...
+        </div>
+      </div>
+    </section>
+    -->
+
+    <!-- 更多 section 按决策表继续添加，注意 data-layout 相邻不重复（例外情况见 SKILL.md 第三节） -->
+  </main>
+
+  <!-- ④ Footer -->
+  <footer class="footer">
+    <p>主办单位：XXX　|　联系方式：XXX　|　版权所有 © 2024</p>
+  </footer>
+
+  <!-- 粘贴 assets/tab-nav.js 全文（放在 </body> 前）。页面无 Tab 导航且无轮播时可删除此 <script> -->
+  <script></script>
+
+</body>
+</html>
