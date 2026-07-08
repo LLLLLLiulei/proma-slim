@@ -8,17 +8,24 @@
 </head>
 <body>
 
-  <!-- ① Header：三种变体选一（或替换为真实 <img> + .hero__overlay） -->
-  <header class="hero hero--gradient">
+  <!-- ① Header：传统专题优先整图 KV。若有已设计海报图，直接用 <img>；无图时才使用 CSS 占位/渐变 Hero -->
+  <header class="kv-banner kv-banner--center">
+    <!-- <img src="assets/banner.jpg" alt="页面主标题"> -->
+    <div class="placeholder-visual">整图 KV / 页面主标题 / 副标题待补充</div>
+  </header>
+
+  <!-- 无真实 KV 时的兜底写法：
+  <header class="hero hero--gradient hero--poster">
     <div class="hero__content">
       <h1 class="hero__title">页面主标题</h1>
       <div class="hero__decoration"></div>
       <p class="hero__subtitle">副标题 / 日期 / 主办方（可选）</p>
     </div>
   </header>
+  -->
 
-  <!-- ② Tab 导航（推荐）：href 指向对应 section 的 id。叙事型页面可省略，不需要时删除此 <nav> 整段 -->
-  <nav class="tab-nav">
+  <!-- ② 静态栏目导航（推荐）：href 指向对应 section 的 id。需要吸顶时额外加 tab-nav--sticky -->
+  <nav class="tab-nav tab-nav--blue">
     <a href="#overview" class="active">首页</a>
     <a href="#news">资讯</a>
     <a href="#agenda">议程</a>
@@ -26,21 +33,73 @@
     <a href="#contact">联系</a>
   </nav>
 
-  <!-- ③ 内容区：每个 section 必须有 id（供 Tab 定位）和 data-layout（供 validate_page.py 自检布局节奏） -->
-  <main>
-    <section id="overview" class="section" data-layout="A">
-      <div class="page">
-        <h2 class="section-title">区块标题</h2>
-        <div class="section-body">
-          <p>内容段落...</p>
+  <!-- ③ 内容区：传统 CMS 默认 topic-shell + module-box；每个 section 必须有 id 和 data-layout -->
+  <main class="topic-shell">
+    <section id="overview" class="module-box" data-layout="A">
+      <div class="module-header">
+        <h2 class="module-header__title">区块标题</h2>
+        <a href="#news" class="module-header__more">更多 &gt;</a>
+      </div>
+      <div class="section-body">
+        <p>内容段落...</p>
+      </div>
+    </section>
+
+    <section id="news" class="module-box" data-layout="J">
+      <h2 class="section-title section-title--cms-line"><span>焦点资讯</span></h2>
+      <div class="focus">
+        <div class="focus__img">
+          <div class="placeholder-visual">主题焦点图</div>
+        </div>
+        <div class="focus__list">
+          <ul class="news-list">
+            <li class="news-list__item">
+              <a href="#news" class="news-list__title">新闻标题文字</a>
+              <time class="news-list__date">待补充日期</time>
+            </li>
+          </ul>
         </div>
       </div>
     </section>
 
+    <section id="agenda" class="module-box" data-layout="D">
+      <h2 class="section-title section-title--cms-line"><span>流程安排</span></h2>
+      <div class="agenda-panel">
+        <div class="agenda-tabs">
+          <span class="agenda-tabs__item active">上午</span>
+          <span class="agenda-tabs__item">下午</span>
+        </div>
+        <ol class="agenda-timeline">
+          <li class="agenda-timeline__item">
+            <time class="agenda-timeline__time">时间待发布</time>
+            <div class="agenda-timeline__title">议程主题待发布</div>
+            <div class="agenda-timeline__desc">环节安排、地点与嘉宾待确认</div>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <section id="gallery" class="module-box" data-layout="E">
+      <h2 class="section-title section-title--cms-line"><span>图片集锦</span></h2>
+      <div class="gallery gallery--asymmetric-compact">
+        <figure class="gallery__item"><div class="placeholder-img" style="--ph-ratio:16/9">主图</div></figure>
+        <figure class="gallery__item"><div class="placeholder-img">配图</div></figure>
+        <figure class="gallery__item"><div class="placeholder-img">配图</div></figure>
+        <figure class="gallery__item"><div class="placeholder-img">配图</div></figure>
+      </div>
+    </section>
+
+    <section id="contact" class="module-box" data-layout="G">
+      <div class="cta cta--inline">
+        主办单位：待补充　|　联系电话：待补充　|　邮箱：待补充
+      </div>
+    </section>
+
+    <!-- 现代分段式页面可改回 <section class="section"><div class="page">...</div></section> -->
     <!-- 两栏并排示例 1：70/30 不对称（布局 M 默认）— 主栏+侧栏 -->
     <!--
-    <section class="section section--alt" data-layout="M">
-      <div class="page page-layout">
+    <section id="side-by-side" class="module-box" data-layout="M">
+      <div class="page-layout">
         <div class="page-layout__main">
           <h2 class="section-title">主要内容</h2>...
         </div>
@@ -51,10 +110,10 @@
     </section>
     -->
 
-    <!-- 两栏并排示例 2：twin-sections（布局 M --twin）— 两个平级 section 各 50% -->
+    <!-- 两栏并排示例 2：twin-sections（布局 M --twin）— 两个平级栏目各 50% -->
     <!--
-    <section class="section" data-layout="M-twin">
-      <div class="page page-layout page-layout--twin">
+    <section id="twin-sections" class="module-box" data-layout="M-twin">
+      <div class="page-layout page-layout--twin">
         <div class="page-layout__main">
           <h2 class="section-title">栏目 A</h2>...
         </div>
@@ -65,12 +124,61 @@
     </section>
     -->
 
-    <!-- 更多 section 按决策表继续添加，注意 data-layout 相邻不重复（例外情况见 SKILL.md 第三节） -->
+    <!-- 更多 module-box 按决策表继续添加，注意 data-layout 相邻不重复（例外情况见 SKILL.md 第三节） -->
+    <!-- 新闻缩略图 / 日期卡 / 视频宫格最小片段：
+    <ul class="news-list news-list--thumb">
+      <li class="news-list__item">
+        <a class="news-list__thumb video-thumb" href="#news"><div class="placeholder-img">视频</div></a>
+        <div class="news-list__body">
+          <a href="#news" class="news-list__title">新闻标题文字</a>
+          <p class="news-list__desc">摘要文字...</p>
+          <time class="news-list__date">YYYY-MM-DD</time>
+        </div>
+      </li>
+    </ul>
+    <ul class="news-list news-list--date-card">
+      <li class="news-list__item">
+        <time class="news-list__date-card"><strong>DD</strong><span>MM月</span></time>
+        <a href="#news" class="news-list__title">公告标题文字</a>
+      </li>
+    </ul>
+    <div class="video-grid">
+      <article class="video-card">
+        <a class="video-thumb" href="#gallery"><div class="placeholder-img" style="--ph-ratio:16/9">视频</div></a>
+        <h3 class="video-card__title">视频标题</h3>
+      </article>
+    </div>
+    -->
   </main>
 
+  <!-- 现代 section 示例，仅在不使用传统 CMS 内容壳时启用 -->
+  <!--
+  <main>
+    <section id="overview" class="section" data-layout="A">
+      <div class="page">
+        <h2 class="section-title">区块标题</h2>
+        <div class="section-body">
+          <p>内容段落...</p>
+        </div>
+      </div>
+    </section>
+  </main>
+  -->
+
   <!-- ④ Footer -->
-  <footer class="footer">
-    <p>主办单位：XXX　|　联系方式：XXX　|　版权所有 © 2024</p>
+  <footer class="footer footer--multi">
+    <div class="footer__inner">
+      <div class="footer__contact">
+        <p>主办单位：待补充</p>
+        <p>联系方式：待补充</p>
+        <p>联系地址：待补充</p>
+      </div>
+      <div class="footer__qr">二维码待发布</div>
+      <div class="footer__links">
+        <a href="#overview">首页</a><a href="#news">资讯</a><a href="#gallery">图集</a><a href="#contact">联系</a>
+      </div>
+      <div class="footer__icp">版权与备案信息待补充</div>
+    </div>
   </footer>
 
   <!-- 粘贴 assets/tab-nav.js 全文（放在 </body> 前）。页面无 Tab 导航且无轮播时可删除此 <script> -->

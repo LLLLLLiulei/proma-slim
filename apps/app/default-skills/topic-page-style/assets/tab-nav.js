@@ -23,17 +23,26 @@
   document.querySelectorAll('.hero-carousel, .carousel').forEach(root=>{
     const dots=root.querySelectorAll('.hero-carousel__dots button, .carousel__dots button');
     const slides=root.querySelectorAll('.hero-carousel__slide, .carousel__slide');
-    if(slides.length < 2) return;
-    let idx=0, timer;
-    const interval = root.dataset.autoplay !== undefined ? Number(root.dataset.autoplay) : 5000;
-    if(interval <= 0) return;
+    if(!slides.length) return;
+    let idx=Array.from(slides).findIndex(slide=>slide.classList.contains('active')), timer;
+    if(idx < 0) idx = 0;
+    dots.forEach((dot,i)=>{
+      if(!dot.getAttribute('type')) dot.setAttribute('type','button');
+      if(!dot.getAttribute('aria-label')) dot.setAttribute('aria-label',`切换到第 ${i + 1} 张`);
+    });
+    let interval = root.dataset.autoplay !== undefined ? Number(root.dataset.autoplay) : 5000;
+    if(!Number.isFinite(interval)) interval = 5000;
     function go(n){
-      slides[idx].classList.remove('active'); if(dots[idx]) dots[idx].classList.remove('active');
       idx=(n+slides.length)%slides.length;
-      slides[idx].classList.add('active'); if(dots[idx]) dots[idx].classList.add('active');
+      slides.forEach((slide,i)=>slide.classList.toggle('active',i===idx));
+      dots.forEach((dot,i)=>dot.classList.toggle('active',i===idx));
     }
     dots.forEach((d,i)=>d.addEventListener('click',()=>{go(i);reset()}));
-    function reset(){ clearInterval(timer); timer=setInterval(()=>go(idx+1), interval); }
+    function reset(){
+      clearInterval(timer);
+      if(interval>0 && slides.length>1) timer=setInterval(()=>go(idx+1), interval);
+    }
+    go(idx);
     reset();
   });
 })();

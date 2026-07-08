@@ -3,13 +3,15 @@
 > 本文件只在 `SKILL.md` 第三节的决策表选定某个布局字母后查阅——**只读你需要的那一节，不必通读全文**。
 > 每节给出：线框图、内容约束、易错点、对应的 CSS 类名。**具体的 CSS 属性值在 `assets/base.css` 里，本文件不重复誊写**——需要样式细节时去看那个文件，改数值也在那个文件里改。
 > 
-> **提醒**：每个 `<section>` 必须加 `data-layout="X"` 属性（X 为布局字母，如 `data-layout="D"`），这是 `scripts/validate_page.py` 自动校验布局节奏的依据。同布局不同形态可加后缀（如 `data-layout="M-twin"`）。
+> **提醒**：每个 `<section>` 必须加 `data-layout="X"` 属性（X 为布局字母，如 `data-layout="D"`），这是 `scripts/validate_page.py` 自动校验布局节奏的依据。同布局不同形态可加后缀（如 `data-layout="M-twin"`）。相邻 section 确属同类并列信息时，显式加 `data-layout-repeat="true"`。
 
 ## 目录
 
 | 布局 | 一句话说明 | 对应 CSS 选择器（在 base.css 中） |
 |---|---|---|
-| [栏目标题变体](#栏目标题三种变体) | 三种 section 标题样式 | `.section-title` 系列 |
+| [KV/海报 Banner](#kv海报-banner) | 保持整图海报不裁切的 Header | `.kv-banner`, `.hero--poster-image` |
+| [CMS 内容壳](#cms-内容壳与模块框) | 传统专题页的白色内容壳与模块框 | `.topic-shell`, `.module-box`, `.module-header` |
+| [栏目标题变体](#栏目标题四种变体所有布局共用) | 四种 section 标题样式 | `.section-title` 系列 |
 | [A 纯文卡片](#布局-a纯文卡片) | 段落文字、说明 | `.section-body`, `.pullquote` |
 | [B1/B2 双栏图文](#布局-b1b2双栏图文) | 图文 zigzag 交替 | `.row`, `.row--reverse` |
 | [C 数据展示行](#布局-c数据展示行) | 统计数字 | `.stats`, `.stat-item` |
@@ -23,21 +25,69 @@
 | [K Hero轮播](#布局-khero-轮播图) | Header多图轮播 | `.hero-carousel` |
 | [L 内容区滑动](#布局-l内容区图片滑动) | 水平滑动 | `.slider`, `.carousel` |
 | [M 两栏并排](#布局-m两栏并排) | section内左右并排 | `.page-layout` |
+| [特殊专题模块](#特殊专题模块) | 榜单色带、节日愿望区、会务页脚 | `.ranking-band`, `.festival-band`, `.footer__qr` |
 
 ---
 
-## 栏目标题（三种变体，所有布局共用）
+## KV/海报 Banner
 
-标题是每个 section 的起点。三种变体按页面气质选择，全页统一一种。0A 是最常见的默认形态但仍需主动确认选择依据（见 SKILL.md 第四节）。特殊区块（如议程）可使用不同变体。
+参考截图的首屏多数是“已设计好的整图海报”，不是普通背景图裁切后再叠 DOM 标题。
+
+```html
+<header class="kv-banner kv-banner--center">
+  <img src="assets/banner.jpg" alt="页面主标题">
+</header>
+```
+
+**使用规则**：
+
+- 有完整 KV/海报图时，优先用 `.kv-banner`，图片 `width:100%; height:auto`，避免 `object-fit:cover` 裁掉海报文字、logo 或装饰。
+- 如果必须沿用 `.hero` 结构展示纯图，用 `.hero--poster-image`，让 `.hero__bg` 改为静态图片流。
+- 无真实图时才使用 `.hero--gradient`、`.placeholder-visual` 或更克制的 `.placeholder-cms` 兜底；传统 CMS 页面优先 `.placeholder-cms`，避免首屏几何渐变感过重。
+- 导航条通常紧贴 KV 下方，不额外留大空白。
+
+---
+
+## CMS 内容壳与模块框
+
+传统中文专题页优先使用内容壳，而不是全页大面积交替底色。
+
+```text
+<main class="topic-shell">
+  ┌──────────────────────────────────────────┐
+  │ module-box: 栏目标题 + 焦点区/新闻/图集  │
+  ├──────────────────────────────────────────┤
+  │ module-box: 双栏栏目 / 议程 / 嘉宾        │
+  └──────────────────────────────────────────┘
+</main>
+```
+
+**使用规则**：
+
+- `.topic-shell` 控制页面主内容宽度、白底、细边框和模块之间的紧凑间距；默认使用 `--shell-width:1040px`，`.topic-shell--narrow` 为 960px，`.topic-shell--wide` 为 1200px。
+- `.module-box` 是栏目模块容器，适合传统 CMS 的头条、资讯、图集、议程、视频等。
+- `.module-header` 用于“栏目标题 + 更多>”的门户式标题行。
+- 如果页面是纪实叙事或榜单长条，可以不用 `.topic-shell`，但仍要让每个模块有稳定宽度和清晰边界。
+
+---
+
+## 栏目标题（四种变体，所有布局共用）
+
+标题是每个 section 的起点。四种变体按页面气质选择，全页统一一种。0D 是传统 CMS 门户/会议/政务页面的优先形态；0A 是常规信息默认形态但仍需主动确认选择依据（见 SKILL.md 第四节）。特殊区块（如议程）可使用不同变体。
 
 ```
 变体 0A 左色条：       ▌ 区块标题
 变体 0B 居中装饰线：        区块标题
                         ━━━━━━━━
 变体 0C 色块标题条：   █████ 区块标题 █████
+变体 0D CMS 横线：     ───── ◆ 区块标题 ◆ ─────
 ```
 
 标题右侧可选"更多>"小字链接，指向列表详情，类名 `.section-title__more`。
+
+**推荐**：传统 CMS 门户/政务/会议页面优先使用 `.section-title--cms-line` 或 `.module-header`。0B 下短线更接近现代落地页，除文旅/纪实页外不要默认使用。
+
+**可选装饰**：政务/节庆可用 `.section-title--ribbon` 或 `.section-divider-logo`；门户蓝色短线标题可用 `.section-title--portal-blue`。
 
 ---
 
@@ -96,9 +146,9 @@ B1: [ 图 40% ][ 文 60% ]    B2: [ 文 60% ][ 图 40% ]
 ## 布局 D：时间线
 
 ```
-●──── 2024.01  事件标题
+●──── YYYY.MM  事件标题
 │     事件描述...
-◉──── 2024.06  事件标题 (当前项, accent 高亮)
+◉──── YYYY.MM  事件标题 (当前项, accent 高亮)
 ```
 
 **内容约束**：每条 = 时间 + 标题 + 描述(可省)；时间用 `tabular-nums`。
@@ -107,13 +157,31 @@ B1: [ 图 40% ][ 文 60% ]    B2: [ 文 60% ][ 图 40% ]
 
 ```
 时间          议程内容                    地点/主讲人
-09:00-09:30   开幕式                      主会场 / 张主任
-09:30-10:30   主旨演讲：行业发展趋势        主会场 / 李教授
+时间待发布     开幕环节待确认               地点待确认 / 主讲人待确认
+时间待发布     主题交流方向待发布             地点待确认 / 主讲人待确认
 ```
 
 **选择建议**：描述性强、有叙事顺序 → 时间线；结构化、多列信息、用户说"议程表" → 表格（移动端自动转卡片式，见 base.css 响应式规则）。多天议程可在每天之间插入 `.agenda-day` 标签（深色小字标签，视觉上分隔不同日期）。
 
 **多天议程的日期标签**：`.agenda-day`（深色背景+白字标签，用于议程表中分隔不同日期）。
+
+**会议面板变体**：会议/培训截图常见“日期标签 + 竖向时间线”的居中白色面板。用 `.agenda-panel` 包裹 `.agenda-tabs` 和 `.agenda-timeline`：
+
+```html
+<div class="agenda-panel">
+  <div class="agenda-tabs">
+    <span class="agenda-tabs__item active">上午</span>
+    <span class="agenda-tabs__item">下午</span>
+  </div>
+  <ol class="agenda-timeline">
+    <li class="agenda-timeline__item">
+      <time class="agenda-timeline__time">时间待发布</time>
+      <div class="agenda-timeline__title">议程主题待发布</div>
+      <div class="agenda-timeline__desc">地点与嘉宾待确认</div>
+    </li>
+  </ol>
+</div>
+```
 
 ---
 
@@ -127,7 +195,9 @@ B1: [ 图 40% ][ 文 60% ]    B2: [ 文 60% ][ 图 40% ]
 
 **内容约束**：图片统一比例；数量建议 4 的倍数（4/8/12）便于网格对齐，非固定数量用 `.gallery--auto`。
 
-**非对称变体**：`.gallery--asymmetric` 让首图占据全部 3 行（`grid-row:1/-1`），适合有一张主图+若干配图的场景。
+**非对称变体**：`.gallery--asymmetric` 让首图占据全部 3 行（`grid-row:1/-1`），适合有一张主图+若干配图的场景。`.gallery--asymmetric` 只适合至少有 1 张真实主图或已生成的高质量主视觉图时使用；若全部图片都是占位图，不要使用默认 `.gallery--asymmetric`，改用紧凑 2x2 网格、新闻/日期卡、焦点占位，或直接省略图集模块。
+
+**紧凑预留变体**：无真实素材但仍需要保留“会议风采/活动图集”入口时，使用 `.gallery--asymmetric-compact` 或普通 2x2 `.gallery`。该变体限制行高，避免一张占位大图撑满首屏。
 
 **与布局 L 的选择**：图片较少(≤6张)、需一次看完 → 布局 E；图片较多或需突出每张 → 布局 L 滑动。
 
@@ -162,10 +232,12 @@ B1: [ 图 40% ][ 文 60% ]    B2: [ 文 60% ][ 图 40% ]
 ```
         "立即报名参会"
           [ 按钮 ]
-     电话 / 邮箱 / 地址
+     联系电话 / 邮箱 / 地址（均待补充）
 ```
 
 **变体**：`.cta`（按钮式，浅色底）、`.cta--dark`（深色底，页面视觉终点，白字）、`.cta--inline`（纯文字联系方式行，传统 CMS 风格）、`.cta--qr`（二维码占位）。按钮触达尺寸不小于 `44px×44px`（移动端可点性要求）。
+
+**页脚联系区**：会议/培训页脚优先用 `.footer.footer--multi` + `.footer__contact` + `.footer__qr` + `.footer__icp`，不要只放一行版权。
 
 ---
 
@@ -181,13 +253,17 @@ B1: [ 图 40% ][ 文 60% ]    B2: [ 文 60% ][ 图 40% ]
 
 **交互行为**：每个 tab 的 `href` 必须指向对应 section 的 `id`。点击平滑滚动并高亮的 JS 直接从 `assets/tab-nav.js` 复制，不要重新实现。
 
-**六种配色皮肤**（通过 modifier class 切换，具体颜色值见 base.css）：
+**多种配色皮肤**（通过 modifier class 切换，具体颜色值见 base.css）：
 
 | 皮肤 class | 背景 | 适用场景 |
 |---|---|---|
 | 默认（无 modifier） | 浅灰 + 底部主色条高亮 | 通用 |
 | `.tab-nav--dark` | 深色底 | 科技/深色主题页面 |
 | `.tab-nav--primary` | 主色实底 | 强调品牌色的场景 |
+| `.tab-nav--blue` | 门户蓝实底 | 会议/培训/文旅频道等传统 CMS 导航 |
+| `.tab-nav--block-active` | 当前项整块主色 | 传统栏目条整块高亮 |
+| `.tab-nav--blue-red-active` | 蓝底 + 红色当前项 | 博览会/城市频道 |
+| `.tab-nav--cream-block` | 米色分隔 + 块状当前项 | 培训/机构专题 |
 | `.tab-nav--cream` | 浅黄米色 | 文旅/人文场景 |
 | `.tab-nav--red` | 红色实底 | 节庆/政务场景 |
 | `.tab-nav--white` | 纯白+细线 | 极简场景 |
@@ -197,8 +273,8 @@ B1: [ 图 40% ][ 文 60% ]    B2: [ 文 60% ][ 图 40% ]
 ## 布局 I：新闻列表行
 
 ```
-· 新闻标题文字 ─────────────────── 2024-07-03
-· 新闻标题文字 ─────────────────── 2024-07-02
+· 新闻标题文字 ─────────────────── YYYY-MM-DD
+· 新闻标题文字 ─────────────────── YYYY-MM-DD
 ```
 
 **内容约束**：标题单行省略(`ellipsis`)；日期 `YYYY-MM-DD` 统一格式；条目 4–8 条。
@@ -206,6 +282,10 @@ B1: [ 图 40% ][ 文 60% ]    B2: [ 文 60% ][ 图 40% ]
 **易错点**：长标题会挤飞日期——标题需 `min-width:0`+`text-overflow:ellipsis`+`white-space:nowrap`+`overflow:hidden`，日期需 `flex-shrink:0`。
 
 **缩略图变体**（`.news-list--thumb`，左小图120×80 + 右标题2行+摘要2行+日期）：适合需要图文并重的资讯列表，建议优先使用此变体而非纯文字列表，呼应"图片优先"原则。
+
+**日期卡变体**（`.news-list--date-card`）：左侧为月日日期块，右侧为标题和摘要，适合会议热点资讯、公告通知。
+
+**视频列表/宫格变体**：缩略图外层加 `.video-thumb`，中央显示 CSS 播放按钮；多视频区使用 `.video-grid` + `.video-card` + `.video-card__title`，标题 1 行截断。
 
 ---
 
@@ -221,6 +301,17 @@ B1: [ 图 40% ][ 文 60% ]    B2: [ 文 60% ][ 图 40% ]
 ```
 
 **内容约束**：图 `aspect-ratio:16/10` 或 `16/9`；右侧列表 4–6 条；通常放在概述之后、详细内容之前，作为信息聚合区。
+
+**传统 CMS 变体**：
+
+| 变体 | 类名/组合 | 适用 |
+|---|---|---|
+| J1 左大图右列表 | `.focus` 默认 | 博览会、会议、新闻聚合 |
+| J2 左列表右大图 | `.focus.focus--reverse` | 地方两会、资讯摘要 |
+| J3 上焦点下三列 | `.module-box` 内先 `.focus` 后 `.module-grid--cols3` | 政务/门户首页首屏 |
+| J4 左缩略图列表右视频 | `M` + `.news-list--thumb` + `.video-grid`/`.video-thumb` | 公益行动、视频新闻 |
+
+焦点区通常放在 `.module-box` 内，标题用 `section-title--cms-line` 或 `module-header`。
 
 ---
 
@@ -260,6 +351,8 @@ B1: [ 图 40% ][ 文 60% ]    B2: [ 文 60% ][ 图 40% ]
 
 **嵌套用法**：可嵌入布局 M——左栏轮播+右栏文字列表。
 
+**传统图集变体**：如果图片数量少且有主图，优先用 `.gallery--asymmetric` 而不是横滑。传统 CMS 更常见“大图 + 缩略图/说明”，横滑更偏现代移动交互。
+
 ---
 
 ## 布局 M：两栏并排
@@ -282,3 +375,44 @@ B1: [ 图 40% ][ 文 60% ]    B2: [ 文 60% ][ 图 40% ]
 ```
 
 **内容约束**：默认 70/30。**不要**把整页所有内容塞进 M 的左栏——参考页面中无此模式，M 只解决 section 内部局部并排的需求。
+
+---
+
+## 特殊专题模块
+
+这些模块只在特定截图类型中使用，避免把普通资讯/会议页做成过度装饰。
+
+### 榜单长条海报
+
+用于“风云榜/评选/年度盘点”：
+
+```html
+<section id="ranking" data-layout="R" class="ranking-band ranking-band--blue">
+  <div class="ranking-band__content">
+    <div class="ranking-band__label">年度榜单</div>
+    <h2 class="ranking-band__title">分类标题</h2>
+    <ul class="ranking-band__list"><li>条目待补充</li></ul>
+  </div>
+  <div class="ranking-band__media"><div class="placeholder-visual">主题图</div></div>
+</section>
+```
+
+说明区可用 `.ranking-board`。斜切色带是榜单页局部例外，不要扩散到政务/会议页。
+
+### 节日纪实愿望区
+
+用于春节、返乡、纪实活动页：
+
+```html
+<section id="wishes" data-layout="W" class="festival-band">
+  <div class="festival-band__inner">
+    <div class="wish-panel">
+      <h2 class="wish-panel__title">愿望清单</h2>
+      <ul class="wish-list"><li class="wish-list__item">留言待补充</li></ul>
+    </div>
+    <div class="placeholder-img">活动海报</div>
+  </div>
+</section>
+```
+
+它是内容活动区，不是现代 CTA；不要放大按钮作为中心。
