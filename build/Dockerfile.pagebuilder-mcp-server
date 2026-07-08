@@ -1,0 +1,31 @@
+FROM oven/bun:1.2.5 AS deps
+WORKDIR /app
+
+COPY package.json bun.lock tsconfig.json ./
+COPY apps/app/package.json apps/app/package.json
+COPY apps/page-builder/package.json apps/page-builder/package.json
+COPY packages/cms-vue-islands-demo/package.json packages/cms-vue-islands-demo/package.json
+COPY packages/page-builder-cms-rendering/package.json packages/page-builder-cms-rendering/package.json
+COPY packages/pagebuilder-mcp-server/package.json packages/pagebuilder-mcp-server/package.json
+COPY packages/shared/package.json packages/shared/package.json
+COPY packages/ui/package.json packages/ui/package.json
+
+RUN bun install --frozen-lockfile --network-concurrency=8 --concurrent-scripts=2
+
+FROM node:24-bookworm-slim AS runtime
+WORKDIR /app
+
+COPY --from=deps /app/node_modules ./node_modules
+COPY package.json bun.lock tsconfig.json ./
+COPY packages/pagebuilder-mcp-server ./packages/pagebuilder-mcp-server
+
+ENV NODE_ENV=production
+ENV PAGEBUILDER_MCP_HOST=0.0.0.0
+ENV PAGEBUILDER_MCP_PORT=3000
+ENV PAGEBUILDER_MCP_PATH=/mcp
+
+WORKDIR /app/packages/pagebuilder-mcp-server
+
+EXPOSE 3000
+
+CMD ["node", "src/http.js"]

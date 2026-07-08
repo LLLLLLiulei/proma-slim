@@ -1,0 +1,31 @@
+{
+  "name": "@ai-page-builder/pagebuilder-mcp-server",
+  "version": "0.1.0",
+  "description": "PageBuilder MCP server for visual analysis, UI checks, and image generation tools",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.js",
+  "bin": {
+    "pagebuilder-mcp-server": "./src/index.js"
+  },
+  "exports": {
+    ".": "./src/index.js",
+    "./http": "./src/http.js",
+    "./server": "./src/server.js"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "start:http": "node src/http.js",
+    "test": "node --test test/*.test.js",
+    "typecheck": "node --check src/index.js && node --check src/http.js && node --check src/server.js"
+  },
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.26.0",
+    "sharp": "^0.34.5",
+    "zod": "^3.23.8"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}

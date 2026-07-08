@@ -1,0 +1,61 @@
+name: pagebuilder-mcp-server
+
+services:
+  pagebuilder-mcp-server:
+    container_name: pagebuilder-mcp-server
+    image: pagebuilder-mcp-server
+    build:
+      context: ..
+      dockerfile: build/Dockerfile.pagebuilder-mcp-server
+    restart: unless-stopped
+    environment:
+      PAGEBUILDER_MCP_HOST: ${PAGEBUILDER_MCP_HOST:-0.0.0.0}
+      PAGEBUILDER_MCP_PORT: ${PAGEBUILDER_MCP_PORT:-3000}
+      PAGEBUILDER_MCP_PATH: ${PAGEBUILDER_MCP_PATH:-/mcp}
+      PAGEBUILDER_MCP_LOG_PATH: ${PAGEBUILDER_MCP_LOG_PATH:-}
+      SERVER_NAME: ${SERVER_NAME:-pagebuilder-mcp-server}
+      SERVER_VERSION: ${SERVER_VERSION:-0.1.0}
+      PLATFORM_MODE: ${PLATFORM_MODE:-ZHIPU}
+      Z_AI_API_KEY: ${Z_AI_API_KEY:-}
+      ZAI_API_KEY: ${ZAI_API_KEY:-}
+      Z_AI_MODE: ${Z_AI_MODE:-}
+      Z_AI_BASE_URL: ${Z_AI_BASE_URL:-}
+      Z_AI_VISION_MODEL: ${Z_AI_VISION_MODEL:-}
+      Z_AI_IMAGE_MODEL: ${Z_AI_IMAGE_MODEL:-}
+      Z_AI_IMAGE_SIZE: ${Z_AI_IMAGE_SIZE:-}
+      Z_AI_TIMEOUT: ${Z_AI_TIMEOUT:-}
+      Z_AI_RETRY_COUNT: ${Z_AI_RETRY_COUNT:-}
+      ALIYUN_API_KEY: ${ALIYUN_API_KEY:-}
+      QWEN_API_KEY: ${QWEN_API_KEY:-}
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
+      ALIYUN_WORKSPACE_ID: ${ALIYUN_WORKSPACE_ID:-}
+      ALIYUN_REGION: ${ALIYUN_REGION:-}
+      ALIYUN_OPENAI_BASE_URL: ${ALIYUN_OPENAI_BASE_URL:-}
+      ALIYUN_DASHSCOPE_BASE_URL: ${ALIYUN_DASHSCOPE_BASE_URL:-}
+      ALIYUN_BASE_URL: ${ALIYUN_BASE_URL:-}
+      ALIYUN_NATIVE_BASE_URL: ${ALIYUN_NATIVE_BASE_URL:-}
+      ALIYUN_VISION_MODEL: ${ALIYUN_VISION_MODEL:-}
+      ALIYUN_VISION_MODEL_TEMPERATURE: ${ALIYUN_VISION_MODEL_TEMPERATURE:-}
+      ALIYUN_VISION_MODEL_TOP_P: ${ALIYUN_VISION_MODEL_TOP_P:-}
+      ALIYUN_VISION_MODEL_MAX_TOKENS: ${ALIYUN_VISION_MODEL_MAX_TOKENS:-}
+      ALIYUN_ENABLE_THINKING: ${ALIYUN_ENABLE_THINKING:-}
+      ALIYUN_THINKING_BUDGET: ${ALIYUN_THINKING_BUDGET:-}
+      ALIYUN_VL_HIGH_RESOLUTION_IMAGES: ${ALIYUN_VL_HIGH_RESOLUTION_IMAGES:-}
+      ALIYUN_MAX_PIXELS: ${ALIYUN_MAX_PIXELS:-}
+      ALIYUN_IMAGE_MODEL: ${ALIYUN_IMAGE_MODEL:-}
+      ALIYUN_IMAGE_SIZE: ${ALIYUN_IMAGE_SIZE:-}
+      ALIYUN_IMAGE_PROMPT_EXTEND: ${ALIYUN_IMAGE_PROMPT_EXTEND:-}
+      ALIYUN_IMAGE_WATERMARK: ${ALIYUN_IMAGE_WATERMARK:-}
+      ALIYUN_IMAGE_NEGATIVE_PROMPT: ${ALIYUN_IMAGE_NEGATIVE_PROMPT:-}
+      ALIYUN_TIMEOUT: ${ALIYUN_TIMEOUT:-}
+      ALIYUN_RETRY_COUNT: ${ALIYUN_RETRY_COUNT:-}
+    ports:
+      - "${PAGEBUILDER_MCP_PUBLISHED_PORT:-3000}:${PAGEBUILDER_MCP_PORT:-3000}"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - node -e "const port=process.env.PAGEBUILDER_MCP_PORT||'3000'; fetch('http://127.0.0.1:' + port + '/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s

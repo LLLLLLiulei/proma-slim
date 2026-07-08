@@ -8,6 +8,7 @@
 - 构建本地 Docker 镜像。
 - 推送镜像到腾讯云 CCR。
 - 使用 release compose 部署远端镜像。
+- 独立构建和运行 PageBuilder MCP Server。
 
 ## 目录结构
 
@@ -18,11 +19,14 @@
 | `push-page-builder-tencent.sh` | 将本地镜像重新打 tag 并推送到腾讯云 CCR。 |
 | `Dockerfile.page-builder-app` | 构建后端 server 镜像，运行 `@ai-page-builder/app`。 |
 | `Dockerfile.page-builder-web` | 构建 PageBuilder web 镜像，运行生产 `prod-server.mjs`。 |
+| `Dockerfile.pagebuilder-mcp-server` | 构建独立 PageBuilder MCP Server 镜像，运行 `@ai-page-builder/pagebuilder-mcp-server` HTTP 服务。 |
 | `docker-compose.yml` | 本地构建并运行的默认 compose。 |
 | `docker-compose.release.yml` | 发布部署 compose，直接拉取远端镜像，不在本机构建。 |
 | `docker-compose.cms-verify.yml` | CMS 集成验证 compose，包含 `server`、`web`、`playwright`、`cms-mock`、`nginx`。 |
+| `docker-compose.pagebuilder-mcp-server.yml` | 独立运行 PageBuilder MCP Server 的 compose 示例，不启动 PageBuilder web/server 主服务。 |
 | `.env.standalone.example` | standalone 模式示例配置。 |
 | `.env.cms.example` | CMS 集成模式示例配置。 |
+| `.env.pagebuilder-mcp-server.example` | 独立 PageBuilder MCP Server 示例配置。 |
 | `cms-mock/server.ts` | 本地 CMS mock 服务。 |
 | `nginx/cms-verify.conf` | CMS 验证场景下的同源 nginx 入口。 |
 | `cms-verify/smoke-test.ts` | CMS 集成 smoke test。 |
@@ -52,14 +56,15 @@ bun --version
 
 ### 安全建议
 
-`build/.env.standalone.example` 和 `build/.env.cms.example` 是示例配置。当前示例文件里可能包含本地联调用的真实地址、账号、token 或第三方图片平台 key。生产或联调时建议使用仓库外的私有 env 文件，例如：
+`build/.env.standalone.example`、`build/.env.cms.example` 和 `build/.env.pagebuilder-mcp-server.example` 是示例配置。当前示例文件里可能包含本地联调用的真实地址、账号、token 或第三方图片平台 key。生产或联调时建议使用仓库外的私有 env 文件，例如：
 
 ```bash
 cp build/.env.standalone.example /tmp/page-builder-standalone.env
 cp build/.env.cms.example /tmp/page-builder-cms.env
+cp build/.env.pagebuilder-mcp-server.example /tmp/pagebuilder-mcp-server.env
 ```
 
-然后编辑 `/tmp/page-builder-standalone.env` 或 `/tmp/page-builder-cms.env`，再通过 `--env-file` 指定。不要把真实密钥写入将要提交的 example 文件。
+然后编辑 `/tmp/page-builder-standalone.env`、`/tmp/page-builder-cms.env` 或 `/tmp/pagebuilder-mcp-server.env`，再通过 `--env-file` 指定。不要把真实密钥写入将要提交的 example 文件。
 
 另外，Docker 构建上下文是仓库根目录。如果把私有 env 文件放在仓库内，请确认它已经被 `.gitignore` 和 `.dockerignore` 排除，否则可能进入构建上下文。
 
@@ -113,6 +118,33 @@ CMS mock 验证额外使用：
 | `AI_PAGE_BUILDER_CMS_VERIFY_CONFIG_DIR` | smoke test 读取/写入验证数据的目录，默认 `build/.cms-verify-data`。 |
 
 ## 本地运行
+
+### 独立 PageBuilder MCP Server
+
+该服务是独立 MCP HTTP 服务，当前不会自动接入 PageBuilder Agent runtime，也不会修改默认 PageBuilder `server` / `web` / `playwright` 启动链路。
+
+使用示例 env 启动：
+
+```bash
+docker compose \
+  --env-file build/.env.pagebuilder-mcp-server.example \
+  -f build/docker-compose.pagebuilder-mcp-server.yml \
+  up -d --build
+```
+
+启动完成后检查健康状态：
+
+```bash
+curl http://localhost:3000/healthz
+```
+
+默认 MCP endpoint 为：
+
+```text
+http://localhost:3000/mcp
+```
+
+可通过 `PAGEBUILDER_MCP_PUBLISHED_PORT` 修改宿主机映射端口，通过 `PAGEBUILDER_MCP_PORT` 修改容器内监听端口。`Z_AI_*` 变量是 ZHIPU/ZAI 兼容接口的供应商配置变量，不代表当前服务产品名。
 
 ### standalone 模式
 
