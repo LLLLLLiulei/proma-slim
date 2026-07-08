@@ -15,6 +15,7 @@ import { askUserService } from '../../lib/agent-ask-user-service'
 import { permissionService } from '../../lib/agent-permission-service'
 import { resetCmsIntegrationTestState } from './cms-integration'
 import {
+  getSharedBuilderAccessSessionService,
   getSharedCmsHandoffService,
   resetCmsIntegrationRuntimeState,
   setCmsIntegrationRuntimeStoresForTest,
@@ -1665,6 +1666,128 @@ describe('cms integration routes', () => {
     expect(await thirdOpenResponse.json()).toMatchObject({ code: 'handoff_expired' })
   })
 
+  test('passes sanitized host toolbar extensions from builder handoff to builder context', async () => {
+    enableCmsIntegration(configDir)
+    globalThis.fetch = createLoginFetchMock() as unknown as typeof fetch
+    const app = createApp()
+
+    const created = await createBoundCmsProject(app, {
+      externalRecordId: 'cms-toolbar-extensions-builder',
+      projectName: 'CMS Toolbar Extensions Builder',
+    })
+    const handoffResponse = await createHandoff(app, created.projectId, {
+      target: 'builder',
+      openMode: 'iframe',
+      toolbarExtensions: {
+        buttons: [
+          {
+            id: 'publish',
+            label: '发布专题',
+            tooltip: '发布到外部 CMS',
+            icon: 'send',
+            variant: 'primary',
+            requiresPreview: true,
+            order: 20,
+            html: '<button>bad</button>',
+            actionUrl: 'https://cms.example.com/publish',
+            token: 'external-token',
+          },
+          {
+            id: 'audit',
+            label: '送审',
+            icon: 'check',
+            disabled: true,
+            busy: false,
+            hidden: false,
+            order: 10,
+          },
+        ],
+      },
+    })
+    expect(handoffResponse.status).toBe(200)
+    const handoff = await handoffResponse.json() as { handoffId: string; openUrl: string }
+
+    const expectedExtensions = {
+      buttons: [
+        {
+          id: 'audit',
+          label: '送审',
+          icon: 'check',
+          disabled: true,
+          busy: false,
+          hidden: false,
+          order: 10,
+        },
+        {
+          id: 'publish',
+          label: '发布专题',
+          tooltip: '发布到外部 CMS',
+          icon: 'send',
+          variant: 'primary',
+          requiresPreview: true,
+          order: 20,
+        },
+      ],
+    }
+    const persistedHandoff = await getSharedCmsHandoffService().peek(handoff.handoffId)
+    expect(persistedHandoff).toMatchObject({
+      hostToolbarExtensions: expectedExtensions,
+    })
+    expect(JSON.stringify(persistedHandoff)).not.toContain('<button>bad</button>')
+    expect(JSON.stringify(persistedHandoff)).not.toContain('https://cms.example.com/publish')
+    expect(JSON.stringify(persistedHandoff)).not.toContain('external-token')
+
+    const openResponse = await consumeOpenUrl(app, handoff.openUrl)
+    expect(openResponse.status).toBe(302)
+    const accessCookiePair = readSetCookiePair(openResponse.headers.get('set-cookie'))
+    const accessId = accessCookiePair.slice(accessCookiePair.indexOf('=') + 1)
+    const persistedAccess = await getSharedBuilderAccessSessionService().peek(accessId)
+    expect(persistedAccess).toMatchObject({
+      hostToolbarExtensions: expectedExtensions,
+    })
+
+    const contextResponse = await app.fetch(new Request(
+      `http://localhost/api/integrations/cms/builder-context?workspaceId=${created.binding.workspaceId}&sessionId=${created.binding.primarySessionId}`,
+      { headers: { cookie: accessCookiePair } },
+    ))
+    expect(contextResponse.status).toBe(200)
+    const context = await contextResponse.json() as {
+      hostToolbarExtensions: unknown
+    }
+    expect(context.hostToolbarExtensions).toEqual(expectedExtensions)
+    const contextText = JSON.stringify(context)
+    expect(contextText).not.toContain('<button>bad</button>')
+    expect(contextText).not.toContain('https://cms.example.com/publish')
+    expect(contextText).not.toContain('external-token')
+    expect(contextText).not.toContain('JSESSIONID')
+    expect(contextText).not.toContain('integration-secret')
+    expect(contextText).not.toContain(handoff.handoffId)
+  })
+
+  test('rejects invalid host toolbar extension config without creating a handoff', async () => {
+    enableCmsIntegration(configDir)
+    globalThis.fetch = createLoginFetchMock() as unknown as typeof fetch
+    const app = createApp()
+
+    const created = await createBoundCmsProject(app, {
+      externalRecordId: 'cms-toolbar-extensions-invalid',
+      projectName: 'CMS Toolbar Extensions Invalid',
+    })
+
+    const response = await createHandoff(app, created.projectId, {
+      target: 'builder',
+      toolbarExtensions: {
+        buttons: [
+          { id: 'bad id', label: '非法 ID' },
+        ],
+      },
+    })
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({ code: 'invalid_request' })
+    expect(readTextTree(join(configDir, 'integrations', 'cms', 'runtime'))).not.toContain('bad id')
+  })
+
   test('keeps cms builder handoff scoped to the primary session even when project edit state is recoverable', async () => {
     enableCmsIntegration(configDir)
     globalThis.fetch = createLoginFetchMock() as unknown as typeof fetch
@@ -1936,7 +2059,15 @@ describe('cms integration routes', () => {
     })
     createPreviewFiles(configDir, secondary.binding)
 
-    const previewHandoffResponse = await createHandoff(app, primary.projectId, { target: 'preview', openMode: 'iframe' })
+    const previewHandoffResponse = await createHandoff(app, primary.projectId, {
+      target: 'preview',
+      openMode: 'iframe',
+      toolbarExtensions: {
+        buttons: [
+          { id: 'publish', label: '发布专题', icon: 'send', variant: 'primary' },
+        ],
+      },
+    })
     expect(previewHandoffResponse.status).toBe(200)
     const previewHandoff = await previewHandoffResponse.json() as { openUrl: string; target: string; openMode: string }
     expect(previewHandoff.target).toBe('preview')
@@ -1994,11 +2125,13 @@ describe('cms integration routes', () => {
       workspace: { id: string }
       session: { id: string }
       access: { expiresAt: number }
+      hostToolbarExtensions: unknown
     }
     expect(context.projectId).toBe(primary.projectId)
     expect(context.workspace.id).toBe(primary.binding.workspaceId)
     expect(context.session.id).toBe(primary.binding.primarySessionId)
     expect(typeof context.access.expiresAt).toBe('number')
+    expect(context.hostToolbarExtensions).toEqual({ buttons: [] })
 
     const missingContext = await app.fetch(new Request(`http://localhost/api/integrations/cms/builder-context?workspaceId=${primary.binding.workspaceId}&sessionId=${primary.binding.primarySessionId}`))
     expect(missingContext.status).toBe(401)

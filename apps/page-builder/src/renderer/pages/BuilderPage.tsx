@@ -14,6 +14,9 @@ import type {
   PageBuilderCmsSelectionResult,
   PageBuilderEditLockCredentials,
   PageBuilderEditLockLease,
+  PageBuilderHostBridgeMessage,
+  PageBuilderHostToolbarButton,
+  PageBuilderHostToolbarExtensions,
   PageBuilderImageReplacementPayload,
   PageBuilderInlineTextSaveRequest,
   PageBuilderInlineTextSaveResult,
@@ -24,6 +27,8 @@ import type {
   PageBuilderTargetSelection,
 } from '@ai-page-builder/shared'
 import {
+  PAGE_BUILDER_HOST_BRIDGE_SOURCE,
+  PAGE_BUILDER_HOST_TOOLBAR_EXTENSION_PROTOCOL_VERSION,
   buildPageBuilderCmsOrdinaryAuthoringDigest,
   createPageBuilderBlockTargetSelection,
   tryResolvePageBuilderCmsAuthoringSourceTypeFromSourceTag,
@@ -81,6 +86,12 @@ import {
   resolveWorkspacePreviewUrl,
 } from '@page-builder/lib/preview-state'
 import {
+  applyHostToolbarButtonPatch,
+  normalizeHostToolbarButtonsFromMessage,
+  normalizeHostToolbarExtensions,
+  readPageBuilderHostParentMessage,
+} from '@page-builder/lib/host-toolbar-extensions'
+import {
   clearWorkspacePreviewState,
   readWorkspacePreviewState,
   writeWorkspacePreviewState,
@@ -115,6 +126,7 @@ const EDIT_LOCK_LOST_MESSAGE = '编辑锁已失效，请从首页重新进入编
 const CMS_BUILDER_CONTEXT_EXPIRED_MESSAGE = '访问已失效，请从 CMS 系统重新进入 PageBuilder'
 const INTEGRATION_STATUS_UNAVAILABLE_MESSAGE = '服务暂不可用，请稍后重试。'
 const pendingInitialEditLockResolutions = new Map<string, Promise<PageBuilderEditLockLease>>()
+const EMPTY_HOST_TOOLBAR_EXTENSIONS: PageBuilderHostToolbarExtensions = { buttons: [] }
 
 function isCmsIntegrationEnabled(status: CmsIntegrationStatus): boolean {
   return status.integrationMode === 'cms' && status.enabled
@@ -395,6 +407,8 @@ export function BuilderPage({
   const [selectedTargetDisplayLabel, setSelectedTargetDisplayLabel] = React.useState<string | null>(null)
   const [pendingDeleteSelector, setPendingDeleteSelector] = React.useState<string | null>(null)
   const [builderSourceMode, setBuilderSourceMode] = React.useState<BuilderSourceMode>('standalone')
+  const [hostToolbarExtensions, setHostToolbarExtensions] = React.useState<PageBuilderHostToolbarExtensions>(EMPTY_HOST_TOOLBAR_EXTENSIONS)
+  const [hostToolbarProjectId, setHostToolbarProjectId] = React.useState<string | undefined>(undefined)
   const [cmsIntegrationEnabled, setCmsIntegrationEnabled] = React.useState(false)
   const [cmsBrowserOpen, setCmsBrowserOpen] = React.useState(false)
   const [cmsDataUnavailableReason, setCmsDataUnavailableReason] = React.useState<string | null>(null)
@@ -436,6 +450,37 @@ export function BuilderPage({
   }, [])
 
   const clearSelection = clearVisibleSelection
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    const handleHostToolbarMessage = (event: MessageEvent<unknown>) => {
+      const message = readPageBuilderHostParentMessage(
+        event,
+        window.parent,
+        window.location.origin,
+      )
+      if (!message) {
+        return
+      }
+
+      if (message.type === 'toolbar-buttons-set') {
+        setHostToolbarExtensions(normalizeHostToolbarButtonsFromMessage(message.buttons))
+        return
+      }
+
+      setHostToolbarExtensions((previous) => ({
+        buttons: applyHostToolbarButtonPatch(previous.buttons, message.buttonId, message.patch),
+      }))
+    }
+
+    window.addEventListener('message', handleHostToolbarMessage)
+    return () => {
+      window.removeEventListener('message', handleHostToolbarMessage)
+    }
+  }, [])
 
   const applyDesktopGridSplitStyle = React.useCallback((nextRatio: number, containerWidth: number) => {
     const element = desktopGridRef.current
@@ -493,6 +538,8 @@ export function BuilderPage({
     setEditLockLease(null)
     setEditLockLostMessage(null)
     setBuilderSourceMode('standalone')
+    setHostToolbarExtensions(EMPTY_HOST_TOOLBAR_EXTENSIONS)
+    setHostToolbarProjectId(undefined)
     setCmsIntegrationEnabled(false)
     setCmsBrowserOpen(false)
     setCmsDataUnavailableReason(null)
@@ -545,6 +592,8 @@ export function BuilderPage({
         setCurrentSessionId(targetSessionId)
         setCurrentWorkspaceId(cmsWorkspace.id)
         setBuilderSourceMode('cms-integrated')
+        setHostToolbarProjectId(context.projectId)
+        setHostToolbarExtensions(normalizeHostToolbarExtensions(context.hostToolbarExtensions))
         setCmsBrowserWorkspaceId(cmsWorkspace.id)
         setLoadState({ status: 'ready', initialUserMessage: null })
         return
@@ -1333,6 +1382,43 @@ export function BuilderPage({
     [previewState],
   )
   const exportStaticPending = isCreatingStaticExportJob || staticExportJob?.status === 'pending' || staticExportJob?.status === 'running'
+  const postHostBridgeMessage = React.useCallback((message: PageBuilderHostBridgeMessage): void => {
+    if (typeof window === 'undefined' || window.parent === window) {
+      return
+    }
+
+    window.parent.postMessage(message, window.location.origin)
+  }, [])
+  React.useEffect(() => {
+    if (loadState.status !== 'ready') {
+      return
+    }
+
+    postHostBridgeMessage({
+      source: PAGE_BUILDER_HOST_BRIDGE_SOURCE,
+      type: 'ready',
+      version: PAGE_BUILDER_HOST_TOOLBAR_EXTENSION_PROTOCOL_VERSION,
+      capabilities: ['toolbarExtensions.v1'],
+      workspaceId,
+      sessionId,
+      ...(hostToolbarProjectId ? { projectId: hostToolbarProjectId } : {}),
+    })
+  }, [hostToolbarProjectId, loadState.status, postHostBridgeMessage, sessionId, workspaceId])
+  const handleHostToolbarButtonClick = React.useCallback((button: PageBuilderHostToolbarButton): void => {
+    postHostBridgeMessage({
+      source: PAGE_BUILDER_HOST_BRIDGE_SOURCE,
+      type: 'toolbar-button-click',
+      version: PAGE_BUILDER_HOST_TOOLBAR_EXTENSION_PROTOCOL_VERSION,
+      buttonId: button.id,
+      workspaceId,
+      sessionId,
+      ...(hostToolbarProjectId ? { projectId: hostToolbarProjectId } : {}),
+      state: {
+        hasPreview: Boolean(previewUrl),
+        previewUrl,
+      },
+    })
+  }, [hostToolbarProjectId, postHostBridgeMessage, previewUrl, sessionId, workspaceId])
   React.useEffect(() => {
     clearSelection()
   }, [clearSelection, previewUrl])
@@ -1597,9 +1683,11 @@ export function BuilderPage({
       >
         <PreviewPane
           exportStaticPending={exportStaticPending}
+          hostToolbarButtons={hostToolbarExtensions.buttons}
           hiddenToolbarItems={hiddenToolbarItems}
           imageReplacementPending={isReplacingImage}
           interactionLocked={isAgentStreaming || !editingEnabled}
+          onHostToolbarButtonClick={handleHostToolbarButtonClick}
           onInlineTextSaveRequest={handleInlineTextSaveRequest}
           onRequestDeleteBlock={handleRequestDeleteBlock}
           onRequestExportStatic={handleRequestExportStatic}

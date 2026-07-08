@@ -129,6 +129,118 @@ describe('PreviewPane', () => {
     expect(onRequestSaveTemplate).toHaveBeenCalledTimes(1)
   })
 
+  test('renders host toolbar buttons after built-in actions and forwards only enabled clicks', async () => {
+    const onHostToolbarButtonClick = mock(() => {})
+    const { PreviewPane } = await loadPreviewPane()
+    const renderer = create(
+      <PreviewPane
+        hostToolbarButtons={[
+          { id: 'hidden', label: '隐藏按钮', hidden: true },
+          {
+            id: 'publish',
+            label: '发布专题',
+            tooltip: '发布到外部 CMS',
+            icon: 'send',
+            variant: 'primary',
+            order: 10,
+          },
+          {
+            id: 'audit',
+            label: '送审',
+            icon: 'check',
+            disabled: true,
+            order: 20,
+          },
+          {
+            id: 'sync',
+            label: '同步中',
+            icon: 'refresh',
+            busy: true,
+            order: 30,
+          },
+        ]}
+        onHostToolbarButtonClick={onHostToolbarButtonClick}
+        previewUrl="https://example.com/preview"
+      />,
+    )
+
+    expect(renderer.root.findAllByType('button').map((button) => button.props['aria-label'])).toEqual([
+      'PC 预览',
+      'Mobile 预览',
+      '选择区块',
+      '刷新预览',
+      '新窗口打开预览',
+      '导出静态包',
+      '发布专题',
+      '送审',
+      '同步中',
+    ])
+    expect(() => findButton(renderer, '隐藏按钮')).toThrow()
+    const publishButton = findButton(renderer, '发布专题')
+    const auditButton = findButton(renderer, '送审')
+    const syncButton = findButton(renderer, '同步中')
+    const publishLabel = publishButton.find((node) =>
+      node.type === 'span' && node.props.children === '发布专题'
+    )
+
+    expect(publishButton.props.title).toBe('发布到外部 CMS')
+    expect(publishButton.props.className).toContain('bg-primary')
+    expect(publishLabel.props.className).toContain('truncate')
+    expect(publishLabel.props.className).toContain('max-w-')
+    expect(auditButton.props.disabled).toBe(true)
+    expect(syncButton.props.disabled).toBe(true)
+    expect(syncButton.props['aria-busy']).toBe(true)
+    expect(JSON.stringify(renderer.toJSON())).not.toContain('<button>')
+
+    await act(async () => {
+      publishButton.props.onClick()
+      auditButton.props.onClick()
+      syncButton.props.onClick()
+    })
+
+    expect(onHostToolbarButtonClick).toHaveBeenCalledTimes(1)
+    expect(onHostToolbarButtonClick).toHaveBeenCalledWith({
+      id: 'publish',
+      label: '发布专题',
+      tooltip: '发布到外部 CMS',
+      icon: 'send',
+      variant: 'primary',
+      order: 10,
+    })
+  })
+
+  test('disables requiresPreview host buttons when no preview exists without disabling independent host actions', async () => {
+    const onHostToolbarButtonClick = mock(() => {})
+    const { PreviewPane } = await loadPreviewPane()
+    const renderer = create(
+      <PreviewPane
+        hostToolbarButtons={[
+          { id: 'publish', label: '发布专题', icon: 'send', requiresPreview: true },
+          { id: 'back', label: '返回列表', icon: 'arrow-left' },
+        ]}
+        onHostToolbarButtonClick={onHostToolbarButtonClick}
+        previewUrl={null}
+      />,
+    )
+
+    const publishButton = findButton(renderer, '发布专题')
+    const backButton = findButton(renderer, '返回列表')
+    expect(publishButton.props.disabled).toBe(true)
+    expect(backButton.props.disabled).toBe(false)
+
+    await act(async () => {
+      publishButton.props.onClick()
+      backButton.props.onClick()
+    })
+
+    expect(onHostToolbarButtonClick).toHaveBeenCalledTimes(1)
+    expect(onHostToolbarButtonClick).toHaveBeenCalledWith({
+      id: 'back',
+      label: '返回列表',
+      icon: 'arrow-left',
+    })
+  })
+
   test('hides configured preview toolbar actions without changing other controls', async () => {
     const { PreviewPane } = await loadPreviewPane()
     const renderer = create(

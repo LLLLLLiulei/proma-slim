@@ -150,6 +150,17 @@ describe('renderer api wrappers', () => {
         access: {
           expiresAt: '2026-05-13T00:00:00.000Z',
         },
+        hostToolbarExtensions: {
+          buttons: [
+            {
+              id: 'publish',
+              label: '发布专题',
+              icon: 'send',
+              variant: 'primary',
+              requiresPreview: true,
+            },
+          ],
+        },
       })
     })
     globalThis.fetch = fetchMock as unknown as typeof fetch
@@ -160,6 +171,15 @@ describe('renderer api wrappers', () => {
     expect(context.projectId).toBe('pbp_1')
     expect(context.workspace.id).toBe('workspace/1')
     expect(context.session.id).toBe('session#1')
+    expect(context.hostToolbarExtensions.buttons).toEqual([
+      {
+        id: 'publish',
+        label: '发布专题',
+        icon: 'send',
+        variant: 'primary',
+        requiresPreview: true,
+      },
+    ])
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 

@@ -9,6 +9,7 @@ import type {
   AgentWorkspace,
   AskUserResponse,
   FileSearchResult,
+  PageBuilderHostToolbarExtensions,
   PageBuilderBlockDeletionPayload,
   PageBuilderCmsAutoAgentHandoffRequest,
   PageBuilderCmsApplyTargetSnapshot,
@@ -81,6 +82,7 @@ export interface CmsBuilderContext {
   access: {
     expiresAt: string
   }
+  hostToolbarExtensions: PageBuilderHostToolbarExtensions
 }
 
 export interface WorkspacePreviewState {

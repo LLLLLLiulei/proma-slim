@@ -354,6 +354,72 @@ bun run --filter='@ai-page-builder/cms-vue-islands-demo' dev
 
 - `GET /api/integrations/cms/status`：CMS 集成状态
 - `POST /api/integrations/cms/projects`：CMS 服务端创建/打开 Page Builder 项目入口
+- `POST /api/integrations/cms/projects/:projectId/handoffs`：CMS 服务端创建一次 builder/preview 打开 handoff
+- `GET /api/integrations/cms/builder-context`：Page Builder iframe 读取受控 builder 上下文
+
+同源 iframe 打开 builder 时，CMS 服务端可以在创建 `target: "builder"` handoff 时传入 `toolbarExtensions.buttons`，用于在 Page Builder 左侧预览区顶部工具栏追加宿主业务按钮。按钮配置只接受 JSON 白名单字段：`id`、`label`、`tooltip`、`icon`、`variant`、`disabled`、`busy`、`hidden`、`requiresPreview` 和 `order`；不会接受或渲染宿主传入的 HTML、SVG、CSS、URL 或 JavaScript 回调。`target: "preview"` handoff 会忽略这些按钮。
+
+```json
+{
+  "target": "builder",
+  "openMode": "iframe",
+  "toolbarExtensions": {
+    "buttons": [
+      {
+        "id": "publish",
+        "label": "发布专题",
+        "tooltip": "发布到 CMS",
+        "icon": "send",
+        "variant": "primary",
+        "requiresPreview": true,
+        "order": 10
+      },
+      {
+        "id": "audit",
+        "label": "送审",
+        "icon": "check",
+        "order": 20
+      }
+    ]
+  }
+}
+```
+
+Page Builder iframe 准备好后会向同源父页面发送宿主协议消息。点击扩展按钮时，Page Builder 只通知父页面，不直接执行 CMS 业务逻辑：
+
+```ts
+window.addEventListener('message', (event) => {
+  if (event.origin !== window.location.origin) return
+  if (event.data?.source !== 'page-builder-host-bridge') return
+
+  if (event.data.type === 'ready') {
+    // Page Builder 已挂载宿主工具栏扩展协议。
+  }
+
+  if (event.data.type === 'toolbar-button-click') {
+    // event.data.buttonId: "publish" | "audit" | ...
+    // event.data.state.hasPreview / previewUrl 可用于决定业务按钮状态。
+  }
+})
+```
+
+父页面可以在同源前提下回写按钮集合或状态。Page Builder 只接受 `event.source === window.parent` 且 `event.origin === window.location.origin` 的消息：
+
+```ts
+const frame = document.querySelector<HTMLIFrameElement>('#pagebuilder')
+
+frame?.contentWindow?.postMessage({
+  source: 'page-builder-host-parent',
+  type: 'toolbar-button-update',
+  version: 1,
+  buttonId: 'publish',
+  patch: {
+    busy: true,
+    disabled: true,
+    label: '发布中'
+  }
+}, window.location.origin)
+```
 
 ## 关键概念
 

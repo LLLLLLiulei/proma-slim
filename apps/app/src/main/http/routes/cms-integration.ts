@@ -1,5 +1,12 @@
 import { Hono } from 'hono'
-import type { AgentSessionMeta, AgentWorkspace, PageBuilderTemplateSummary } from '@ai-page-builder/shared'
+import {
+  PageBuilderHostToolbarExtensionsValidationError,
+  parsePageBuilderHostToolbarExtensions,
+  type AgentSessionMeta,
+  type AgentWorkspace,
+  type PageBuilderHostToolbarExtensions,
+  type PageBuilderTemplateSummary,
+} from '@ai-page-builder/shared'
 import { createAgentSession, getAgentSessionMeta } from '../../lib/agent-session-manager'
 import { assertIntegrationSecret } from '../../lib/cms-integration/cms-integration-auth'
 import {
@@ -60,6 +67,7 @@ interface CmsProjectCreateBody {
 interface CmsHandoffCreateBody {
   target?: unknown
   openMode?: unknown
+  toolbarExtensions?: unknown
 }
 
 interface CmsSyncExportBody {
@@ -332,6 +340,7 @@ cmsIntegrationRoutes.post('/projects/:projectId/handoffs', async (c) => {
   const body = await readOptionalJsonBody<CmsHandoffCreateBody>(c.req.raw)
   const target = normalizeHandoffTarget(body.target)
   const openMode = normalizeHandoffOpenMode(body.openMode)
+  const hostToolbarExtensions = readHandoffHostToolbarExtensions(body.toolbarExtensions, target)
   const cmsUser = await validateCmsLogin({
     cmsBaseUrl: config.cmsBaseUrl,
     cmsCookie: c.req.header('x-cms-cookie'),
@@ -354,6 +363,7 @@ cmsIntegrationRoutes.post('/projects/:projectId/handoffs', async (c) => {
     sessionId: binding.primarySessionId,
     target,
     openMode,
+    hostToolbarExtensions,
     userSummary: cmsUser,
   })
 
@@ -491,6 +501,9 @@ cmsIntegrationRoutes.get('/handoffs/:handoffId/open', async (c) => {
           config.publicOrigin ?? 'http://localhost',
           c.req.header('x-forwarded-proto'),
         ),
+        hostToolbarExtensions: record.target === 'builder'
+          ? record.hostToolbarExtensions
+          : emptyHostToolbarExtensions(),
         userSummary: record.userSummary,
       })
       createdAccessId = access.accessId
@@ -543,6 +556,7 @@ cmsIntegrationRoutes.get('/builder-context', (c) => {
     access: {
       expiresAt: access.expiresAt,
     },
+    hostToolbarExtensions: cloneHostToolbarExtensions(access.hostToolbarExtensions),
   })
 })
 
@@ -672,6 +686,38 @@ function normalizeHandoffOpenMode(value: unknown): 'iframe' | 'window' {
     return value
   }
   throw invalidCmsRequest('openMode 只能是 iframe 或 window')
+}
+
+function readHandoffHostToolbarExtensions(
+  value: unknown,
+  target: 'builder' | 'preview',
+): PageBuilderHostToolbarExtensions {
+  if (target === 'preview') {
+    return emptyHostToolbarExtensions()
+  }
+
+  if (value === undefined) {
+    return emptyHostToolbarExtensions()
+  }
+
+  try {
+    return parsePageBuilderHostToolbarExtensions(value)
+  } catch (error) {
+    if (error instanceof PageBuilderHostToolbarExtensionsValidationError) {
+      throw invalidCmsRequest('toolbarExtensions.buttons 不合法')
+    }
+    throw error
+  }
+}
+
+function emptyHostToolbarExtensions(): PageBuilderHostToolbarExtensions {
+  return { buttons: [] }
+}
+
+function cloneHostToolbarExtensions(
+  extensions: PageBuilderHostToolbarExtensions | undefined,
+): PageBuilderHostToolbarExtensions {
+  return structuredClone(extensions ?? emptyHostToolbarExtensions())
 }
 
 function normalizeOptionalBoolean(value: unknown, fieldName: string): boolean | undefined {

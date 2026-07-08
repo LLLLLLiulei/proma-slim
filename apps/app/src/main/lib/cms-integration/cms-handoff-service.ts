@@ -1,4 +1,5 @@
 import { randomUUID as nodeRandomUUID } from 'node:crypto'
+import type { PageBuilderHostToolbarExtensions } from '@ai-page-builder/shared'
 import {
   handoffExpired,
   invalidCmsRequest,
@@ -24,6 +25,7 @@ export interface CmsHandoffRecord {
   sessionId: string
   target: CmsHandoffTarget
   openMode: CmsHandoffOpenMode
+  hostToolbarExtensions: PageBuilderHostToolbarExtensions
   userSummary: {
     userName?: string
     realName?: string
@@ -41,6 +43,7 @@ export interface CmsHandoffCreateInput {
   sessionId: string
   target?: unknown
   openMode?: unknown
+  hostToolbarExtensions?: PageBuilderHostToolbarExtensions
   userSummary?: CmsHandoffRecord['userSummary']
 }
 
@@ -90,6 +93,7 @@ export class CmsHandoffService {
       sessionId: normalizeRequiredId(input.sessionId),
       target,
       openMode,
+      hostToolbarExtensions: cloneHostToolbarExtensions(input.hostToolbarExtensions),
       userSummary: input.userSummary ? { ...input.userSummary } : null,
       createdAt: now,
       expiresAt: now + this.ttlMs,
@@ -133,7 +137,7 @@ export class CmsHandoffService {
         throw handoffExpired()
       }
 
-      const result = await callback({ ...record, userSummary: record.userSummary ? { ...record.userSummary } : null })
+      const result = await callback(cloneHandoffRecord(record))
       const consumed: CmsHandoffConsumedRecord = {
         ...record,
         consumedAt: now,
@@ -160,6 +164,22 @@ export class CmsHandoffService {
     }
 
     return record
+  }
+}
+
+const EMPTY_HOST_TOOLBAR_EXTENSIONS: PageBuilderHostToolbarExtensions = { buttons: [] }
+
+function cloneHostToolbarExtensions(
+  extensions: PageBuilderHostToolbarExtensions | undefined,
+): PageBuilderHostToolbarExtensions {
+  return structuredClone(extensions ?? EMPTY_HOST_TOOLBAR_EXTENSIONS)
+}
+
+function cloneHandoffRecord(record: CmsHandoffRecord): CmsHandoffRecord {
+  return {
+    ...record,
+    hostToolbarExtensions: cloneHostToolbarExtensions(record.hostToolbarExtensions),
+    userSummary: record.userSummary ? { ...record.userSummary } : null,
   }
 }
 

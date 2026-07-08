@@ -1,5 +1,7 @@
 import * as React from 'react'
 import {
+  ArrowLeft,
+  Check,
   Download,
   ExternalLink,
   Laptop,
@@ -7,9 +9,15 @@ import {
   MousePointerClick,
   RefreshCw,
   Save,
+  Send,
   Smartphone,
+  Upload,
+  X,
+  type LucideIcon,
 } from 'lucide-react'
 import type {
+  PageBuilderHostToolbarButton,
+  PageBuilderHostToolbarButtonIcon,
   PageBuilderPreviewAnchorRect,
   PageBuilderPreviewBridgeMessage,
   PageBuilderImageReplacementPayload,
@@ -44,12 +52,37 @@ const MOBILE_PREVIEW_VIEWPORT_WIDTH = 390
 
 type PreviewDeviceMode = 'desktop' | 'mobile'
 type PreviewSelectionActionState = 'idle' | 'armed' | 'selected'
+type ButtonVariant = React.ComponentProps<typeof Button>['variant']
 
 interface SelectedAnchorState {
   imageTargetDescriptor: PageBuilderImageTargetDescriptor | null
   rect: PageBuilderPreviewAnchorRect
   selector: string
   targetSelection: PageBuilderTargetSelection
+}
+
+const HOST_TOOLBAR_ICON_COMPONENTS: Record<PageBuilderHostToolbarButtonIcon, LucideIcon> = {
+  'arrow-left': ArrowLeft,
+  check: Check,
+  download: Download,
+  'external-link': ExternalLink,
+  refresh: RefreshCw,
+  save: Save,
+  send: Send,
+  upload: Upload,
+  x: X,
+}
+
+function resolveHostToolbarButtonVariant(
+  variant: PageBuilderHostToolbarButton['variant'],
+): ButtonVariant {
+  if (variant === 'primary') {
+    return 'default'
+  }
+  if (variant === 'ghost' || variant === 'destructive') {
+    return variant
+  }
+  return 'outline'
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -130,8 +163,10 @@ function resolveEmbeddedPreviewUrl(previewUrl: string): string {
 
 export function PreviewPane({
   exportStaticPending = false,
+  hostToolbarButtons = [],
   hiddenToolbarItems: hiddenToolbarItemsInput,
   onRequestExportStatic,
+  onHostToolbarButtonClick,
   onInlineTextSaveRequest,
   onRequestDeleteBlock,
   onRequestOpenCmsBrowser,
@@ -150,8 +185,10 @@ export function PreviewPane({
   onSelectionEvent,
 }: {
   exportStaticPending?: boolean
+  hostToolbarButtons?: readonly PageBuilderHostToolbarButton[] | null
   hiddenToolbarItems?: readonly PageBuilderToolbarItemKey[] | null
   onRequestExportStatic?: () => void | Promise<void>
+  onHostToolbarButtonClick?: (button: PageBuilderHostToolbarButton) => void
   onInlineTextSaveRequest?: (request: PageBuilderInlineTextSaveRequest) => Promise<PageBuilderInlineTextSaveResult>
   onRequestDeleteBlock?: (selector: string) => void
   onRequestOpenCmsBrowser?: () => void
@@ -199,11 +236,16 @@ export function PreviewPane({
   const showRefreshAction = !isPageBuilderToolbarItemHidden(hiddenToolbarItems, 'refresh')
   const showSaveTemplateAction = !isPageBuilderToolbarItemHidden(hiddenToolbarItems, 'saveTemplate') && !!onRequestSaveTemplate
   const showOpenInNewWindowAction = !isPageBuilderToolbarItemHidden(hiddenToolbarItems, 'openInNewWindow')
+  const visibleHostToolbarButtons = React.useMemo(
+    () => (hostToolbarButtons ?? []).filter((button) => !button.hidden),
+    [hostToolbarButtons],
+  )
   const showPreviewActions = showSelectionAction
     || showExportAction
     || showRefreshAction
     || showSaveTemplateAction
     || showOpenInNewWindowAction
+    || visibleHostToolbarButtons.length > 0
 
   React.useEffect(() => {
     if (resolvedPreviewDeviceMode === previewDeviceMode) return
@@ -554,6 +596,39 @@ export function PreviewPane({
                 <span>另存模板</span>
               </Button>
             ) : null}
+            {visibleHostToolbarButtons.map((button) => {
+              const Icon = button.busy
+                ? LoaderCircle
+                : button.icon
+                  ? HOST_TOOLBAR_ICON_COMPONENTS[button.icon]
+                  : null
+              const disabled = button.disabled === true
+                || button.busy === true
+                || (button.requiresPreview === true && !previewUrl)
+
+              return (
+                <Button
+                  key={button.id}
+                  aria-busy={button.busy === true}
+                  aria-label={button.label}
+                  className={cn(actionButtonClassName, 'max-w-[8.5rem]')}
+                  disabled={disabled}
+                  onClick={() => {
+                    if (disabled) return
+                    onHostToolbarButtonClick?.(button)
+                  }}
+                  size="sm"
+                  title={button.tooltip ?? button.label}
+                  type="button"
+                  variant={resolveHostToolbarButtonVariant(button.variant)}
+                >
+                  {Icon ? (
+                    <Icon className={cn('size-3.5', button.busy ? 'animate-spin' : '')} />
+                  ) : null}
+                  <span className="min-w-0 max-w-[5.5rem] truncate">{button.label}</span>
+                </Button>
+              )
+            })}
           </div>
         ) : null}
       </div>

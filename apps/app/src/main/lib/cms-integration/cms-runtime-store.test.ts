@@ -23,13 +23,17 @@ describe('cms runtime store', () => {
       sessionId: 'session-1',
       target: 'builder',
       openMode: 'window',
+      hostToolbarExtensions: { buttons: [] },
       userSummary: null,
       createdAt: 1000,
       expiresAt: 2000,
     })
     await runtimeStore.set('cms:handoffs:invalid', { handoffId: 123 })
 
-    expect(await handoffs.get('handoff-1')).toMatchObject({ handoffId: 'handoff-1' })
+    expect(await handoffs.get('handoff-1')).toMatchObject({
+      handoffId: 'handoff-1',
+      hostToolbarExtensions: { buttons: [] },
+    })
     expect(await handoffs.get('invalid')).toBeNull()
 
     await handoffs.pruneExpired(2001)
@@ -45,6 +49,7 @@ describe('cms runtime store', () => {
         projectId: 'pbp_1',
         workspaceId: 'workspace-1',
         sessionId: 'session-1',
+        hostToolbarExtensions: { buttons: [] },
         userSummary: { userName: 'cms-user' },
         createdAt: 1000,
         expiresAt: 2000,
@@ -55,6 +60,7 @@ describe('cms runtime store', () => {
       expect(record).toMatchObject({
         accessId: 'access-1',
         workspaceId: 'workspace-1',
+        hostToolbarExtensions: { buttons: [] },
         userSummary: { userName: 'cms-user' },
       })
     } finally {

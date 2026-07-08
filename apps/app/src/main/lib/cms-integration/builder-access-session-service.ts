@@ -1,4 +1,5 @@
 import { createHash, randomUUID as nodeRandomUUID } from 'node:crypto'
+import type { PageBuilderHostToolbarExtensions } from '@ai-page-builder/shared'
 import {
   builderAccessRequired,
 } from './cms-integration-errors'
@@ -24,6 +25,7 @@ export interface BuilderAccessSessionRecord {
   sessionId: string
   createdAt: number
   expiresAt: number
+  hostToolbarExtensions: PageBuilderHostToolbarExtensions
   userSummary: {
     userName?: string
     realName?: string
@@ -38,6 +40,7 @@ export interface CreateBuilderAccessSessionInput {
   sessionId: string
   basePath: string
   isSecure: boolean
+  hostToolbarExtensions?: PageBuilderHostToolbarExtensions
   userSummary?: BuilderAccessSessionRecord['userSummary']
 }
 
@@ -90,6 +93,7 @@ export class BuilderAccessSessionService {
       sessionId: normalizeRequiredId(input.sessionId),
       createdAt: now,
       expiresAt: now + this.ttlMs,
+      hostToolbarExtensions: cloneHostToolbarExtensions(input.hostToolbarExtensions),
       userSummary: input.userSummary ? { ...input.userSummary } : null,
     }
 
@@ -102,6 +106,7 @@ export class BuilderAccessSessionService {
       sessionId: record.sessionId,
       createdAt: record.createdAt,
       expiresAt: record.expiresAt,
+      hostToolbarExtensions: cloneHostToolbarExtensions(record.hostToolbarExtensions),
       userSummary: record.userSummary,
       cookie: buildSetCookie(accessId, {
         cookieName: getWorkspaceAccessCookieName(record.workspaceId),
@@ -246,6 +251,14 @@ export function createBuilderAccessSessionService(
   return new BuilderAccessSessionService(options)
 }
 
+const EMPTY_HOST_TOOLBAR_EXTENSIONS: PageBuilderHostToolbarExtensions = { buttons: [] }
+
+function cloneHostToolbarExtensions(
+  extensions: PageBuilderHostToolbarExtensions | undefined,
+): PageBuilderHostToolbarExtensions {
+  return structuredClone(extensions ?? EMPTY_HOST_TOOLBAR_EXTENSIONS)
+}
+
 function buildSetCookie(
   cookieValue: string,
   options: {
@@ -370,6 +383,7 @@ function toPublicRecord(record: BuilderAccessSessionRecord): BuilderAccessSessio
     sessionId: record.sessionId,
     createdAt: record.createdAt,
     expiresAt: record.expiresAt,
+    hostToolbarExtensions: cloneHostToolbarExtensions(record.hostToolbarExtensions),
     userSummary: record.userSummary ? { ...record.userSummary } : null,
   }
 }

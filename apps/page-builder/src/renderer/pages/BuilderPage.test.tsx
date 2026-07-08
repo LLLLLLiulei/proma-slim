@@ -6,6 +6,7 @@ import { act, create } from 'react-test-renderer'
 import type {
   AgentSessionMeta,
   AgentWorkspace,
+  PageBuilderHostToolbarExtensions,
   PageBuilderCmsApplyTargetSnapshot,
   PageBuilderCmsAutoAgentHandoffRequest,
   PageBuilderCmsAutoAgentHandoffSettledResult,
@@ -14,6 +15,11 @@ import type {
   PageBuilderEditLockLease,
   PageBuilderEditLockStatus,
   PageBuilderTargetSelection,
+} from '@ai-page-builder/shared'
+import {
+  PAGE_BUILDER_HOST_BRIDGE_SOURCE,
+  PAGE_BUILDER_HOST_PARENT_SOURCE,
+  PAGE_BUILDER_HOST_TOOLBAR_EXTENSION_PROTOCOL_VERSION,
 } from '@ai-page-builder/shared'
 import {
   type AgentStreamState,
@@ -166,17 +172,19 @@ function createMemoryStorage(initial: Record<string, string> = {}): Storage {
 function installWindowHarness(): {
   localStorage: Storage
   sessionStorage: Storage
-  location: { pathname: string; search: string; hash: string }
+  location: { origin: string; pathname: string; search: string; hash: string }
   dispatchWindowEvent: (type: string, event?: unknown) => void
   getListenerCount: (type: string) => number
   runIntervalsOnce: () => Promise<void>
   open: ReturnType<typeof mock>
+  parentPostMessage: ReturnType<typeof mock>
   pushState: ReturnType<typeof mock>
   replaceState: ReturnType<typeof mock>
 } {
   const sessionStorage = createMemoryStorage()
   const localStorage = createMemoryStorage()
   const location = {
+    origin: 'http://localhost',
     pathname: '/builder/workspace-1/session-1',
     search: '',
     hash: '',
@@ -207,35 +215,41 @@ function installWindowHarness(): {
     location.search = parsed.search
     location.hash = parsed.hash
   })
+  const parentPostMessage = mock(() => {})
+  const parentWindow = {
+    postMessage: parentPostMessage,
+  }
+  const windowObject = {
+    addEventListener(type: string, listener: (event?: unknown) => void) {
+      const bucket = listeners.get(type) ?? new Set()
+      bucket.add(listener)
+      listeners.set(type, bucket)
+    },
+    removeEventListener(type: string, listener: (event?: unknown) => void) {
+      listeners.get(type)?.delete(listener)
+    },
+    localStorage,
+    sessionStorage,
+    location,
+    parent: parentWindow,
+    history: {
+      pushState,
+      replaceState,
+    },
+    setInterval(callback: () => void | Promise<void>) {
+      const id = nextIntervalId++
+      intervals.set(id, callback)
+      return id
+    },
+    clearInterval(id: number) {
+      intervals.delete(id)
+    },
+    open,
+  }
 
   Object.defineProperty(globalThis, 'window', {
     configurable: true,
-    value: {
-      addEventListener(type: string, listener: (event?: unknown) => void) {
-        const bucket = listeners.get(type) ?? new Set()
-        bucket.add(listener)
-        listeners.set(type, bucket)
-      },
-      removeEventListener(type: string, listener: (event?: unknown) => void) {
-        listeners.get(type)?.delete(listener)
-      },
-      localStorage,
-      sessionStorage,
-      location,
-      history: {
-        pushState,
-        replaceState,
-      },
-      setInterval(callback: () => void | Promise<void>) {
-        const id = nextIntervalId++
-        intervals.set(id, callback)
-        return id
-      },
-      clearInterval(id: number) {
-        intervals.delete(id)
-      },
-      open,
-    },
+    value: windowObject,
   })
   Object.defineProperty(globalThis, 'document', {
     configurable: true,
@@ -253,6 +267,7 @@ function installWindowHarness(): {
     sessionStorage,
     location,
     open,
+    parentPostMessage,
     pushState,
     replaceState,
     dispatchWindowEvent(type: string, event?: unknown) {
@@ -289,6 +304,7 @@ async function loadBuilderPage(options: {
     workspace: AgentWorkspace
     session: AgentSessionMeta
     access: { expiresAt: string }
+    hostToolbarExtensions?: PageBuilderHostToolbarExtensions
   }>
   previewStates?: WorkspacePreviewState[]
   acquirePageBuilderEditLockImpl?: (
@@ -402,6 +418,7 @@ async function loadBuilderPage(options: {
       access: {
         expiresAt: '2026-05-13T00:00:00.000Z',
       },
+      hostToolbarExtensions: { buttons: [] },
     }
   }))
   const acquirePageBuilderEditLock = mock(
@@ -844,6 +861,7 @@ function setStreamingStatesForTest(
 afterEach(() => {
   mock.restore()
   Reflect.deleteProperty(globalThis, 'window')
+  Reflect.deleteProperty(globalThis, 'document')
 })
 
 describe('BuilderPage', () => {
@@ -909,6 +927,324 @@ describe('BuilderPage', () => {
     expect(getLastCmsBrowserDialogProps()).toMatchObject({
       cmsDataUnavailableReason: null,
       workspaceId: workspace.id,
+    })
+  })
+
+  test('initializes host toolbar buttons from CMS builder context and posts ready to the iframe parent', async () => {
+    const { parentPostMessage } = installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: 'CMS 专题',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const { BuilderPage, getLastPreviewPaneProps } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      getCmsIntegrationStatusImpl: async () => ({ integrationMode: 'cms', enabled: true }),
+      getCmsBuilderContextImpl: async () => ({
+        projectId: 'pbp_host_toolbar',
+        workspace,
+        session,
+        access: {
+          expiresAt: '2026-05-13T00:00:00.000Z',
+        },
+        hostToolbarExtensions: {
+          buttons: [
+            { id: 'publish', label: '发布专题', icon: 'send', variant: 'primary' },
+            { id: 'audit', label: '送审', icon: 'check', disabled: true },
+          ],
+        },
+      }),
+      mockPreviewPane: true,
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      hostToolbarButtons: [
+        { id: 'publish', label: '发布专题', icon: 'send', variant: 'primary' },
+        { id: 'audit', label: '送审', icon: 'check', disabled: true },
+      ],
+    })
+    expect(parentPostMessage).toHaveBeenCalledWith({
+      source: PAGE_BUILDER_HOST_BRIDGE_SOURCE,
+      type: 'ready',
+      version: PAGE_BUILDER_HOST_TOOLBAR_EXTENSION_PROTOCOL_VERSION,
+      capabilities: ['toolbarExtensions.v1'],
+      workspaceId: workspace.id,
+      sessionId: session.id,
+      projectId: 'pbp_host_toolbar',
+    }, 'http://localhost')
+  })
+
+  test('posts host toolbar click messages with non-sensitive builder state', async () => {
+    const { parentPostMessage } = installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: 'CMS 专题',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const { BuilderPage, getLastPreviewPaneProps } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      getCmsIntegrationStatusImpl: async () => ({ integrationMode: 'cms', enabled: true }),
+      getCmsBuilderContextImpl: async () => ({
+        projectId: 'pbp_host_toolbar',
+        workspace,
+        session,
+        access: {
+          expiresAt: '2026-05-13T00:00:00.000Z',
+        },
+        hostToolbarExtensions: {
+          buttons: [
+            { id: 'publish', label: '发布专题', icon: 'send', variant: 'primary', requiresPreview: true },
+          ],
+        },
+      }),
+      mockPreviewPane: true,
+      previewStates: [{
+        hasPreview: true,
+        entryUrl: `/api/workspaces/${workspace.id}/preview/`,
+        revision: 'rev-1',
+      }],
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      (getLastPreviewPaneProps() as {
+        onHostToolbarButtonClick?: (button: { id: string; label: string }) => void
+      }).onHostToolbarButtonClick?.({ id: 'publish', label: '发布专题' })
+    })
+
+    const clickCall = parentPostMessage.mock.calls.find(([message]) => (
+      typeof message === 'object'
+      && message !== null
+      && (message as { type?: string }).type === 'toolbar-button-click'
+    ))
+    expect(clickCall?.[0]).toEqual({
+      source: PAGE_BUILDER_HOST_BRIDGE_SOURCE,
+      type: 'toolbar-button-click',
+      version: PAGE_BUILDER_HOST_TOOLBAR_EXTENSION_PROTOCOL_VERSION,
+      buttonId: 'publish',
+      workspaceId: workspace.id,
+      sessionId: session.id,
+      projectId: 'pbp_host_toolbar',
+      state: {
+        hasPreview: true,
+        previewUrl: `/api/workspaces/${workspace.id}/preview/?v=rev-1`,
+      },
+    })
+    expect(clickCall?.[1]).toBe('http://localhost')
+    expect(JSON.stringify(clickCall?.[0])).not.toContain('expiresAt')
+    expect(JSON.stringify(clickCall?.[0])).not.toContain('handoffId')
+  })
+
+  test('accepts only same-origin parent host toolbar messages and normalizes set/update payloads', async () => {
+    const { dispatchWindowEvent } = installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: 'CMS 专题',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const { BuilderPage, getLastPreviewPaneProps } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      getCmsIntegrationStatusImpl: async () => ({ integrationMode: 'cms', enabled: true }),
+      getCmsBuilderContextImpl: async () => ({
+        projectId: 'pbp_host_toolbar',
+        workspace,
+        session,
+        access: {
+          expiresAt: '2026-05-13T00:00:00.000Z',
+        },
+        hostToolbarExtensions: {
+          buttons: [
+            { id: 'publish', label: '发布专题', icon: 'send', variant: 'primary' },
+          ],
+        },
+      }),
+      mockPreviewPane: true,
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    const parentSource = (globalThis.window as unknown as { parent: object }).parent
+    await act(async () => {
+      dispatchWindowEvent('message', {
+        source: parentSource,
+        origin: 'https://evil.example',
+        data: {
+          source: PAGE_BUILDER_HOST_PARENT_SOURCE,
+          type: 'toolbar-buttons-set',
+          version: PAGE_BUILDER_HOST_TOOLBAR_EXTENSION_PROTOCOL_VERSION,
+          buttons: [
+            { id: 'evil', label: '恶意' },
+          ],
+        },
+      })
+      dispatchWindowEvent('message', {
+        source: {},
+        origin: 'http://localhost',
+        data: {
+          source: PAGE_BUILDER_HOST_PARENT_SOURCE,
+          type: 'toolbar-buttons-set',
+          version: PAGE_BUILDER_HOST_TOOLBAR_EXTENSION_PROTOCOL_VERSION,
+          buttons: [
+            { id: 'not-parent', label: '非父窗口' },
+          ],
+        },
+      })
+    })
+
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      hostToolbarButtons: [
+        { id: 'publish', label: '发布专题', icon: 'send', variant: 'primary' },
+      ],
+    })
+
+    await act(async () => {
+      dispatchWindowEvent('message', {
+        source: parentSource,
+        origin: 'http://localhost',
+        data: {
+          source: PAGE_BUILDER_HOST_PARENT_SOURCE,
+          type: 'toolbar-buttons-set',
+          version: PAGE_BUILDER_HOST_TOOLBAR_EXTENSION_PROTOCOL_VERSION,
+          buttons: [
+            { id: 'bad id', label: '非法 ID' },
+            { id: 'audit', label: '送审', icon: 'check', order: 5, html: '<button>bad</button>' },
+          ],
+        },
+      })
+    })
+
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      hostToolbarButtons: [
+        { id: 'audit', label: '送审', icon: 'check', order: 5 },
+      ],
+    })
+    expect(JSON.stringify(getLastPreviewPaneProps()?.hostToolbarButtons)).not.toContain('<button>bad</button>')
+
+    await act(async () => {
+      dispatchWindowEvent('message', {
+        source: parentSource,
+        origin: 'http://localhost',
+        data: {
+          source: PAGE_BUILDER_HOST_PARENT_SOURCE,
+          type: 'toolbar-button-update',
+          version: PAGE_BUILDER_HOST_TOOLBAR_EXTENSION_PROTOCOL_VERSION,
+          buttonId: 'audit',
+          patch: {
+            label: '送审中',
+            tooltip: '请稍候',
+            busy: true,
+            disabled: true,
+            html: '<b>bad</b>',
+          },
+        },
+      })
+    })
+
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      hostToolbarButtons: [
+        {
+          id: 'audit',
+          label: '送审中',
+          tooltip: '请稍候',
+          icon: 'check',
+          order: 5,
+          busy: true,
+          disabled: true,
+        },
+      ],
+    })
+    expect(JSON.stringify(getLastPreviewPaneProps()?.hostToolbarButtons)).not.toContain('<b>bad</b>')
+
+    await act(async () => {
+      dispatchWindowEvent('message', {
+        source: parentSource,
+        origin: 'http://localhost',
+        data: {
+          source: PAGE_BUILDER_HOST_PARENT_SOURCE,
+          type: 'toolbar-button-update',
+          version: PAGE_BUILDER_HOST_TOOLBAR_EXTENSION_PROTOCOL_VERSION,
+          buttonId: 'missing',
+          patch: { label: '不存在' },
+        },
+      })
+    })
+
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      hostToolbarButtons: [
+        {
+          id: 'audit',
+          label: '送审中',
+          tooltip: '请稍候',
+          icon: 'check',
+          order: 5,
+          busy: true,
+          disabled: true,
+        },
+      ],
     })
   })
 
