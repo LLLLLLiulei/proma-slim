@@ -46,6 +46,17 @@ export function deriveBuilderSplitRatioFromPointer(
   return clampBuilderSplitRatio((clientX - rect.left) / rect.width, rect.width)
 }
 
+export function deriveBuilderRightPreviewSplitRatioFromPointer(
+  clientX: number,
+  rect: { left: number; width: number },
+): number {
+  if (!Number.isFinite(rect.width) || rect.width <= 0) {
+    return DEFAULT_BUILDER_SPLIT_RATIO
+  }
+
+  return clampBuilderSplitRatio(1 - ((clientX - rect.left) / rect.width), rect.width)
+}
+
 export function readStoredBuilderSplitRatio(
   storage: Pick<Storage, 'getItem' | 'removeItem'>,
 ): number | null {

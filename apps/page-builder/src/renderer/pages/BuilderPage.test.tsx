@@ -1633,6 +1633,7 @@ describe('BuilderPage', () => {
     const { BuilderPage } = await loadBuilderPage({
       sessions: [session],
       workspaces: [workspace],
+      mockPreviewPane: true,
     })
 
     let renderer!: ReturnType<typeof create>
@@ -3064,6 +3065,8 @@ describe('BuilderPage', () => {
     expect(grid.props.className).toContain('lg:h-full')
     expect(grid.props.style['--page-builder-preview-size']).toBe(`${DEFAULT_BUILDER_SPLIT_RATIO}fr`)
     expect(panes.length).toBe(2)
+    expect(panes[0]?.props['data-testid']).not.toBe('preview-pane')
+    expect(panes[1]?.props['data-testid']).toBe('preview-pane')
     expect(panes.every((pane) => pane.props.className.includes('lg:h-full'))).toBe(true)
     expect(panes.every((pane) => pane.props.className.includes('lg:min-h-0'))).toBe(true)
   })
@@ -3123,6 +3126,7 @@ describe('BuilderPage', () => {
 
     expect(initialPreviewSize).toBe(`${DEFAULT_BUILDER_SPLIT_RATIO}fr`)
     expect(gridAfter.props.style['--page-builder-preview-size']).not.toBe(initialPreviewSize)
+    expect(Number.parseFloat(gridAfter.props.style['--page-builder-preview-size'])).toBeGreaterThan(DEFAULT_BUILDER_SPLIT_RATIO)
     expect(localStorage.length).toBeGreaterThan(0)
   })
 

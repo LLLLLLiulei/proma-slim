@@ -578,9 +578,9 @@
 @media (min-width: 1024px) {
   .page-builder-builder-grid {
     grid-template-columns:
-      minmax(0, var(--page-builder-preview-width, var(--page-builder-preview-size, 1.6fr)))
+      minmax(360px, var(--page-builder-chat-width, var(--page-builder-chat-size, 0.92fr)))
       var(--page-builder-split-rail-width, 12px)
-      minmax(360px, var(--page-builder-chat-width, var(--page-builder-chat-size, 0.92fr)));
+      minmax(0, var(--page-builder-preview-width, var(--page-builder-preview-size, 1.6fr)));
     gap: var(--page-builder-grid-gap, 0.75rem);
   }
 }

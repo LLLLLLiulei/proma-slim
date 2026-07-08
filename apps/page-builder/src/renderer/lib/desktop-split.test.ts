@@ -5,6 +5,7 @@ import {
   BUILDER_SPLIT_RAIL_WIDTH,
   DEFAULT_BUILDER_SPLIT_RATIO,
   clampBuilderSplitRatio,
+  deriveBuilderRightPreviewSplitRatioFromPointer,
   deriveBuilderSplitRatioFromPointer,
   readStoredBuilderSplitRatio,
   resolveBuilderDesktopTrackWidths,
@@ -47,6 +48,13 @@ describe('desktop split helpers', () => {
       clampBuilderSplitRatio(100 / 1200, 1200),
     )
     expect(deriveBuilderSplitRatioFromPointer(1150, { left: 0, width: 1200 })).toBeLessThan(0.8)
+  })
+
+  test('derives a clamped split ratio when the preview pane is on the right', () => {
+    expect(deriveBuilderRightPreviewSplitRatioFromPointer(300, { left: 0, width: 1200 })).toBe(
+      clampBuilderSplitRatio(1 - (300 / 1200), 1200),
+    )
+    expect(deriveBuilderRightPreviewSplitRatioFromPointer(1150, { left: 0, width: 1200 })).toBeGreaterThan(0.28)
   })
 
   test('reads and writes the persisted builder split ratio', () => {

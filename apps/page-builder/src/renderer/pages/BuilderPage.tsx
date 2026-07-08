@@ -75,7 +75,7 @@ import {
   BUILDER_SPLIT_RAIL_WIDTH,
   DEFAULT_BUILDER_SPLIT_RATIO,
   clampBuilderSplitRatio,
-  deriveBuilderSplitRatioFromPointer,
+  deriveBuilderRightPreviewSplitRatioFromPointer,
   readStoredBuilderSplitRatio,
   resolveBuilderDesktopTrackWidths,
   writeStoredBuilderSplitRatio,
@@ -522,7 +522,7 @@ export function BuilderPage({
     const rect = desktopGridRef.current?.getBoundingClientRect()
     if (!rect) return null
 
-    const nextRatio = deriveBuilderSplitRatioFromPointer(clientX, rect)
+    const nextRatio = deriveBuilderRightPreviewSplitRatioFromPointer(clientX, rect)
     const clamped = applyDesktopGridSplitStyle(nextRatio, rect.width)
     draggingSplitRatioRef.current = clamped
     return clamped
@@ -1358,7 +1358,7 @@ export function BuilderPage({
     if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
     event.preventDefault()
 
-    const delta = event.key === 'ArrowLeft' ? -0.03 : 0.03
+    const delta = event.key === 'ArrowLeft' ? 0.03 : -0.03
     commitDesktopSplitRatio(desktopSplitRatio + delta)
   }, [commitDesktopSplitRatio, desktopSplitRatio])
 
@@ -1681,62 +1681,6 @@ export function BuilderPage({
         className="page-builder-builder-grid grid min-h-0 flex-1 grid-cols-1 gap-3 lg:h-full"
         style={desktopGridStyle}
       >
-        <PreviewPane
-          exportStaticPending={exportStaticPending}
-          hostToolbarButtons={hostToolbarExtensions.buttons}
-          hiddenToolbarItems={hiddenToolbarItems}
-          imageReplacementPending={isReplacingImage}
-          interactionLocked={isAgentStreaming || !editingEnabled}
-          onHostToolbarButtonClick={handleHostToolbarButtonClick}
-          onInlineTextSaveRequest={handleInlineTextSaveRequest}
-          onRequestDeleteBlock={handleRequestDeleteBlock}
-          onRequestExportStatic={handleRequestExportStatic}
-          onRequestOpenCmsBrowser={cmsIntegrationEnabled ? () => {
-            if (isAgentStreaming || !editingEnabled) {
-              if (!editingEnabled) {
-                toast.error(editLockLostMessage ?? EDIT_LOCK_LOST_MESSAGE)
-              }
-              return
-            }
-
-            setCmsSelectionEntryPoint('block-toolbar')
-            setCmsBrowserOpen(true)
-          } : undefined}
-          onRequestSaveTemplate={handleRequestSaveTemplate}
-          onRequestReplaceImage={handleRequestReplaceImage}
-          onSelectionEvent={handleSelectionEvent}
-          previewUrl={previewUrl}
-          requiresSameOrigin={previewState?.requiresSameOrigin === true}
-          saveTemplateDisabled={isAgentStreaming || !editingEnabled || isSavingTemplate}
-          saveTemplateTitle={
-            !editingEnabled
-              ? (editLockLostMessage ?? EDIT_LOCK_LOST_MESSAGE)
-              : isAgentStreaming
-                ? '当前项目正在生成中，请稍后再另存模板'
-                : '另存为模板'
-          }
-          selectionActionState={selectionActionState}
-          selectionModeEnabled={selectionModeEnabled}
-          selectionToggleDisabled={isAgentStreaming || !editingEnabled}
-          onToggleSelectionMode={handleToggleSelectionMode}
-        />
-
-        <div className="page-builder-split-rail hidden lg:flex" aria-hidden>
-          <div
-            aria-label="调整预览与对话宽度"
-            aria-orientation="vertical"
-            aria-valuemax={80}
-            aria-valuemin={28}
-            aria-valuenow={Math.round(desktopSplitRatio * 100)}
-            className={`page-builder-split-handle ${isDraggingSplit ? 'is-dragging' : ''}`}
-            onKeyDown={handleSplitKeyDown}
-            onPointerDown={handleSplitPointerDown}
-            ref={splitHandleRef}
-            role="separator"
-            tabIndex={0}
-          />
-        </div>
-
         <section className="page-builder-pane flex min-h-[560px] min-w-0 flex-col overflow-hidden rounded-2xl lg:h-full lg:min-h-0">
           <ProjectTitleBar
             editLock={editLockCredentials ?? undefined}
@@ -1781,6 +1725,62 @@ export function BuilderPage({
             />
           </div>
         </section>
+
+        <div className="page-builder-split-rail hidden lg:flex" aria-hidden>
+          <div
+            aria-label="调整预览与对话宽度"
+            aria-orientation="vertical"
+            aria-valuemax={80}
+            aria-valuemin={28}
+            aria-valuenow={Math.round(desktopSplitRatio * 100)}
+            className={`page-builder-split-handle ${isDraggingSplit ? 'is-dragging' : ''}`}
+            onKeyDown={handleSplitKeyDown}
+            onPointerDown={handleSplitPointerDown}
+            ref={splitHandleRef}
+            role="separator"
+            tabIndex={0}
+          />
+        </div>
+
+        <PreviewPane
+          exportStaticPending={exportStaticPending}
+          hostToolbarButtons={hostToolbarExtensions.buttons}
+          hiddenToolbarItems={hiddenToolbarItems}
+          imageReplacementPending={isReplacingImage}
+          interactionLocked={isAgentStreaming || !editingEnabled}
+          onHostToolbarButtonClick={handleHostToolbarButtonClick}
+          onInlineTextSaveRequest={handleInlineTextSaveRequest}
+          onRequestDeleteBlock={handleRequestDeleteBlock}
+          onRequestExportStatic={handleRequestExportStatic}
+          onRequestOpenCmsBrowser={cmsIntegrationEnabled ? () => {
+            if (isAgentStreaming || !editingEnabled) {
+              if (!editingEnabled) {
+                toast.error(editLockLostMessage ?? EDIT_LOCK_LOST_MESSAGE)
+              }
+              return
+            }
+
+            setCmsSelectionEntryPoint('block-toolbar')
+            setCmsBrowserOpen(true)
+          } : undefined}
+          onRequestSaveTemplate={handleRequestSaveTemplate}
+          onRequestReplaceImage={handleRequestReplaceImage}
+          onSelectionEvent={handleSelectionEvent}
+          previewUrl={previewUrl}
+          requiresSameOrigin={previewState?.requiresSameOrigin === true}
+          saveTemplateDisabled={isAgentStreaming || !editingEnabled || isSavingTemplate}
+          saveTemplateTitle={
+            !editingEnabled
+              ? (editLockLostMessage ?? EDIT_LOCK_LOST_MESSAGE)
+              : isAgentStreaming
+                ? '当前项目正在生成中，请稍后再另存模板'
+                : '另存为模板'
+          }
+          selectionActionState={selectionActionState}
+          selectionModeEnabled={selectionModeEnabled}
+          selectionToggleDisabled={isAgentStreaming || !editingEnabled}
+          onToggleSelectionMode={handleToggleSelectionMode}
+        />
       </div>
 
       <input
