@@ -51,13 +51,15 @@ prompt 按这个顺序写：
 
 不要让领域词抢走页面任务。比如“煤炭行业教育培训会议”应生成会议/培训 KV、蓝白会务主视觉、抽象行业纹理或会场元素，而不是矿井、设备特写、施工现场。
 
+**生成图片禁止绘制任何文字**：图片生成 prompt 必须明确 `no text, no letters, no numbers, no Chinese characters, no English words, no typography, no logo, no seal, no signage, no QR code`。不要要求模型绘制页面标题、会议名、年份、日期、主办单位、logo 或任何标题安全文字区；页面标题、口号、日期、单位名称必须由 HTML/CSS 渲染。生成结果若出现文字、乱码、伪字母或数字（右下角“AI生成”等平台生成提示角标除外），先用更强禁字 prompt 重试一次；仍失败则改用图片搜索或 CSS/SVG，不要把带字图片接入 Header。
+
 通用安全约束：
 
 ```text
-no readable body text except short title area if needed, no garbled characters, no identifiable faces, no controversial symbols, positive neutral tone, clean composition
+no text, no letters, no numbers, no Chinese characters, no English words, no typography, no logo, no seal, no signage, no QR code, no garbled characters, no identifiable faces, no controversial symbols, positive neutral tone, clean composition
 ```
 
-AI 生成图不主动做水印检查；只检查主题贴合、乱码文字、人脸、争议符号和不适内容。外部搜索图、素材站图、用户/CMS 素材才检查第三方水印、版权署名、二维码和平台角标。
+AI 生成图不主动做水印检查；“AI生成”等平台生成提示角标不作为阻断问题。只检查主题贴合、图片内文字/乱码、人脸、争议符号和不适内容。外部搜索图、素材站图、用户/CMS 素材才检查第三方水印、版权署名、二维码和平台角标。
 
 ## 5. 类型化 Banner prompt 模板
 
@@ -66,37 +68,37 @@ AI 生成图不主动做水印检查；只检查主题贴合、乱码文字、�
 ### 政务红金
 
 ```text
-Chinese government-style special topic KV banner for [主题], red and gold ceremonial composition, flowing red ribbon, city skyline or landmark silhouette, warm light, formal public-service tone, wide horizontal poster, 1920x480, clean title-safe center area, no readable small text, no faces, no controversial symbols
+Chinese government-style special topic KV visual background for [主题], red and gold ceremonial composition, flowing red ribbon, city skyline or landmark silhouette, warm light, formal public-service tone, wide horizontal banner background, 1920x480, clean open space for HTML title overlay, no text, no letters, no numbers, no Chinese characters, no English words, no typography, no logo, no seal, no signage, no QR code, no faces, no controversial symbols
 ```
 
 ### 蓝白会议培训
 
 ```text
-Formal conference and training website KV banner for [会议/培训主题], blue and white wave lines, subtle institutional emblem area, abstract auditorium or education base elements, clean official meeting design, 1920x480 wide poster, title-safe whitespace, no garbled text, no identifiable faces, avoid industrial accident or production-site imagery
+Formal conference and training website KV visual background for [会议/培训主题], blue and white wave lines, abstract auditorium or education base elements, clean official meeting design, 1920x480 wide banner background, open whitespace for HTML title overlay, no text, no letters, no numbers, no Chinese characters, no English words, no typography, no logo, no seal, no signage, no QR code, no garbled characters, no identifiable faces, avoid industrial accident or production-site imagery
 ```
 
 ### 深色科技年会
 
 ```text
-Dark blue technology conference hero background for [科技/数字经济主题], star field, network lines, world map outline, glowing cyan accents, stage-like annual conference atmosphere, 1600x900 or 1920x480 depending on header, high contrast but restrained, no readable small text, no faces
+Dark blue technology conference hero background for [科技/数字经济主题], star field, network lines, world map outline, glowing cyan accents, stage-like annual conference atmosphere, 1600x900 or 1920x480 depending on header, high contrast but restrained, no text, no letters, no numbers, no Chinese characters, no English words, no typography, no logo, no signage, no faces
 ```
 
 ### 城市文旅/门户
 
 ```text
-Wide city culture and tourism topic banner for [城市/文旅主题], panoramic skyline, river or landmark, bright blue sky, documentary-realistic but polished, traditional Chinese portal website header, 1920x420, title-safe area, no people close-up, no logo, no small text
+Wide city culture and tourism topic visual background for [城市/文旅主题], panoramic skyline, river or landmark, bright blue sky, documentary-realistic but polished, traditional Chinese portal website header atmosphere, 1920x420, open area for HTML title overlay, no text, no letters, no numbers, no Chinese characters, no English words, no typography, no logo, no seal, no signage, no people close-up
 ```
 
 ### 公益/纪实
 
 ```text
-Documentary-style public welfare topic hero image for [公益行动主题], realistic close-up scene related to the action, calm composition, subtle color grading, restrained typography-safe area, 1600x900 or 1920x480, no identifiable faces, no negative shock imagery, no garbled text
+Documentary-style public welfare topic hero image for [公益行动主题], realistic close-up scene related to the action, calm composition, subtle color grading, clean open space for HTML title overlay, 1600x900 or 1920x480, no text, no letters, no numbers, no Chinese characters, no English words, no typography, no logo, no signage, no identifiable faces, no negative shock imagery, no garbled characters
 ```
 
 ### 榜单/评选
 
 ```text
-Editorial ranking topic banner for [榜单主题], minimal light gray background, energetic diagonal color accents, sports or industry object silhouette, poster-like layout, title-safe whitespace, 1920x480, no readable small text, no faces
+Editorial ranking topic visual background for [榜单主题], minimal light gray background, energetic diagonal color accents, sports or industry object silhouette, poster-like composition, open whitespace for HTML title overlay, 1920x480, no text, no letters, no numbers, no Chinese characters, no English words, no typography, no logo, no signage, no faces
 ```
 
 ## 6. 图片搜索回退

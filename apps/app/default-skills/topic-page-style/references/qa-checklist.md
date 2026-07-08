@@ -41,8 +41,10 @@
 - [ ] 如果宿主提供图片生成能力，Banner 是否已先尝试生成并实际接入 HTML，而不是直接降级为纯 CSS Hero？
 - [ ] 如果只提供 `mcp__image_search__search_images` / `mcp__image_search__download_images` 这类图片搜索/下载工具，是否先搜索并导入了合适横向图，而不是把“没有 AI 生图工具”当作没有视觉资产能力？
 - [ ] 如果调用宿主 MCP/图片工具生成图片，是否按最终使用区块传入尺寸参数（如 `width`、`height`、`aspectRatio`、`size`），或在 prompt 中明确目标尺寸和比例？
+- [ ] 如果调用图片生成工具，prompt 是否明确禁止图片内文字：`no text, no letters, no numbers, no Chinese characters, no English words, no typography, no logo, no seal, no signage, no QR code`？页面标题、口号、日期、单位名称是否全部由 HTML/CSS 渲染？
+- [ ] AI 生成的 Banner/KV 或正文图是否没有汉字、英文字母、数字、标题、标牌、logo、印章、二维码或乱码？右下角“AI生成”等平台提示角标可忽略，不作为阻断问题。
 - [ ] 如果使用图片搜索工具且工具不支持尺寸参数，是否传入 `orientation: landscape` 并优先选择宽高比接近目标区块的候选图？
-- [ ] 如果 Banner 是 AI 生成图片，是否只检查主题贴合、乱码文字、人脸、争议符号和不适内容，而没有主动进行水印检查或因“AI生成”类平台提示阻断使用？
+- [ ] 如果 Banner 是 AI 生成图片，是否只检查主题贴合、图片内文字/乱码、人脸、争议符号和不适内容，而没有主动进行水印检查或因“AI生成”类平台提示阻断使用？“AI生成”等平台提示角标可忽略，不作为阻断问题。
 - [ ] 如果图片来自外部来源、用户/CMS 素材或疑似素材站，是否检查第三方水印、素材站 logo、版权署名、二维码或平台角标？
 - [ ] 最终 HTML 是否没有输出“无图片生成工具”“已安全回退”等内部工具判断注释？
 

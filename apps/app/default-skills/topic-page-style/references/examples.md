@@ -24,14 +24,19 @@ Header：完整 KV Banner，优先图片生成，1920x480
 Banner prompt：
 
 ```text
-Formal conference and training website KV banner for China coal industry human resources annual meeting, blue and white wave lines, subtle institutional emblem area, abstract auditorium and education training elements, clean official meeting design, 1920x480 wide poster, title-safe whitespace, no garbled text, no identifiable faces, avoid mine shaft, machinery close-up, accident or production-site imagery
+Formal conference and training website KV visual background for China coal industry human resources annual meeting, blue and white wave lines, abstract auditorium and education training elements, clean official meeting design, 1920x480 wide banner background, open whitespace for HTML title overlay, no text, no letters, no numbers, no Chinese characters, no English words, no typography, no logo, no seal, no signage, no QR code, no garbled characters, no identifiable faces, avoid mine shaft, machinery close-up, accident or production-site imagery
 ```
 
 关键 HTML 片段：
 
 ```html
-<header class="kv-banner kv-banner--center">
-  <img src="assets/conference-kv.png" alt="中国煤炭工业协会人力资源工作委员会年会专题主视觉">
+<header class="hero hero--poster-left">
+  <img class="hero__bg" src="assets/conference-kv.png" alt="中国煤炭工业协会人力资源工作委员会年会专题主视觉">
+  <div class="hero__overlay"></div>
+  <div class="hero__content">
+    <h1 class="hero__title">中国煤炭工业协会人力资源工作委员会年会专题</h1>
+    <p class="hero__subtitle">会议时间、地点与主办信息待发布</p>
+  </div>
 </header>
 <nav class="tab-nav tab-nav--blue tab-nav--block-active">
   <a href="#home" class="active">专题首页</a>
@@ -75,14 +80,19 @@ Header：城市风景全宽 Banner，优先生成/搜索横向城市图，1920x4
 Banner prompt：
 
 ```text
-Wide Chinese city culture and tourism topic banner for ancient city heritage, panoramic lake and skyline, historical statue or landmark silhouette, bright blue sky, traditional local portal website header style, 1920x420, title-safe area on left, no people close-up, no logo, no small text
+Wide Chinese city culture and tourism topic visual background for ancient city heritage, panoramic lake and skyline, historical statue or landmark silhouette, bright blue sky, traditional local portal website header atmosphere, 1920x420, open area for HTML title overlay on left, no text, no letters, no numbers, no Chinese characters, no English words, no typography, no logo, no seal, no signage, no people close-up
 ```
 
 关键 HTML 片段：
 
 ```html
-<header class="kv-banner kv-banner--center">
-  <img src="assets/city-culture-kv.png" alt="千年古城文化专题主视觉">
+<header class="hero hero--poster-left">
+  <img class="hero__bg" src="assets/city-culture-kv.png" alt="千年古城文化专题主视觉">
+  <div class="hero__overlay"></div>
+  <div class="hero__content">
+    <h1 class="hero__title">千年古城文化专题</h1>
+    <p class="hero__subtitle">文化栏目、非遗传承与城市活动</p>
+  </div>
 </header>
 <nav class="tab-nav tab-nav--blue tab-nav--blue-red-active">
   <a href="#home" class="active">首页</a>
