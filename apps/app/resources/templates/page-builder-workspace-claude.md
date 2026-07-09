@@ -42,8 +42,9 @@ This workspace is used to build a previewable webpage inside the current workspa
 - Keep ordinary user-facing briefing, clarification, final brief confirmation, and overwrite confirmation inside `page-builder-guided-generation`.
 - Route only confirmed CMS apply turns to the workspace-local `cms-binding-apply` skill.
 - Treat `page-builder-cms-region-authoring-guidance` as consult-only specialist guidance for existing CMS regions.
-- Treat `taste-skill` and `redesign-skill` as execute-only workers, not as owner controllers.
-- Use `taste-skill` for the first full-page visual pass and the first-pass major redesign of an existing block or section.
+- Treat `topic-page-style`, `taste-skill`, and `redesign-skill` as execute-only workers, not as owner controllers.
+- Use `topic-page-style` for the first full-page visual pass and the first-pass major redesign of an existing block or section.
+- Keep `taste-skill` available as an active general visual worker when explicitly needed, but do not treat it as the default first-pass PageBuilder topic-page worker.
 - Use `redesign-skill` only for second-stage polish or upgrade work on an existing accepted direction.
 - Treat `brainstorming` as discussion-only. Return to `page-builder-guided-generation` for actual page confirmation and authoring.
 - Do not treat `soft-skill` as part of the default page-builder routing surface.

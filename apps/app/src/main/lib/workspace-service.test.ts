@@ -189,6 +189,7 @@ describe('workspace service', () => {
     expect(existsSync(join(getWorkspaceSkillsDir(workspace.slug), 'cms-binding-apply', 'SKILL.md'))).toBe(true)
     expect(existsSync(join(getWorkspaceSkillsDir(workspace.slug), 'page-builder-cms-region-authoring-guidance', 'SKILL.md'))).toBe(true)
     expect(existsSync(join(getWorkspaceSkillsDir(workspace.slug), 'page-builder-guided-generation', 'SKILL.md'))).toBe(true)
+    expect(existsSync(join(getWorkspaceSkillsDir(workspace.slug), 'topic-page-style', 'SKILL.md'))).toBe(true)
     expect(existsSync(join(getWorkspaceSkillsDir(workspace.slug), 'taste-skill', 'SKILL.md'))).toBe(true)
     expect(existsSync(join(getWorkspaceSkillsDir(workspace.slug), 'redesign-skill', 'SKILL.md'))).toBe(true)
     expect(existsSync(join(getWorkspaceSkillsDir(workspace.slug), 'soft-skill', 'SKILL.md'))).toBe(false)
@@ -383,6 +384,7 @@ describe('workspace service', () => {
     listAgentWorkspaces()
 
     expect(existsSync(join(legacySkillsDir, 'page-builder-guided-generation', 'SKILL.md'))).toBe(true)
+    expect(existsSync(join(legacySkillsDir, 'topic-page-style', 'SKILL.md'))).toBe(true)
     expect(existsSync(join(legacySkillsDir, 'taste-skill', 'SKILL.md'))).toBe(true)
     expect(existsSync(join(legacySkillsDir, 'redesign-skill', 'SKILL.md'))).toBe(true)
     expect(existsSync(join(legacySkillsDir, 'soft-skill', 'SKILL.md'))).toBe(false)

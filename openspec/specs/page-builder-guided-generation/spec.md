@@ -88,17 +88,17 @@
 - **AND** 系统 SHALL NOT 执行整页改写
 
 ### Requirement: 引导式专题页生成必须按任务阶段显式驱动 canonical visual workers
-系统 SHALL 在用户确认专题页简报后，以单页专题页作为默认生成目标，并 SHALL 按任务阶段显式驱动 canonical visual worker skills 来完成页面生成与必要提质；`taste-skill` 负责首轮视觉执行，包括首版整页生成与首轮 block 级明显视觉重设计，`redesign-skill` 只负责已有结果基础上的第二阶段提质、升级或精修。
+系统 SHALL 在用户确认专题页简报后，以单页专题页作为默认生成目标，并 SHALL 按任务阶段显式驱动 canonical visual worker skills 来完成页面生成与必要提质；`topic-page-style` 负责首轮专题页视觉执行，包括首版整页生成与首轮 block 级明显视觉重设计，`taste-skill` 可作为 active general visual worker 保留供显式需要时使用但不得作为 PageBuilder 默认首轮专题页 worker，`redesign-skill` 只负责已有结果基础上的第二阶段提质、升级或精修。
 
-#### Scenario: 确认后使用 taste-skill 生成单页专题页
+#### Scenario: 确认后使用 topic-page-style 生成单页专题页
 - **WHEN** 用户已确认专题页简报，且当前为空白页面或已完成覆盖确认
-- **THEN** 系统 SHALL 显式使用 `taste-skill`
+- **THEN** 系统 SHALL 显式使用 `topic-page-style`
 - **AND** 系统 SHALL 将输出写入 `workspace-files/index.html` 及其关联预览资源
 - **AND** 系统 SHALL 以单页专题页作为默认页面结构，而不是多页面站点
 
-#### Scenario: 首轮 block 级明显视觉重设计使用 taste-skill
+#### Scenario: 首轮 block 级明显视觉重设计使用 topic-page-style
 - **WHEN** 当前页面或当前已选 block 需要进入第一轮明显视觉重设计，而不是在已有设计方向上做二次提质
-- **THEN** 系统 SHALL 显式使用 `taste-skill`
+- **THEN** 系统 SHALL 显式使用 `topic-page-style`
 - **AND** 系统 SHALL NOT 仅因目标是局部 block 就默认切换到 `redesign-skill`
 
 #### Scenario: 强事实缺失时使用草稿占位而非编造真实信息

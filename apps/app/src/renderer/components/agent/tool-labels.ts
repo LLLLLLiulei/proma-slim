@@ -66,6 +66,7 @@ const SKILL_LABELS: Record<string, string> = {
   'redesign-skill': '二阶段视觉精修',
   'soft-skill': '高端视觉设计',
   'taste-skill': '首轮视觉设计',
+  'topic-page-style': '专题页视觉设计',
 }
 
 function normalizeSkillInvocationName(skillName: string): string {

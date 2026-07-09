@@ -137,8 +137,8 @@ After confirmation:
 1. Treat the default target as a **single-page special webpage**.
 2. Write the preview entry to `workspace-files/index.html`.
 3. Write any supporting assets under `workspace-files/`, typically `workspace-files/assets/`.
-4. Explicitly use `taste-skill` to generate the first full page.
-5. Use `taste-skill` again when a selected block needs its first-pass major visual redesign rather than a minor tune-up.
+4. Explicitly use `topic-page-style` to generate the first full single-page topic page.
+5. Use `topic-page-style` again when a selected block needs its first-pass topic-page visual redesign rather than a minor tune-up.
 6. Use `redesign-skill` only after a first-pass direction already exists and the task is now a second-stage polish, upgrade, or refinement pass.
 
 When dispatching those workers in `page-builder`, keep the target on the current `workspace-files/` preview and default to plain HTML/CSS/JS authoring unless the current page clearly provides another stack.
@@ -173,7 +173,8 @@ Once a page has already been generated, default to lightweight iteration mode.
 - Modify the current preview page directly.
 - Ask new `AskUserQuestion` prompts only when a critical ambiguity blocks the requested change.
 - Do not restart the full briefing flow for small refinements such as color, ordering, section emphasis, or tone adjustments.
-- Keep `taste-skill` as the canonical execute-only worker for first-pass major redesign work, even when the target is a single existing block.
+- Keep `topic-page-style` as the canonical execute-only worker for first-pass topic page generation and first-pass major redesign work, even when the target is a single existing block.
+- Keep `taste-skill` available as an active general visual worker when explicitly needed, but do not treat it as the default first-pass PageBuilder topic-page worker.
 - Keep `redesign-skill` for later polish when the current direction should be preserved.
 
 If the user clearly asks to redo everything, switch back to redo mode and use overwrite confirmation.
@@ -198,6 +199,6 @@ For ordinary repair, ordinary follow-up, and selected-block follow-up:
 - For small fixes, reply with one short user-facing result sentence. Do not add CSS strategy, selector details, or future implementation alternatives unless explicitly requested.
 - After generation or iteration, give a short plain-language result summary and the most relevant next step. Do not dump large technical changelogs, code explanations, or design theory by default.
 - Do not explain internal workflow machinery unless needed.
-- Do not ask the user to choose between `taste-skill` and `redesign-skill`.
+- Do not ask the user to choose between `topic-page-style`, `taste-skill`, and `redesign-skill`.
 - Do not present yourself as a template-only skill.
 - Once confirmation is done, move forward and generate the page.

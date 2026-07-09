@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { formatAgentMcpServerLabel, formatAgentToolLabel } from './tool-labels'
+import { formatAgentMcpServerLabel, formatAgentSkillLabel, formatAgentToolLabel } from './tool-labels'
 
 describe('tool label mappings', () => {
   test('covers the current local Playwright MCP tool set', () => {
@@ -38,5 +38,10 @@ describe('tool label mappings', () => {
 
   test('uses neutral cms binding labels for cms apply tools', () => {
     expect(formatAgentToolLabel('mcp__cms__apply_cms_binding')).toBe('CMS / 应用 CMS 绑定')
+  })
+
+  test('labels topic-page-style as the page-builder topic page visual worker', () => {
+    expect(formatAgentSkillLabel('topic-page-style')).toBe('专题页视觉设计')
+    expect(formatAgentSkillLabel('workspace-slug:topic-page-style')).toBe('专题页视觉设计')
   })
 })

@@ -14,7 +14,7 @@
 - **AND** 该文件 SHALL 明确 `ordinary-page-flow` 与 `existing-cms-region-ordinary-edit` 默认由 `page-builder-guided-generation` 主控
 - **AND** 该文件 SHALL 明确 `page-builder-cms-region-authoring-guidance` 仅为 consult-only guidance
 - **AND** 该文件 SHALL 明确 confirmed CMS apply 默认路由到 `cms-binding-apply`
-- **AND** 该文件 SHALL 明确 `brainstorming` 仅为 discussion-only，`taste-skill` 与 `redesign-skill` 仅作为 execute-only visual workers
+- **AND** 该文件 SHALL 明确 `brainstorming` 仅为 discussion-only，`topic-page-style`、`taste-skill` 与 `redesign-skill` 仅作为 execute-only visual workers
 
 #### Scenario: skill 内部执行细节不在根级 `CLAUDE.md` 中重复
 - **WHEN** 系统为 page-builder 工作区维护或刷新根级 `CLAUDE.md`
@@ -115,12 +115,13 @@
 - **AND** 系统 SHALL NOT 仅依赖 skill 文件存在于 workspace 或模型自行发现 skill 来完成该次 guidance 激活
 
 ### Requirement: page-builder 默认 turn-level skill surfacing MUST 以当前 owner 为中心并限制竞争面
-系统 SHALL 让 page-builder 工作区在默认 turn-level prompt surfacing 中只主动提升当前路由批准的 owner-controller 与当前 scene 可用的 secondary skills，以减少 owner 竞争和命名漂移。ordinary turn 的 bootstrapped owner MUST 为 `page-builder-guided-generation`；confirmed apply turn 的 bootstrapped owner MUST 为 `cms-binding-apply`；`page-builder-cms-region-authoring-guidance` 只 MAY 在 explicit existing CMS target ordinary edit 时按需 surfacing；`taste-skill` 与 `redesign-skill` MAY 作为 canonical visual workers 被当前 owner 调度。系统 SHALL NOT 在 page-builder 默认 turn-level surfacing 中继续并列提升 `brainstorming`、`soft-skill` 或其他会与 owner 争抢主控权的 meta-planning / creativity skills。
+系统 SHALL 让 page-builder 工作区在默认 turn-level prompt surfacing 中只主动提升当前路由批准的 owner-controller 与当前 scene 可用的 secondary skills，以减少 owner 竞争和命名漂移。ordinary turn 的 bootstrapped owner MUST 为 `page-builder-guided-generation`；confirmed apply turn 的 bootstrapped owner MUST 为 `cms-binding-apply`；`page-builder-cms-region-authoring-guidance` 只 MAY 在 explicit existing CMS target ordinary edit 时按需 surfacing；`topic-page-style`、`taste-skill` 与 `redesign-skill` MAY 作为 execute-only visual workers 被当前 owner 按阶段调度，但不得作为平级 owner controller 参与默认竞争。系统 SHALL NOT 在 page-builder 默认 turn-level surfacing 中继续并列提升 `brainstorming`、`soft-skill` 或其他会与 owner 争抢主控权的 meta-planning / creativity skills。
 
 #### Scenario: ordinary turn 只提升当前 owner 与允许的二级 skills
 - **WHEN** 系统为一次 ordinary page-builder turn 构建最终 prompt
 - **THEN** 系统 SHALL 提升 `page-builder-guided-generation` 作为 bootstrapped owner
-- **AND** 系统 MAY 按当前 scene 需要提升 `page-builder-cms-region-authoring-guidance`、`taste-skill` 与 `redesign-skill`
+- **AND** 系统 MAY 按当前 scene 需要提升 `page-builder-cms-region-authoring-guidance`
+- **AND** 系统 MAY 由当前 owner 在确认后按任务阶段显式调度 `topic-page-style`、`taste-skill` 或 `redesign-skill`
 - **AND** 系统 SHALL NOT 把 `brainstorming` 或 `soft-skill` 作为 page-builder 默认 turn-level 竞争面的一部分一并提升
 
 #### Scenario: confirmed apply turn 只提升 apply owner
@@ -135,5 +136,6 @@
 
 #### Scenario: prompt 与 skill 文案统一使用 canonical worker 名称
 - **WHEN** page-builder prompt notices、skill 文档或 runtime skill 引用需要指向 visual worker
-- **THEN** 系统 SHALL 使用 `taste-skill` 与 `redesign-skill` 这两个 canonical runtime 名称
+- **THEN** 系统 SHALL 使用 `topic-page-style`、`taste-skill` 与 `redesign-skill` 这些 canonical runtime 名称
+- **AND** 系统 SHALL 将 `topic-page-style` 作为默认首轮专题页视觉执行 worker
 - **AND** 系统 SHALL NOT 继续以 `design-taste-frontend` 或 `redesign-existing-projects` 作为当前默认调用名
