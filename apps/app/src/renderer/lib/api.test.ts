@@ -99,6 +99,43 @@ describe('renderer api wrappers', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
+  test('getAgentModelOptions requests /api/agent/model-options and parses the JSON payload', async () => {
+    const modelOptions = {
+      defaultModelOptionId: 'zhipu.glm',
+      providers: [
+        {
+          providerId: 'zhipu',
+          providerType: 'zhipu',
+          providerLabel: '智谱',
+          models: [
+            {
+              modelOptionId: 'zhipu.glm',
+              providerId: 'zhipu',
+              providerType: 'zhipu',
+              providerLabel: '智谱',
+              modelId: 'glm',
+              label: 'GLM',
+              model: 'glm-5.2[1m]',
+              contextWindow: 1000000,
+            },
+          ],
+        },
+      ],
+    }
+    const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe('/api/agent/model-options')
+      expect(init?.method).toBeUndefined()
+      return jsonResponse(modelOptions)
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const { api } = await import('./api')
+    const result = await api.getAgentModelOptions()
+
+    expect(result).toEqual(modelOptions)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
   test('getCmsIntegrationStatus requests the anonymous CMS integration status endpoint', async () => {
     const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
       expect(String(input)).toBe('/api/integrations/cms/status')

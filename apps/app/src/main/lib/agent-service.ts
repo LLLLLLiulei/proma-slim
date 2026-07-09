@@ -15,7 +15,7 @@ import type { AgentSendDiagnosticContext } from './diagnostic-logging'
 import { sseManager } from '../sse-manager'
 import { ClaudeAgentAdapter } from './adapters/claude-agent-adapter'
 import { AgentEventBus } from './agent-event-bus'
-import { AgentOrchestrator, type SessionCallbacks } from './agent-orchestrator'
+import { AgentOrchestrator, type AgentOrchestratorSendInput, type SessionCallbacks } from './agent-orchestrator'
 
 const eventBus = new AgentEventBus()
 const adapter = new ClaudeAgentAdapter()
@@ -28,7 +28,7 @@ eventBus.on((sessionId, event) => {
 export { eventBus as agentEventBus }
 
 export async function runAgent(
-  input: AgentSendInput,
+  input: AgentOrchestratorSendInput,
   callbacks: SessionCallbacks,
   diagnostic?: AgentSendDiagnosticContext,
 ): Promise<void> {

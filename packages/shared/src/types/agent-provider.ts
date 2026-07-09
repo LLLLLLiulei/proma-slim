@@ -51,6 +51,8 @@ export interface AgentQueryInput {
   prompt: AgentPromptInput
   /** 模型 ID */
   model?: string
+  /** 本次请求传入 Agent SDK 的运行时环境变量 */
+  env?: Record<string, string | undefined>
   /** Agent 工作目录 */
   cwd?: string
   /** 中止信号 */

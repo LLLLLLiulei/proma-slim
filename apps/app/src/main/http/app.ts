@@ -16,6 +16,7 @@ import { serveStatic } from './static-handler'
 import { json } from './responses'
 import { settingsRoutes } from './routes/settings'
 import { sessionRoutes } from './routes/sessions'
+import { agentRoutes } from './routes/agent'
 import { statusRoutes } from './routes/status'
 import { userProfileRoutes } from './routes/user-profile'
 import { pageBuilderRoutes } from './routes/page-builder'
@@ -89,6 +90,7 @@ export function createHttpApp(options: HttpAppOptions) {
   })
 
   app.route('/api/status', statusRoutes)
+  app.route('/api/agent', agentRoutes)
   app.route('/api/settings', settingsRoutes)
   app.route('/api/user-profile', userProfileRoutes)
   app.route('/api/page-builder', pageBuilderRoutes)

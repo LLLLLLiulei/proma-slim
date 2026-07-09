@@ -22,6 +22,7 @@ const AGENT_SDK_ENV_KEYS = [
   'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC',
   'API_TIMEOUT_MS',
 ] as const
+const AGENT_MODELS_CONFIG_FILE_ENV_KEY = 'AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE'
 const PREFIXED_IMAGE_SEARCH_ENV_PATTERN = /\b[A-Z0-9]+_(?:IMAGE_SEARCH_PROVIDERS|PEXELS_API_KEY|PIXABAY_API_KEY|UNSPLASH_ACCESS_KEY)\b/g
 
 function readRepoFile(relativePath: string): string {
@@ -43,6 +44,7 @@ function expectAgentSdkEnvWhitelist(serverBlock: string) {
   for (const key of AGENT_SDK_ENV_KEYS) {
     expect(serverBlock).toContain(`${key}: \${${key}:-}`)
   }
+  expect(serverBlock).toContain(`${AGENT_MODELS_CONFIG_FILE_ENV_KEY}: \${${AGENT_MODELS_CONFIG_FILE_ENV_KEY}:-}`)
   expect(serverBlock).toContain('AI_PAGE_BUILDER_ANTHROPIC_API_KEY: ${AI_PAGE_BUILDER_ANTHROPIC_API_KEY:-}')
   expect(serverBlock).toContain('AI_PAGE_BUILDER_ANTHROPIC_BASE_URL: ${AI_PAGE_BUILDER_ANTHROPIC_BASE_URL:-}')
   expect(serverBlock).not.toContain('AI_PAGE_BUILDER_ANTHROPIC_API_KEY:?')
@@ -53,6 +55,7 @@ function expectStartScriptClearsHostAgentSdkEnv(script: string) {
   for (const key of AGENT_SDK_ENV_KEYS) {
     expect(script).toContain(`-u ${key}`)
   }
+  expect(script).toContain(`-u ${AGENT_MODELS_CONFIG_FILE_ENV_KEY}`)
   expect(script).toContain('-u AI_PAGE_BUILDER_ANTHROPIC_API_KEY')
   expect(script).toContain('-u AI_PAGE_BUILDER_ANTHROPIC_BASE_URL')
 }
@@ -105,6 +108,8 @@ describe('page-builder docker assets', () => {
 
     expect(envExample).toContain('AI_PAGE_BUILDER_ANTHROPIC_API_KEY=')
     expect(envExample).toContain('AI_PAGE_BUILDER_ANTHROPIC_BASE_URL=')
+    expect(envExample).toContain('AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE=')
+    expect(envExample).toContain('多 provider')
     expect(envExample).toMatch(/^ANTHROPIC_AUTH_TOKEN=/m)
     expect(envExample).toMatch(/^ANTHROPIC_BASE_URL=/m)
     expect(envExample).toMatch(/^ANTHROPIC_MODEL=/m)
@@ -133,6 +138,8 @@ describe('page-builder docker assets', () => {
   test('docker assets explain CMS runtime store persistence inputs', () => {
     const cmsEnvExample = readRepoFile('../../../../../build/.env.cms.example')
 
+    expect(cmsEnvExample).toContain('AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE=')
+    expect(cmsEnvExample).toContain('模型提供商 JSONC')
     expect(cmsEnvExample).toContain('AI_PAGE_BUILDER_ACCESS_SESSION_RENEW_THRESHOLD_MS=')
     expect(cmsEnvExample).toContain('AI_PAGE_BUILDER_TEMPLATE_IMPORT_MAX_ZIP_MB=100')
     expect(cmsEnvExample).toContain('AI_PAGE_BUILDER_TEMPLATE_IMPORT_MAX_UNCOMPRESSED_MB=500')
@@ -264,6 +271,7 @@ describe('page-builder docker assets', () => {
     expect(verifyCompose).toContain('AI_PAGE_BUILDER_INTEGRATION_MODE: cms')
     expect(verifyCompose).toContain('AI_PAGE_BUILDER_ANTHROPIC_API_KEY: ${AI_PAGE_BUILDER_ANTHROPIC_API_KEY:-cms-verify-dummy-key}')
     expect(verifyCompose).toContain('AI_PAGE_BUILDER_ANTHROPIC_BASE_URL: ${AI_PAGE_BUILDER_ANTHROPIC_BASE_URL:-}')
+    expect(verifyCompose).toContain('AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE: ${AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE:-}')
     expect(verifyCompose).toContain('ANTHROPIC_API_KEY: ${AI_PAGE_BUILDER_ANTHROPIC_API_KEY:-cms-verify-dummy-key}')
     expect(verifyCompose).toContain('ANTHROPIC_BASE_URL: ${AI_PAGE_BUILDER_ANTHROPIC_BASE_URL:-}')
     expect(verifyCompose).not.toContain('ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY')
@@ -328,5 +336,23 @@ describe('page-builder docker assets', () => {
     expect(webBlock).toContain('${PAGE_BUILDER_PORT:-3333}:3333')
     expect(playwrightBlock).toContain('--host 0.0.0.0 --port 8931 --headless')
     expectPlaywrightSeccompUnconfined(playwrightBlock)
+  })
+
+  test('docker documentation explains multi-provider model configuration file deployment', () => {
+    const readme = readRepoFile('../../../../../build/README.md')
+    const standaloneEnvExample = readRepoFile('../../../../../build/.env.standalone.example')
+    const cmsEnvExample = readRepoFile('../../../../../build/.env.cms.example')
+
+    expect(readme).toContain('AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE')
+    expect(readme).toContain('defaultModelOptionId')
+    expect(readme).toContain('"providers"')
+    expect(readme).toContain('"models"')
+    expect(readme).toContain('apiKeyEnv')
+    expect(readme).toContain('外部挂载')
+    expect(readme).toContain('https://api.deepseek.com/anthropic')
+    expect(standaloneEnvExample).toContain('AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE=')
+    expect(cmsEnvExample).toContain('AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE=')
+    expect(standaloneEnvExample).not.toMatch(/^AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE=.*sk-/m)
+    expect(cmsEnvExample).not.toMatch(/^AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE=.*sk-/m)
   })
 })

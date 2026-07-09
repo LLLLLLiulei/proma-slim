@@ -4,6 +4,7 @@ import {
 } from '@ai-page-builder/shared'
 import type {
   AgentMessage,
+  AgentModelOptionsResponse,
   AgentSendInput,
   AgentSessionMeta,
   AgentWorkspace,
@@ -280,6 +281,10 @@ async function requestStream(url: string, options: RequestOptions = {}): Promise
 export const api = {
   getStatus(): Promise<AppStatus> {
     return request<AppStatus>('/api/status')
+  },
+
+  getAgentModelOptions(): Promise<AgentModelOptionsResponse> {
+    return request<AgentModelOptionsResponse>('/api/agent/model-options')
   },
 
   getCmsIntegrationStatus(): Promise<CmsIntegrationStatus> {

@@ -10,6 +10,7 @@ import {
 import { getLogsDir } from './config-paths'
 import { pruneTurnSidecarDirectories } from './diagnostic-sidecar-writer'
 import { getSettings } from './settings-service'
+import { redactSensitiveText } from './sensitive-redaction'
 
 export {
   DEFAULT_DIAGNOSTIC_LOG_LEVEL,
@@ -840,14 +841,14 @@ export function serializeDiagnosticError(error: unknown): Record<string, unknown
   if (error instanceof Error) {
     return {
       name: error.name,
-      message: error.message,
-      stack: error.stack,
+      message: redactSensitiveText(error.message),
+      stack: error.stack ? redactSensitiveText(error.stack) : undefined,
     }
   }
 
   return {
-    message: String(error),
-    raw: error,
+    message: redactSensitiveText(String(error)),
+    raw: typeof error === 'string' ? redactSensitiveText(error) : error,
   }
 }
 

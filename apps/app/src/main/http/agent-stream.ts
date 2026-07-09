@@ -1,4 +1,8 @@
-import type { AgentGenerateTitleInput, AgentSendInput } from '@ai-page-builder/shared'
+import type {
+  AgentGenerateTitleInput,
+  AgentSendInput,
+  ResolvedAgentModelSelection,
+} from '@ai-page-builder/shared'
 import type { AgentSendDiagnosticContext } from '../lib/diagnostic-logging'
 import { agentEventBus, generateAgentTitle, isAgentSessionActive, runAgent, stopAgent } from '../lib/agent-service'
 import { getAgentSessionMeta, updateAgentSessionMeta } from '../lib/agent-session-manager'
@@ -6,6 +10,7 @@ import {
   createSseConnectionTraceContext,
   getDiagnosticBackendLogger,
 } from '../lib/diagnostic-logging'
+import { mapAgentFriendlyError } from '../lib/agent-friendly-error'
 import { sseManager } from '../sse-manager'
 import { HttpError } from './errors'
 import { json } from './responses'
@@ -43,6 +48,12 @@ interface SendResponseDeps {
   generateTitle: (input: AgentGenerateTitleInput) => Promise<string | null>
 }
 
+export type AgentRuntimeSendInput = AgentSendInput & {
+  resolvedModelSelection?: ResolvedAgentModelSelection
+}
+
+type SendResponseBody = Pick<AgentSendInput, 'userMessage'> & Partial<AgentRuntimeSendInput>
+
 const defaultDeps: SendResponseDeps = {
   isAgentSessionActive,
   runAgent,
@@ -56,14 +67,15 @@ export function createAgentStreamCallbacks(
 ) {
   return {
     onError: (message: string) => {
+      const safeMessage = mapAgentFriendlyError(message).userMessage
       logAgentHttpLifecycle('error', {
         phase: 'callbacks_error',
         requestId: diagnostic?.requestTrace?.requestId ?? null,
         turnId: diagnostic?.turnTrace?.turnId ?? null,
         sessionId,
-        errorMessage: message,
+        errorMessage: safeMessage,
       })
-      agentEventBus.emit(sessionId, { type: 'error', message })
+      agentEventBus.emit(sessionId, { type: 'error', message: safeMessage })
       sseManager.closeSession(sessionId, 'turn_error')
     },
     onComplete: () => {
@@ -112,7 +124,7 @@ export async function persistGeneratedSessionTitle(
 
 export async function createSendResponse(
   sessionId: string,
-  body: Pick<AgentSendInput, 'userMessage'> & Partial<AgentSendInput>,
+  body: SendResponseBody,
   overrides: Partial<SendResponseDeps> = {},
   diagnostic?: AgentSendDiagnosticContext,
 ): Promise<Response> {
@@ -154,7 +166,7 @@ export async function createSendResponse(
     mentionedMcpServers: body.mentionedMcpServers ?? [],
   })
 
-  const input: AgentSendInput = {
+  const input: AgentRuntimeSendInput = {
     sessionId,
     userMessage: body.userMessage,
     ...(body.composedUserMessage ? { composedUserMessage: body.composedUserMessage } : {}),
@@ -167,6 +179,8 @@ export async function createSendResponse(
     ...(body.bootstrappedSkills && { bootstrappedSkills: body.bootstrappedSkills }),
     ...(body.mentionedMcpServers && { mentionedMcpServers: body.mentionedMcpServers }),
     ...(body.attachments && { attachments: body.attachments }),
+    ...(body.modelOptionId && { modelOptionId: body.modelOptionId }),
+    ...(body.resolvedModelSelection && { resolvedModelSelection: body.resolvedModelSelection }),
   }
 
   const response = sseManager.createResponse(sessionId, {
@@ -178,19 +192,19 @@ export async function createSendResponse(
   })
 
   void deps.runAgent(input, createAgentStreamCallbacks(sessionId, diagnostic), diagnostic).catch((error) => {
+    const errorMessage = mapAgentFriendlyError(error instanceof Error ? error.message : String(error)).userMessage
     logAgentHttpLifecycle('error', {
       phase: 'send_run_failed',
       requestId: diagnostic?.requestTrace?.requestId ?? null,
       turnId: diagnostic?.turnTrace?.turnId ?? null,
       sessionId,
       workspaceId: body.workspaceId ?? null,
-      error: error instanceof Error ? error.message : String(error),
+      error: errorMessage,
     })
-    console.error(`[HTTP] 会话 ${sessionId} 流式执行失败:`, error)
+    console.error(`[HTTP] 会话 ${sessionId} 流式执行失败:`, errorMessage)
 
     if (sseManager.hasSession(sessionId)) {
-      const message = error instanceof Error ? error.message : String(error)
-      agentEventBus.emit(sessionId, { type: 'error', message })
+      agentEventBus.emit(sessionId, { type: 'error', message: errorMessage })
       sseManager.closeSession(sessionId, 'turn_error')
     }
   })

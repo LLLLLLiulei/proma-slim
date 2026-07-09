@@ -2,7 +2,13 @@ import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
-import type { AgentEvent, AgentQueryInput, AgentProviderAdapter, AskUserRequest } from '@ai-page-builder/shared'
+import type {
+  AgentEvent,
+  AgentQueryInput,
+  AgentProviderAdapter,
+  AskUserRequest,
+  ResolvedAgentModelSelection,
+} from '@ai-page-builder/shared'
 import { AgentEventBus } from './agent-event-bus'
 import { saveAgentSessionAttachments } from './agent-attachment-service'
 import { AgentOrchestrator } from './agent-orchestrator'
@@ -319,6 +325,135 @@ describe('AgentOrchestrator workspace runtime', () => {
     expect(adapter.lastInput?.env?.CLAUDE_CODE_UNSUPPORTED_FLAG).toBeUndefined()
     expect(process.env.ANTHROPIC_AUTH_TOKEN).toBe('deepseek-token')
     expect(process.env.ANTHROPIC_MODEL).toBe('deepseek-v4-pro[1m]')
+  })
+
+  test('uses request model selection env and model without mutating global Agent SDK env', async () => {
+    const adapter = new RecordingAdapter()
+    const orchestrator = new AgentOrchestrator(adapter, new AgentEventBus())
+    const workspace = createAgentWorkspace('Selected Provider Runtime')
+    const session = createAgentSession('Selected Provider Session', undefined, workspace.id)
+    const selection: ResolvedAgentModelSelection = {
+      modelOptionId: 'zhipu.glm',
+      providerId: 'zhipu',
+      providerType: 'zhipu',
+      model: 'glm-5.2[1m]',
+      sdkEnv: {
+        ANTHROPIC_BASE_URL: 'https://open.bigmodel.cn/api/anthropic/',
+        ANTHROPIC_API_KEY: 'sk-zhipu-secret',
+        ANTHROPIC_DEFAULT_SONNET_MODEL: 'glm-5.2[1m]',
+        CLAUDE_CODE_SUBAGENT_MODEL: 'glm-4.7',
+      },
+    }
+
+    process.env.ANTHROPIC_API_KEY = 'global-api-key'
+    process.env.ANTHROPIC_BASE_URL = 'https://api.anthropic.com'
+
+    await orchestrator.sendMessage(
+      {
+        sessionId: session.id,
+        userMessage: 'hello',
+        channelId: '',
+        modelOptionId: selection.modelOptionId,
+        resolvedModelSelection: selection,
+      },
+      {
+        onError: (message) => {
+          throw new Error(message)
+        },
+        onComplete: () => {},
+        onTitleUpdated: () => {},
+      },
+    )
+
+    expect(adapter.lastInput?.model).toBe('glm-5.2[1m]')
+    expect(adapter.lastInput?.env).toEqual(expect.objectContaining({
+      ANTHROPIC_API_KEY: 'sk-zhipu-secret',
+      ANTHROPIC_BASE_URL: 'https://open.bigmodel.cn/api/anthropic',
+      ANTHROPIC_DEFAULT_SONNET_MODEL: 'glm-5.2[1m]',
+      CLAUDE_CODE_SUBAGENT_MODEL: 'glm-4.7',
+    }))
+    expect(adapter.lastInput?.env?.ANTHROPIC_AUTH_TOKEN).toBeUndefined()
+    expect(process.env.ANTHROPIC_API_KEY).toBe('global-api-key')
+    expect(process.env.ANTHROPIC_BASE_URL).toBe('https://api.anthropic.com')
+  })
+
+  test('keeps concurrent sessions on different provider selections isolated', async () => {
+    const adapter = new RecordingAdapter()
+    const orchestrator = new AgentOrchestrator(adapter, new AgentEventBus())
+    const workspaceA = createAgentWorkspace('Concurrent Provider A')
+    const workspaceB = createAgentWorkspace('Concurrent Provider B')
+    const sessionA = createAgentSession('Provider A Session', undefined, workspaceA.id)
+    const sessionB = createAgentSession('Provider B Session', undefined, workspaceB.id)
+    const selectionA: ResolvedAgentModelSelection = {
+      modelOptionId: 'zhipu.glm',
+      providerId: 'zhipu',
+      providerType: 'zhipu',
+      model: 'glm-5.2[1m]',
+      sdkEnv: {
+        ANTHROPIC_BASE_URL: 'https://open.bigmodel.cn/api/anthropic',
+        ANTHROPIC_API_KEY: 'sk-zhipu-secret',
+      },
+    }
+    const selectionB: ResolvedAgentModelSelection = {
+      modelOptionId: 'deepseek.chat',
+      providerId: 'deepseek',
+      providerType: 'deepseek',
+      model: 'deepseek-chat',
+      sdkEnv: {
+        ANTHROPIC_BASE_URL: 'https://api.deepseek.com/anthropic',
+        ANTHROPIC_AUTH_TOKEN: 'deepseek-token',
+      },
+    }
+
+    await Promise.all([
+      orchestrator.sendMessage(
+        {
+          sessionId: sessionA.id,
+          userMessage: 'hello A',
+          channelId: '',
+          modelOptionId: selectionA.modelOptionId,
+          resolvedModelSelection: selectionA,
+        },
+        {
+          onError: (message) => {
+            throw new Error(message)
+          },
+          onComplete: () => {},
+          onTitleUpdated: () => {},
+        },
+      ),
+      orchestrator.sendMessage(
+        {
+          sessionId: sessionB.id,
+          userMessage: 'hello B',
+          channelId: '',
+          modelOptionId: selectionB.modelOptionId,
+          resolvedModelSelection: selectionB,
+        },
+        {
+          onError: (message) => {
+            throw new Error(message)
+          },
+          onComplete: () => {},
+          onTitleUpdated: () => {},
+        },
+      ),
+    ])
+
+    const inputA = adapter.inputs.find((input) => input.sessionId === sessionA.id)
+    const inputB = adapter.inputs.find((input) => input.sessionId === sessionB.id)
+    expect(inputA?.model).toBe('glm-5.2[1m]')
+    expect(inputA?.env).toEqual(expect.objectContaining({
+      ANTHROPIC_BASE_URL: 'https://open.bigmodel.cn/api/anthropic',
+      ANTHROPIC_API_KEY: 'sk-zhipu-secret',
+    }))
+    expect(inputA?.env?.ANTHROPIC_AUTH_TOKEN).toBeUndefined()
+    expect(inputB?.model).toBe('deepseek-chat')
+    expect(inputB?.env).toEqual(expect.objectContaining({
+      ANTHROPIC_BASE_URL: 'https://api.deepseek.com/anthropic',
+      ANTHROPIC_AUTH_TOKEN: 'deepseek-token',
+    }))
+    expect(inputB?.env?.ANTHROPIC_API_KEY).toBeUndefined()
   })
 
   test('writes request payload and prompt sidecars when diagnostic context is provided', async () => {
@@ -1935,6 +2070,16 @@ describe('AgentOrchestrator workspace runtime', () => {
     const orchestrator = new AgentOrchestrator(adapter, new AgentEventBus())
     const workspace = createAgentWorkspace('Team Resume Docs')
     const session = createAgentSession('Team Resume Session', undefined, workspace.id)
+    const selection: ResolvedAgentModelSelection = {
+      modelOptionId: 'zhipu.glm',
+      providerId: 'zhipu',
+      providerType: 'zhipu',
+      model: 'glm-5.2[1m]',
+      sdkEnv: {
+        ANTHROPIC_BASE_URL: 'https://open.bigmodel.cn/api/anthropic',
+        ANTHROPIC_API_KEY: 'sk-zhipu-secret',
+      },
+    }
 
     const teamDir = join(claudeHomeDir, 'teams', 'scratch-research')
     const inboxDir = join(teamDir, 'inboxes')
@@ -1962,6 +2107,8 @@ describe('AgentOrchestrator workspace runtime', () => {
         sessionId: session.id,
         userMessage: '请创建 subagent 并汇总结果',
         channelId: '',
+        modelOptionId: selection.modelOptionId,
+        resolvedModelSelection: selection,
       },
       {
         onError: (message) => {
@@ -1973,6 +2120,16 @@ describe('AgentOrchestrator workspace runtime', () => {
     )
 
     expect(adapter.inputs).toHaveLength(2)
+    expect(adapter.inputs[0]?.model).toBe('glm-5.2[1m]')
+    expect(adapter.inputs[1]?.model).toBe('glm-5.2[1m]')
+    expect(adapter.inputs[0]?.env).toEqual(expect.objectContaining({
+      ANTHROPIC_BASE_URL: 'https://open.bigmodel.cn/api/anthropic',
+      ANTHROPIC_API_KEY: 'sk-zhipu-secret',
+    }))
+    expect(adapter.inputs[1]?.env).toEqual(expect.objectContaining({
+      ANTHROPIC_BASE_URL: 'https://open.bigmodel.cn/api/anthropic',
+      ANTHROPIC_API_KEY: 'sk-zhipu-secret',
+    }))
     expect(adapter.inputs[1]?.resumeSessionId).toBe('sdk-team-session-1')
     expect(adapter.inputs[1]?.prompt).toContain('以下是他们发送的完整工作结果')
     expect(adapter.inputs[1]?.prompt).toContain('逐日天气结果')

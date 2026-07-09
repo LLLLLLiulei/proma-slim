@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
-import type { AgentSendInput, FileAttachment } from '@ai-page-builder/shared'
+import type { AgentSendInput, FileAttachment, ResolvedAgentModelSelection } from '@ai-page-builder/shared'
 import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
@@ -228,6 +228,78 @@ describe('createSendResponse', () => {
     })
 
     sseManager.closeSession('session-attachment-only')
+  })
+
+  test('forwards model option selection into the agent run input', async () => {
+    const runAgent = mock(async (_input: AgentSendInput) => {})
+    const resolvedModelSelection: ResolvedAgentModelSelection = {
+      modelOptionId: 'zhipu.glm',
+      providerId: 'zhipu',
+      providerType: 'zhipu',
+      model: 'glm-5.2[1m]',
+      sdkEnv: {
+        ANTHROPIC_BASE_URL: 'https://open.bigmodel.cn/api/anthropic',
+        ANTHROPIC_API_KEY: 'sk-zhipu-secret',
+      },
+    }
+
+    const response = await createSendResponse('session-model-option', {
+      userMessage: '生成专题页',
+      modelOptionId: 'zhipu.glm',
+      resolvedModelSelection,
+    }, {
+      isAgentSessionActive: () => false,
+      runAgent,
+      generateTitle: mock(async () => null),
+    })
+
+    expect(response.status).toBe(200)
+    expect(runAgent).toHaveBeenCalledTimes(1)
+    expect(runAgent.mock.calls[0]?.[0]).toMatchObject({
+      sessionId: 'session-model-option',
+      userMessage: '生成专题页',
+      modelOptionId: 'zhipu.glm',
+      resolvedModelSelection,
+    })
+
+    sseManager.closeSession('session-model-option')
+  })
+
+  test('redacts provider secrets from asynchronous agent run failures', async () => {
+    const consoleError = mock(() => {})
+    const originalConsoleError = console.error
+    console.error = consoleError as typeof console.error
+    const runAgent = mock(async () => {
+      throw new Error('Authorization: Bearer sk-secret-token failed at https://open.bigmodel.cn/api/anthropic')
+    })
+
+    try {
+      const response = await createSendResponse('session-redacted-run-error', {
+        userMessage: '生成专题页',
+      }, {
+        isAgentSessionActive: () => false,
+        runAgent,
+        generateTitle: mock(async () => null),
+      })
+
+      const reader = response.body?.getReader()
+      expect(reader).not.toBeNull()
+      await reader!.read()
+      await Promise.resolve()
+      await Promise.resolve()
+
+      const errorChunk = await reader!.read()
+      const frame = decoder.decode(errorChunk.value)
+      expect(frame).toContain('event: error')
+      expect(frame).not.toContain('sk-secret-token')
+      expect(frame).not.toContain('open.bigmodel.cn')
+      expect(frame).not.toContain('api/anthropic')
+      expect(JSON.stringify(consoleError.mock.calls)).not.toContain('sk-secret-token')
+      expect(JSON.stringify(consoleError.mock.calls)).not.toContain('open.bigmodel.cn')
+    } finally {
+      console.error = originalConsoleError
+      sseManager.closeSession('session-redacted-run-error')
+    }
   })
 
   test('disconnecting the response does not implicitly stop the running agent', async () => {

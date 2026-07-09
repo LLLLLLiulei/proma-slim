@@ -4,6 +4,7 @@ import type {
   AskUserResponse,
   FileAttachment,
   PermissionResponse,
+  ResolvedAgentModelSelection,
 } from '@ai-page-builder/shared'
 import { askUserService } from '../../lib/agent-ask-user-service'
 import {
@@ -40,21 +41,47 @@ import {
   createCmsBuilderAccessMiddleware,
 } from '../../lib/cms-integration/cms-builder-access-middleware'
 import { builderAccessMismatch } from '../../lib/cms-integration/cms-integration-errors'
+import { resolveAgentModelProviderRegistry } from '../../lib/agent-model-provider-config'
 
 export const sessionRoutes = new Hono<HttpAppEnv>()
+
+type SendRequestBody = Pick<AgentSendInput, 'userMessage'> & Partial<AgentSendInput> & {
+  resolvedModelSelection?: ResolvedAgentModelSelection
+}
+
+export function resolveSendModelSelection(
+  body: Partial<AgentSendInput>,
+): ResolvedAgentModelSelection | undefined {
+  const modelOptionId = typeof body.modelOptionId === 'string' ? body.modelOptionId.trim() : ''
+  if (!modelOptionId) {
+    return undefined
+  }
+
+  const registry = resolveAgentModelProviderRegistry()
+  const selection = registry.resolveModelOption(modelOptionId)
+  if (selection) {
+    return selection
+  }
+
+  if (!registry.hasAvailableModelOptions) {
+    throw new HttpError(503, '模型服务未配置完整，请联系管理员检查模型提供商配置')
+  }
+
+  throw new HttpError(400, '模型选项不可用，请刷新页面后重新选择模型')
+}
 
 async function readSendRequestBody(
   request: Request,
   sessionId: string,
   sessionWorkspaceId?: string,
 ): Promise<{
-  body: Pick<AgentSendInput, 'userMessage'> & Partial<AgentSendInput>
+  body: SendRequestBody
   attachments: FileAttachment[]
   structuredRequestPayload: StructuredRequestPayload
 }> {
   const contentType = request.headers.get('content-type') ?? ''
   if (!contentType.includes('multipart/form-data')) {
-    const body = await readJsonBody<Pick<AgentSendInput, 'userMessage'> & Partial<AgentSendInput>>(request)
+    const body = await readJsonBody<SendRequestBody>(request)
     return {
       body,
       attachments: [],
@@ -97,8 +124,8 @@ async function readSendRequestBody(
     files,
   })
 
-  const body: Pick<AgentSendInput, 'userMessage'> & Partial<AgentSendInput> = {
-    ...(parsedPayload as Pick<AgentSendInput, 'userMessage'> & Partial<AgentSendInput>),
+  const body: SendRequestBody = {
+    ...(parsedPayload as SendRequestBody),
     ...(sessionWorkspaceId ? { workspaceId: sessionWorkspaceId } : {}),
     ...(attachments.length > 0 ? { attachments } : {}),
   }
@@ -298,6 +325,10 @@ sessionRoutes.post('/:sessionId/send', async (c) => {
     }
 
     body.workspaceId = cmsBuilderAccess.workspaceId
+  }
+  const resolvedModelSelection = resolveSendModelSelection(body)
+  if (resolvedModelSelection) {
+    body.resolvedModelSelection = resolvedModelSelection
   }
 
   const requestTrace = c.var.diagnostic.requestTrace

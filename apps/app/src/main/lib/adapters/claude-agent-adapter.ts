@@ -697,7 +697,7 @@ export class ClaudeAgentAdapter implements AgentProviderAdapter {
       events.push({
         type: 'status_notice',
         level: 'error',
-        message: msg.error.trim(),
+        message: mapAgentFriendlyError(msg.error.trim()).userMessage,
       })
       return
     }
@@ -903,6 +903,7 @@ export class ClaudeAgentAdapter implements AgentProviderAdapter {
         cwd: options.cwd,
         abortController: controller,
         env: options.env,
+        ...(options.model ? { model: options.model } : {}),
         systemPrompt: options.systemPrompt,
         // 不加载 user 级别的 ~/.claude/settings.json，防止其中的 env 字段
         // （如 ANTHROPIC_AUTH_TOKEN、ANTHROPIC_BASE_URL）覆盖我们注入的凭证。

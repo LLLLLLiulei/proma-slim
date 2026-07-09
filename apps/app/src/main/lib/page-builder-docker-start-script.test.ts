@@ -20,10 +20,11 @@ describe('page-builder docker start script', () => {
     expect(script).toContain('ENV_FILE="${SCRIPT_DIR}/${ENV_FILE}"')
     expect(script).toContain('docker compose version >/dev/null 2>&1')
     expect(script).toContain('Use build/.env.standalone.example or build/.env.cms.example')
-    expect(script).toContain('docker compose \\')
+    expect(script).toContain('run_docker_compose \\')
     expect(script).toContain('--env-file "${ENV_FILE}" \\')
     expect(script).toContain('-f "${COMPOSE_FILE}" \\')
     expect(script).toContain('up -d --build server playwright web')
+    expect(script).toContain('-u AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE')
   })
 
   test('start script supports prebuilding linux/amd64 images before compose startup', () => {
@@ -37,7 +38,7 @@ describe('page-builder docker start script', () => {
     expect(script).toContain('--load \\')
     expect(script).toContain('--tag ai-page-builder-server \\')
     expect(script).toContain('--tag ai-page-builder-web \\')
-    expect(script).toContain('docker compose \\')
+    expect(script).toContain('run_docker_compose \\')
     expect(script).toContain('up -d --no-build server playwright web')
   })
 

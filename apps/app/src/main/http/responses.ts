@@ -3,6 +3,10 @@ import { dirname, join } from 'node:path'
 import { existsSync } from 'node:fs'
 import { getRuntimeStatus } from '../lib/runtime-init'
 import { resolveAgentSdkRuntimeEnv } from '../lib/agent-runtime-env'
+import {
+  AGENT_MODELS_CONFIG_FILE_ENV,
+  resolveAgentModelProviderRegistry,
+} from '../lib/agent-model-provider-config'
 import { HttpError } from './errors'
 
 const JSON_HEADERS = {
@@ -40,7 +44,10 @@ function resolveClaudeSdkCliPath(): string | null {
 }
 
 export function createStatusPayload() {
-  const apiKeyConfigured = resolveAgentSdkRuntimeEnv().hasCredential
+  const runtime = resolveAgentSdkRuntimeEnv()
+  const hasConfiguredModelProviders = Boolean(process.env[AGENT_MODELS_CONFIG_FILE_ENV]?.trim())
+    && resolveAgentModelProviderRegistry().hasAvailableModelOptions
+  const apiKeyConfigured = runtime.hasCredential || hasConfiguredModelProviders
   const sdkCliPath = resolveClaudeSdkCliPath()
 
   return {

@@ -1698,6 +1698,7 @@ export function BuilderPage({
                   beforeSendMessage={handleBeforeSendMessage}
                   composerPlaceholder={PAGE_BUILDER_COMPOSER_PLACEHOLDER}
                   defaultMentionedSkills={[PAGE_BUILDER_GUIDED_GENERATION_SKILL]}
+                  enableModelSelector
                   initialUserMessage={loadState.initialUserMessage}
                   onSendError={handleAgentSendError}
                   onMessageSent={handleMessageSent}

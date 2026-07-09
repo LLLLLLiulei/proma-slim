@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { useAtomValue, useSetAtom } from 'jotai'
-import { AlertTriangle, CornerDownLeft, Paperclip, Square } from 'lucide-react'
+import { AlertTriangle, ChevronDown, CornerDownLeft, Paperclip, Square } from 'lucide-react'
 import { toast } from 'sonner'
 import { AgentHeader } from './AgentHeader'
 import { AgentPendingAttachments } from './AgentPendingAttachments'
@@ -31,6 +31,8 @@ import { STALE_STREAM_RECONCILE_IDLE_MS } from '@/hooks/useAgentSSE'
 import { cn } from '@/lib/utils'
 import type {
   AgentMessage,
+  AgentModelOptionSummary,
+  AgentModelOptionsResponse,
   PageBuilderCmsAutoAgentHandoffRequest,
   PageBuilderCmsAutoAgentHandoffSettledResult,
   PageBuilderEditLockCredentials,
@@ -54,6 +56,8 @@ function logAgentViewLifecycle(
 
 const SESSION_BUSY_ERROR_MESSAGE = '当前会话正在处理中，请稍候再试'
 const ACTIVE_SESSION_CONFLICT_MESSAGE = '上一条消息仍在处理中，请稍候再试'
+const COMPOSER_SHORTCUT_HINT = 'Enter 发送，Shift+Enter 换行。'
+export const AGENT_MODEL_OPTION_LOCAL_STORAGE_KEY = 'proma.agent.modelOptionId'
 
 function resolveErrorStatus(error: unknown): number | null {
   const status = (error as { status?: unknown } | null)?.status
@@ -65,6 +69,51 @@ function isActiveSessionConflictError(error: unknown): boolean {
   return error instanceof Error
     && error.message.includes(ACTIVE_SESSION_CONFLICT_MESSAGE)
     && (status === null || status === 409)
+}
+
+function readStoredModelOptionId(): string | null {
+  try {
+    return globalThis.localStorage?.getItem(AGENT_MODEL_OPTION_LOCAL_STORAGE_KEY) ?? null
+  } catch {
+    return null
+  }
+}
+
+function writeStoredModelOptionId(modelOptionId: string): void {
+  try {
+    globalThis.localStorage?.setItem(AGENT_MODEL_OPTION_LOCAL_STORAGE_KEY, modelOptionId)
+  } catch {
+    // localStorage may be unavailable in restricted browser contexts.
+  }
+}
+
+function findModelOption(
+  options: AgentModelOptionsResponse | null,
+  modelOptionId: string | null | undefined,
+): AgentModelOptionSummary | null {
+  if (!options || !modelOptionId) return null
+
+  for (const provider of options.providers) {
+    const model = provider.models.find((item) => item.modelOptionId === modelOptionId)
+    if (model) return model
+  }
+
+  return null
+}
+
+export function resolveSelectedModelOptionId(
+  options: AgentModelOptionsResponse,
+  storedModelOptionId: string | null,
+): string | null {
+  if (findModelOption(options, storedModelOptionId)) {
+    return storedModelOptionId
+  }
+
+  if (findModelOption(options, options.defaultModelOptionId)) {
+    return options.defaultModelOptionId
+  }
+
+  return options.providers[0]?.models[0]?.modelOptionId ?? null
 }
 
 export function getMessagesForSession(
@@ -167,6 +216,7 @@ export interface AgentViewProps {
   composerNotice?: React.ReactNode
   composerLeadingActions?: React.ReactNode
   composerPlaceholder?: string
+  enableModelSelector?: boolean
   onMessageSent?: (userMessage: string) => void
   beforeSendMessage?: (input: {
     userMessage: string
@@ -334,6 +384,7 @@ export function AgentView({
   composerNotice,
   composerLeadingActions,
   composerPlaceholder,
+  enableModelSelector = false,
   onMessageSent,
   beforeSendMessage,
   programmaticSendRequest = null,
@@ -344,6 +395,10 @@ export function AgentView({
   const [messagesBySession, setMessagesBySession] = React.useState<Map<string, AgentMessage[]>>(() => new Map())
   const [status, setStatus] = React.useState<AppStatus | null>(null)
   const [initialMessageLoaded, setInitialMessageLoaded] = React.useState(false)
+  const [modelOptions, setModelOptions] = React.useState<AgentModelOptionsResponse | null>(null)
+  const [modelOptionsLoaded, setModelOptionsLoaded] = React.useState(false)
+  const [modelOptionsError, setModelOptionsError] = React.useState<string | null>(null)
+  const [selectedModelOptionId, setSelectedModelOptionId] = React.useState<string | null>(null)
   const [pendingAttachments, setPendingAttachments] = React.useState<PendingAgentAttachment[]>([])
   const [isDragOver, setIsDragOver] = React.useState(false)
   const streamingState = useAtomValue(agentStreamingStatesAtom).get(sessionId)
@@ -373,6 +428,15 @@ export function AgentView({
   const latestDraftValueRef = React.useRef(inputValue)
   latestDraftValueRef.current = inputValue
   const streaming = streamingState?.running ?? false
+  const modelOptionsReady = !enableModelSelector || modelOptionsLoaded
+  const selectedModelOption = React.useMemo(
+    () => findModelOption(modelOptions, selectedModelOptionId),
+    [modelOptions, selectedModelOptionId],
+  )
+  const effectiveModelOptionId = enableModelSelector ? selectedModelOption?.modelOptionId ?? null : null
+  const effectiveComposerPlaceholder = status && !status.ok
+    ? '请先修复后端状态，再发送消息'
+    : composerPlaceholder ?? '输入消息...'
   const session = sessions.find((item) => item.id === sessionId) ?? null
   const sessionWorkspaceId = session?.workspaceId ?? null
   const sessionWorkspace = workspaces.find((item) => item.id === sessionWorkspaceId) ?? null
@@ -380,7 +444,7 @@ export function AgentView({
     ? workspaceDirectoryContextMap.get(sessionWorkspaceId) ?? null
     : null
   const composerInputDisabled = Boolean(status && !status.ok)
-  const composerSendDisabled = streaming || composerInputDisabled
+  const composerSendDisabled = streaming || composerInputDisabled || !modelOptionsReady
   const canSend = (inputValue.trim().length > 0 || pendingAttachments.length > 0) && !composerSendDisabled
   const attachedDirectories = React.useMemo(
     () => Array.from(new Set([
@@ -421,6 +485,49 @@ export function AgentView({
       cancelled = true
     }
   }, [])
+
+  React.useEffect(() => {
+    if (!enableModelSelector) {
+      setModelOptions(null)
+      setModelOptionsLoaded(false)
+      setModelOptionsError(null)
+      setSelectedModelOptionId(null)
+      return
+    }
+
+    let cancelled = false
+    setModelOptionsLoaded(false)
+    setModelOptionsError(null)
+
+    void api.getAgentModelOptions().then((options) => {
+      if (cancelled) return
+
+      const nextSelectedModelOptionId = resolveSelectedModelOptionId(
+        options,
+        readStoredModelOptionId(),
+      )
+      setModelOptions(options)
+      setSelectedModelOptionId(nextSelectedModelOptionId)
+      if (nextSelectedModelOptionId) {
+        writeStoredModelOptionId(nextSelectedModelOptionId)
+      }
+    }).catch((error) => {
+      console.error('[AgentView] 读取模型选项失败:', error)
+      if (!cancelled) {
+        setModelOptions(null)
+        setSelectedModelOptionId(null)
+        setModelOptionsError(error instanceof Error ? error.message : '模型选项加载失败')
+      }
+    }).finally(() => {
+      if (!cancelled) {
+        setModelOptionsLoaded(true)
+      }
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [enableModelSelector])
 
   React.useEffect(() => {
     initialMessageTriggeredRef.current = false
@@ -572,6 +679,7 @@ export function AgentView({
         workspaceId: sessionWorkspaceId ?? null,
         source,
         attachmentCount: attachmentFiles.length,
+        modelOptionId: effectiveModelOptionId ?? null,
         mentionedSkills,
         mentionedMcpServers,
       })
@@ -579,6 +687,7 @@ export function AgentView({
       const sendPayload = {
         userMessage: trimmedUserMessage,
         ...(composedUserMessage ? { composedUserMessage } : {}),
+        ...(effectiveModelOptionId ? { modelOptionId: effectiveModelOptionId } : {}),
         ...(attachmentFiles.length > 0 ? { attachmentFiles } : {}),
         ...(sessionWorkspaceId && { workspaceId: sessionWorkspaceId }),
         ...(attachedDirectories.length > 0 && { additionalDirectories: attachedDirectories }),
@@ -675,6 +784,7 @@ export function AgentView({
     reconcileSessionStreaming,
     sendMessage,
     sendMessageOptions,
+    effectiveModelOptionId,
     session,
     sessionId,
     sessionWorkspaceId,
@@ -828,6 +938,10 @@ export function AgentView({
   }, [allowAttachments, handleAddFiles])
 
   React.useEffect(() => {
+    if (!modelOptionsReady) {
+      return
+    }
+
     const shouldAutoSend = resolveShouldAutoSendInitialMessage({
       initialMessageLoaded,
       initialUserMessage,
@@ -855,12 +969,17 @@ export function AgentView({
     initialMessageLoaded,
     initialUserMessage,
     messages.length,
+    modelOptionsReady,
     onInitialUserMessageHandled,
     sendDraftMessage,
     streaming,
   ])
 
   React.useEffect(() => {
+    if (!modelOptionsReady) {
+      return
+    }
+
     if (!programmaticSendRequest) {
       return
     }
@@ -900,6 +1019,7 @@ export function AgentView({
     })
   }, [
     executeSend,
+    modelOptionsReady,
     onProgrammaticSendSettled,
     programmaticSendRequest,
     sessionId,
@@ -1003,6 +1123,14 @@ export function AgentView({
     triggerPassiveReconcile,
   ])
 
+  const handleModelOptionChange = React.useCallback((event: React.ChangeEvent<HTMLSelectElement>): void => {
+    const nextModelOptionId = event.target.value
+    setSelectedModelOptionId(nextModelOptionId)
+    if (nextModelOptionId) {
+      writeStoredModelOptionId(nextModelOptionId)
+    }
+  }, [])
+
   const handleStop = React.useCallback(async (): Promise<void> => {
     try {
       await stopSession(sessionId)
@@ -1072,7 +1200,7 @@ export function AgentView({
             disabled={composerInputDisabled}
             submitDisabled={composerSendDisabled}
             autoFocusTrigger={sessionId}
-            placeholder={status && !status.ok ? '请先修复后端状态，再发送消息' : composerPlaceholder ?? '输入消息...'}
+            placeholder={effectiveComposerPlaceholder}
             workspaceId={sessionWorkspaceId}
             workspacePath={workspaceContext?.workspacePath ?? null}
             workspaceSlug={workspaceContext?.workspaceSlug ?? sessionWorkspace?.slug ?? null}
@@ -1081,7 +1209,6 @@ export function AgentView({
 
           <div className="flex h-[40px] items-center justify-between gap-4 px-2 py-[5px]">
             <div className="flex min-w-0 flex-1 items-center gap-2 px-1 text-xs text-muted-foreground">
-              {composerLeadingActions}
               {allowAttachments && (
                 <Button
                   aria-label="添加附件"
@@ -1095,6 +1222,45 @@ export function AgentView({
                   <Paperclip className="size-4" />
                 </Button>
               )}
+              {enableModelSelector && (
+                <span className="relative inline-flex max-w-[200px] items-center gap-1.5 rounded-full bg-background px-2.5 py-1 text-[11px] font-medium text-foreground/80 transition hover:bg-muted focus-within:bg-muted">
+                  <span
+                    aria-hidden="true"
+                    className="min-w-0 truncate"
+                    data-agent-model-selector-label
+                  >
+                    {selectedModelOption?.label ?? (modelOptionsError ? '模型加载失败' : '模型加载中')}
+                  </span>
+                  <ChevronDown
+                    aria-hidden="true"
+                    className="pointer-events-none size-3.5 shrink-0 text-foreground/70"
+                  />
+                  <select
+                    aria-label="选择模型"
+                    className="absolute inset-0 h-full w-full cursor-pointer appearance-none rounded-full opacity-0 disabled:cursor-not-allowed"
+                    disabled={!modelOptions || modelOptions.providers.length === 0}
+                    onChange={handleModelOptionChange}
+                    title={streaming ? '模型切换仅影响下一条消息' : selectedModelOption?.model ?? '选择模型'}
+                    value={selectedModelOptionId ?? ''}
+                  >
+                    {!modelOptions && (
+                      <option value="">
+                        {modelOptionsError ? '模型加载失败' : '模型加载中'}
+                      </option>
+                    )}
+                    {modelOptions?.providers.map((provider) => (
+                      <optgroup key={provider.providerId} label={provider.providerLabel}>
+                        {provider.models.map((model) => (
+                          <option key={model.modelOptionId} value={model.modelOptionId}>
+                            {model.label}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                </span>
+              )}
+              {composerLeadingActions}
               {showComposerMeta && (
                 <>
                   <span className="rounded-full bg-muted px-2.5 py-1 text-[11px] font-medium text-foreground/75">
@@ -1107,14 +1273,19 @@ export function AgentView({
                   )}
                 </>
               )}
-              <span className="truncate">
-                {streaming
-                  ? '正在处理中，可继续输入；完成后可发送。'
-                  : 'Enter 发送，Shift+Enter 换行。'}
-              </span>
+              {streaming && (
+                <span className="truncate">
+                  {enableModelSelector
+                    ? '正在处理中，可继续输入；完成后可发送。模型切换仅影响下一条消息。'
+                    : '正在处理中，可继续输入；完成后可发送。'}
+                </span>
+              )}
             </div>
 
-            <div className="flex items-center gap-1.5">
+            <div
+              className="flex items-center gap-2"
+              data-agent-composer-send-actions
+            >
               {streaming ? (
                 <Button
                   type="button"
@@ -1126,21 +1297,29 @@ export function AgentView({
                   <Square className="size-[22px]" />
                 </Button>
               ) : (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className={cn(
-                    'size-[30px] rounded-full',
-                    canSend
-                      ? 'text-primary hover:bg-primary/10'
-                      : 'cursor-not-allowed text-foreground/30',
-                  )}
-                  onClick={() => { void handleSend() }}
-                  disabled={!canSend}
-                >
-                  <CornerDownLeft className="size-[22px]" />
-                </Button>
+                <>
+                  <span
+                    className="text-[11px] leading-none text-muted-foreground/75"
+                    data-agent-composer-shortcut-hint
+                  >
+                    {COMPOSER_SHORTCUT_HINT}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className={cn(
+                      'size-[30px] rounded-full',
+                      canSend
+                        ? 'text-primary hover:bg-primary/10'
+                        : 'cursor-not-allowed text-foreground/30',
+                    )}
+                    onClick={() => { void handleSend() }}
+                    disabled={!canSend}
+                  >
+                    <CornerDownLeft className="size-[22px]" />
+                  </Button>
+                </>
               )}
             </div>
           </div>

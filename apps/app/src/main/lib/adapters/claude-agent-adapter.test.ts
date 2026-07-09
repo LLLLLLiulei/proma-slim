@@ -7,6 +7,53 @@ afterEach(() => {
 })
 
 describe('ClaudeAgentAdapter SDK option pass-through', () => {
+  test('forwards request env and model to the SDK query options', async () => {
+    const queryMock = mock(async function* (input: { options: Record<string, unknown> }) {
+      yield {
+        type: 'result',
+        subtype: 'success',
+        usage: {
+          input_tokens: 1,
+          output_tokens: 1,
+        },
+      }
+    })
+
+    mock.module('@anthropic-ai/claude-agent-sdk', () => ({
+      query: queryMock,
+    }))
+
+    const { ClaudeAgentAdapter } = await import('./claude-agent-adapter')
+    const adapter = new ClaudeAgentAdapter()
+
+    for await (const _event of adapter.query({
+      sessionId: 'session-model',
+      prompt: 'Use selected provider',
+      model: 'glm-5.2[1m]',
+      cwd: '/tmp/workspace/session-model',
+      sdkCliPath: '/tmp/claude.js',
+      executable: { type: 'node', path: '/usr/bin/node' },
+      executableArgs: [],
+      env: {
+        ANTHROPIC_BASE_URL: 'https://open.bigmodel.cn/api/anthropic',
+        ANTHROPIC_API_KEY: 'sk-zhipu-secret',
+      },
+      sdkPermissionMode: 'default',
+      allowDangerouslySkipPermissions: false,
+      systemPrompt: { type: 'preset', preset: 'claude_code', append: '' },
+    } as ClaudeAgentQueryOptions)) {
+      // consume the async iterable so the mocked SDK query executes fully
+    }
+
+    expect(queryMock).toHaveBeenCalledTimes(1)
+    const sdkCall = queryMock.mock.calls[0]?.[0] as { options: Record<string, unknown> }
+    expect(sdkCall.options.env).toEqual({
+      ANTHROPIC_BASE_URL: 'https://open.bigmodel.cn/api/anthropic',
+      ANTHROPIC_API_KEY: 'sk-zhipu-secret',
+    })
+    expect(sdkCall.options.model).toBe('glm-5.2[1m]')
+  })
+
   test('forwards workspace additionalDirectories and mcpServers to the SDK query options', async () => {
     const queryMock = mock(async function* (input: { options: Record<string, unknown> }) {
       yield {

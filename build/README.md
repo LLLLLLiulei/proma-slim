@@ -70,7 +70,7 @@ cp build/.env.pagebuilder-mcp-server.example /tmp/pagebuilder-mcp-server.env
 
 当前 Docker Compose 不使用 `server.env_file` 直接注入整份 env 文件；需要进入 `server` 容器的变量会在 `server.environment` 中显式声明，`--env-file` 只负责为 compose 变量替换提供取值。
 
-注意：Docker Compose 做变量替换时，宿主机同名环境变量可能优先于 `--env-file`。内置 `./build/start-page-builder.sh` 会在调用 compose 前清理本期支持的 Agent SDK env 和旧兼容变量，确保指定 env 文件中的模型、凭证和 timeout 配置优先生效。直接手写 `docker compose --env-file ...` 命令时，如宿主机已设置同名 `ANTHROPIC_*` 或 `CLAUDE_CODE_*`，需要先手动 `unset` 或改用启动脚本。
+注意：Docker Compose 做变量替换时，宿主机同名环境变量可能优先于 `--env-file`。内置 `./build/start-page-builder.sh` 会在调用 compose 前清理本期支持的 Agent SDK env、模型配置文件入口和旧兼容变量，确保指定 env 文件中的模型、凭证、配置文件路径和 timeout 配置优先生效。直接手写 `docker compose --env-file ...` 命令时，如宿主机已设置同名 `ANTHROPIC_*`、`CLAUDE_CODE_*` 或 `AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE`，需要先手动 `unset` 或改用启动脚本。
 
 ### 关键变量
 
@@ -80,6 +80,7 @@ cp build/.env.pagebuilder-mcp-server.example /tmp/pagebuilder-mcp-server.env
 | `ANTHROPIC_BASE_URL` | 可选。Anthropic-compatible 接口地址，例如 `https://api.deepseek.com/anthropic`。 |
 | `ANTHROPIC_MODEL` / `ANTHROPIC_DEFAULT_*_MODEL` | 可选。Agent SDK 模型与 sonnet/opus/haiku 别名映射。 |
 | `CLAUDE_CODE_SUBAGENT_MODEL` / `CLAUDE_CODE_EFFORT_LEVEL` / `CLAUDE_CODE_AUTO_COMPACT_WINDOW` / `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` / `API_TIMEOUT_MS` | 可选。透传给 Agent SDK 的受支持运行参数。 |
+| `AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE` | 可选。指向 server 容器内挂载的模型提供商 JSONC，用于启用 PageBuilder 对话框多 provider / 多模型切换；标准 JSON 文件仍兼容。 |
 | `AI_PAGE_BUILDER_ANTHROPIC_API_KEY` / `AI_PAGE_BUILDER_ANTHROPIC_BASE_URL` | 兼容旧配置。仅当官方 `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL` 未设置时作为 fallback。 |
 | `PAGE_BUILDER_PORT` | web 服务映射到宿主机的端口，默认 `3333`。 |
 | `AI_PAGE_BUILDER_HOST_DATA_DIR` | 宿主机持久化数据目录，会挂载到容器 `/home/bun/.ai-page-builder`。 |
@@ -177,6 +178,7 @@ env -u ANTHROPIC_BASE_URL \
   -u CLAUDE_CODE_AUTO_COMPACT_WINDOW \
   -u CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC \
   -u API_TIMEOUT_MS \
+  -u AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE \
   -u AI_PAGE_BUILDER_ANTHROPIC_API_KEY \
   -u AI_PAGE_BUILDER_ANTHROPIC_BASE_URL \
   docker compose \
@@ -576,9 +578,95 @@ AI_PAGE_BUILDER_BASE_PATH=
 AI_PAGE_BUILDER_HIDDEN_TOOLBAR_ITEMS=
 AI_PAGE_BUILDER_TEMPLATE_IMPORT_MAX_ZIP_MB=100
 AI_PAGE_BUILDER_TEMPLATE_IMPORT_MAX_UNCOMPRESSED_MB=500
+AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE=
 AI_PAGE_BUILDER_PLAYWRIGHT_MCP_URL=http://playwright:8931/mcp
 AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN=http://server:8888
 ```
+
+### 多 provider 模型配置文件
+
+如果只配置单个 Anthropic-compatible provider，可继续使用上面的 `ANTHROPIC_*` 官方变量，例如 DeepSeek：
+
+```dotenv
+ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic
+ANTHROPIC_AUTH_TOKEN=your-token
+ANTHROPIC_MODEL=deepseek-v4-pro[1m]
+ANTHROPIC_DEFAULT_OPUS_MODEL=deepseek-v4-pro[1m]
+ANTHROPIC_DEFAULT_SONNET_MODEL=deepseek-v4-pro[1m]
+ANTHROPIC_DEFAULT_HAIKU_MODEL=deepseek-v4-flash
+CLAUDE_CODE_SUBAGENT_MODEL=deepseek-v4-flash
+```
+
+如果需要在 PageBuilder 对话框中切换多家 provider 或多个模型，建议创建外部 JSONC 文件并挂载到 server 容器的数据目录，例如宿主机：
+
+```text
+/data/ai-page-builder/config/agent-models.jsonc
+```
+
+容器内路径：
+
+```dotenv
+AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE=/home/bun/.ai-page-builder/config/agent-models.jsonc
+```
+
+模型提供商 JSONC 示例：
+
+```jsonc
+{
+  // 默认模型；如果该模型被禁用或不可用，会自动回退到第一个可用模型。
+  "defaultModelOptionId": "deepseek.reasoner",
+  "providers": [
+    {
+      "id": "deepseek",
+      "providerType": "deepseek",
+      "label": "DeepSeek",
+      "runtime": "anthropic-compatible",
+      "enabled": true,
+      "baseUrl": "https://api.deepseek.com/anthropic",
+      "authTokenEnv": "ANTHROPIC_AUTH_TOKEN",
+      "defaultOpusModel": "deepseek-v4-pro[1m]",
+      "defaultSonnetModel": "deepseek-v4-pro[1m]",
+      "defaultHaikuModel": "deepseek-v4-flash",
+      "subagentModel": "deepseek-v4-flash",
+      "models": [
+        {
+          "id": "reasoner",
+          "label": "DeepSeek Reasoner",
+          "model": "deepseek-v4-pro[1m]",
+          "enabled": true,
+          "contextWindow": 1000000
+        },
+        {
+          // 可临时隐藏不稳定模型，而不删除完整配置。
+          "id": "flash",
+          "label": "DeepSeek Flash",
+          "model": "deepseek-v4-flash",
+          "enabled": false,
+          "contextWindow": 128000
+        }
+      ]
+    },
+    {
+      "id": "anthropic",
+      "providerType": "anthropic",
+      "label": "Anthropic",
+      "runtime": "anthropic-compatible",
+      "apiKeyEnv": "ANTHROPIC_API_KEY",
+      "models": [
+        {
+          "id": "sonnet",
+          "label": "Claude Sonnet",
+          "model": "claude-sonnet-4-5"
+        }
+      ]
+    }
+  ]
+}
+```
+
+`provider.enabled` 和 `model.enabled` 都是可选字段，仅当值严格为 `false` 时表示禁用；未配置时默认启用。禁用 provider 会隐藏该 provider 下的全部模型；禁用 model 只隐藏该模型。若 `defaultModelOptionId` 指向被禁用的模型，server 会自动回退到第一个可用模型选项。
+
+模型配置文件使用 JSONC 解析，支持 `//` 单行注释、`/* ... */` 块注释和尾随逗号；标准 JSON 也是合法输入。真实 `apiKey` / `authToken` 可以写入外部挂载的 JSONC 文件，也可以通过 `apiKeyEnv` / `authTokenEnv` 引用环境变量。不要把包含真实密钥的 JSONC 文件、env 文件或 compose override 提交到版本库。
 
 CMS 模式还需要：
 

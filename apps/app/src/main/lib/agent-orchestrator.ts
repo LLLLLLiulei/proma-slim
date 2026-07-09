@@ -28,6 +28,7 @@ import type {
   AgentProviderAdapter,
   TypedError,
   RetryAttempt,
+  ResolvedAgentModelSelection,
 } from '@ai-page-builder/shared'
 import {
   extractPageBuilderTurnRoutingMetadata,
@@ -387,6 +388,10 @@ export interface SessionCallbacks {
   onComplete: (messages?: AgentMessage[]) => void
   /** 发送标题更新 */
   onTitleUpdated: (title: string) => void
+}
+
+export type AgentOrchestratorSendInput = AgentSendInput & {
+  resolvedModelSelection?: ResolvedAgentModelSelection
 }
 
 // ===== 工具函数 =====
@@ -964,7 +969,7 @@ export class AgentOrchestrator {
    * 通过 EventBus 分发 AgentEvent，通过 callbacks 发送控制信号。
    */
   async sendMessage(
-    input: AgentSendInput,
+    input: AgentOrchestratorSendInput,
     callbacks: SessionCallbacks,
     diagnostic?: AgentSendDiagnosticContext,
   ): Promise<void> {
@@ -979,6 +984,8 @@ export class AgentOrchestrator {
       bootstrappedSkills,
       mentionedMcpServers,
       attachments,
+      modelOptionId,
+      resolvedModelSelection,
     } = input
     const stderrChunks: string[] = []
     const workspaceRuntime = resolveWorkspaceRuntimeContext(sessionId, {
@@ -1210,7 +1217,12 @@ export class AgentOrchestrator {
     }
 
     // 2. 直接从环境变量读取 Agent SDK 凭证与受控运行时 env（不再依赖渠道系统）
-    const agentSdkRuntimeEnv = resolveAgentSdkRuntimeEnv()
+    const agentSdkRuntimeEnv = resolvedModelSelection
+      ? {
+          env: resolvedModelSelection.sdkEnv as AgentSdkRuntimeEnv,
+          hasCredential: true,
+        }
+      : resolveAgentSdkRuntimeEnv()
     if (!agentSdkRuntimeEnv.hasCredential) {
       rollbackPendingAttachments()
       logTurnPhase('error', 'agent_sdk_credential_missing', {}, '缺少 Agent SDK 凭证')
@@ -1220,10 +1232,6 @@ export class AgentOrchestrator {
     const normalizedAgentSdkRuntimeEnv = normalizeAgentSdkRuntimeEnvForSdk(agentSdkRuntimeEnv.env)
 
     // 3. 构建环境变量
-    // 同步受控 Agent SDK env 到 process.env（SDK in-process 代码可能直接读取 process.env）
-    // 先清理再注入，确保 SDK 无论从 env 选项还是 process.env 都拿到正确值
-    syncAgentSdkRuntimeEnvToProcessEnv(normalizedAgentSdkRuntimeEnv)
-
     let sdkEnv: Record<string, string | undefined>
     let sdk: typeof import('@anthropic-ai/claude-agent-sdk')
     try {
@@ -1657,6 +1665,7 @@ export class AgentOrchestrator {
       const queryOptions: ClaudeAgentQueryOptions = {
         sessionId,
         prompt: finalPrompt,
+        ...(resolvedModelSelection?.model ? { model: resolvedModelSelection.model } : {}),
         cwd: agentCwd,
         sdkCliPath: cliPath,
         executable: agentExec,
@@ -1745,6 +1754,8 @@ export class AgentOrchestrator {
         allowedToolCount: allowedTools?.length ?? 0,
         permissionMode,
         bypassPermissions,
+        modelOptionId: modelOptionId ?? null,
+        providerId: resolvedModelSelection?.providerId ?? null,
       }, 'Agent SDK query started')
       console.log(`[Agent 编排] 开始通过 Adapter 遍历事件流...`)
 

@@ -15,6 +15,7 @@ import {
   getDiagnosticBackendLogger,
   getHttpAccessLogger,
   resolveDiagnosticLoggingRuntime,
+  serializeDiagnosticError,
 } from './diagnostic-logging'
 import { updateSettings } from './settings-service'
 
@@ -288,6 +289,19 @@ describe('diagnostic trace context', () => {
     expect(sseTrace.turnId).toBe(turnTrace.turnId)
     expect(sseTrace.sessionId).toBe('session-1')
     expect(sseTrace.sseConnectionId).toBeTruthy()
+  })
+})
+
+describe('diagnostic error serialization', () => {
+  test('redacts provider secrets and baseUrl from serialized errors', () => {
+    const error = new Error('Authorization: Bearer sk-secret-token failed at https://open.bigmodel.cn/api/anthropic')
+
+    const serialized = serializeDiagnosticError(error)
+    const text = JSON.stringify(serialized)
+
+    expect(text).not.toContain('sk-secret-token')
+    expect(text).not.toContain('open.bigmodel.cn')
+    expect(text).not.toContain('api/anthropic')
   })
 })
 

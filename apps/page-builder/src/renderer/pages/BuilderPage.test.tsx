@@ -3295,6 +3295,7 @@ describe('BuilderPage', () => {
     expect(getLastAgentViewProps()).toMatchObject({
       sessionId: session.id,
       allowAttachments: true,
+      enableModelSelector: true,
       showHeader: false,
       showComposerMeta: false,
       defaultMentionedSkills: ['page-builder-guided-generation'],
