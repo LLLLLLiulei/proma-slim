@@ -230,6 +230,7 @@ describe('page-builder docker assets', () => {
     expect(dockerfile).toContain('bun build apps/app/src/main/index.ts')
     expect(dockerfile).toContain('--target=node')
     expect(dockerfile).toContain('--format=esm')
+    expect(dockerfile).toContain('--external jsonc-parser')
     expect(dockerfile).toContain('--outfile /app/apps/app/src/main/index.mjs')
     expect(dockerfile).toContain('FROM node:24-bookworm-slim AS runtime')
     expect(dockerfile).toContain('COPY --from=deps /app/node_modules ./node_modules')
@@ -336,6 +337,34 @@ describe('page-builder docker assets', () => {
     expect(webBlock).toContain('${PAGE_BUILDER_PORT:-3333}:3333')
     expect(playwrightBlock).toContain('--host 0.0.0.0 --port 8931 --headless')
     expectPlaywrightSeccompUnconfined(playwrightBlock)
+  })
+
+  test('docker assets expose optional PageBuilder MCP URL without forcing a sidecar', () => {
+    const compose = readRepoFile('../../../../../build/docker-compose.yml')
+    const releaseCompose = readRepoFile('../../../../../build/docker-compose.release.yml')
+    const standaloneEnvExample = readRepoFile('../../../../../build/.env.standalone.example')
+    const cmsEnvExample = readRepoFile('../../../../../build/.env.cms.example')
+    const readme = readRepoFile('../../../../../build/README.md')
+    const serverBlock = readComposeServiceBlock(compose, 'server')
+    const releaseServerBlock = readComposeServiceBlock(releaseCompose, 'server')
+
+    expect(serverBlock).toContain('AI_PAGE_BUILDER_MCP_URL: ${AI_PAGE_BUILDER_MCP_URL:-}')
+    expect(releaseServerBlock).toContain('AI_PAGE_BUILDER_MCP_URL: ${AI_PAGE_BUILDER_MCP_URL:-}')
+    expect(serverBlock).not.toContain('AI_PAGE_BUILDER_MCP_URL: ${AI_PAGE_BUILDER_MCP_URL:-http://pagebuilder-mcp-server')
+    expect(releaseServerBlock).not.toContain('AI_PAGE_BUILDER_MCP_URL: ${AI_PAGE_BUILDER_MCP_URL:-http://pagebuilder-mcp-server')
+    expect(compose).not.toContain('\n  pagebuilder-mcp-server:\n')
+    expect(releaseCompose).not.toContain('\n  pagebuilder-mcp-server:\n')
+
+    for (const envExample of [standaloneEnvExample, cmsEnvExample]) {
+      expect(envExample).toContain('AI_PAGE_BUILDER_MCP_URL=')
+      expect(envExample).toContain('仅在已启动或已部署 PageBuilder MCP HTTP 服务时配置')
+      expect(envExample).toContain('未配置时 Agent 会把 PageBuilder MCP 工具视为未安装能力')
+    }
+
+    expect(readme).toContain('AI_PAGE_BUILDER_MCP_URL')
+    expect(readme).toContain('仅在已启动或已部署 PageBuilder MCP HTTP 服务时配置')
+    expect(readme).toContain('docker-compose.pagebuilder-mcp-server.yml')
+    expect(readme).toContain('通过显式设置 AI_PAGE_BUILDER_MCP_URL 接入 PageBuilder server')
   })
 
   test('docker documentation explains multi-provider model configuration file deployment', () => {

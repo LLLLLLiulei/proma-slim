@@ -25,6 +25,7 @@ RUN bun build apps/app/src/main/index.ts \
   --external sharp \
   --external @anthropic-ai/claude-agent-sdk \
   --external node-stream-zip \
+  --external jsonc-parser \
   --external vue \
   --outfile /app/apps/app/src/main/index.mjs
 
