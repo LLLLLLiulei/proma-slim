@@ -22,6 +22,15 @@ function normalizePatchText(value: unknown, maxLength: number): string | null {
   return trimmed ? trimmed.slice(0, maxLength) : null
 }
 
+function normalizePatchHexColor(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null
+  }
+
+  const trimmed = value.trim()
+  return /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(trimmed) ? trimmed.toLowerCase() : null
+}
+
 function isPageBuilderHostParentMessage(value: unknown): value is PageBuilderHostParentMessage {
   if (!isRecord(value)) {
     return false
@@ -97,6 +106,16 @@ export function applyHostToolbarButtonPatch(
     const tooltip = normalizePatchText(patch.tooltip, PAGE_BUILDER_HOST_TOOLBAR_TOOLTIP_MAX_LENGTH)
     if (tooltip) {
       next.tooltip = tooltip
+    }
+
+    const themeColor = normalizePatchHexColor(patch.themeColor)
+    if (themeColor) {
+      next.themeColor = themeColor
+    }
+
+    const textColor = normalizePatchHexColor(patch.textColor)
+    if (textColor) {
+      next.textColor = textColor
     }
 
     for (const field of ['disabled', 'busy', 'hidden'] as const) {

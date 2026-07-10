@@ -1701,6 +1701,32 @@ describe('cms integration routes', () => {
             hidden: false,
             order: 10,
           },
+          {
+            id: 'publish-more',
+            type: 'dropdown',
+            label: '发布',
+            tooltip: '发布相关操作',
+            icon: 'send',
+            variant: 'primary',
+            requiresPreview: true,
+            order: 30,
+            items: [
+              {
+                id: 'preview',
+                label: '发布预览版',
+                icon: 'external-link',
+                requiresPreview: true,
+                actionUrl: 'https://cms.example.com/preview-publish',
+                token: 'dropdown-token',
+              },
+              {
+                id: 'logs',
+                label: '查看日志',
+                icon: 'download',
+                disabled: true,
+              },
+            ],
+          },
         ],
       },
     })
@@ -1727,6 +1753,30 @@ describe('cms integration routes', () => {
           requiresPreview: true,
           order: 20,
         },
+        {
+          id: 'publish-more',
+          type: 'dropdown',
+          label: '发布',
+          tooltip: '发布相关操作',
+          icon: 'send',
+          variant: 'primary',
+          requiresPreview: true,
+          order: 30,
+          items: [
+            {
+              id: 'preview',
+              label: '发布预览版',
+              icon: 'external-link',
+              requiresPreview: true,
+            },
+            {
+              id: 'logs',
+              label: '查看日志',
+              icon: 'download',
+              disabled: true,
+            },
+          ],
+        },
       ],
     }
     const persistedHandoff = await getSharedCmsHandoffService().peek(handoff.handoffId)
@@ -1735,7 +1785,9 @@ describe('cms integration routes', () => {
     })
     expect(JSON.stringify(persistedHandoff)).not.toContain('<button>bad</button>')
     expect(JSON.stringify(persistedHandoff)).not.toContain('https://cms.example.com/publish')
+    expect(JSON.stringify(persistedHandoff)).not.toContain('https://cms.example.com/preview-publish')
     expect(JSON.stringify(persistedHandoff)).not.toContain('external-token')
+    expect(JSON.stringify(persistedHandoff)).not.toContain('dropdown-token')
 
     const openResponse = await consumeOpenUrl(app, handoff.openUrl)
     expect(openResponse.status).toBe(302)
@@ -1758,7 +1810,9 @@ describe('cms integration routes', () => {
     const contextText = JSON.stringify(context)
     expect(contextText).not.toContain('<button>bad</button>')
     expect(contextText).not.toContain('https://cms.example.com/publish')
+    expect(contextText).not.toContain('https://cms.example.com/preview-publish')
     expect(contextText).not.toContain('external-token')
+    expect(contextText).not.toContain('dropdown-token')
     expect(contextText).not.toContain('JSESSIONID')
     expect(contextText).not.toContain('integration-secret')
     expect(contextText).not.toContain(handoff.handoffId)
@@ -1786,6 +1840,27 @@ describe('cms integration routes', () => {
     expect(response.status).toBe(400)
     expect(await response.json()).toMatchObject({ code: 'invalid_request' })
     expect(readTextTree(join(configDir, 'integrations', 'cms', 'runtime'))).not.toContain('bad id')
+
+    const invalidDropdownResponse = await createHandoff(app, created.projectId, {
+      target: 'builder',
+      toolbarExtensions: {
+        buttons: [
+          {
+            id: 'publish-more',
+            type: 'dropdown',
+            label: '更多发布',
+            items: [
+              { id: 'preview', label: '发布预览版' },
+              { id: 'preview', label: '重复下拉项' },
+            ],
+          },
+        ],
+      },
+    })
+
+    expect(invalidDropdownResponse.status).toBe(400)
+    expect(await invalidDropdownResponse.json()).toMatchObject({ code: 'invalid_request' })
+    expect(readTextTree(join(configDir, 'integrations', 'cms', 'runtime'))).not.toContain('重复下拉项')
   })
 
   test('keeps cms builder handoff scoped to the primary session even when project edit state is recoverable', async () => {
@@ -2065,6 +2140,14 @@ describe('cms integration routes', () => {
       toolbarExtensions: {
         buttons: [
           { id: 'publish', label: '发布专题', icon: 'send', variant: 'primary' },
+          {
+            id: 'publish-more',
+            type: 'dropdown',
+            label: '更多发布',
+            items: [
+              { id: 'preview', label: '发布预览版', icon: 'external-link' },
+            ],
+          },
         ],
       },
     })
@@ -2135,13 +2218,17 @@ describe('cms integration routes', () => {
 
     const missingContext = await app.fetch(new Request(`http://localhost/api/integrations/cms/builder-context?workspaceId=${primary.binding.workspaceId}&sessionId=${primary.binding.primarySessionId}`))
     expect(missingContext.status).toBe(401)
-    expect(await missingContext.json()).toMatchObject({ code: 'builder_access_required' })
+    const missingContextJson = await missingContext.json()
+    expect(missingContextJson).toMatchObject({ code: 'builder_access_required' })
+    expect(missingContextJson.hostToolbarExtensions).toBeUndefined()
 
     const mismatchedContext = await app.fetch(new Request(`http://localhost/api/integrations/cms/builder-context?workspaceId=${secondary.binding.workspaceId}&sessionId=${secondary.binding.primarySessionId}`, {
       headers: { cookie: accessCookie! },
     }))
     expect(mismatchedContext.status).toBe(403)
-    expect(await mismatchedContext.json()).toMatchObject({ code: 'builder_access_mismatch' })
+    const mismatchedContextJson = await mismatchedContext.json()
+    expect(mismatchedContextJson).toMatchObject({ code: 'builder_access_mismatch' })
+    expect(mismatchedContextJson.hostToolbarExtensions).toBeUndefined()
   })
 
   test('does not treat internal origin as access for non-preview protected APIs', async () => {

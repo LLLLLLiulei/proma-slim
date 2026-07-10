@@ -59,6 +59,13 @@ interface PageBuilderBlockDeletionPayload {
   targetSelection?: PageBuilderTargetSelection
 }
 
+interface PageBuilderToolbarTestApi {
+  append: (buttonOrButtons: unknown) => PageBuilderHostToolbarExtensions
+  set: (buttons: unknown) => PageBuilderHostToolbarExtensions
+  reset: () => PageBuilderHostToolbarExtensions
+  get: () => PageBuilderHostToolbarExtensions
+}
+
 function createBlockTargetSelection(selector: string): PageBuilderTargetSelection {
   return {
     kind: 'block',
@@ -962,6 +969,16 @@ describe('BuilderPage', () => {
           buttons: [
             { id: 'publish', label: '发布专题', icon: 'send', variant: 'primary' },
             { id: 'audit', label: '送审', icon: 'check', disabled: true },
+            {
+              id: 'publish-more',
+              type: 'dropdown',
+              label: '更多发布',
+              icon: 'send',
+              items: [
+                { id: 'preview', label: '发布预览版', icon: 'external-link' },
+                { id: 'logs', label: '查看日志', icon: 'download', disabled: true },
+              ],
+            },
           ],
         },
       }),
@@ -983,13 +1000,23 @@ describe('BuilderPage', () => {
       hostToolbarButtons: [
         { id: 'publish', label: '发布专题', icon: 'send', variant: 'primary' },
         { id: 'audit', label: '送审', icon: 'check', disabled: true },
+        {
+          id: 'publish-more',
+          type: 'dropdown',
+          label: '更多发布',
+          icon: 'send',
+          items: [
+            { id: 'preview', label: '发布预览版', icon: 'external-link' },
+            { id: 'logs', label: '查看日志', icon: 'download', disabled: true },
+          ],
+        },
       ],
     })
     expect(parentPostMessage).toHaveBeenCalledWith({
       source: PAGE_BUILDER_HOST_BRIDGE_SOURCE,
       type: 'ready',
       version: PAGE_BUILDER_HOST_TOOLBAR_EXTENSION_PROTOCOL_VERSION,
-      capabilities: ['toolbarExtensions.v1'],
+      capabilities: ['toolbarExtensions.v1', 'toolbarDropdowns.v1'],
       workspaceId: workspace.id,
       sessionId: session.id,
       projectId: 'pbp_host_toolbar',
@@ -1027,6 +1054,22 @@ describe('BuilderPage', () => {
         hostToolbarExtensions: {
           buttons: [
             { id: 'publish', label: '发布专题', icon: 'send', variant: 'primary', requiresPreview: true },
+            {
+              id: 'publish-more',
+              type: 'dropdown',
+              label: '更多发布',
+              icon: 'send',
+              items: [
+                {
+                  id: 'preview',
+                  label: '发布预览版',
+                  icon: 'external-link',
+                  requiresPreview: true,
+                  token: 'dropdown-token',
+                  actionUrl: 'https://cms.example.com/preview-publish',
+                },
+              ],
+            },
           ],
         },
       }),
@@ -1052,8 +1095,20 @@ describe('BuilderPage', () => {
 
     await act(async () => {
       (getLastPreviewPaneProps() as {
-        onHostToolbarButtonClick?: (button: { id: string; label: string }) => void
-      }).onHostToolbarButtonClick?.({ id: 'publish', label: '发布专题' })
+        onHostToolbarButtonClick?: (button: { id: string; label: string }, itemId?: string) => void
+      }).onHostToolbarButtonClick?.({
+        id: 'publish-more',
+        label: '更多发布',
+        type: 'dropdown',
+        items: [
+          {
+            id: 'preview',
+            label: '发布预览版',
+            token: 'dropdown-token',
+            actionUrl: 'https://cms.example.com/preview-publish',
+          },
+        ],
+      } as unknown as { id: string; label: string }, 'preview')
     })
 
     const clickCall = parentPostMessage.mock.calls.find(([message]) => (
@@ -1065,7 +1120,8 @@ describe('BuilderPage', () => {
       source: PAGE_BUILDER_HOST_BRIDGE_SOURCE,
       type: 'toolbar-button-click',
       version: PAGE_BUILDER_HOST_TOOLBAR_EXTENSION_PROTOCOL_VERSION,
-      buttonId: 'publish',
+      buttonId: 'publish-more',
+      itemId: 'preview',
       workspaceId: workspace.id,
       sessionId: session.id,
       projectId: 'pbp_host_toolbar',
@@ -1077,6 +1133,8 @@ describe('BuilderPage', () => {
     expect(clickCall?.[1]).toBe('http://localhost')
     expect(JSON.stringify(clickCall?.[0])).not.toContain('expiresAt')
     expect(JSON.stringify(clickCall?.[0])).not.toContain('handoffId')
+    expect(JSON.stringify(clickCall?.[0])).not.toContain('dropdown-token')
+    expect(JSON.stringify(clickCall?.[0])).not.toContain('https://cms.example.com/preview-publish')
   })
 
   test('accepts only same-origin parent host toolbar messages and normalizes set/update payloads', async () => {
@@ -1172,6 +1230,16 @@ describe('BuilderPage', () => {
           buttons: [
             { id: 'bad id', label: '非法 ID' },
             { id: 'audit', label: '送审', icon: 'check', order: 5, html: '<button>bad</button>' },
+            {
+              id: 'publish-more',
+              type: 'dropdown',
+              label: '更多发布',
+              order: 10,
+              items: [
+                { id: 'preview', label: '发布预览版', icon: 'external-link', url: 'https://cms.example.com/preview' },
+                { id: 'bad item', label: '坏菜单项' },
+              ],
+            },
           ],
         },
       })
@@ -1180,9 +1248,19 @@ describe('BuilderPage', () => {
     expect(getLastPreviewPaneProps()).toMatchObject({
       hostToolbarButtons: [
         { id: 'audit', label: '送审', icon: 'check', order: 5 },
+        {
+          id: 'publish-more',
+          type: 'dropdown',
+          label: '更多发布',
+          order: 10,
+          items: [
+            { id: 'preview', label: '发布预览版', icon: 'external-link' },
+          ],
+        },
       ],
     })
     expect(JSON.stringify(getLastPreviewPaneProps()?.hostToolbarButtons)).not.toContain('<button>bad</button>')
+    expect(JSON.stringify(getLastPreviewPaneProps()?.hostToolbarButtons)).not.toContain('https://cms.example.com/preview')
 
     await act(async () => {
       dispatchWindowEvent('message', {
@@ -1215,6 +1293,15 @@ describe('BuilderPage', () => {
           busy: true,
           disabled: true,
         },
+        {
+          id: 'publish-more',
+          type: 'dropdown',
+          label: '更多发布',
+          order: 10,
+          items: [
+            { id: 'preview', label: '发布预览版', icon: 'external-link' },
+          ],
+        },
       ],
     })
     expect(JSON.stringify(getLastPreviewPaneProps()?.hostToolbarButtons)).not.toContain('<b>bad</b>')
@@ -1244,8 +1331,119 @@ describe('BuilderPage', () => {
           busy: true,
           disabled: true,
         },
+        {
+          id: 'publish-more',
+          type: 'dropdown',
+          label: '更多发布',
+          order: 10,
+          items: [
+            { id: 'preview', label: '发布预览版', icon: 'external-link' },
+          ],
+        },
       ],
     })
+  })
+
+  test('mounts a development toolbar test API for manual host button injection', async () => {
+    installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: '开发态专题',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const { BuilderPage, getLastPreviewPaneProps } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      mockPreviewPane: true,
+    })
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    const toolbarTestApi = (globalThis.window as unknown as {
+      __pageBuilderToolbarTest?: PageBuilderToolbarTestApi
+    }).__pageBuilderToolbarTest
+    expect(toolbarTestApi).toBeDefined()
+    expect(toolbarTestApi?.get()).toEqual({ buttons: [] })
+
+    await act(async () => {
+      toolbarTestApi?.append({
+        id: 'publish-more',
+        type: 'dropdown',
+        label: '更多发布',
+        icon: 'send',
+        actionUrl: 'https://cms.example.com/publish',
+        items: [
+          {
+            id: 'preview',
+            label: '发布预览版',
+            icon: 'external-link',
+            token: 'secret-token',
+          },
+          { id: 'bad item', label: '非法项' },
+        ],
+      })
+    })
+
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      hostToolbarButtons: [
+        {
+          id: 'publish-more',
+          type: 'dropdown',
+          label: '更多发布',
+          icon: 'send',
+          items: [
+            { id: 'preview', label: '发布预览版', icon: 'external-link' },
+          ],
+        },
+      ],
+    })
+    expect(JSON.stringify(toolbarTestApi?.get())).not.toContain('secret-token')
+    expect(JSON.stringify(toolbarTestApi?.get())).not.toContain('https://cms.example.com/publish')
+
+    await act(async () => {
+      toolbarTestApi?.set([
+        { id: 'publish', label: '发布专题', icon: 'send', variant: 'primary' },
+        { id: 'bad id', label: '非法按钮' },
+      ])
+    })
+
+    expect(getLastPreviewPaneProps()).toMatchObject({
+      hostToolbarButtons: [
+        { id: 'publish', label: '发布专题', icon: 'send', variant: 'primary' },
+      ],
+    })
+
+    await act(async () => {
+      expect(toolbarTestApi?.reset()).toEqual({ buttons: [] })
+    })
+    expect(getLastPreviewPaneProps()).toMatchObject({ hostToolbarButtons: [] })
+
+    await act(async () => {
+      renderer.unmount()
+    })
+    expect((globalThis.window as unknown as {
+      __pageBuilderToolbarTest?: PageBuilderToolbarTestApi
+    }).__pageBuilderToolbarTest).toBeUndefined()
   })
 
   test('uses standalone direct builder loading while keeping CMS block actions in dev CMS mode', async () => {

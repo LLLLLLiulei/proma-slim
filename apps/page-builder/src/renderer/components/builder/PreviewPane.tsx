@@ -1,23 +1,106 @@
 import * as React from 'react'
 import {
+  Archive,
+  ArchiveRestore,
   ArrowLeft,
+  ArrowRight,
+  BadgeCheck,
+  Bell,
+  BookOpen,
+  Calendar,
+  CalendarClock,
   Check,
+  ChevronDown,
+  ChevronRight,
+  CircleAlert,
+  CircleCheck,
+  Clipboard,
+  ClipboardCheck,
+  Clock,
+  CloudDownload,
+  CloudUpload,
+  Copy,
   Download,
+  Edit,
+  Ellipsis,
+  Eye,
+  EyeOff,
   ExternalLink,
+  FileArchive,
+  FileDown,
+  FileText,
+  FileUp,
+  Folder,
+  FolderOpen,
+  GitBranch,
+  GitMerge,
+  GitPullRequest,
+  Globe,
+  History,
+  Home,
+  House,
+  Image,
+  Images,
+  Info,
   Laptop,
+  LayoutTemplate,
+  Layers,
+  Link,
+  Link2,
+  List,
+  ListChecks,
   LoaderCircle,
+  Lock,
+  Logs,
+  Mail,
+  MessageSquare,
+  Milestone,
+  Minus,
+  Monitor,
+  MoreHorizontal,
   MousePointerClick,
+  Newspaper,
+  Package,
+  PackageOpen,
+  PanelTopOpen,
+  Palette,
+  Pause,
+  Pencil,
+  Play,
+  Plus,
   RefreshCw,
+  Redo2,
+  Rocket,
+  RotateCcw,
+  Route,
   Save,
+  ScrollText,
+  Search,
   Send,
+  Settings,
+  Share2,
+  ShieldCheck,
+  SlidersHorizontal,
   Smartphone,
+  Square,
+  Sparkles,
+  Trash,
+  Trash2,
+  TriangleAlert,
+  Undo2,
+  Unlock,
   Upload,
+  UserCheck,
+  Users,
+  WandSparkles,
+  Workflow,
   X,
   type LucideIcon,
 } from 'lucide-react'
 import type {
   PageBuilderHostToolbarButton,
   PageBuilderHostToolbarButtonIcon,
+  PageBuilderHostToolbarDropdownItem,
   PageBuilderPreviewAnchorRect,
   PageBuilderPreviewBridgeMessage,
   PageBuilderImageReplacementPayload,
@@ -62,14 +145,97 @@ interface SelectedAnchorState {
 }
 
 const HOST_TOOLBAR_ICON_COMPONENTS: Record<PageBuilderHostToolbarButtonIcon, LucideIcon> = {
+  archive: Archive,
+  'archive-restore': ArchiveRestore,
   'arrow-left': ArrowLeft,
+  'arrow-right': ArrowRight,
+  'badge-check': BadgeCheck,
+  bell: Bell,
+  'book-open': BookOpen,
+  calendar: Calendar,
+  'calendar-clock': CalendarClock,
   check: Check,
+  'chevron-down': ChevronDown,
+  'chevron-right': ChevronRight,
+  'circle-alert': CircleAlert,
+  'circle-check': CircleCheck,
+  clipboard: Clipboard,
+  'clipboard-check': ClipboardCheck,
+  clock: Clock,
+  'cloud-download': CloudDownload,
+  'cloud-upload': CloudUpload,
+  copy: Copy,
   download: Download,
+  edit: Edit,
+  ellipsis: Ellipsis,
+  eye: Eye,
+  'eye-off': EyeOff,
   'external-link': ExternalLink,
+  'file-archive': FileArchive,
+  'file-down': FileDown,
+  'file-text': FileText,
+  'file-up': FileUp,
+  folder: Folder,
+  'folder-open': FolderOpen,
+  'git-branch': GitBranch,
+  'git-merge': GitMerge,
+  'git-pull-request': GitPullRequest,
+  globe: Globe,
+  history: History,
+  home: Home,
+  house: House,
+  image: Image,
+  images: Images,
+  info: Info,
+  'layout-template': LayoutTemplate,
+  layers: Layers,
+  link: Link,
+  'link-2': Link2,
+  list: List,
+  'list-checks': ListChecks,
+  lock: Lock,
+  logs: Logs,
+  mail: Mail,
+  'message-square': MessageSquare,
+  milestone: Milestone,
+  minus: Minus,
+  monitor: Monitor,
+  'more-horizontal': MoreHorizontal,
+  newspaper: Newspaper,
+  package: Package,
+  'package-open': PackageOpen,
+  'panel-top-open': PanelTopOpen,
+  palette: Palette,
+  pause: Pause,
+  pencil: Pencil,
+  play: Play,
+  plus: Plus,
   refresh: RefreshCw,
+  'redo-2': Redo2,
+  rocket: Rocket,
+  'rotate-ccw': RotateCcw,
+  route: Route,
   save: Save,
+  'scroll-text': ScrollText,
+  search: Search,
   send: Send,
+  settings: Settings,
+  'share-2': Share2,
+  'shield-check': ShieldCheck,
+  'sliders-horizontal': SlidersHorizontal,
+  smartphone: Smartphone,
+  square: Square,
+  sparkles: Sparkles,
+  trash: Trash,
+  'trash-2': Trash2,
+  'triangle-alert': TriangleAlert,
+  'undo-2': Undo2,
+  unlock: Unlock,
   upload: Upload,
+  'user-check': UserCheck,
+  users: Users,
+  'wand-sparkles': WandSparkles,
+  workflow: Workflow,
   x: X,
 }
 
@@ -83,6 +249,71 @@ function resolveHostToolbarButtonVariant(
     return variant
   }
   return 'outline'
+}
+
+function expandHexColor(hexColor: string): string {
+  if (hexColor.length === 4) {
+    const red = hexColor[1]!
+    const green = hexColor[2]!
+    const blue = hexColor[3]!
+    return `#${red}${red}${green}${green}${blue}${blue}`
+  }
+  return hexColor
+}
+
+function resolveReadableTextColor(themeColor: string): string {
+  const hex = expandHexColor(themeColor).slice(1)
+  const red = Number.parseInt(hex.slice(0, 2), 16)
+  const green = Number.parseInt(hex.slice(2, 4), 16)
+  const blue = Number.parseInt(hex.slice(4, 6), 16)
+  const yiq = (red * 299 + green * 587 + blue * 114) / 1000
+  return yiq >= 160 ? '#0f172a' : '#ffffff'
+}
+
+function resolveHostToolbarButtonStyle(
+  button: PageBuilderHostToolbarButton,
+): React.CSSProperties | undefined {
+  const { themeColor, textColor } = button
+  if (!themeColor && !textColor) {
+    return undefined
+  }
+
+  const style: React.CSSProperties = {}
+  const filled = button.variant === 'primary' || button.variant === 'destructive'
+
+  if (themeColor) {
+    if (filled) {
+      style.backgroundColor = themeColor
+      style.borderColor = themeColor
+    } else if (button.variant !== 'ghost') {
+      style.borderColor = themeColor
+    }
+  }
+
+  if (textColor) {
+    style.color = textColor
+  } else if (themeColor) {
+    style.color = filled ? resolveReadableTextColor(themeColor) : themeColor
+  }
+
+  return style
+}
+
+function isHostToolbarButtonDisabled(
+  button: PageBuilderHostToolbarButton,
+  previewUrl: string | null,
+): boolean {
+  return button.disabled === true
+    || button.busy === true
+    || (button.requiresPreview === true && !previewUrl)
+}
+
+function isHostToolbarDropdownItemDisabled(
+  item: PageBuilderHostToolbarDropdownItem,
+  previewUrl: string | null,
+): boolean {
+  return item.disabled === true
+    || (item.requiresPreview === true && !previewUrl)
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -188,7 +419,7 @@ export function PreviewPane({
   hostToolbarButtons?: readonly PageBuilderHostToolbarButton[] | null
   hiddenToolbarItems?: readonly PageBuilderToolbarItemKey[] | null
   onRequestExportStatic?: () => void | Promise<void>
-  onHostToolbarButtonClick?: (button: PageBuilderHostToolbarButton) => void
+  onHostToolbarButtonClick?: (button: PageBuilderHostToolbarButton, itemId?: string) => void
   onInlineTextSaveRequest?: (request: PageBuilderInlineTextSaveRequest) => Promise<PageBuilderInlineTextSaveResult>
   onRequestDeleteBlock?: (selector: string) => void
   onRequestOpenCmsBrowser?: () => void
@@ -213,6 +444,7 @@ export function PreviewPane({
   const [bridgeReady, setBridgeReady] = React.useState(false)
   const [previewDeviceMode, setPreviewDeviceMode] = React.useState<PreviewDeviceMode>('desktop')
   const [selectedAnchor, setSelectedAnchor] = React.useState<SelectedAnchorState | null>(null)
+  const [openHostToolbarDropdownId, setOpenHostToolbarDropdownId] = React.useState<string | null>(null)
   const hiddenToolbarItems = React.useMemo(
     () => normalizePageBuilderHiddenToolbarItems(hiddenToolbarItemsInput),
     [hiddenToolbarItemsInput],
@@ -246,6 +478,19 @@ export function PreviewPane({
     || showSaveTemplateAction
     || showOpenInNewWindowAction
     || visibleHostToolbarButtons.length > 0
+
+  React.useEffect(() => {
+    if (!openHostToolbarDropdownId) return
+
+    const openButton = visibleHostToolbarButtons.find((button) => button.id === openHostToolbarDropdownId)
+    if (
+      !openButton
+      || openButton.type !== 'dropdown'
+      || isHostToolbarButtonDisabled(openButton, previewUrl)
+    ) {
+      setOpenHostToolbarDropdownId(null)
+    }
+  }, [openHostToolbarDropdownId, previewUrl, visibleHostToolbarButtons])
 
   React.useEffect(() => {
     if (resolvedPreviewDeviceMode === previewDeviceMode) return
@@ -602,9 +847,83 @@ export function PreviewPane({
                 : button.icon
                   ? HOST_TOOLBAR_ICON_COMPONENTS[button.icon]
                   : null
-              const disabled = button.disabled === true
-                || button.busy === true
-                || (button.requiresPreview === true && !previewUrl)
+              const disabled = isHostToolbarButtonDisabled(button, previewUrl)
+
+              if (button.type === 'dropdown') {
+                const isOpen = openHostToolbarDropdownId === button.id
+                const visibleItems = button.items.filter((item) => !item.hidden)
+
+                return (
+                  <div key={button.id} className="relative inline-flex max-w-[8.5rem]">
+                    <Button
+                      aria-busy={button.busy === true}
+                      aria-expanded={isOpen}
+                      aria-haspopup="menu"
+                      aria-label={button.label}
+                      className={cn(actionButtonClassName, 'max-w-[8.5rem]')}
+                      disabled={disabled}
+                      onClick={() => {
+                        if (disabled) return
+                        setOpenHostToolbarDropdownId((current) => current === button.id ? null : button.id)
+                      }}
+                      size="sm"
+                      style={resolveHostToolbarButtonStyle(button)}
+                      title={button.tooltip ?? button.label}
+                      type="button"
+                      variant={resolveHostToolbarButtonVariant(button.variant)}
+                    >
+                      {Icon ? (
+                        <Icon className={cn('size-3.5 shrink-0', button.busy ? 'animate-spin' : '')} />
+                      ) : null}
+                      <span className="min-w-0 max-w-[5.5rem] truncate">{button.label}</span>
+                      <ChevronDown
+                        aria-hidden={true}
+                        className={cn(
+                          'size-3 shrink-0 text-current/70 transition-transform',
+                          isOpen ? 'rotate-180' : '',
+                        )}
+                      />
+                    </Button>
+                    {isOpen ? (
+                      <div
+                        className="absolute right-0 top-full z-30 mt-1 min-w-[10rem] max-w-[16rem] overflow-hidden rounded-lg border border-border/80 bg-popover p-1 text-popover-foreground shadow-lg"
+                        data-host-toolbar-dropdown-menu={button.id}
+                        role="menu"
+                      >
+                        {visibleItems.map((item) => {
+                          const ItemIcon = item.icon ? HOST_TOOLBAR_ICON_COMPONENTS[item.icon] : null
+                          const itemDisabled = isHostToolbarDropdownItemDisabled(item, previewUrl)
+
+                          return (
+                            <button
+                              key={item.id}
+                              aria-label={item.label}
+                              className={cn(
+                                'flex w-full min-w-0 items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs transition-colors',
+                                itemDisabled
+                                  ? 'cursor-not-allowed text-muted-foreground/60'
+                                  : 'text-popover-foreground hover:bg-accent hover:text-accent-foreground',
+                              )}
+                              disabled={itemDisabled}
+                              onClick={() => {
+                                if (itemDisabled) return
+                                setOpenHostToolbarDropdownId(null)
+                                onHostToolbarButtonClick?.(button, item.id)
+                              }}
+                              role="menuitem"
+                              title={item.tooltip ?? item.label}
+                              type="button"
+                            >
+                              {ItemIcon ? <ItemIcon className="size-3.5 shrink-0" /> : null}
+                              <span className="min-w-0 max-w-[12rem] truncate">{item.label}</span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    ) : null}
+                  </div>
+                )
+              }
 
               return (
                 <Button
@@ -618,6 +937,7 @@ export function PreviewPane({
                     onHostToolbarButtonClick?.(button)
                   }}
                   size="sm"
+                  style={resolveHostToolbarButtonStyle(button)}
                   title={button.tooltip ?? button.label}
                   type="button"
                   variant={resolveHostToolbarButtonVariant(button.variant)}

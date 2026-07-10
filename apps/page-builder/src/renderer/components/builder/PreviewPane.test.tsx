@@ -209,6 +209,219 @@ describe('PreviewPane', () => {
     })
   })
 
+  test('renders common host toolbar icons and applies controlled button colors', async () => {
+    const { PreviewPane } = await loadPreviewPane()
+    const renderer = create(
+      <PreviewPane
+        hostToolbarButtons={[
+          {
+            id: 'publish',
+            label: '发布',
+            icon: 'rocket',
+            variant: 'primary',
+            themeColor: '#16a34a',
+            textColor: '#ffffff',
+          },
+          {
+            id: 'workflow',
+            type: 'dropdown',
+            label: '工作流',
+            icon: 'workflow',
+            variant: 'outline',
+            themeColor: '#2563eb',
+            textColor: '#eff6ff',
+            items: [
+              { id: 'preview', label: '预览', icon: 'eye' },
+              { id: 'logs', label: '日志', icon: 'scroll-text' },
+              { id: 'template', label: '另存模板', icon: 'layout-template' },
+            ],
+          },
+        ]}
+        previewUrl="https://example.com/preview"
+      />,
+    )
+
+    const publishButton = findButton(renderer, '发布')
+    const workflowButton = findButton(renderer, '工作流')
+    expect(publishButton.findAllByType('svg')).toHaveLength(1)
+    expect(workflowButton.findAllByType('svg')).toHaveLength(2)
+    expect(publishButton.props.style).toMatchObject({
+      backgroundColor: '#16a34a',
+      borderColor: '#16a34a',
+      color: '#ffffff',
+    })
+    expect(workflowButton.props.style).toMatchObject({
+      borderColor: '#2563eb',
+      color: '#eff6ff',
+    })
+
+    await act(async () => {
+      workflowButton.props.onClick()
+    })
+
+    const menu = renderer.root.find((node) =>
+      node.type === 'div' && node.props['data-host-toolbar-dropdown-menu'] === 'workflow'
+    )
+    expect(menu.findAllByType('svg')).toHaveLength(3)
+  })
+
+  test('renders host toolbar dropdown menus and forwards enabled item clicks with item id', async () => {
+    const onHostToolbarButtonClick = mock(() => {})
+    const { PreviewPane } = await loadPreviewPane()
+    const renderer = create(
+      <PreviewPane
+        hostToolbarButtons={[
+          { id: 'publish', label: '发布专题', icon: 'send' },
+          {
+            id: 'publish-more',
+            type: 'dropdown',
+            label: '更多发布操作名称很长',
+            tooltip: '发布相关操作',
+            icon: 'send',
+            items: [
+              { id: 'preview', label: '发布预览版名称很长', icon: 'external-link' },
+              { id: 'logs', label: '查看日志', icon: 'download', disabled: true },
+              { id: 'hidden', label: '隐藏菜单项', hidden: true },
+            ],
+          },
+        ]}
+        onHostToolbarButtonClick={onHostToolbarButtonClick}
+        previewUrl="https://example.com/preview"
+      />,
+    )
+
+    expect(renderer.root.findAllByType('button').map((button) => button.props['aria-label'])).toEqual([
+      'PC 预览',
+      'Mobile 预览',
+      '选择区块',
+      '刷新预览',
+      '新窗口打开预览',
+      '导出静态包',
+      '发布专题',
+      '更多发布操作名称很长',
+    ])
+
+    const dropdownButton = findButton(renderer, '更多发布操作名称很长')
+    expect(dropdownButton.props['aria-haspopup']).toBe('menu')
+    expect(dropdownButton.props['aria-expanded']).toBe(false)
+    expect(dropdownButton.props.className).toContain('max-w-[8.5rem]')
+    expect(dropdownButton.find((node) =>
+      node.type === 'span' && node.props.children === '更多发布操作名称很长'
+    ).props.className).toContain('truncate')
+
+    await act(async () => {
+      dropdownButton.props.onClick()
+    })
+
+    const menu = renderer.root.find((node) =>
+      node.type === 'div' && node.props['data-host-toolbar-dropdown-menu'] === 'publish-more'
+    )
+    const menuItems = menu.findAllByType('button')
+    expect(findButton(renderer, '更多发布操作名称很长').props['aria-expanded']).toBe(true)
+    expect(menuItems.map((item) => item.props['aria-label'])).toEqual(['发布预览版名称很长', '查看日志'])
+    expect(menuItems[0]?.props.role).toBe('menuitem')
+    expect(menuItems[0]?.find((node) =>
+      node.type === 'span' && node.props.children === '发布预览版名称很长'
+    ).props.className).toContain('truncate')
+    expect(menuItems[1]?.props.disabled).toBe(true)
+    expect(() => findButton(renderer, '隐藏菜单项')).toThrow()
+
+    await act(async () => {
+      menuItems[1]?.props.onClick()
+    })
+    expect(onHostToolbarButtonClick).not.toHaveBeenCalled()
+
+    await act(async () => {
+      menuItems[0]?.props.onClick()
+    })
+
+    expect(onHostToolbarButtonClick).toHaveBeenCalledTimes(1)
+    expect(onHostToolbarButtonClick).toHaveBeenCalledWith({
+      id: 'publish-more',
+      type: 'dropdown',
+      label: '更多发布操作名称很长',
+      tooltip: '发布相关操作',
+      icon: 'send',
+      items: [
+        { id: 'preview', label: '发布预览版名称很长', icon: 'external-link' },
+        { id: 'logs', label: '查看日志', icon: 'download', disabled: true },
+        { id: 'hidden', label: '隐藏菜单项', hidden: true },
+      ],
+    }, 'preview')
+    expect(renderer.root.findAll((node) =>
+      node.type === 'div' && node.props['data-host-toolbar-dropdown-menu'] === 'publish-more'
+    )).toHaveLength(0)
+  })
+
+  test('disables preview-required host dropdowns and dropdown items when no preview exists', async () => {
+    const onHostToolbarButtonClick = mock(() => {})
+    const { PreviewPane } = await loadPreviewPane()
+    const renderer = create(
+      <PreviewPane
+        hostToolbarButtons={[
+          {
+            id: 'publish',
+            type: 'dropdown',
+            label: '发布',
+            requiresPreview: true,
+            items: [
+              { id: 'preview', label: '发布预览版' },
+            ],
+          },
+          {
+            id: 'more',
+            type: 'dropdown',
+            label: '更多',
+            items: [
+              { id: 'independent', label: '无需预览' },
+              { id: 'preview-only', label: '需要预览', requiresPreview: true },
+            ],
+          },
+        ]}
+        onHostToolbarButtonClick={onHostToolbarButtonClick}
+        previewUrl={null}
+      />,
+    )
+
+    const previewRequiredDropdown = findButton(renderer, '发布')
+    expect(previewRequiredDropdown.props.disabled).toBe(true)
+
+    await act(async () => {
+      previewRequiredDropdown.props.onClick()
+    })
+    expect(renderer.root.findAll((node) =>
+      node.type === 'div' && node.props['data-host-toolbar-dropdown-menu'] === 'publish'
+    )).toHaveLength(0)
+
+    await act(async () => {
+      findButton(renderer, '更多').props.onClick()
+    })
+
+    const menu = renderer.root.find((node) =>
+      node.type === 'div' && node.props['data-host-toolbar-dropdown-menu'] === 'more'
+    )
+    const itemButtons = menu.findAllByType('button')
+    expect(itemButtons.map((item) => item.props['aria-label'])).toEqual(['无需预览', '需要预览'])
+    expect(itemButtons[0]?.props.disabled).toBe(false)
+    expect(itemButtons[1]?.props.disabled).toBe(true)
+
+    await act(async () => {
+      itemButtons[1]?.props.onClick()
+      itemButtons[0]?.props.onClick()
+    })
+
+    expect(onHostToolbarButtonClick).toHaveBeenCalledTimes(1)
+    expect(onHostToolbarButtonClick).toHaveBeenCalledWith({
+      id: 'more',
+      type: 'dropdown',
+      label: '更多',
+      items: [
+        { id: 'independent', label: '无需预览' },
+        { id: 'preview-only', label: '需要预览', requiresPreview: true },
+      ],
+    }, 'independent')
+  })
+
   test('disables requiresPreview host buttons when no preview exists without disabling independent host actions', async () => {
     const onHostToolbarButtonClick = mock(() => {})
     const { PreviewPane } = await loadPreviewPane()

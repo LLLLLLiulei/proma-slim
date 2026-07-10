@@ -128,6 +128,19 @@ const INTEGRATION_STATUS_UNAVAILABLE_MESSAGE = '服务暂不可用，请稍后�
 const pendingInitialEditLockResolutions = new Map<string, Promise<PageBuilderEditLockLease>>()
 const EMPTY_HOST_TOOLBAR_EXTENSIONS: PageBuilderHostToolbarExtensions = { buttons: [] }
 
+interface PageBuilderToolbarTestApi {
+  append: (buttonOrButtons: unknown) => PageBuilderHostToolbarExtensions
+  set: (buttons: unknown) => PageBuilderHostToolbarExtensions
+  reset: () => PageBuilderHostToolbarExtensions
+  get: () => PageBuilderHostToolbarExtensions
+}
+
+declare global {
+  interface Window {
+    __pageBuilderToolbarTest?: PageBuilderToolbarTestApi
+  }
+}
+
 function isCmsIntegrationEnabled(status: CmsIntegrationStatus): boolean {
   return status.integrationMode === 'cms' && status.enabled
 }
@@ -409,6 +422,7 @@ export function BuilderPage({
   const [builderSourceMode, setBuilderSourceMode] = React.useState<BuilderSourceMode>('standalone')
   const [hostToolbarExtensions, setHostToolbarExtensions] = React.useState<PageBuilderHostToolbarExtensions>(EMPTY_HOST_TOOLBAR_EXTENSIONS)
   const [hostToolbarProjectId, setHostToolbarProjectId] = React.useState<string | undefined>(undefined)
+  const hostToolbarExtensionsRef = React.useRef(hostToolbarExtensions)
   const [cmsIntegrationEnabled, setCmsIntegrationEnabled] = React.useState(false)
   const [cmsBrowserOpen, setCmsBrowserOpen] = React.useState(false)
   const [cmsDataUnavailableReason, setCmsDataUnavailableReason] = React.useState<string | null>(null)
@@ -452,6 +466,10 @@ export function BuilderPage({
   const clearSelection = clearVisibleSelection
 
   React.useEffect(() => {
+    hostToolbarExtensionsRef.current = hostToolbarExtensions
+  }, [hostToolbarExtensions])
+
+  React.useEffect(() => {
     if (typeof window === 'undefined') {
       return
     }
@@ -479,6 +497,46 @@ export function BuilderPage({
     window.addEventListener('message', handleHostToolbarMessage)
     return () => {
       window.removeEventListener('message', handleHostToolbarMessage)
+    }
+  }, [])
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined' || import.meta.env.PROD === true) {
+      return
+    }
+
+    const applyToolbarExtensions = (next: PageBuilderHostToolbarExtensions): PageBuilderHostToolbarExtensions => {
+      hostToolbarExtensionsRef.current = next
+      setHostToolbarExtensions(next)
+      return normalizeHostToolbarExtensions(next)
+    }
+
+    const api: PageBuilderToolbarTestApi = {
+      append(buttonOrButtons) {
+        const inputButtons = Array.isArray(buttonOrButtons) ? buttonOrButtons : [buttonOrButtons]
+        const appended = normalizeHostToolbarButtonsFromMessage(inputButtons)
+        const next = normalizeHostToolbarButtonsFromMessage([
+          ...hostToolbarExtensionsRef.current.buttons,
+          ...appended.buttons,
+        ])
+        return applyToolbarExtensions(next)
+      },
+      set(buttons) {
+        return applyToolbarExtensions(normalizeHostToolbarButtonsFromMessage(buttons))
+      },
+      reset() {
+        return applyToolbarExtensions(EMPTY_HOST_TOOLBAR_EXTENSIONS)
+      },
+      get() {
+        return normalizeHostToolbarExtensions(hostToolbarExtensionsRef.current)
+      },
+    }
+
+    window.__pageBuilderToolbarTest = api
+    return () => {
+      if (window.__pageBuilderToolbarTest === api) {
+        delete window.__pageBuilderToolbarTest
+      }
     }
   }, [])
 
@@ -1398,18 +1456,19 @@ export function BuilderPage({
       source: PAGE_BUILDER_HOST_BRIDGE_SOURCE,
       type: 'ready',
       version: PAGE_BUILDER_HOST_TOOLBAR_EXTENSION_PROTOCOL_VERSION,
-      capabilities: ['toolbarExtensions.v1'],
+      capabilities: ['toolbarExtensions.v1', 'toolbarDropdowns.v1'],
       workspaceId,
       sessionId,
       ...(hostToolbarProjectId ? { projectId: hostToolbarProjectId } : {}),
     })
   }, [hostToolbarProjectId, loadState.status, postHostBridgeMessage, sessionId, workspaceId])
-  const handleHostToolbarButtonClick = React.useCallback((button: PageBuilderHostToolbarButton): void => {
+  const handleHostToolbarButtonClick = React.useCallback((button: PageBuilderHostToolbarButton, itemId?: string): void => {
     postHostBridgeMessage({
       source: PAGE_BUILDER_HOST_BRIDGE_SOURCE,
       type: 'toolbar-button-click',
       version: PAGE_BUILDER_HOST_TOOLBAR_EXTENSION_PROTOCOL_VERSION,
       buttonId: button.id,
+      ...(itemId ? { itemId } : {}),
       workspaceId,
       sessionId,
       ...(hostToolbarProjectId ? { projectId: hostToolbarProjectId } : {}),
