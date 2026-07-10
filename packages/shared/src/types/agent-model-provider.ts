@@ -50,6 +50,7 @@ export interface AgentModelOptionsProviderGroup {
 }
 
 export interface AgentModelOptionsResponse {
+  selectorEnabled: boolean
   defaultModelOptionId: string
   providers: AgentModelOptionsProviderGroup[]
 }

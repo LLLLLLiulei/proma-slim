@@ -174,6 +174,7 @@ function buildProviderSdkEnv(provider: AgentModelProviderConfigEntry, env: EnvSo
 
 function createEmptyRegistry(diagnostics: AgentModelProviderDiagnostic[] = []): AgentModelProviderRegistry {
   const publicOptions: AgentModelOptionsResponse = {
+    selectorEnabled: false,
     defaultModelOptionId: '',
     providers: [],
   }
@@ -218,6 +219,7 @@ function createServiceDefaultRegistry(env: EnvSource): AgentModelProviderRegistr
 
   return {
     publicOptions: {
+      selectorEnabled: false,
       defaultModelOptionId: SERVICE_DEFAULT_MODEL_OPTION_ID,
       providers: [providerGroup],
     },
@@ -335,6 +337,7 @@ export function resolveAgentModelProviderRegistry(
 
   return {
     publicOptions: {
+      selectorEnabled: true,
       defaultModelOptionId,
       providers: providerGroups,
     },

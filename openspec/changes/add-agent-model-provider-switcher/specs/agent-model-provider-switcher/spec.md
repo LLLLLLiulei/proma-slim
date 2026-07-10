@@ -69,6 +69,8 @@
 - **WHEN** 未配置 `AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE`
 - **THEN** 系统 SHALL 基于现有 Agent SDK 环境变量提供一个服务默认模型选项
 - **AND** 系统 SHALL 继续允许用户发送消息而不要求新增模型配置文件
+- **AND** 模型选项 API SHALL 将 `selectorEnabled` 标记为 `false`
+- **AND** PageBuilder SHALL NOT 展示模型选择下拉入口
 
 ### Requirement: 模型选项列表 API
 系统 SHALL 提供模型选项列表 API，返回 PageBuilder 前端展示所需的 provider 与 model 信息；该 API MUST NOT 返回 provider 的 `baseUrl`、`apiKey`、`authToken` 或任何密钥环境变量的实际值。
@@ -76,8 +78,16 @@
 #### Scenario: 返回按 provider 分组的模型选项
 - **WHEN** 前端请求模型选项列表
 - **THEN** 系统 SHALL 返回 `defaultModelOptionId`
+- **AND** 系统 SHALL 返回表示当前是否允许用户选择模型的 `selectorEnabled`
 - **AND** 系统 SHALL 返回按 provider 分组的可选模型列表
 - **AND** 每个模型项 SHALL 包含可用于发送请求的完整 `modelOptionId`
+
+#### Scenario: 没有可用配置模型时禁用选择入口
+- **WHEN** 未配置 `AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE`
+- **OR** 配置文件读取失败、provider 不可用、provider/model 全部禁用或过滤后没有任何可用模型
+- **THEN** 模型选项 API SHALL 返回 `selectorEnabled: false`
+- **AND** PageBuilder SHALL NOT 展示模型选择下拉入口
+- **AND** 未配置模型文件时 SHALL 继续使用现有服务默认发送语义
 
 #### Scenario: 模型选项 API 不暴露敏感配置
 - **WHEN** provider 配置中包含 `baseUrl`、`apiKey` 或 `authToken`
@@ -112,9 +122,16 @@
 系统 SHALL 在 PageBuilder 构建页对话输入框底部提供模型选择入口，让用户选择后续发送所使用的模型选项；模型选择 SHALL 只影响下一次及后续发送，不得改变当前正在运行的 Agent turn。
 
 #### Scenario: 输入框底部展示模型下拉入口
-- **WHEN** 用户进入 PageBuilder 构建页且模型选项 API 返回至少一个可用模型
+- **WHEN** 用户进入 PageBuilder 构建页、模型选项 API 返回 `selectorEnabled: true` 且至少包含一个可用模型
 - **THEN** 系统 SHALL 在对话输入框底部展示模型选择入口
 - **AND** 下拉内容 SHALL 按 provider 展示模型选项
+
+#### Scenario: 模型选择不可用时不展示下拉入口
+- **WHEN** 模型选项 API 返回 `selectorEnabled: false`
+- **OR** 模型选项列表不包含任何可用模型
+- **THEN** 系统 SHALL NOT 在输入框底部展示模型选择入口
+- **AND** 手动发送、自动首轮发送和程序化发送 SHALL NOT 携带隐藏或失效的 `modelOptionId`
+- **AND** 流式状态文案 SHALL NOT 提示用户可以切换模型
 
 #### Scenario: 选择模型后持久化到浏览器本地
 - **WHEN** 用户在模型下拉中选择某个模型选项

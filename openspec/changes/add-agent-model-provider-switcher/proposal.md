@@ -6,7 +6,7 @@ PageBuilder 当前 Agent 对话只能依赖服务端默认 Agent SDK 模型，�
 
 - 新增 Agent 模型提供商配置能力：支持通过 JSONC 配置文件声明多家 Anthropic-compatible provider（标准 JSON 仍兼容），每个 provider 内配置 baseUrl、apiKey/authToken、默认别名模型、subagent 模型以及可选模型列表。
 - 新增安全的模型选项列表 API：前端只能获取 provider/model 展示字段和稳定 `modelOptionId`，不得获取 baseUrl、apiKey、authToken 等敏感信息。
-- 在 PageBuilder 对话输入框底部增加模型下拉入口，按 provider 分组展示模型；切换后保存到浏览器本地偏好，并在下一次发送消息时通过 `modelOptionId` 生效。
+- 在 PageBuilder 对话输入框底部增加模型下拉入口，仅在配置文件提供至少一个可用模型时按 provider 分组展示；切换后保存到浏览器本地偏好，并在下一次发送消息时通过 `modelOptionId` 生效。
 - 修改 Agent 发送链路：允许请求携带后端定义的 `modelOptionId`，后端校验该选项存在且配置完整后，为本次 Agent SDK query 构造对应 provider 的运行时 env 与 SDK `model` 参数。
 - 调整 Agent 状态判断：当模型提供商 JSONC 中存在可用 provider/model 时，即使未配置全局 `ANTHROPIC_API_KEY`，PageBuilder 对话输入也不应被状态接口误禁用。
 - 保持现有单 provider 默认部署兼容：未配置模型提供商 JSONC 时，继续使用现有 `ANTHROPIC_*` / `AI_PAGE_BUILDER_ANTHROPIC_*` 环境变量作为服务默认模型。

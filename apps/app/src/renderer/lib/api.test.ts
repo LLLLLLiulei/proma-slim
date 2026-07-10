@@ -101,6 +101,7 @@ describe('renderer api wrappers', () => {
 
   test('getAgentModelOptions requests /api/agent/model-options and parses the JSON payload', async () => {
     const modelOptions = {
+      selectorEnabled: true,
       defaultModelOptionId: 'zhipu.glm',
       providers: [
         {

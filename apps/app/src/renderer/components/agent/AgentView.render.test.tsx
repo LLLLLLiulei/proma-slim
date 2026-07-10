@@ -75,6 +75,7 @@ function installLocalStorageMock(initial: Record<string, string> = {}): Map<stri
 
 function createDefaultModelOptions(): AgentModelOptionsResponse {
   return {
+    selectorEnabled: true,
     defaultModelOptionId: 'zhipu.glm',
     providers: [
       {
@@ -673,6 +674,118 @@ describe('AgentView rendering extension points', () => {
     expect(() => renderer.root.findByProps({ 'aria-label': '选择模型' })).toThrow()
   })
 
+  test('hides model selector and uses service default sending when selection is unavailable', async () => {
+    installLocalStorageMock({ 'proma.agent.modelOptionId': 'deepseek.chat' })
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: 'Page Builder Project',
+      slug: 'page-builder-project',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const getAgentModelOptions = mock(async () => ({
+      selectorEnabled: false,
+      defaultModelOptionId: 'service-default.default',
+      providers: [
+        {
+          providerId: 'service-default',
+          providerType: 'service-default',
+          providerLabel: '服务默认',
+          models: [
+            {
+              modelOptionId: 'service-default.default',
+              providerId: 'service-default',
+              providerType: 'service-default',
+              providerLabel: '服务默认',
+              modelId: 'default',
+              label: 'SDK 默认模型',
+              model: 'SDK 默认模型',
+            },
+          ],
+        },
+      ],
+    }))
+    const { AgentView, getLastPlainTextInputProps, sendMessage } = await loadAgentView({ getAgentModelOptions })
+    let renderer!: ReturnType<typeof create>
+
+    await act(async () => {
+      renderer = create(
+        <Provider store={createStore()}>
+          <HydrateAgentViewState sessions={[session]} workspaces={[workspace]}>
+            <AgentView enableModelSelector sessionId={session.id} />
+          </HydrateAgentViewState>
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(getAgentModelOptions).toHaveBeenCalledTimes(1)
+    expect(() => renderer.root.findByProps({ 'aria-label': '选择模型' })).toThrow()
+
+    await act(async () => {
+      getLastPlainTextInputProps()?.onChange('生成专题页')
+      getLastPlainTextInputProps()?.onSubmit()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(sendMessage).toHaveBeenCalledWith(session.id, expect.objectContaining({
+      userMessage: '生成专题页',
+      workspaceId: workspace.id,
+    }))
+    expect(sendMessage.mock.calls[0]?.[1]).not.toHaveProperty('modelOptionId')
+  })
+
+  test('hides model selector when the configured model list is empty', async () => {
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: 'Page Builder Project',
+      slug: 'page-builder-project',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const getAgentModelOptions = mock(async () => ({
+      selectorEnabled: false,
+      defaultModelOptionId: '',
+      providers: [],
+    }))
+    const { AgentView } = await loadAgentView({ getAgentModelOptions })
+    let renderer!: ReturnType<typeof create>
+
+    await act(async () => {
+      renderer = create(
+        <Provider store={createStore()}>
+          <HydrateAgentViewState sessions={[session]} workspaces={[workspace]}>
+            <AgentView enableModelSelector sessionId={session.id} />
+          </HydrateAgentViewState>
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(() => renderer.root.findByProps({ 'aria-label': '选择模型' })).toThrow()
+  })
+
   test('auto-sends the initial page-builder prompt only after resolving the selected model option', async () => {
     installLocalStorageMock({ 'proma.agent.modelOptionId': 'deepseek.chat' })
     const workspace: AgentWorkspace = {
@@ -892,6 +1005,54 @@ describe('AgentView rendering extension points', () => {
     })
 
     expect(collectRenderedText(renderer.toJSON())).toContain('模型切换仅影响下一条消息')
+  })
+
+  test('does not show model-switching copy while the selector is unavailable', async () => {
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: 'Page Builder Project',
+      slug: 'page-builder-project',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const streamingStates = new Map<string, AgentStreamState>([
+      [session.id, { running: true, content: '', toolActivities: [], teammates: [], startedAt: 1 }],
+    ])
+    const getAgentModelOptions = mock(async () => ({
+      selectorEnabled: false,
+      defaultModelOptionId: 'service-default.default',
+      providers: [],
+    }))
+    const { AgentView } = await loadAgentView({ getAgentModelOptions })
+
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(
+        <Provider store={createStore()}>
+          <HydrateAgentViewState
+            sessions={[session]}
+            streamingStates={streamingStates}
+            workspaces={[workspace]}
+          >
+            <AgentView enableModelSelector sessionId={session.id} />
+          </HydrateAgentViewState>
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(() => renderer.root.findByProps({ 'aria-label': '选择模型' })).toThrow()
+    expect(collectRenderedText(renderer.toJSON())).not.toContain('模型切换仅影响下一条消息')
   })
 
   test('does not call onMessageSent when the send request fails', async () => {

@@ -64,6 +64,7 @@ describe('GET /api/agent/model-options', () => {
     expect(response.status).toBe(200)
     const payload = await response.json()
     expect(payload).toEqual({
+      selectorEnabled: true,
       defaultModelOptionId: 'zhipu.glm',
       providers: [
         {
@@ -98,9 +99,11 @@ describe('GET /api/agent/model-options', () => {
 
     expect(response.status).toBe(200)
     const payload = await response.json() as {
+      selectorEnabled: boolean
       defaultModelOptionId: string
       providers: Array<{ models: Array<{ modelOptionId: string; model: string }> }>
     }
+    expect(payload.selectorEnabled).toBe(false)
     expect(payload.defaultModelOptionId).toBe('service-default.default')
     expect(payload.providers[0]?.models[0]).toMatchObject({
       modelOptionId: 'service-default.default',
@@ -140,14 +143,44 @@ describe('GET /api/agent/model-options', () => {
 
     expect(response.status).toBe(200)
     const payload = await response.json() as {
+      selectorEnabled: boolean
       defaultModelOptionId: string
       providers: Array<{ providerId: string; models: Array<{ modelOptionId: string }> }>
     }
+    expect(payload.selectorEnabled).toBe(true)
     expect(payload.defaultModelOptionId).toBe('ready.chat')
     expect(payload.providers.map((provider) => provider.providerId)).toEqual(['ready'])
     expect(payload.providers[0]?.models.map((model) => model.modelOptionId)).toEqual(['ready.chat'])
     expect(JSON.stringify(payload)).not.toContain('missing_secret')
     expect(JSON.stringify(payload)).not.toContain('ready-token')
     expect(JSON.stringify(payload)).not.toContain('api.deepseek.com')
+  })
+
+  test('disables model selection when the configured file has no available models', async () => {
+    process.env.AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE = writeModelConfig({
+      providers: [
+        {
+          id: 'disabled',
+          providerType: 'deepseek',
+          label: '已禁用',
+          runtime: 'anthropic-compatible',
+          baseUrl: 'https://api.deepseek.com/anthropic',
+          authToken: 'disabled-token',
+          enabled: false,
+          models: [
+            { id: 'chat', label: 'DeepSeek Chat', model: 'deepseek-chat' },
+          ],
+        },
+      ],
+    })
+
+    const response = await createApp().fetch(new Request('http://localhost/api/agent/model-options'))
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      selectorEnabled: false,
+      defaultModelOptionId: '',
+      providers: [],
+    })
   })
 })

@@ -433,7 +433,10 @@ export function AgentView({
     () => findModelOption(modelOptions, selectedModelOptionId),
     [modelOptions, selectedModelOptionId],
   )
-  const effectiveModelOptionId = enableModelSelector ? selectedModelOption?.modelOptionId ?? null : null
+  const modelSelectorVisible = enableModelSelector
+    && modelOptions?.selectorEnabled === true
+    && modelOptions.providers.some((provider) => provider.models.length > 0)
+  const effectiveModelOptionId = modelSelectorVisible ? selectedModelOption?.modelOptionId ?? null : null
   const effectiveComposerPlaceholder = status && !status.ok
     ? '请先修复后端状态，再发送消息'
     : composerPlaceholder ?? '输入消息...'
@@ -502,10 +505,10 @@ export function AgentView({
     void api.getAgentModelOptions().then((options) => {
       if (cancelled) return
 
-      const nextSelectedModelOptionId = resolveSelectedModelOptionId(
-        options,
-        readStoredModelOptionId(),
-      )
+      const nextSelectedModelOptionId = options.selectorEnabled
+        && options.providers.some((provider) => provider.models.length > 0)
+        ? resolveSelectedModelOptionId(options, readStoredModelOptionId())
+        : null
       setModelOptions(options)
       setSelectedModelOptionId(nextSelectedModelOptionId)
       if (nextSelectedModelOptionId) {
@@ -1222,7 +1225,7 @@ export function AgentView({
                   <Paperclip className="size-4" />
                 </Button>
               )}
-              {enableModelSelector && (
+              {modelSelectorVisible && (
                 <span className="relative inline-flex max-w-[200px] items-center gap-1.5 rounded-full bg-background px-2.5 py-1 text-[11px] font-medium text-foreground/80 transition hover:bg-muted focus-within:bg-muted">
                   <span
                     aria-hidden="true"
@@ -1275,7 +1278,7 @@ export function AgentView({
               )}
               {streaming && (
                 <span className="truncate">
-                  {enableModelSelector
+                  {modelSelectorVisible
                     ? '正在处理中，可继续输入；完成后可发送。模型切换仅影响下一条消息。'
                     : '正在处理中，可继续输入；完成后可发送。'}
                 </span>

@@ -99,6 +99,7 @@ describe('resolveAgentModelProviderRegistry', () => {
     })
 
     expect(registry.publicOptions).toEqual({
+      selectorEnabled: true,
       defaultModelOptionId: 'zhipu.glm-5-2-1m',
       providers: [
         {
@@ -354,6 +355,7 @@ describe('resolveAgentModelProviderRegistry', () => {
       },
     })
 
+    expect(registry.publicOptions.selectorEnabled).toBe(false)
     expect(registry.publicOptions.defaultModelOptionId).toBe(SERVICE_DEFAULT_MODEL_OPTION_ID)
     expect(registry.publicOptions.providers[0]?.models[0]?.modelOptionId).toBe(SERVICE_DEFAULT_MODEL_OPTION_ID)
     expect(registry.resolveModelOption(SERVICE_DEFAULT_MODEL_OPTION_ID)).toEqual({

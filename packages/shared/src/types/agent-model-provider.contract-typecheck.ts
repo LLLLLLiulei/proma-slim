@@ -45,6 +45,7 @@ const modelOption: AgentModelOptionSummary = {
 }
 
 const response: AgentModelOptionsResponse = {
+  selectorEnabled: true,
   defaultModelOptionId: 'zhipu.glm-5-2-1m',
   providers: [
     {

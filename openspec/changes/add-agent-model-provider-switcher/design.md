@@ -145,7 +145,9 @@ PageBuilder 构建页存在多种发送入口：用户手动发送、`initialUse
 
 ### 7. 保留服务默认模型兼容
 
-未配置 `AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE` 时，系统继续使用现有 `ANTHROPIC_*` / `AI_PAGE_BUILDER_ANTHROPIC_*` 解析逻辑，并在模型选项 API 中返回一个服务默认选项。选择服务默认选项时，发送可不携带 `modelOptionId`，或携带保留 ID 后由后端解析为旧默认 runtime。
+未配置 `AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE` 时，系统继续使用现有 `ANTHROPIC_*` / `AI_PAGE_BUILDER_ANTHROPIC_*` 解析逻辑，并在模型选项 API 中返回一个服务默认选项。API 同时返回 `selectorEnabled: false`，前端不展示没有实际切换意义的服务默认下拉入口，发送时也不携带隐藏的 `modelOptionId`，继续由后端使用旧默认 runtime。
+
+配置文件读取失败，或 provider/model 经启用状态、凭证、baseUrl 等规则过滤后没有任何可用模型时，API 同样返回 `selectorEnabled: false`。只有配置文件提供至少一个可用模型时才返回 `selectorEnabled: true`。前端同时检查该标记和非空模型列表，避免空下拉框、加载失败占位和误导性的流式模型切换提示。
 
 理由：已有部署不应因为增加模型切换功能而必须新增配置文件。
 
