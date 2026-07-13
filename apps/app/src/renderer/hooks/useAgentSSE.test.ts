@@ -43,6 +43,16 @@ function createAbortError(): Error {
 interface TestStreamController {
   enqueue(chunk: Uint8Array): void
   close(): void
+  error(reason?: unknown): void
+}
+
+interface TestAgentRunLifecycleEvent {
+  phase: 'message-sent' | 'processing-started' | 'response-started' | 'response-completed'
+  runId: string
+  trigger: 'user' | 'initial' | 'cms-handoff'
+  sessionId: string
+  occurredAt: number
+  outcome?: 'success' | 'failed' | 'stopped' | 'disconnected'
 }
 
 function createHookHarness() {
@@ -555,6 +565,193 @@ describe('useAgentSSE helpers', () => {
     expect(harness.store.get(agentStreamingStatesAtom).get('session-1')?.content).toBe('你好')
     expect(harness.store.get(agentStreamingStatesAtom).get('session-1')?.running).toBe(false)
     expect(harness.store.get(agentMessageRefreshAtom).get('session-1')).toBe(1)
+  })
+
+  test('sendMessage emits ordered lifecycle events and starts the response only on the first text frame', async () => {
+    const encoder = new TextEncoder()
+    let streamController: TestStreamController | null = null
+    const response = new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        streamController = controller as unknown as TestStreamController
+      },
+    }))
+    api.sendMessage = mock(async () => response)
+    const lifecycleEvents: TestAgentRunLifecycleEvent[] = []
+    const harness = createHookHarness()
+
+    await harness.controls.sendMessage('session-1', { userMessage: 'hello' }, {
+      trigger: 'user',
+      onLifecycleEvent: (event: TestAgentRunLifecycleEvent) => lifecycleEvents.push(event),
+    })
+
+    expect(lifecycleEvents.map((event) => event.phase)).toEqual([
+      'message-sent',
+      'processing-started',
+    ])
+
+    if (!streamController) {
+      throw new Error('stream controller unavailable')
+    }
+    const activeStreamController = streamController as TestStreamController
+    activeStreamController.enqueue(encoder.encode([
+      'event: tool_start',
+      'data: {"sessionId":"session-1","event":{"type":"tool_start","toolName":"Read","toolUseId":"tool-1","input":{}}}',
+      '',
+      '',
+    ].join('\n')))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(lifecycleEvents.map((event) => event.phase)).toEqual([
+      'message-sent',
+      'processing-started',
+    ])
+
+    activeStreamController.enqueue(encoder.encode([
+      'event: text_delta',
+      'data: {"sessionId":"session-1","event":{"type":"text_delta","text":"你"}}',
+      '',
+      'event: text_delta',
+      'data: {"sessionId":"session-1","event":{"type":"text_delta","text":"好"}}',
+      '',
+      'event: complete',
+      'data: {"sessionId":"session-1","event":{"type":"complete"}}',
+      '',
+      '',
+    ].join('\n')))
+    activeStreamController.close()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(lifecycleEvents.map((event) => event.phase)).toEqual([
+      'message-sent',
+      'processing-started',
+      'response-started',
+      'response-completed',
+    ])
+    expect(lifecycleEvents.at(-1)?.outcome).toBe('success')
+    expect(new Set(lifecycleEvents.map((event) => event.runId)).size).toBe(1)
+    expect(lifecycleEvents.every((event) => (
+      event.trigger === 'user'
+      && event.sessionId === 'session-1'
+      && Number.isFinite(event.occurredAt)
+    ))).toBe(true)
+  })
+
+  test('sendMessage reports a failed terminal lifecycle event when the request cannot start', async () => {
+    api.sendMessage = mock(async () => {
+      throw new Error('payload rejected')
+    })
+    const lifecycleEvents: TestAgentRunLifecycleEvent[] = []
+    const harness = createHookHarness()
+
+    await expect(harness.controls.sendMessage('session-1', { userMessage: 'hello' }, {
+      trigger: 'initial',
+      onLifecycleEvent: (event: TestAgentRunLifecycleEvent) => lifecycleEvents.push(event),
+    })).rejects.toThrow('payload rejected')
+
+    expect(lifecycleEvents.map((event) => ({
+      phase: event.phase,
+      outcome: event.outcome,
+      trigger: event.trigger,
+    }))).toEqual([
+      { phase: 'message-sent', outcome: undefined, trigger: 'initial' },
+      { phase: 'response-completed', outcome: 'failed', trigger: 'initial' },
+    ])
+  })
+
+  test('stopSession reports a stopped terminal lifecycle event for the active run', async () => {
+    let streamController: TestStreamController | null = null
+    const response = new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        streamController = controller as unknown as TestStreamController
+      },
+    }))
+    api.sendMessage = mock(async (_sessionId, _payload, init) => {
+      init?.signal?.addEventListener('abort', () => {
+        streamController?.error(createAbortError())
+      }, { once: true })
+      return response
+    })
+    api.stopSession = mock(async () => undefined)
+    const lifecycleEvents: TestAgentRunLifecycleEvent[] = []
+    const harness = createHookHarness()
+
+    await harness.controls.sendMessage('session-1', { userMessage: 'hello' }, {
+      trigger: 'cms-handoff',
+      onLifecycleEvent: (event: TestAgentRunLifecycleEvent) => lifecycleEvents.push(event),
+    })
+    await harness.controls.stopSession('session-1')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(lifecycleEvents.at(-1)).toMatchObject({
+      phase: 'response-completed',
+      outcome: 'stopped',
+      trigger: 'cms-handoff',
+      sessionId: 'session-1',
+    })
+    expect(lifecycleEvents.filter((event) => event.phase === 'response-completed')).toHaveLength(1)
+  })
+
+  test('sendMessage reports a disconnected outcome when the stream ends without a terminal frame', async () => {
+    let streamController: TestStreamController | null = null
+    const response = new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        streamController = controller as unknown as TestStreamController
+      },
+    }))
+    api.sendMessage = mock(async () => response)
+    const lifecycleEvents: TestAgentRunLifecycleEvent[] = []
+    const harness = createHookHarness()
+
+    await harness.controls.sendMessage('session-1', { userMessage: 'hello' }, {
+      trigger: 'user',
+      onLifecycleEvent: (event: TestAgentRunLifecycleEvent) => lifecycleEvents.push(event),
+    })
+    if (!streamController) {
+      throw new Error('stream controller unavailable')
+    }
+    const activeStreamController = streamController as TestStreamController
+    activeStreamController.close()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(lifecycleEvents.at(-1)).toMatchObject({
+      phase: 'response-completed',
+      outcome: 'disconnected',
+    })
+  })
+
+  test('sendMessage preserves a failed outcome when an Agent error frame precedes a transport error', async () => {
+    const encoder = new TextEncoder()
+    let streamController: TestStreamController | null = null
+    const response = new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        streamController = controller as unknown as TestStreamController
+      },
+    }))
+    api.sendMessage = mock(async () => response)
+    const lifecycleEvents: TestAgentRunLifecycleEvent[] = []
+    const harness = createHookHarness()
+
+    await harness.controls.sendMessage('session-1', { userMessage: 'hello' }, {
+      trigger: 'user',
+      onLifecycleEvent: (event: TestAgentRunLifecycleEvent) => lifecycleEvents.push(event),
+    })
+    if (!streamController) {
+      throw new Error('stream controller unavailable')
+    }
+    const activeStreamController = streamController as TestStreamController
+    activeStreamController.enqueue(encoder.encode([
+      'event: error',
+      'data: {"sessionId":"session-1","event":{"type":"error","message":"model failed"}}',
+      '',
+      '',
+    ].join('\n')))
+    activeStreamController.error(new Error('socket closed'))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(lifecycleEvents.at(-1)).toMatchObject({
+      phase: 'response-completed',
+      outcome: 'failed',
+    })
   })
 
   test('sendMessage rethrows request-start failures so callers can preserve composer state', async () => {

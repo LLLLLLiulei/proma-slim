@@ -3,6 +3,7 @@ import { useAtomValue, useSetAtom } from 'jotai'
 import { AlertTriangle, LoaderCircle, X } from 'lucide-react'
 import { toast } from 'sonner'
 import type {
+  AgentRunLifecycleEvent,
   AgentSessionMeta,
   AgentWorkspace,
   PageBuilderBlockDeletionPayload,
@@ -1456,12 +1457,27 @@ export function BuilderPage({
       source: PAGE_BUILDER_HOST_BRIDGE_SOURCE,
       type: 'ready',
       version: PAGE_BUILDER_HOST_TOOLBAR_EXTENSION_PROTOCOL_VERSION,
-      capabilities: ['toolbarExtensions.v1', 'toolbarDropdowns.v1'],
+      capabilities: ['toolbarExtensions.v1', 'toolbarDropdowns.v1', 'agentLifecycle.v1'],
       workspaceId,
       sessionId,
       ...(hostToolbarProjectId ? { projectId: hostToolbarProjectId } : {}),
     })
   }, [hostToolbarProjectId, loadState.status, postHostBridgeMessage, sessionId, workspaceId])
+  const handleAgentLifecycleEvent = React.useCallback((event: AgentRunLifecycleEvent): void => {
+    postHostBridgeMessage({
+      source: PAGE_BUILDER_HOST_BRIDGE_SOURCE,
+      type: 'agent-lifecycle',
+      version: PAGE_BUILDER_HOST_TOOLBAR_EXTENSION_PROTOCOL_VERSION,
+      phase: event.phase,
+      runId: event.runId,
+      trigger: event.trigger,
+      occurredAt: event.occurredAt,
+      ...(event.outcome ? { outcome: event.outcome } : {}),
+      workspaceId,
+      sessionId,
+      ...(hostToolbarProjectId ? { projectId: hostToolbarProjectId } : {}),
+    })
+  }, [hostToolbarProjectId, postHostBridgeMessage, sessionId, workspaceId])
   const handleHostToolbarButtonClick = React.useCallback((button: PageBuilderHostToolbarButton, itemId?: string): void => {
     postHostBridgeMessage({
       source: PAGE_BUILDER_HOST_BRIDGE_SOURCE,
@@ -1759,6 +1775,7 @@ export function BuilderPage({
                   defaultMentionedSkills={[PAGE_BUILDER_GUIDED_GENERATION_SKILL]}
                   enableModelSelector
                   initialUserMessage={loadState.initialUserMessage}
+                  onLifecycleEvent={handleAgentLifecycleEvent}
                   onSendError={handleAgentSendError}
                   onMessageSent={handleMessageSent}
                   onInitialUserMessageHandled={handleInitialUserMessageHandled}

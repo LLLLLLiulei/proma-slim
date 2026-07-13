@@ -612,6 +612,25 @@ export interface AgentStreamEvent {
   event: AgentEvent
 }
 
+export type AgentRunTrigger = 'user' | 'initial' | 'cms-handoff'
+
+export type AgentRunLifecyclePhase =
+  | 'message-sent'
+  | 'processing-started'
+  | 'response-started'
+  | 'response-completed'
+
+export type AgentRunOutcome = 'success' | 'failed' | 'stopped' | 'disconnected'
+
+export interface AgentRunLifecycleEvent {
+  phase: AgentRunLifecyclePhase
+  runId: string
+  trigger: AgentRunTrigger
+  sessionId: string
+  occurredAt: number
+  outcome?: AgentRunOutcome
+}
+
 /**
  * Agent 流式完成事件载荷（主进程 → 渲染进程）
  * 包含已持久化的消息列表，避免异步重新加载的竞态窗口。

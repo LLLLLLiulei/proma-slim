@@ -520,6 +520,7 @@ describe('AgentView rendering extension points', () => {
       updatedAt: 1,
     }
     const onMessageSent = mock(() => {})
+    const onLifecycleEvent = mock(() => {})
     const { AgentView, sendMessage, getLastPlainTextInputProps } = await loadAgentView()
 
     await act(async () => {
@@ -529,6 +530,7 @@ describe('AgentView rendering extension points', () => {
             <AgentView
               sessionId={session.id}
               messageDecorator={(userMessage: string) => `Hidden selector: #hero\n\n${userMessage}`}
+              onLifecycleEvent={onLifecycleEvent}
               onMessageSent={onMessageSent}
             />
           </HydrateAgentViewState>
@@ -547,11 +549,18 @@ describe('AgentView rendering extension points', () => {
       await Promise.resolve()
     })
 
-    expect(sendMessage).toHaveBeenCalledWith(session.id, expect.objectContaining({
-      userMessage: '修改这个区块',
-      composedUserMessage: 'Hidden selector: #hero\n\n修改这个区块',
-      workspaceId: workspace.id,
-    }))
+    expect(sendMessage).toHaveBeenCalledWith(
+      session.id,
+      expect.objectContaining({
+        userMessage: '修改这个区块',
+        composedUserMessage: 'Hidden selector: #hero\n\n修改这个区块',
+        workspaceId: workspace.id,
+      }),
+      {
+        trigger: 'user',
+        onLifecycleEvent,
+      },
+    )
     expect(onMessageSent).toHaveBeenCalledWith('修改这个区块')
   })
 
@@ -805,6 +814,7 @@ describe('AgentView rendering extension points', () => {
     }
     const modelOptionsDeferred = createDeferred<AgentModelOptionsResponse>()
     const getAgentModelOptions = mock(async () => await modelOptionsDeferred.promise)
+    const onLifecycleEvent = mock(() => {})
     const { AgentView, sendMessage } = await loadAgentView({ getAgentModelOptions })
 
     await act(async () => {
@@ -815,6 +825,7 @@ describe('AgentView rendering extension points', () => {
               defaultMentionedSkills={['page-builder-guided-generation']}
               enableModelSelector
               initialUserMessage="生成一个企业官网"
+              onLifecycleEvent={onLifecycleEvent}
               sessionId={session.id}
             />
           </HydrateAgentViewState>
@@ -834,12 +845,19 @@ describe('AgentView rendering extension points', () => {
       await Promise.resolve()
     })
 
-    expect(sendMessage).toHaveBeenCalledWith(session.id, expect.objectContaining({
-      userMessage: '生成一个企业官网',
-      mentionedSkills: ['page-builder-guided-generation'],
-      modelOptionId: 'deepseek.chat',
-      workspaceId: workspace.id,
-    }))
+    expect(sendMessage).toHaveBeenCalledWith(
+      session.id,
+      expect.objectContaining({
+        userMessage: '生成一个企业官网',
+        mentionedSkills: ['page-builder-guided-generation'],
+        modelOptionId: 'deepseek.chat',
+        workspaceId: workspace.id,
+      }),
+      {
+        trigger: 'initial',
+        onLifecycleEvent,
+      },
+    )
   })
 
   test('programmatic sends wait for model options and forward the selected model option id', async () => {
@@ -869,6 +887,7 @@ describe('AgentView rendering extension points', () => {
     const modelOptionsDeferred = createDeferred<AgentModelOptionsResponse>()
     const getAgentModelOptions = mock(async () => await modelOptionsDeferred.promise)
     const onProgrammaticSendSettled = mock((_result: PageBuilderCmsAutoAgentHandoffSettledResult) => {})
+    const onLifecycleEvent = mock(() => {})
     const { AgentView, sendMessage } = await loadAgentView({ getAgentModelOptions })
 
     await act(async () => {
@@ -877,6 +896,7 @@ describe('AgentView rendering extension points', () => {
           <HydrateAgentViewState sessions={[session]} workspaces={[workspace]}>
             <AgentView
               enableModelSelector
+              onLifecycleEvent={onLifecycleEvent}
               onProgrammaticSendSettled={onProgrammaticSendSettled}
               programmaticSendRequest={request}
               sessionId={session.id}
@@ -898,14 +918,21 @@ describe('AgentView rendering extension points', () => {
       await Promise.resolve()
     })
 
-    expect(sendMessage).toHaveBeenCalledWith(session.id, expect.objectContaining({
-      userMessage: request.userMessage,
-      composedUserMessage: request.composedUserMessage,
-      mentionedSkills: ['cms-binding-apply'],
-      bootstrappedSkills: ['cms-binding-apply'],
-      modelOptionId: 'deepseek.chat',
-      workspaceId: workspace.id,
-    }))
+    expect(sendMessage).toHaveBeenCalledWith(
+      session.id,
+      expect.objectContaining({
+        userMessage: request.userMessage,
+        composedUserMessage: request.composedUserMessage,
+        mentionedSkills: ['cms-binding-apply'],
+        bootstrappedSkills: ['cms-binding-apply'],
+        modelOptionId: 'deepseek.chat',
+        workspaceId: workspace.id,
+      }),
+      {
+        trigger: 'cms-handoff',
+        onLifecycleEvent,
+      },
+    )
     expect(onProgrammaticSendSettled).toHaveBeenCalledWith({
       requestId: 'handoff-model-1',
       status: 'sent',

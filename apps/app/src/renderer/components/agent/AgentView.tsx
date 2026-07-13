@@ -33,6 +33,8 @@ import type {
   AgentMessage,
   AgentModelOptionSummary,
   AgentModelOptionsResponse,
+  AgentRunLifecycleEvent,
+  AgentRunTrigger,
   PageBuilderCmsAutoAgentHandoffRequest,
   PageBuilderCmsAutoAgentHandoffSettledResult,
   PageBuilderEditLockCredentials,
@@ -218,6 +220,7 @@ export interface AgentViewProps {
   composerPlaceholder?: string
   enableModelSelector?: boolean
   onMessageSent?: (userMessage: string) => void
+  onLifecycleEvent?: (event: AgentRunLifecycleEvent) => void
   beforeSendMessage?: (input: {
     userMessage: string
     sessionId: string
@@ -386,6 +389,7 @@ export function AgentView({
   composerPlaceholder,
   enableModelSelector = false,
   onMessageSent,
+  onLifecycleEvent,
   beforeSendMessage,
   programmaticSendRequest = null,
   onProgrammaticSendSettled,
@@ -601,6 +605,7 @@ export function AgentView({
     clearComposerOnSuccess,
     clearAttachmentsOnSuccess,
     emitMessageSent,
+    trigger,
   }: {
     userMessage: string
     composedUserMessage?: string
@@ -612,13 +617,16 @@ export function AgentView({
     clearComposerOnSuccess: boolean
     clearAttachmentsOnSuccess: boolean
     emitMessageSent: boolean
+    trigger: AgentRunTrigger
   }): Promise<AgentSendExecutionResult> => {
     const trimmedUserMessage = userMessage.trim()
     if (!trimmedUserMessage && optimisticAttachments.length === 0) {
       return { ok: false }
     }
 
-    const source = emitMessageSent ? 'user-send' : 'programmatic-send'
+    const source = trigger === 'cms-handoff'
+      ? 'programmatic-send'
+      : trigger === 'initial' ? 'initial-send' : 'user-send'
 
     if (streaming) {
       logAgentViewLifecycle('info', {
@@ -699,8 +707,11 @@ export function AgentView({
         ...(mentionedMcpServers.length > 0 && { mentionedMcpServers }),
       }
 
-      if (sendMessageOptions) {
-        await sendMessage(sessionId, sendPayload, sendMessageOptions)
+      if (sendMessageOptions || onLifecycleEvent) {
+        await sendMessage(sessionId, sendPayload, {
+          ...(sendMessageOptions ?? {}),
+          ...(onLifecycleEvent ? { trigger, onLifecycleEvent } : {}),
+        })
       } else {
         await sendMessage(sessionId, sendPayload)
       }
@@ -783,6 +794,7 @@ export function AgentView({
   }, [
     attachedDirectories,
     onMessageSent,
+    onLifecycleEvent,
     onSendError,
     reconcileSessionStreaming,
     sendMessage,
@@ -816,7 +828,10 @@ export function AgentView({
     })
   }, [reconcileSessionStreaming, sessionId, sessionWorkspaceId, streaming])
 
-  const sendDraftMessage = React.useCallback(async (nextUserMessage: string): Promise<boolean> => {
+  const sendDraftMessage = React.useCallback(async (
+    nextUserMessage: string,
+    trigger: AgentRunTrigger = 'user',
+  ): Promise<boolean> => {
     const trimmedUserMessage = nextUserMessage.trim()
     if (beforeSendMessage) {
       const interception = await beforeSendMessage({
@@ -865,6 +880,7 @@ export function AgentView({
       clearComposerOnSuccess: true,
       clearAttachmentsOnSuccess: true,
       emitMessageSent: true,
+      trigger,
     })
 
     return result.ok
@@ -963,7 +979,7 @@ export function AgentView({
 
     initialMessageTriggeredRef.current = true
 
-    void sendDraftMessage(initialUserMessage!).then((didSend) => {
+    void sendDraftMessage(initialUserMessage!, 'initial').then((didSend) => {
       if (didSend) {
         onInitialUserMessageHandled?.()
       }
@@ -1004,6 +1020,7 @@ export function AgentView({
       clearComposerOnSuccess: false,
       clearAttachmentsOnSuccess: false,
       emitMessageSent: false,
+      trigger: 'cms-handoff',
     }).then((result) => {
       logAgentViewLifecycle(result.ok ? 'info' : 'warn', {
         phase: 'programmatic_send_settled',

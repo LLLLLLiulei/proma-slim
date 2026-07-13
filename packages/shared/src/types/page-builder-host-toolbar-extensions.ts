@@ -1,3 +1,9 @@
+import type {
+  AgentRunLifecyclePhase,
+  AgentRunOutcome,
+  AgentRunTrigger,
+} from './agent'
+
 export const PAGE_BUILDER_HOST_BRIDGE_SOURCE = 'page-builder-host-bridge'
 export const PAGE_BUILDER_HOST_PARENT_SOURCE = 'page-builder-host-parent'
 export const PAGE_BUILDER_HOST_TOOLBAR_EXTENSION_PROTOCOL_VERSION = 1
@@ -164,7 +170,7 @@ export type PageBuilderHostBridgeMessage =
     source: typeof PAGE_BUILDER_HOST_BRIDGE_SOURCE
     type: 'ready'
     version: typeof PAGE_BUILDER_HOST_TOOLBAR_EXTENSION_PROTOCOL_VERSION
-    capabilities: Array<'toolbarExtensions.v1' | 'toolbarDropdowns.v1'>
+    capabilities: Array<'toolbarExtensions.v1' | 'toolbarDropdowns.v1' | 'agentLifecycle.v1'>
     workspaceId: string
     sessionId: string
     projectId?: string
@@ -179,6 +185,19 @@ export type PageBuilderHostBridgeMessage =
     sessionId: string
     projectId?: string
     state: PageBuilderHostToolbarButtonClickState
+  }
+  | {
+    source: typeof PAGE_BUILDER_HOST_BRIDGE_SOURCE
+    type: 'agent-lifecycle'
+    version: typeof PAGE_BUILDER_HOST_TOOLBAR_EXTENSION_PROTOCOL_VERSION
+    phase: AgentRunLifecyclePhase
+    runId: string
+    trigger: AgentRunTrigger
+    occurredAt: number
+    workspaceId: string
+    sessionId: string
+    projectId?: string
+    outcome?: AgentRunOutcome
   }
 
 export type PageBuilderHostParentMessage =

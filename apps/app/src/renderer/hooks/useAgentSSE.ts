@@ -3,6 +3,9 @@ import { useStore } from 'jotai'
 import type { createStore } from 'jotai/vanilla'
 import type {
   AgentEvent,
+  AgentRunLifecycleEvent,
+  AgentRunOutcome,
+  AgentRunTrigger,
   AgentSendInput,
   AgentSessionMeta,
   PageBuilderEditLockCredentials,
@@ -29,6 +32,8 @@ type AgentSendRequestPayload =
 
 interface AgentSendRequestOptions {
   editLock?: PageBuilderEditLockCredentials
+  trigger?: AgentRunTrigger
+  onLifecycleEvent?: (event: AgentRunLifecycleEvent) => void
 }
 
 interface RawSSEFrame {
@@ -66,6 +71,11 @@ function logStreamLifecycle(
 ): void {
   const logger = level === 'info' ? console.info : level === 'warn' ? console.warn : console.error
   logger('[useAgentSSE]', payload)
+}
+
+function createAgentRunId(sessionId: string): string {
+  return globalThis.crypto?.randomUUID?.()
+    ?? `${sessionId}-${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
 function createInitialStreamState(now = Date.now()): AgentStreamState {
@@ -496,9 +506,59 @@ export function useAgentSSE() {
     payload: AgentSendRequestPayload,
     options: AgentSendRequestOptions = {},
   ): Promise<void> => {
+    const runId = createAgentRunId(sessionId)
+    const trigger = options.trigger ?? 'user'
+    let lifecycleCompleted = false
+    let streamConnected = false
+    let sawResponseStart = false
+    let sawFailureFrame = false
+    let sawCompleteFrame = false
+    const emitLifecycleEvent = (
+      phase: AgentRunLifecycleEvent['phase'],
+      outcome?: AgentRunOutcome,
+    ): void => {
+      if (phase === 'response-completed') {
+        if (lifecycleCompleted) return
+        lifecycleCompleted = true
+      }
+
+      try {
+        options.onLifecycleEvent?.({
+          phase,
+          runId,
+          trigger,
+          sessionId,
+          occurredAt: Date.now(),
+          ...(outcome ? { outcome } : {}),
+        })
+      } catch (error) {
+        logStreamLifecycle('warn', {
+          phase: 'lifecycle_callback_failed',
+          sessionId,
+          runId,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+    }
+    const applyLifecycleFrame = (frame: ParsedFrame): void => {
+      if (!sawResponseStart && (frame.event === 'text_delta' || frame.event === 'text_complete')) {
+        sawResponseStart = true
+        emitLifecycleEvent('response-started')
+      }
+
+      if (frame.event === 'error' || frame.event === 'typed_error' || frame.event === 'retry_failed') {
+        sawFailureFrame = true
+      }
+
+      if (frame.event === 'complete') {
+        sawCompleteFrame = true
+      }
+    }
+
     ensureStreamingState(store, sessionId, { reset: true })
     clearStreamError(sessionId)
     passiveReconcileCooldownRef.current.delete(sessionId)
+    emitLifecycleEvent('message-sent')
 
     logStreamLifecycle('info', {
       phase: 'send_start',
@@ -535,6 +595,7 @@ export function useAgentSSE() {
       if (stopSucceededSessionsRef.current.has(sessionId)) {
         finalizeStream(store, sessionId)
         clearStreamError(sessionId)
+        emitLifecycleEvent('response-completed', 'stopped')
         logStreamLifecycle('info', {
           phase: 'send_stream_stopped',
           sessionId,
@@ -554,6 +615,10 @@ export function useAgentSSE() {
 
       const message = error instanceof Error ? error.message : '连接已断开'
       finalizeStream(store, sessionId, { error: message || '连接已断开' })
+      emitLifecycleEvent(
+        'response-completed',
+        sawFailureFrame || !streamConnected ? 'failed' : 'disconnected',
+      )
       logStreamLifecycle('error', {
         phase: 'send_stream_failed',
         sessionId,
@@ -569,7 +634,9 @@ export function useAgentSSE() {
         signal: controller.signal,
         editLock: options.editLock,
       })
+      streamConnected = true
       pendingConnectStartedAtRef.current.delete(sessionId)
+      emitLifecycleEvent('processing-started')
       logStreamLifecycle('info', {
         phase: 'send_stream_connected',
         sessionId,
@@ -635,6 +702,10 @@ export function useAgentSSE() {
                 event: frame.event,
                 data: parsedPayload,
               })
+              applyLifecycleFrame({
+                event: frame.event,
+                data: parsedPayload,
+              })
             } catch (error) {
               logStreamLifecycle('warn', {
                 phase: 'send_frame_parse_failed',
@@ -661,6 +732,10 @@ export function useAgentSSE() {
               event: frame.event,
               data: parsedPayload,
             })
+            applyLifecycleFrame({
+              event: frame.event,
+              data: parsedPayload,
+            })
           } catch (error) {
             logStreamLifecycle('warn', {
               phase: 'send_tail_parse_failed',
@@ -674,6 +749,12 @@ export function useAgentSSE() {
 
         finalizeStream(store, sessionId)
         clearStreamError(sessionId)
+        emitLifecycleEvent(
+          'response-completed',
+          stopSucceededSessionsRef.current.has(sessionId)
+            ? 'stopped'
+            : sawFailureFrame ? 'failed' : sawCompleteFrame ? 'success' : 'disconnected',
+        )
         logStreamLifecycle('info', {
           phase: 'send_finalize',
           sessionId,

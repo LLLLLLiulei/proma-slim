@@ -4,6 +4,7 @@ import { Provider, createStore } from 'jotai'
 import { useHydrateAtoms } from 'jotai/utils'
 import { act, create } from 'react-test-renderer'
 import type {
+  AgentRunLifecycleEvent,
   AgentSessionMeta,
   AgentWorkspace,
   PageBuilderHostToolbarExtensions,
@@ -1016,11 +1017,96 @@ describe('BuilderPage', () => {
       source: PAGE_BUILDER_HOST_BRIDGE_SOURCE,
       type: 'ready',
       version: PAGE_BUILDER_HOST_TOOLBAR_EXTENSION_PROTOCOL_VERSION,
-      capabilities: ['toolbarExtensions.v1', 'toolbarDropdowns.v1'],
+      capabilities: ['toolbarExtensions.v1', 'toolbarDropdowns.v1', 'agentLifecycle.v1'],
       workspaceId: workspace.id,
       sessionId: session.id,
       projectId: 'pbp_host_toolbar',
     }, 'http://localhost')
+  })
+
+  test('forwards Agent lifecycle events to the same-origin iframe parent without sensitive payloads', async () => {
+    const { parentPostMessage } = installWindowHarness()
+    const workspace: AgentWorkspace = {
+      id: 'workspace-1',
+      name: 'CMS 专题',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const session: AgentSessionMeta = {
+      id: 'session-1',
+      title: '新 Agent 会话',
+      workspaceId: workspace.id,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const { BuilderPage, getLastAgentViewProps } = await loadBuilderPage({
+      sessions: [session],
+      workspaces: [workspace],
+      getCmsIntegrationStatusImpl: async () => ({ integrationMode: 'cms', enabled: true }),
+      getCmsBuilderContextImpl: async () => ({
+        projectId: 'pbp_agent_lifecycle',
+        workspace,
+        session,
+        access: {
+          expiresAt: '2026-05-13T00:00:00.000Z',
+        },
+        hostToolbarExtensions: { buttons: [] },
+      }),
+      mockPreviewPane: true,
+    })
+
+    await act(async () => {
+      create(
+        <Provider store={createStore()}>
+          <BuilderPage sessionId={session.id} workspaceId={workspace.id} />
+        </Provider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    const onLifecycleEvent = (getLastAgentViewProps() as {
+      onLifecycleEvent?: (event: AgentRunLifecycleEvent) => void
+    }).onLifecycleEvent
+    expect(onLifecycleEvent).toBeFunction()
+
+    await act(async () => {
+      onLifecycleEvent?.({
+        phase: 'response-completed',
+        runId: 'run-1',
+        trigger: 'user',
+        sessionId: session.id,
+        occurredAt: 1783670000000,
+        outcome: 'success',
+        userMessage: '不得发送给父页面的正文',
+        token: 'secret-token',
+      } as AgentRunLifecycleEvent)
+    })
+
+    const lifecycleCall = parentPostMessage.mock.calls.find(([message]) => (
+      typeof message === 'object'
+      && message !== null
+      && (message as { type?: string }).type === 'agent-lifecycle'
+    ))
+    expect(lifecycleCall?.[0]).toEqual({
+      source: PAGE_BUILDER_HOST_BRIDGE_SOURCE,
+      type: 'agent-lifecycle',
+      version: PAGE_BUILDER_HOST_TOOLBAR_EXTENSION_PROTOCOL_VERSION,
+      phase: 'response-completed',
+      runId: 'run-1',
+      trigger: 'user',
+      occurredAt: 1783670000000,
+      outcome: 'success',
+      workspaceId: workspace.id,
+      sessionId: session.id,
+      projectId: 'pbp_agent_lifecycle',
+    })
+    expect(lifecycleCall?.[1]).toBe('http://localhost')
+    expect(JSON.stringify(lifecycleCall?.[0])).not.toContain('不得发送给父页面的正文')
+    expect(JSON.stringify(lifecycleCall?.[0])).not.toContain('secret-token')
   })
 
   test('posts host toolbar click messages with non-sensitive builder state', async () => {
