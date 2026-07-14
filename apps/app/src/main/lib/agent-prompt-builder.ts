@@ -85,6 +85,7 @@ interface DynamicContext {
   memoryFilePath?: string
   workspaceMcpStateLines?: string[]
   pageBuilderCmsRuntimeMcpMode?: 'available' | 'unavailable'
+  pageBuilderRuntimeMcpMode?: 'available'
   pageBuilderRuntimePlaywrightMode?: 'docker-http' | 'available'
   pageBuilderBrowserPreviewUrl?: string
 }
@@ -238,6 +239,18 @@ ${workspaceStateLines.join('\n')}
     sections.push(`<page_builder_cms_runtime_mcp_instructions>
 ${cmsRuntimeLines.join('\n')}
 </page_builder_cms_runtime_mcp_instructions>`)
+  }
+
+  if (ctx.pageBuilderRuntimeMcpMode === 'available') {
+    sections.push('<page_builder_runtime_mcp>available</page_builder_runtime_mcp>')
+    sections.push(`<page_builder_runtime_mcp_instructions>
+pagebuilder MCP 是宿主运行时注入的 SDK MCP server，不是 workspace \`mcp.json\` 中的持久配置。
+- 可使用宿主注入的 \`mcp__pagebuilder__generate_image\` 与 \`mcp__pagebuilder__analyze_image\`。
+- \`mcp__pagebuilder__generate_image\` 用于生成无文字视觉素材、背景图、banner 图、插画或场景图；生成成功后使用返回的 \`./assets/...\` 路径写入 HTML/CSS。
+- 不要要求图片模型绘制可读文字、伪文字、标题、标语、logo 字、牌匾字或 UI 文案；页面标题、正文、按钮、标签和标语必须由 HTML/CSS 渲染。供应商自动水印可忽略。
+- \`mcp__pagebuilder__analyze_image\` 可分析远程 URL、本地绝对路径，或相对当前 workspace files 目录的路径，例如 \`./assets/example.png\`；只分析用户明确提供或当前任务需要的图片，不要用它读取无关敏感文件。
+- 不要向 workspace \`mcp.json\` 写入 pagebuilder server 配置，也不要要求用户安装、配置或启动 PageBuilder MCP 服务。
+</page_builder_runtime_mcp_instructions>`)
   }
 
   if (ctx.pageBuilderBrowserPreviewUrl) {

@@ -24,6 +24,7 @@ describe('page-builder docker start script', () => {
     expect(script).toContain('--env-file "${ENV_FILE}" \\')
     expect(script).toContain('-f "${COMPOSE_FILE}" \\')
     expect(script).toContain('up -d --build server playwright web')
+    expect(script).toContain('-u AI_PAGE_BUILDER_AI_PROVIDERS_CONFIG_FILE')
     expect(script).toContain('-u AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE')
   })
 

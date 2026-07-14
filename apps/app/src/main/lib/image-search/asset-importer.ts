@@ -153,7 +153,7 @@ function isUnsafeIPv6(hostname: string): boolean {
   return false
 }
 
-function assertSafeHttpUrl(rawUrl: string): void {
+export function assertSafeHttpImageUrl(rawUrl: string): void {
   let parsed: URL
   try {
     parsed = new URL(rawUrl)
@@ -180,7 +180,7 @@ function assertSafeHttpUrl(rawUrl: string): void {
   }
 }
 
-function isImageMagic(buffer: BinaryImageBuffer): boolean {
+export function isSupportedImageMagic(buffer: BinaryImageBuffer): boolean {
   const view = toDataView(buffer)
   const bytes = toBytes(buffer)
   if (view.byteLength >= 8 && view.getUint32(0) === 0x89504e47 && view.getUint32(4) === 0x0d0a1a0a) return true
@@ -232,7 +232,7 @@ async function trackDownloadIfNeeded(
     sourcePage: image.sourcePage,
   })
   try {
-    assertSafeHttpUrl(image.downloadTrackingUrl)
+    assertSafeHttpImageUrl(image.downloadTrackingUrl)
     const response = await fetchFn(image.downloadTrackingUrl, {
       headers: HEADERS,
       signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT),
@@ -259,7 +259,7 @@ async function fetchImageBuffer(
   logger?: ImageSearchLogger,
 ): Promise<{ buffer: Buffer; width: number; height: number; extension: string; contentType: string | null; byteLength: number; optimization: ImageOptimizationMetadata }> {
   const downloadUrl = image.downloadUrl || image.url
-  assertSafeHttpUrl(downloadUrl)
+  assertSafeHttpImageUrl(downloadUrl)
   if (isSvgUrl(downloadUrl)) throw new Error('拒绝导入 SVG 图片')
 
   await trackDownloadIfNeeded(fetchFn, image, logger)
@@ -269,7 +269,7 @@ async function fetchImageBuffer(
     signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT),
   })
   const finalUrl = response.url || downloadUrl
-  assertSafeHttpUrl(finalUrl)
+  assertSafeHttpImageUrl(finalUrl)
   if (!response.ok) throw new Error(`HTTP ${response.status}`)
 
   const contentType = normalizeContentType(response.headers.get('content-type'))
@@ -280,7 +280,7 @@ async function fetchImageBuffer(
 
   const buffer = Buffer.from(await response.arrayBuffer())
   if (buffer.byteLength < 1024) throw new Error('图片文件过小')
-  if (!isImageMagic(buffer)) throw new Error(contentType ? `响应不是图片（content-type: ${contentType}）` : '响应不是图片')
+  if (!isSupportedImageMagic(buffer)) throw new Error(contentType ? `响应不是图片（content-type: ${contentType}）` : '响应不是图片')
 
   const parsedDimensions = parseImageDimensions(buffer)
   const width = parsedDimensions.width || image.width || 0

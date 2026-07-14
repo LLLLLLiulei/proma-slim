@@ -140,6 +140,13 @@ describe('AgentOrchestrator workspace runtime', () => {
     'API_TIMEOUT_MS',
     'AI_PAGE_BUILDER_ANTHROPIC_API_KEY',
     'AI_PAGE_BUILDER_ANTHROPIC_BASE_URL',
+    'PLATFORM_MODE',
+    'Z_AI_MODE',
+    'Z_AI_API_KEY',
+    'ZAI_API_KEY',
+    'ALIYUN_API_KEY',
+    'QWEN_API_KEY',
+    'DASHSCOPE_API_KEY',
   ]
 
   beforeEach(() => {
@@ -1221,6 +1228,120 @@ describe('AgentOrchestrator workspace runtime', () => {
       'mcp__image_search__search_images',
       'mcp__image_search__download_images',
     ]))
+  })
+
+  test('auto-injects runtime pagebuilder sdk tools into page-builder queries when provider env is configured', async () => {
+    process.env.PLATFORM_MODE = 'ZHIPU'
+    process.env.Z_AI_API_KEY = 'sk-zhipu-live'
+
+    const adapter = new RecordingAdapter()
+    const orchestrator = new AgentOrchestrator(adapter, new AgentEventBus())
+    const workspace = createAgentWorkspace('Page Builder Runtime MCP', { template: 'page-builder' })
+    const session = createAgentSession('pagebuilder runtime MCP session', undefined, workspace.id)
+
+    await orchestrator.sendMessage(
+      {
+        sessionId: session.id,
+        userMessage: '请生成一个无文字 banner 图并做视觉检查',
+        channelId: '',
+      },
+      {
+        onError: (message) => {
+          throw new Error(message)
+        },
+        onComplete: () => {},
+        onTitleUpdated: () => {},
+      },
+    )
+
+    expect(adapter.lastInput?.mcpServers).toMatchObject({
+      pagebuilder: {
+        type: 'sdk',
+        name: 'pagebuilder',
+      },
+    })
+    expect(adapter.lastInput?.mcpServers?.pagebuilder).toHaveProperty('instance')
+    expect(adapter.lastInput?.allowedTools).toEqual(expect.arrayContaining([
+      'mcp__pagebuilder__generate_image',
+      'mcp__pagebuilder__analyze_image',
+    ]))
+    expect(adapter.lastInput?.allowedTools).not.toEqual(expect.arrayContaining([
+      'mcp__pagebuilder__ui_to_artifact',
+      'mcp__pagebuilder__extract_text_from_screenshot',
+      'mcp__pagebuilder__analyze_video',
+    ]))
+    expect(adapter.lastInput?.prompt).toContain('<page_builder_runtime_mcp>available</page_builder_runtime_mcp>')
+    expect(adapter.lastInput?.prompt).toContain('pagebuilder MCP 是宿主运行时注入的 SDK MCP server')
+    expect(adapter.lastInput?.prompt).toContain('mcp__pagebuilder__generate_image')
+    expect(adapter.lastInput?.prompt).toContain('mcp__pagebuilder__analyze_image')
+    expect(adapter.lastInput?.prompt).toContain('./assets/')
+    expect(adapter.lastInput?.prompt).toContain('不要要求图片模型绘制可读文字')
+  })
+
+  test('does not inject runtime pagebuilder tools without provider env even when mentioned explicitly', async () => {
+    process.env.ANTHROPIC_AUTH_TOKEN = 'sk-anthropic-only'
+
+    const adapter = new RecordingAdapter()
+    const orchestrator = new AgentOrchestrator(adapter, new AgentEventBus())
+    const workspace = createAgentWorkspace('Page Builder Runtime MCP Missing', { template: 'page-builder' })
+    const session = createAgentSession('pagebuilder runtime MCP missing session', undefined, workspace.id)
+
+    await orchestrator.sendMessage(
+      {
+        sessionId: session.id,
+        userMessage: '请使用 pagebuilder MCP 生成 banner',
+        channelId: '',
+        mentionedMcpServers: ['pagebuilder'],
+      },
+      {
+        onError: (message) => {
+          throw new Error(message)
+        },
+        onComplete: () => {},
+        onTitleUpdated: () => {},
+      },
+    )
+
+    expect(adapter.lastInput?.mcpServers ?? {}).not.toHaveProperty('pagebuilder')
+    expect(adapter.lastInput?.allowedTools).not.toEqual(expect.arrayContaining([
+      'mcp__pagebuilder__generate_image',
+      'mcp__pagebuilder__analyze_image',
+    ]))
+    expect(adapter.lastInput?.prompt).not.toContain('<page_builder_runtime_mcp>')
+    expect(adapter.lastInput?.prompt).not.toContain('mcp__pagebuilder__generate_image')
+    expect(adapter.lastInput?.prompt).not.toContain('安装 PageBuilder MCP')
+  })
+
+  test('keeps ordinary workspaces from receiving runtime pagebuilder tools even when provider env is configured', async () => {
+    process.env.PLATFORM_MODE = 'ZHIPU'
+    process.env.Z_AI_API_KEY = 'sk-zhipu-live'
+
+    const adapter = new RecordingAdapter()
+    const orchestrator = new AgentOrchestrator(adapter, new AgentEventBus())
+    const workspace = createAgentWorkspace('Regular Runtime MCP Workspace')
+    const session = createAgentSession('regular runtime MCP session', undefined, workspace.id)
+
+    await orchestrator.sendMessage(
+      {
+        sessionId: session.id,
+        userMessage: '请检查这个普通工作区',
+        channelId: '',
+      },
+      {
+        onError: (message) => {
+          throw new Error(message)
+        },
+        onComplete: () => {},
+        onTitleUpdated: () => {},
+      },
+    )
+
+    expect(adapter.lastInput?.mcpServers ?? {}).not.toHaveProperty('pagebuilder')
+    expect(adapter.lastInput?.allowedTools).not.toEqual(expect.arrayContaining([
+      'mcp__pagebuilder__generate_image',
+      'mcp__pagebuilder__analyze_image',
+    ]))
+    expect(adapter.lastInput?.prompt).not.toContain('<page_builder_runtime_mcp>')
   })
 
   test('injects runtime cms sdk tools when page-builder explicitly mentions the cms MCP server', async () => {

@@ -28,6 +28,8 @@ const MCP_TOOL_LABELS: Record<string, string> = {
   mcp__cms__apply_cms_binding: 'CMS / 应用 CMS 绑定',
   mcp__image_search__search_images: '图片搜索 / 搜索图片',
   mcp__image_search__download_images: '图片搜索 / 导入图片',
+  mcp__pagebuilder__generate_image: 'PageBuilder / 生成图片',
+  mcp__pagebuilder__analyze_image: 'PageBuilder / 视觉理解',
   mcp__playwright__browser_navigate: '浏览器自动化 / 打开页面',
   mcp__playwright__browser_click: '浏览器自动化 / 点击元素',
   mcp__playwright__browser_close: '浏览器自动化 / 关闭页面',
@@ -54,6 +56,7 @@ const MCP_TOOL_LABELS: Record<string, string> = {
 const MCP_SERVER_LABELS: Record<string, string> = {
   cms: 'CMS',
   image_search: '图片搜索',
+  pagebuilder: 'PageBuilder',
   playwright: '浏览器自动化',
 }
 

@@ -8,6 +8,45 @@ const IMAGE_SEARCH_ENV_KEYS = new Set([
   'PIXABAY_API_KEY',
   'UNSPLASH_ACCESS_KEY',
 ])
+const PAGEBUILDER_RUNTIME_MCP_PROVIDER_ENV_KEYS = [
+  'PLATFORM_MODE',
+  'Z_AI_MODE',
+  'Z_AI_API_KEY',
+  'ZAI_API_KEY',
+  'Z_AI_BASE_URL',
+  'Z_AI_VISION_MODEL',
+  'Z_AI_VISION_MODEL_TEMPERATURE',
+  'Z_AI_VISION_MODEL_TOP_P',
+  'Z_AI_VISION_MODEL_MAX_TOKENS',
+  'Z_AI_IMAGE_MODEL',
+  'Z_AI_IMAGE_SIZE',
+  'Z_AI_TIMEOUT',
+  'Z_AI_RETRY_COUNT',
+  'ALIYUN_API_KEY',
+  'QWEN_API_KEY',
+  'DASHSCOPE_API_KEY',
+  'ALIYUN_BASE_URL',
+  'ALIYUN_OPENAI_BASE_URL',
+  'ALIYUN_DASHSCOPE_BASE_URL',
+  'ALIYUN_NATIVE_BASE_URL',
+  'ALIYUN_WORKSPACE_ID',
+  'ALIYUN_REGION',
+  'ALIYUN_VISION_MODEL',
+  'ALIYUN_VISION_MODEL_TEMPERATURE',
+  'ALIYUN_VISION_MODEL_TOP_P',
+  'ALIYUN_VISION_MODEL_MAX_TOKENS',
+  'ALIYUN_IMAGE_MODEL',
+  'ALIYUN_IMAGE_SIZE',
+  'ALIYUN_IMAGE_PROMPT_EXTEND',
+  'ALIYUN_IMAGE_WATERMARK',
+  'ALIYUN_IMAGE_NEGATIVE_PROMPT',
+  'ALIYUN_ENABLE_THINKING',
+  'ALIYUN_THINKING_BUDGET',
+  'ALIYUN_VL_HIGH_RESOLUTION_IMAGES',
+  'ALIYUN_MAX_PIXELS',
+  'ALIYUN_TIMEOUT',
+  'ALIYUN_RETRY_COUNT',
+] as const
 const AGENT_SDK_ENV_KEYS = [
   'ANTHROPIC_BASE_URL',
   'ANTHROPIC_AUTH_TOKEN',
@@ -22,7 +61,8 @@ const AGENT_SDK_ENV_KEYS = [
   'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC',
   'API_TIMEOUT_MS',
 ] as const
-const AGENT_MODELS_CONFIG_FILE_ENV_KEY = 'AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE'
+const AI_PROVIDERS_CONFIG_FILE_ENV_KEY = 'AI_PAGE_BUILDER_AI_PROVIDERS_CONFIG_FILE'
+const DEPRECATED_AGENT_MODELS_CONFIG_FILE_ENV_KEY = 'AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE'
 const PREFIXED_IMAGE_SEARCH_ENV_PATTERN = /\b[A-Z0-9]+_(?:IMAGE_SEARCH_PROVIDERS|PEXELS_API_KEY|PIXABAY_API_KEY|UNSPLASH_ACCESS_KEY)\b/g
 
 function readRepoFile(relativePath: string): string {
@@ -44,7 +84,8 @@ function expectAgentSdkEnvWhitelist(serverBlock: string) {
   for (const key of AGENT_SDK_ENV_KEYS) {
     expect(serverBlock).toContain(`${key}: \${${key}:-}`)
   }
-  expect(serverBlock).toContain(`${AGENT_MODELS_CONFIG_FILE_ENV_KEY}: \${${AGENT_MODELS_CONFIG_FILE_ENV_KEY}:-}`)
+  expect(serverBlock).toContain(`${AI_PROVIDERS_CONFIG_FILE_ENV_KEY}: \${${AI_PROVIDERS_CONFIG_FILE_ENV_KEY}:-}`)
+  expect(serverBlock).not.toContain(`${DEPRECATED_AGENT_MODELS_CONFIG_FILE_ENV_KEY}:`)
   expect(serverBlock).toContain('AI_PAGE_BUILDER_ANTHROPIC_API_KEY: ${AI_PAGE_BUILDER_ANTHROPIC_API_KEY:-}')
   expect(serverBlock).toContain('AI_PAGE_BUILDER_ANTHROPIC_BASE_URL: ${AI_PAGE_BUILDER_ANTHROPIC_BASE_URL:-}')
   expect(serverBlock).not.toContain('AI_PAGE_BUILDER_ANTHROPIC_API_KEY:?')
@@ -55,7 +96,8 @@ function expectStartScriptClearsHostAgentSdkEnv(script: string) {
   for (const key of AGENT_SDK_ENV_KEYS) {
     expect(script).toContain(`-u ${key}`)
   }
-  expect(script).toContain(`-u ${AGENT_MODELS_CONFIG_FILE_ENV_KEY}`)
+  expect(script).toContain(`-u ${AI_PROVIDERS_CONFIG_FILE_ENV_KEY}`)
+  expect(script).toContain(`-u ${DEPRECATED_AGENT_MODELS_CONFIG_FILE_ENV_KEY}`)
   expect(script).toContain('-u AI_PAGE_BUILDER_ANTHROPIC_API_KEY')
   expect(script).toContain('-u AI_PAGE_BUILDER_ANTHROPIC_BASE_URL')
 }
@@ -63,6 +105,27 @@ function expectStartScriptClearsHostAgentSdkEnv(script: string) {
 function expectPlaywrightSeccompUnconfined(playwrightBlock: string) {
   expect(playwrightBlock).toContain('ipc: host')
   expect(playwrightBlock).toContain('security_opt:\n      - seccomp=unconfined')
+}
+
+function expectDefaultComposeDoesNotExposeLegacyPageBuilderMcpProviderEnv(serverBlock: string) {
+  for (const key of PAGEBUILDER_RUNTIME_MCP_PROVIDER_ENV_KEYS) {
+    expect(serverBlock).not.toContain(`${key}: \${${key}:-}`)
+  }
+}
+
+function expectPageBuilderRuntimeMcpProviderEnvExample(envExample: string) {
+  expect(envExample).toContain('runtimeMcp.pagebuilder')
+  expect(envExample).toContain('generate_image')
+  expect(envExample).toContain('analyze_image')
+  expect(envExample).toContain('未配置 provider key 时 Agent 会把 pagebuilder runtime MCP 工具视为未安装能力')
+  for (const key of PAGEBUILDER_RUNTIME_MCP_PROVIDER_ENV_KEYS) {
+    expect(envExample).not.toMatch(new RegExp(`^${key}=`, 'm'))
+  }
+  expect(envExample).not.toMatch(/^Z_AI_API_KEY=sk-/m)
+  expect(envExample).not.toMatch(/^ZAI_API_KEY=sk-/m)
+  expect(envExample).not.toMatch(/^ALIYUN_API_KEY=sk-/m)
+  expect(envExample).not.toMatch(/^QWEN_API_KEY=sk-/m)
+  expect(envExample).not.toMatch(/^DASHSCOPE_API_KEY=sk-/m)
 }
 
 describe('page-builder docker assets', () => {
@@ -85,6 +148,7 @@ describe('page-builder docker assets', () => {
     expect(compose).toContain('PEXELS_API_KEY: ${PEXELS_API_KEY:-}')
     expect(compose).toContain('PIXABAY_API_KEY: ${PIXABAY_API_KEY:-}')
     expect(compose).toContain('UNSPLASH_ACCESS_KEY: ${UNSPLASH_ACCESS_KEY:-}')
+    expectDefaultComposeDoesNotExposeLegacyPageBuilderMcpProviderEnv(serverBlock)
     expect(compose).toContain("PLAYWRIGHT_EXECUTABLE_PATH=\"$(find /ms-playwright/chromium-* \\( -path '*chrome-linux/chrome' -o -path '*chrome-linux64/chrome' \\) | head -1)\"")
     expect(compose).toContain('if [ -z "$$PLAYWRIGHT_EXECUTABLE_PATH" ]; then')
     expect(compose).toContain('--executable-path "$$PLAYWRIGHT_EXECUTABLE_PATH"')
@@ -108,7 +172,8 @@ describe('page-builder docker assets', () => {
 
     expect(envExample).toContain('AI_PAGE_BUILDER_ANTHROPIC_API_KEY=')
     expect(envExample).toContain('AI_PAGE_BUILDER_ANTHROPIC_BASE_URL=')
-    expect(envExample).toContain('AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE=')
+    expect(envExample).toContain('AI_PAGE_BUILDER_AI_PROVIDERS_CONFIG_FILE=')
+    expect(envExample).not.toContain('AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE=')
     expect(envExample).toContain('多 provider')
     expect(envExample).toMatch(/^ANTHROPIC_AUTH_TOKEN=/m)
     expect(envExample).toMatch(/^ANTHROPIC_BASE_URL=/m)
@@ -133,13 +198,15 @@ describe('page-builder docker assets', () => {
     expect(envExample).toContain('PEXELS_API_KEY=')
     expect(envExample).toContain('PIXABAY_API_KEY=')
     expect(envExample).toContain('UNSPLASH_ACCESS_KEY=')
+    expectPageBuilderRuntimeMcpProviderEnvExample(envExample)
   })
 
   test('docker assets explain CMS runtime store persistence inputs', () => {
     const cmsEnvExample = readRepoFile('../../../../../build/.env.cms.example')
 
-    expect(cmsEnvExample).toContain('AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE=')
-    expect(cmsEnvExample).toContain('模型提供商 JSONC')
+    expect(cmsEnvExample).toContain('AI_PAGE_BUILDER_AI_PROVIDERS_CONFIG_FILE=')
+    expect(cmsEnvExample).not.toContain('AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE=')
+    expect(cmsEnvExample).toContain('AI providers JSONC')
     expect(cmsEnvExample).toContain('AI_PAGE_BUILDER_ACCESS_SESSION_RENEW_THRESHOLD_MS=')
     expect(cmsEnvExample).toContain('AI_PAGE_BUILDER_TEMPLATE_IMPORT_MAX_ZIP_MB=100')
     expect(cmsEnvExample).toContain('AI_PAGE_BUILDER_TEMPLATE_IMPORT_MAX_UNCOMPRESSED_MB=500')
@@ -151,6 +218,7 @@ describe('page-builder docker assets', () => {
     expect(cmsEnvExample).toContain('PEXELS_API_KEY=')
     expect(cmsEnvExample).toContain('PIXABAY_API_KEY=')
     expect(cmsEnvExample).toContain('UNSPLASH_ACCESS_KEY=')
+    expectPageBuilderRuntimeMcpProviderEnvExample(cmsEnvExample)
   })
 
   test('docker assets expose page-builder public base path as runtime configuration', () => {
@@ -226,6 +294,7 @@ describe('page-builder docker assets', () => {
     const releaseServerBlock = readComposeServiceBlock(releaseCompose, 'server')
 
     expect(appPackageJson).toContain('"@hono/node-server"')
+    expect(appPackageJson).toContain('"@ai-page-builder/pagebuilder-mcp-server": "workspace:*"')
     expect(dockerfile).toContain("RUN bun run --filter='@ai-page-builder/app' build")
     expect(dockerfile).toContain('bun build apps/app/src/main/index.ts')
     expect(dockerfile).toContain('--target=node')
@@ -234,6 +303,7 @@ describe('page-builder docker assets', () => {
     expect(dockerfile).toContain('--outfile /app/apps/app/src/main/index.mjs')
     expect(dockerfile).toContain('FROM node:24-bookworm-slim AS runtime')
     expect(dockerfile).toContain('COPY --from=deps /app/node_modules ./node_modules')
+    expect(dockerfile).toContain('COPY --from=build /app/packages/pagebuilder-mcp-server ./packages/pagebuilder-mcp-server')
     expect(dockerfile).toContain('PROMA_DEFAULT_SKILLS_DIR=/app/apps/app/default-skills')
     expect(dockerfile).toContain('PROMA_WORKSPACE_TEMPLATES_DIR=/app/apps/app/resources/templates')
     expect(dockerfile).toContain('PROMA_PAGE_BUILDER_PREVIEW_BRIDGE_PATH=/app/apps/app/dist-server/page-builder-preview-bridge.js')
@@ -250,6 +320,8 @@ describe('page-builder docker assets', () => {
     expect(releaseServerBlock).toContain('AI_PAGE_BUILDER_CONFIG_DIR: /home/bun/.ai-page-builder')
     expect(releaseServerBlock).toContain('source: ${AI_PAGE_BUILDER_HOST_DATA_DIR:-${HOME:?Set HOME in your shell}/.ai-page-builder}')
     expectAgentSdkEnvWhitelist(releaseServerBlock)
+    expectDefaultComposeDoesNotExposeLegacyPageBuilderMcpProviderEnv(serverBlock)
+    expectDefaultComposeDoesNotExposeLegacyPageBuilderMcpProviderEnv(releaseServerBlock)
   })
 
   test('cms verification compose keeps mock and nginx out of the default stack', () => {
@@ -272,7 +344,8 @@ describe('page-builder docker assets', () => {
     expect(verifyCompose).toContain('AI_PAGE_BUILDER_INTEGRATION_MODE: cms')
     expect(verifyCompose).toContain('AI_PAGE_BUILDER_ANTHROPIC_API_KEY: ${AI_PAGE_BUILDER_ANTHROPIC_API_KEY:-cms-verify-dummy-key}')
     expect(verifyCompose).toContain('AI_PAGE_BUILDER_ANTHROPIC_BASE_URL: ${AI_PAGE_BUILDER_ANTHROPIC_BASE_URL:-}')
-    expect(verifyCompose).toContain('AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE: ${AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE:-}')
+    expect(verifyCompose).toContain('AI_PAGE_BUILDER_AI_PROVIDERS_CONFIG_FILE: ${AI_PAGE_BUILDER_AI_PROVIDERS_CONFIG_FILE:-}')
+    expect(verifyCompose).not.toContain('AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE:')
     expect(verifyCompose).toContain('ANTHROPIC_API_KEY: ${AI_PAGE_BUILDER_ANTHROPIC_API_KEY:-cms-verify-dummy-key}')
     expect(verifyCompose).toContain('ANTHROPIC_BASE_URL: ${AI_PAGE_BUILDER_ANTHROPIC_BASE_URL:-}')
     expect(verifyCompose).not.toContain('ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY')
@@ -331,6 +404,7 @@ describe('page-builder docker assets', () => {
     expect(serverBlock).toContain('PEXELS_API_KEY: ${PEXELS_API_KEY:-}')
     expect(serverBlock).toContain('PIXABAY_API_KEY: ${PIXABAY_API_KEY:-}')
     expect(serverBlock).toContain('UNSPLASH_ACCESS_KEY: ${UNSPLASH_ACCESS_KEY:-}')
+    expectDefaultComposeDoesNotExposeLegacyPageBuilderMcpProviderEnv(serverBlock)
     expect(serverBlock).toContain('source: ${AI_PAGE_BUILDER_HOST_DATA_DIR:-${HOME:?Set HOME in your shell}/.ai-page-builder}')
     expect(webBlock).toContain('AI_PAGE_BUILDER_SERVER_ORIGIN: http://server:8888')
     expect(webBlock).toContain('AI_PAGE_BUILDER_BASE_PATH: ${AI_PAGE_BUILDER_BASE_PATH:-}')
@@ -339,7 +413,7 @@ describe('page-builder docker assets', () => {
     expectPlaywrightSeccompUnconfined(playwrightBlock)
   })
 
-  test('docker assets expose optional PageBuilder MCP URL without forcing a sidecar', () => {
+  test('docker assets keep the independent PageBuilder MCP sidecar out of the default stack', () => {
     const compose = readRepoFile('../../../../../build/docker-compose.yml')
     const releaseCompose = readRepoFile('../../../../../build/docker-compose.release.yml')
     const standaloneEnvExample = readRepoFile('../../../../../build/.env.standalone.example')
@@ -348,23 +422,21 @@ describe('page-builder docker assets', () => {
     const serverBlock = readComposeServiceBlock(compose, 'server')
     const releaseServerBlock = readComposeServiceBlock(releaseCompose, 'server')
 
-    expect(serverBlock).toContain('AI_PAGE_BUILDER_MCP_URL: ${AI_PAGE_BUILDER_MCP_URL:-}')
-    expect(releaseServerBlock).toContain('AI_PAGE_BUILDER_MCP_URL: ${AI_PAGE_BUILDER_MCP_URL:-}')
-    expect(serverBlock).not.toContain('AI_PAGE_BUILDER_MCP_URL: ${AI_PAGE_BUILDER_MCP_URL:-http://pagebuilder-mcp-server')
-    expect(releaseServerBlock).not.toContain('AI_PAGE_BUILDER_MCP_URL: ${AI_PAGE_BUILDER_MCP_URL:-http://pagebuilder-mcp-server')
+    expect(serverBlock).not.toContain('AI_PAGE_BUILDER_MCP_URL')
+    expect(releaseServerBlock).not.toContain('AI_PAGE_BUILDER_MCP_URL')
     expect(compose).not.toContain('\n  pagebuilder-mcp-server:\n')
     expect(releaseCompose).not.toContain('\n  pagebuilder-mcp-server:\n')
 
     for (const envExample of [standaloneEnvExample, cmsEnvExample]) {
-      expect(envExample).toContain('AI_PAGE_BUILDER_MCP_URL=')
-      expect(envExample).toContain('仅在已启动或已部署 PageBuilder MCP HTTP 服务时配置')
-      expect(envExample).toContain('未配置时 Agent 会把 PageBuilder MCP 工具视为未安装能力')
+      expect(envExample).not.toContain('AI_PAGE_BUILDER_MCP_URL=')
     }
 
-    expect(readme).toContain('AI_PAGE_BUILDER_MCP_URL')
-    expect(readme).toContain('仅在已启动或已部署 PageBuilder MCP HTTP 服务时配置')
     expect(readme).toContain('docker-compose.pagebuilder-mcp-server.yml')
-    expect(readme).toContain('通过显式设置 AI_PAGE_BUILDER_MCP_URL 接入 PageBuilder server')
+    expect(readme).toContain('独立 MCP HTTP 服务，当前不会自动接入 PageBuilder Agent runtime')
+    expect(readme).toContain('runtimeMcp.pagebuilder')
+    expect(readme).toContain('generate_image')
+    expect(readme).toContain('analyze_image')
+    expect(readme).toContain('未配置 provider key 时 Agent 会把 pagebuilder runtime MCP 工具视为未安装能力')
   })
 
   test('docker documentation explains multi-provider model configuration file deployment', () => {
@@ -372,16 +444,20 @@ describe('page-builder docker assets', () => {
     const standaloneEnvExample = readRepoFile('../../../../../build/.env.standalone.example')
     const cmsEnvExample = readRepoFile('../../../../../build/.env.cms.example')
 
-    expect(readme).toContain('AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE')
+    expect(readme).toContain('AI_PAGE_BUILDER_AI_PROVIDERS_CONFIG_FILE')
+    expect(readme).not.toContain('AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE')
     expect(readme).toContain('defaultModelOptionId')
     expect(readme).toContain('"providers"')
     expect(readme).toContain('"models"')
+    expect(readme).toContain('"runtimeMcp"')
     expect(readme).toContain('apiKeyEnv')
     expect(readme).toContain('外部挂载')
     expect(readme).toContain('https://api.deepseek.com/anthropic')
-    expect(standaloneEnvExample).toContain('AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE=')
-    expect(cmsEnvExample).toContain('AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE=')
-    expect(standaloneEnvExample).not.toMatch(/^AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE=.*sk-/m)
-    expect(cmsEnvExample).not.toMatch(/^AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE=.*sk-/m)
+    expect(standaloneEnvExample).toContain('AI_PAGE_BUILDER_AI_PROVIDERS_CONFIG_FILE=')
+    expect(cmsEnvExample).toContain('AI_PAGE_BUILDER_AI_PROVIDERS_CONFIG_FILE=')
+    expect(standaloneEnvExample).not.toContain('AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE=')
+    expect(cmsEnvExample).not.toContain('AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE=')
+    expect(standaloneEnvExample).not.toMatch(/^AI_PAGE_BUILDER_AI_PROVIDERS_CONFIG_FILE=.*sk-/m)
+    expect(cmsEnvExample).not.toMatch(/^AI_PAGE_BUILDER_AI_PROVIDERS_CONFIG_FILE=.*sk-/m)
   })
 })

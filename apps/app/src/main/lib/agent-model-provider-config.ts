@@ -13,6 +13,7 @@ import { resolveAgentSdkRuntimeEnv } from './agent-runtime-env'
 
 type EnvSource = Record<string, string | undefined>
 
+export const AI_PROVIDERS_CONFIG_FILE_ENV = 'AI_PAGE_BUILDER_AI_PROVIDERS_CONFIG_FILE'
 export const AGENT_MODELS_CONFIG_FILE_ENV = 'AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE'
 export const SERVICE_DEFAULT_MODEL_OPTION_ID = 'service-default.default'
 
@@ -35,6 +36,12 @@ export interface AgentModelProviderRegistry {
 export interface ResolveAgentModelProviderRegistryOptions {
   env?: EnvSource
   readFileText?: (filePath: string) => string
+}
+
+export interface AiProvidersConfigFileResolution {
+  filePath: string
+  envKey: typeof AI_PROVIDERS_CONFIG_FILE_ENV | typeof AGENT_MODELS_CONFIG_FILE_ENV
+  deprecated: boolean
 }
 
 const SAFE_ID_PATTERN = /^[A-Za-z0-9_-]+$/
@@ -141,6 +148,30 @@ function readEnvValue(env: EnvSource, key: string | undefined): string | undefin
   return readString(env[key])
 }
 
+export function resolveAiProvidersConfigFile(
+  env: EnvSource = process.env,
+): AiProvidersConfigFileResolution | null {
+  const aiProvidersConfigFile = readString(env[AI_PROVIDERS_CONFIG_FILE_ENV])
+  if (aiProvidersConfigFile) {
+    return {
+      filePath: aiProvidersConfigFile,
+      envKey: AI_PROVIDERS_CONFIG_FILE_ENV,
+      deprecated: false,
+    }
+  }
+
+  const deprecatedAgentModelsConfigFile = readString(env[AGENT_MODELS_CONFIG_FILE_ENV])
+  if (deprecatedAgentModelsConfigFile) {
+    return {
+      filePath: deprecatedAgentModelsConfigFile,
+      envKey: AGENT_MODELS_CONFIG_FILE_ENV,
+      deprecated: true,
+    }
+  }
+
+  return null
+}
+
 function resolveCredential(
   provider: AgentModelProviderConfigEntry,
   env: EnvSource,
@@ -234,7 +265,7 @@ export function resolveAgentModelProviderRegistry(
   options: ResolveAgentModelProviderRegistryOptions = {},
 ): AgentModelProviderRegistry {
   const env = options.env ?? process.env
-  const configFile = readString(env[AGENT_MODELS_CONFIG_FILE_ENV])
+  const configFile = resolveAiProvidersConfigFile(env)
   if (!configFile) {
     return createServiceDefaultRegistry(env)
   }
@@ -242,7 +273,7 @@ export function resolveAgentModelProviderRegistry(
   const diagnostics: AgentModelProviderDiagnostic[] = []
   let config: AgentModelProviderConfig
   try {
-    config = readConfigFile(configFile, options.readFileText ?? ((filePath) => readFileSync(filePath, 'utf8')))
+    config = readConfigFile(configFile.filePath, options.readFileText ?? ((filePath) => readFileSync(filePath, 'utf8')))
   } catch (error) {
     diagnostics.push({
       level: 'error',

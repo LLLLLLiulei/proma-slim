@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  PAGEBUILDER_RUNTIME_MCP_TOOL_NAMES,
   PAGEBUILDER_MCP_TOOL_NAMES,
   createPageBuilderMcpServer
 } from '../src/server.js';
@@ -36,4 +37,18 @@ test('server factory registers all migrated tools', async () => withEnv({
   const server = await createPageBuilderMcpServer();
 
   assert.deepEqual(Object.keys(server._registeredTools), PAGEBUILDER_MCP_TOOL_NAMES);
+}));
+
+test('runtime server factory can register only pagebuilder runtime tools', async () => withEnv({
+  Z_AI_API_KEY: 'sk-zhipu-live'
+}, async () => {
+  const server = await createPageBuilderMcpServer({
+    toolNames: PAGEBUILDER_RUNTIME_MCP_TOOL_NAMES
+  });
+
+  assert.deepEqual(PAGEBUILDER_RUNTIME_MCP_TOOL_NAMES, [
+    'analyze_image',
+    'generate_image'
+  ]);
+  assert.deepEqual(Object.keys(server._registeredTools), PAGEBUILDER_RUNTIME_MCP_TOOL_NAMES);
 }));

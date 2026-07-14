@@ -4,7 +4,7 @@ import { existsSync } from 'node:fs'
 import { getRuntimeStatus } from '../lib/runtime-init'
 import { resolveAgentSdkRuntimeEnv } from '../lib/agent-runtime-env'
 import {
-  AGENT_MODELS_CONFIG_FILE_ENV,
+  resolveAiProvidersConfigFile,
   resolveAgentModelProviderRegistry,
 } from '../lib/agent-model-provider-config'
 import { HttpError } from './errors'
@@ -45,7 +45,7 @@ function resolveClaudeSdkCliPath(): string | null {
 
 export function createStatusPayload() {
   const runtime = resolveAgentSdkRuntimeEnv()
-  const hasConfiguredModelProviders = Boolean(process.env[AGENT_MODELS_CONFIG_FILE_ENV]?.trim())
+  const hasConfiguredModelProviders = Boolean(resolveAiProvidersConfigFile())
     && resolveAgentModelProviderRegistry().hasAvailableModelOptions
   const apiKeyConfigured = runtime.hasCredential || hasConfiguredModelProviders
   const sdkCliPath = resolveClaudeSdkCliPath()

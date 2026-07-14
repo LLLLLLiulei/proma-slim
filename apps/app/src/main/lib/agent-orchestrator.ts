@@ -101,6 +101,11 @@ import {
   type BuildImageSearchRuntimeToolBundleOptions,
 } from './image-search-sdk-tools'
 import {
+  buildPageBuilderRuntimeMcpToolBundle,
+  PAGE_BUILDER_RUNTIME_MCP_SERVER_NAME,
+  type PageBuilderRuntimeMcpToolBundle,
+} from './page-builder-runtime-mcp'
+import {
   capturePageBuilderAgentHtmlSnapshot,
   finalizePageBuilderAgentHtmlGuardrails,
   type PageBuilderAgentHtmlSnapshot,
@@ -340,6 +345,14 @@ function resolveImageSearchRuntimeToolBundle(
     workspace,
     trace,
   } satisfies BuildImageSearchRuntimeToolBundleOptions)
+}
+
+async function resolvePageBuilderRuntimeMcpToolBundle(
+  workspace: import('@ai-page-builder/shared').AgentWorkspace,
+): Promise<PageBuilderRuntimeMcpToolBundle | null> {
+  return buildPageBuilderRuntimeMcpToolBundle({
+    workspace,
+  })
 }
 
 export function resolveWorkspaceRuntimeContext(
@@ -1007,12 +1020,16 @@ export class AgentOrchestrator {
       workspaceId: workspaceRuntime.workspace.id,
       workspaceSlug: workspaceRuntime.workspace.slug,
     })
+    const pageBuilderRuntimeMcpToolBundle = await resolvePageBuilderRuntimeMcpToolBundle(workspaceRuntime.workspace)
     const runtimeMcpServers: AgentMcpServerMap = {
       ...(cmsRuntimeToolBundle ? {
         [CMS_RUNTIME_SERVER_NAME]: cmsRuntimeToolBundle.mcpServer,
       } : {}),
       ...(imageSearchRuntimeToolBundle ? {
         [IMAGE_SEARCH_RUNTIME_SERVER_NAME]: imageSearchRuntimeToolBundle.mcpServer,
+      } : {}),
+      ...(pageBuilderRuntimeMcpToolBundle ? {
+        [PAGE_BUILDER_RUNTIME_MCP_SERVER_NAME]: pageBuilderRuntimeMcpToolBundle.mcpServer,
       } : {}),
     }
     const availableWorkspaceMcpServers: AgentMcpServerMap = {
@@ -1436,6 +1453,11 @@ export class AgentOrchestrator {
             ? 'available'
             : 'unavailable'
           : undefined,
+        pageBuilderRuntimeMcpMode: isPageBuilderWorkspace
+          && pageBuilderRuntimeMcpToolBundle
+          && Object.prototype.hasOwnProperty.call(resolvedMcpServers, PAGE_BUILDER_RUNTIME_MCP_SERVER_NAME)
+          ? 'available'
+          : undefined,
         pageBuilderRuntimePlaywrightMode: runtimePlaywrightMode ?? undefined,
         pageBuilderBrowserPreviewUrl: runtimePlaywrightPreviewUrl,
       })
@@ -1654,6 +1676,9 @@ export class AgentOrchestrator {
           : []),
         ...(imageSearchRuntimeToolBundle && Object.prototype.hasOwnProperty.call(resolvedMcpServers, IMAGE_SEARCH_RUNTIME_SERVER_NAME)
           ? imageSearchRuntimeToolBundle.allowedTools
+          : []),
+        ...(pageBuilderRuntimeMcpToolBundle && Object.prototype.hasOwnProperty.call(resolvedMcpServers, PAGE_BUILDER_RUNTIME_MCP_SERVER_NAME)
+          ? pageBuilderRuntimeMcpToolBundle.allowedTools
           : []),
       ]
       const allowedTools = !bypassPermissions && permissionMode !== 'auto'

@@ -31,9 +31,10 @@ class GeneralImageAnalysisService extends BaseImageAnalysisService {
  * Register General Image Analysis tool with MCP server
  * @param server MCP server instance
  */
-export function registerGeneralImageAnalysisTool(server) {
+export function registerGeneralImageAnalysisTool(server, options = {}) {
     const service = new GeneralImageAnalysisService();
-    const retryableAnalyze = withRetry(service.analyzeImage.bind(service), 2, 1000);
+    const analyzeImage = options.analyzeImage || service.analyzeImage.bind(service);
+    const retryableAnalyze = withRetry(analyzeImage, 2, 1000);
     server.tool('analyze_image', `General-purpose image analysis for scenarios not covered by specialized tools.
 
 Use this tool as a FALLBACK when none of the other specialized tools (ui_to_artifact, extract_text_from_screenshot,
@@ -49,7 +50,10 @@ This tool provides flexible image understanding for any visual content.`, {
                 .required('prompt', CommonSchemas.nonEmptyString)
                 .build();
             validationSchema.parse(params);
-            const result = await retryableAnalyze(params.image_source, params.prompt);
+            const imageSource = options.imageSourceResolver
+                ? await options.imageSourceResolver(params.image_source)
+                : params.image_source;
+            const result = await retryableAnalyze(imageSource, params.prompt);
             return formatMcpResponse(createSuccessResponse(result));
         }
         catch (error) {

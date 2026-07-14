@@ -20,28 +20,28 @@ const ALIYUN_RECOMMENDED_SIZES = [
  * Register image generation tool with MCP server
  * @param server MCP server instance
  */
-export function registerGenerateImageTool(server) {
+export function registerGenerateImageTool(server, options = {}) {
     const imageConfig = configurationService.getImageGenConfig();
     const isAliyun = imageConfig.provider === 'ALIYUN';
     const toolDescription = isAliyun
         ? `Generate an image from a text prompt using the qwen-image-2.0-pro model (text-to-image).
 
 Use this tool ONLY when the user wants to:
-- Create an image from a text description
-- Generate posters, illustrations, social media graphics, multi-panel comics
-- Produce images that need accurate embedded Chinese or English text
+- Create a visual asset from a text description
+- Generate text-free backgrounds, banner images, illustrations, scene art, or visual materials
 
-Do NOT use for: analyzing/understanding existing images (use analyze_image instead), or any image-to-text task.
+Do NOT use for: analyzing/understanding existing images (use analyze_image instead), any image-to-text task, or rendering readable words inside the generated image.
+Do not ask the image model to draw readable words, pseudo-words, titles, slogans, logo lettering, signboard labels, or UI copy. Render page text with HTML/CSS instead. Provider-added AI watermark text may be ignored.
 
 Returns a temporary image URL valid for about 24 hours.`
         : `Generate an image from a text prompt using the GLM-Image model (text-to-image).
 
 Use this tool ONLY when the user wants to:
-- Create an image from a text description
-- Generate posters, illustrations, social media graphics, multi-panel comics
-- Produce images that need accurate embedded text (GLM-Image is SOTA at text rendering)
+- Create a visual asset from a text description
+- Generate text-free backgrounds, banner images, illustrations, scene art, or visual materials
 
-Do NOT use for: analyzing/understanding existing images (use analyze_image instead), or any image-to-text task.
+Do NOT use for: analyzing/understanding existing images (use analyze_image instead), any image-to-text task, or rendering readable words inside the generated image.
+Do not ask the image model to draw readable words, pseudo-words, titles, slogans, logo lettering, signboard labels, or UI copy. Render page text with HTML/CSS instead. Provider-added AI watermark text may be ignored.
 
 The model supports hd quality only (~20s per image). Prompt limit: 1000 characters.
 Returns a temporary image URL valid for ~30 days.`;
@@ -57,12 +57,13 @@ Returns a temporary image URL valid for ~30 days.`;
     const validationSizeSchema = isAliyun
         ? z.string().regex(/^\d+\*\d+$/, "Size must be in 'W*H' format")
         : z.string().regex(/^\d+x\d+$/, "Size must be in 'WxH' format");
-    const retryableGenerate = withRetry((prompt, size) => imageGenerationService.generateImage(prompt, size), 2, 1000);
+    const generateImage = options.generateImage || ((prompt, size) => imageGenerationService.generateImage(prompt, size));
+    const retryableGenerate = withRetry((prompt, size) => generateImage(prompt, size), 2, 1000);
     server.tool('generate_image', toolDescription, {
         prompt: z.string()
             .min(1, 'Prompt cannot be empty')
             .max(1000, 'Prompt must be at most 1000 characters')
-            .describe('Text description of the desired image. Supports Chinese and English. Describe the subject, style, composition, and any text to render.'),
+            .describe('Text description of the desired image. Supports Chinese and English. Describe the subject, style, and composition. Do not request readable words, pseudo-text, titles, slogans, logo lettering, signboard labels, or UI copy inside the image; render required page text with HTML/CSS instead. Provider-added AI watermark text may be ignored.'),
         size: sizeSchema
     }, async (params) => {
         try {
@@ -72,6 +73,18 @@ Returns a temporary image URL valid for ~30 days.`;
                 .build();
             validationSchema.parse(params);
             const imageUrl = await retryableGenerate(params.prompt, params.size);
+            if (options.assetSink) {
+                const asset = await options.assetSink(imageUrl, {
+                    prompt: params.prompt,
+                    size: params.size,
+                    provider: imageConfig.provider
+                });
+                return formatMcpResponse(createSuccessResponse({
+                    imageUrl,
+                    asset,
+                    note: 'Generated image was saved as a PageBuilder workspace asset. Use asset.assetPreviewPath in HTML/CSS.'
+                }));
+            }
             const message = isAliyun
                 ? `Image URL: ${imageUrl}\n\nNote: This is a temporary URL valid for about 24 hours.`
                 : `Image generated successfully.\n\nImage URL: ${imageUrl}\n\nNote: This is a temporary URL valid for ~30 days. Please download and save the image if you need it long-term.`;

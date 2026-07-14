@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@ai-page-builder/page-builder-cms-rendering": "workspace:*",
+    "@ai-page-builder/pagebuilder-mcp-server": "workspace:*",
     "@ai-page-builder/shared": "workspace:*",
     "@ai-page-builder/ui": "workspace:*",
     "@anthropic-ai/claude-agent-sdk": "0.2.76",

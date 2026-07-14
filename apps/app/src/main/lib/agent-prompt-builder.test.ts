@@ -109,4 +109,31 @@ describe('agent prompt builder', () => {
     expect(prompt).toContain('不要自行安装浏览器运行时')
     expect(prompt).not.toContain('<page_builder_internal_preview_url>')
   })
+
+  test('injects pagebuilder runtime MCP guidance only when the runtime server is available', () => {
+    const availablePrompt = buildDynamicContext({
+      workspaceSlug: 'page-builder-workspace',
+      pageBuilderRuntimeMcpMode: 'available',
+    })
+
+    expect(availablePrompt).toContain('<page_builder_runtime_mcp>available</page_builder_runtime_mcp>')
+    expect(availablePrompt).toContain('pagebuilder MCP 是宿主运行时注入的 SDK MCP server')
+    expect(availablePrompt).toContain('mcp__pagebuilder__generate_image')
+    expect(availablePrompt).toContain('mcp__pagebuilder__analyze_image')
+    expect(availablePrompt).toContain('使用返回的 `./assets/...` 路径')
+    expect(availablePrompt).toContain('不要要求图片模型绘制可读文字')
+    expect(availablePrompt).toContain('HTML/CSS')
+    expect(availablePrompt).toContain('供应商自动水印')
+    expect(availablePrompt).toContain('远程 URL、本地绝对路径')
+    expect(availablePrompt).toContain('不要用它读取无关敏感文件')
+    expect(availablePrompt).not.toContain('安装 PageBuilder MCP')
+
+    const unavailablePrompt = buildDynamicContext({
+      workspaceSlug: 'page-builder-workspace',
+    })
+    expect(unavailablePrompt).not.toContain('<page_builder_runtime_mcp>')
+    expect(unavailablePrompt).not.toContain('mcp__pagebuilder__generate_image')
+    expect(unavailablePrompt).not.toContain('mcp__pagebuilder__analyze_image')
+    expect(unavailablePrompt).not.toContain('安装 PageBuilder MCP')
+  })
 })

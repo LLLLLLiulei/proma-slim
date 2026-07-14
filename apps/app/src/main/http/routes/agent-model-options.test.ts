@@ -6,6 +6,7 @@ import { createHttpApp } from '../app'
 
 const ORIGINAL_ENV = { ...process.env }
 const tempDirs: string[] = []
+const AI_PROVIDERS_CONFIG_FILE_ENV = 'AI_PAGE_BUILDER_AI_PROVIDERS_CONFIG_FILE'
 
 function createApp() {
   return createHttpApp({
@@ -42,7 +43,7 @@ afterEach(() => {
 
 describe('GET /api/agent/model-options', () => {
   test('returns safe grouped model options without provider secrets or baseUrl', async () => {
-    process.env.AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE = writeModelConfig({
+    process.env[AI_PROVIDERS_CONFIG_FILE_ENV] = writeModelConfig({
       defaultModelOptionId: 'zhipu.glm',
       providers: [
         {
@@ -91,7 +92,7 @@ describe('GET /api/agent/model-options', () => {
   })
 
   test('returns service default option when model config file is not configured', async () => {
-    delete process.env.AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE
+    delete process.env[AI_PROVIDERS_CONFIG_FILE_ENV]
     process.env.ANTHROPIC_AUTH_TOKEN = 'default-token'
     process.env.ANTHROPIC_MODEL = 'deepseek-v4-pro[1m]'
 
@@ -113,7 +114,7 @@ describe('GET /api/agent/model-options', () => {
   })
 
   test('does not return unavailable providers', async () => {
-    process.env.AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE = writeModelConfig({
+    process.env[AI_PROVIDERS_CONFIG_FILE_ENV] = writeModelConfig({
       providers: [
         {
           id: 'missing_secret',
@@ -157,7 +158,7 @@ describe('GET /api/agent/model-options', () => {
   })
 
   test('disables model selection when the configured file has no available models', async () => {
-    process.env.AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE = writeModelConfig({
+    process.env[AI_PROVIDERS_CONFIG_FILE_ENV] = writeModelConfig({
       providers: [
         {
           id: 'disabled',

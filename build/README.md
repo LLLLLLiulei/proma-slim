@@ -70,7 +70,7 @@ cp build/.env.pagebuilder-mcp-server.example /tmp/pagebuilder-mcp-server.env
 
 当前 Docker Compose 不使用 `server.env_file` 直接注入整份 env 文件；需要进入 `server` 容器的变量会在 `server.environment` 中显式声明，`--env-file` 只负责为 compose 变量替换提供取值。
 
-注意：Docker Compose 做变量替换时，宿主机同名环境变量可能优先于 `--env-file`。内置 `./build/start-page-builder.sh` 会在调用 compose 前清理本期支持的 Agent SDK env、模型配置文件入口和旧兼容变量，确保指定 env 文件中的模型、凭证、配置文件路径和 timeout 配置优先生效。直接手写 `docker compose --env-file ...` 命令时，如宿主机已设置同名 `ANTHROPIC_*`、`CLAUDE_CODE_*` 或 `AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE`，需要先手动 `unset` 或改用启动脚本。
+注意：Docker Compose 做变量替换时，宿主机同名环境变量可能优先于 `--env-file`。内置 `./build/start-page-builder.sh` 会在调用 compose 前清理本期支持的 Agent SDK env、AI providers 配置文件入口和旧兼容变量，确保指定 env 文件中的模型、凭证、配置文件路径和 timeout 配置优先生效。直接手写 `docker compose --env-file ...` 命令时，如宿主机已设置同名 `ANTHROPIC_*`、`CLAUDE_CODE_*` 或 `AI_PAGE_BUILDER_AI_PROVIDERS_CONFIG_FILE`，需要先手动 `unset` 或改用启动脚本。
 
 ### 关键变量
 
@@ -80,7 +80,7 @@ cp build/.env.pagebuilder-mcp-server.example /tmp/pagebuilder-mcp-server.env
 | `ANTHROPIC_BASE_URL` | 可选。Anthropic-compatible 接口地址，例如 `https://api.deepseek.com/anthropic`。 |
 | `ANTHROPIC_MODEL` / `ANTHROPIC_DEFAULT_*_MODEL` | 可选。Agent SDK 模型与 sonnet/opus/haiku 别名映射。 |
 | `CLAUDE_CODE_SUBAGENT_MODEL` / `CLAUDE_CODE_EFFORT_LEVEL` / `CLAUDE_CODE_AUTO_COMPACT_WINDOW` / `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` / `API_TIMEOUT_MS` | 可选。透传给 Agent SDK 的受支持运行参数。 |
-| `AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE` | 可选。指向 server 容器内挂载的模型提供商 JSONC，用于启用 PageBuilder 对话框多 provider / 多模型切换；标准 JSON 文件仍兼容。 |
+| `AI_PAGE_BUILDER_AI_PROVIDERS_CONFIG_FILE` | 可选。指向 server 容器内挂载的 AI providers JSONC，用于启用 PageBuilder 对话框多 provider / 多模型切换，并可通过 `runtimeMcp.pagebuilder` 启用 `generate_image` / `analyze_image`；标准 JSON 文件仍兼容。 |
 | `AI_PAGE_BUILDER_ANTHROPIC_API_KEY` / `AI_PAGE_BUILDER_ANTHROPIC_BASE_URL` | 兼容旧配置。仅当官方 `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL` 未设置时作为 fallback。 |
 | `PAGE_BUILDER_PORT` | web 服务映射到宿主机的端口，默认 `3333`。 |
 | `AI_PAGE_BUILDER_HOST_DATA_DIR` | 宿主机持久化数据目录，会挂载到容器 `/home/bun/.ai-page-builder`。 |
@@ -147,6 +147,16 @@ http://localhost:3000/mcp
 
 可通过 `PAGEBUILDER_MCP_PUBLISHED_PORT` 修改宿主机映射端口，通过 `PAGEBUILDER_MCP_PORT` 修改容器内监听端口。`Z_AI_*` 变量是 ZHIPU/ZAI 兼容接口的供应商配置变量，不代表当前服务产品名。
 
+### runtimeMcp.pagebuilder
+
+默认 PageBuilder `server` 进程会在 provider key 可用时按需注册宿主 runtime `pagebuilder` MCP，首期只暴露 `generate_image` 与 `analyze_image`。该 runtime MCP 不依赖默认 compose 中的独立 `pagebuilder-mcp-server` sidecar，也不会写入 workspace `mcp.json`。
+
+如需启用该能力，推荐在 `AI_PAGE_BUILDER_AI_PROVIDERS_CONFIG_FILE` 指向的 AI providers JSONC 中配置 `runtimeMcp.pagebuilder`。该配置段独立于对话模型 `providers[]`，不会随用户在前端切换聊天模型而改变生图或视觉理解 provider。
+
+默认 compose 不再透传 `Z_AI_API_KEY`、`ALIYUN_API_KEY` 等 PageBuilder MCP provider 平铺变量。最直接的做法是把 provider key 写入受控挂载的 AI providers JSONC；如使用 `apiKeyEnv` 或 `authTokenEnv`，需要确保对应环境变量已经通过 compose override、secret 注入或其他方式进入 `server` 容器。
+
+未配置 provider key 时 Agent 会把 pagebuilder runtime MCP 工具视为未安装能力：不会注册 `pagebuilder` runtime MCP，不会把 `mcp__pagebuilder__generate_image` / `mcp__pagebuilder__analyze_image` 加入 allowed tools，也不会在动态提示词中提示调用或安装该 MCP。
+
 ### standalone 模式
 
 standalone 模式适合不通过 CMS handoff 直接打开 PageBuilder。首页会展示输入框和历史记录，不校验 CMS access session。
@@ -178,7 +188,7 @@ env -u ANTHROPIC_BASE_URL \
   -u CLAUDE_CODE_AUTO_COMPACT_WINDOW \
   -u CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC \
   -u API_TIMEOUT_MS \
-  -u AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE \
+  -u AI_PAGE_BUILDER_AI_PROVIDERS_CONFIG_FILE \
   -u AI_PAGE_BUILDER_ANTHROPIC_API_KEY \
   -u AI_PAGE_BUILDER_ANTHROPIC_BASE_URL \
   docker compose \
@@ -578,7 +588,7 @@ AI_PAGE_BUILDER_BASE_PATH=
 AI_PAGE_BUILDER_HIDDEN_TOOLBAR_ITEMS=
 AI_PAGE_BUILDER_TEMPLATE_IMPORT_MAX_ZIP_MB=100
 AI_PAGE_BUILDER_TEMPLATE_IMPORT_MAX_UNCOMPRESSED_MB=500
-AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE=
+AI_PAGE_BUILDER_AI_PROVIDERS_CONFIG_FILE=
 AI_PAGE_BUILDER_PLAYWRIGHT_MCP_URL=http://playwright:8931/mcp
 AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN=http://server:8888
 ```
@@ -600,16 +610,16 @@ CLAUDE_CODE_SUBAGENT_MODEL=deepseek-v4-flash
 如果需要在 PageBuilder 对话框中切换多家 provider 或多个模型，建议创建外部 JSONC 文件并挂载到 server 容器的数据目录，例如宿主机：
 
 ```text
-/data/ai-page-builder/config/agent-models.jsonc
+/data/ai-page-builder/config/ai-providers.jsonc
 ```
 
 容器内路径：
 
 ```dotenv
-AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE=/home/bun/.ai-page-builder/config/agent-models.jsonc
+AI_PAGE_BUILDER_AI_PROVIDERS_CONFIG_FILE=/home/bun/.ai-page-builder/config/ai-providers.jsonc
 ```
 
-模型提供商 JSONC 示例：
+AI providers JSONC 示例：
 
 ```jsonc
 {
@@ -660,13 +670,32 @@ AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE=/home/bun/.ai-page-builder/config/agent
         }
       ]
     }
-  ]
+  ],
+  "runtimeMcp": {
+    "pagebuilder": {
+      // 该段用于宿主注入的 mcp__pagebuilder__generate_image / analyze_image。
+      // 它独立于上面的对话模型 providers[]，不会随前端聊天模型选择变化。
+      "enabled": true,
+      "provider": "zhipu",
+      "apiKey": "replace-with-zhipu-api-key",
+      // 也支持 apiKeyEnv/authTokenEnv，但被引用的环境变量必须已注入 server 容器。
+      "vision": {
+        "model": "glm-4.6v"
+      },
+      "image": {
+        "model": "glm-image",
+        "size": "1280x1280"
+      },
+      "timeoutMs": 300000,
+      "retryCount": 1
+    }
+  }
 }
 ```
 
 `provider.enabled` 和 `model.enabled` 都是可选字段，仅当值严格为 `false` 时表示禁用；未配置时默认启用。禁用 provider 会隐藏该 provider 下的全部模型；禁用 model 只隐藏该模型。若 `defaultModelOptionId` 指向被禁用的模型，server 会自动回退到第一个可用模型选项。
 
-模型配置文件使用 JSONC 解析，支持 `//` 单行注释、`/* ... */` 块注释和尾随逗号；标准 JSON 也是合法输入。真实 `apiKey` / `authToken` 可以写入外部挂载的 JSONC 文件，也可以通过 `apiKeyEnv` / `authTokenEnv` 引用环境变量。不要把包含真实密钥的 JSONC 文件、env 文件或 compose override 提交到版本库。
+模型配置文件使用 JSONC 解析，支持 `//` 单行注释、`/* ... */` 块注释和尾随逗号；标准 JSON 也是合法输入。真实 `apiKey` / `authToken` 可以写入外部挂载的 JSONC 文件，也可以通过 `apiKeyEnv` / `authTokenEnv` 引用已经注入 `server` 容器的环境变量。不要把包含真实密钥的 JSONC 文件、env 文件或 compose override 提交到版本库。
 
 CMS 模式还需要：
 

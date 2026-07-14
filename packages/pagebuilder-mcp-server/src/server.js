@@ -23,16 +23,21 @@ export const PAGEBUILDER_MCP_TOOL_NAMES = [
     'generate_image'
 ];
 
+export const PAGEBUILDER_RUNTIME_MCP_TOOL_NAMES = [
+    'analyze_image',
+    'generate_image'
+];
+
 const TOOL_REGISTRATIONS = [
-    registerUiToArtifactTool,
-    registerTextExtractionTool,
-    registerErrorDiagnosisTool,
-    registerDiagramAnalysisTool,
-    registerDataVizAnalysisTool,
-    registerUiDiffCheckTool,
-    registerGeneralImageAnalysisTool,
-    registerVideoAnalysisTool,
-    registerGenerateImageTool
+    { name: 'ui_to_artifact', register: registerUiToArtifactTool },
+    { name: 'extract_text_from_screenshot', register: registerTextExtractionTool },
+    { name: 'diagnose_error_screenshot', register: registerErrorDiagnosisTool },
+    { name: 'understand_technical_diagram', register: registerDiagramAnalysisTool },
+    { name: 'analyze_data_visualization', register: registerDataVizAnalysisTool },
+    { name: 'ui_diff_check', register: registerUiDiffCheckTool },
+    { name: 'analyze_image', register: registerGeneralImageAnalysisTool },
+    { name: 'analyze_video', register: registerVideoAnalysisTool },
+    { name: 'generate_image', register: registerGenerateImageTool }
 ];
 
 export function createMcpServerInstance() {
@@ -46,10 +51,16 @@ export function createMcpServerInstance() {
     });
 }
 
-export async function registerPageBuilderMcpTools(server) {
+export async function registerPageBuilderMcpTools(server, options = {}) {
     try {
-        for (const registerTool of TOOL_REGISTRATIONS) {
-            registerTool(server);
+        const requestedToolNames = options.toolNames
+            ? new Set(options.toolNames)
+            : null;
+        for (const { name, register } of TOOL_REGISTRATIONS) {
+            if (requestedToolNames && !requestedToolNames.has(name)) {
+                continue;
+            }
+            register(server, options);
         }
         console.info('Successfully registered all tools');
     }
@@ -63,8 +74,8 @@ export async function registerPageBuilderMcpTools(server) {
     }
 }
 
-export async function createPageBuilderMcpServer() {
+export async function createPageBuilderMcpServer(options = {}) {
     const server = createMcpServerInstance();
-    await registerPageBuilderMcpTools(server);
+    await registerPageBuilderMcpTools(server, options);
     return server;
 }

@@ -40,6 +40,12 @@ describe('tool label mappings', () => {
     expect(formatAgentToolLabel('mcp__cms__apply_cms_binding')).toBe('CMS / 应用 CMS 绑定')
   })
 
+  test('labels pagebuilder runtime MCP tools and server', () => {
+    expect(formatAgentToolLabel('mcp__pagebuilder__generate_image')).toBe('PageBuilder / 生成图片')
+    expect(formatAgentToolLabel('mcp__pagebuilder__analyze_image')).toBe('PageBuilder / 视觉理解')
+    expect(formatAgentMcpServerLabel('pagebuilder')).toBe('PageBuilder')
+  })
+
   test('labels topic-page-style as the page-builder topic page visual worker', () => {
     expect(formatAgentSkillLabel('topic-page-style')).toBe('专题页视觉设计')
     expect(formatAgentSkillLabel('workspace-slug:topic-page-style')).toBe('专题页视觉设计')

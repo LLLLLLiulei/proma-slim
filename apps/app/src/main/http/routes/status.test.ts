@@ -6,6 +6,7 @@ import { createHttpApp } from '../app'
 
 const ORIGINAL_ENV = { ...process.env }
 const tempDirs: string[] = []
+const AI_PROVIDERS_CONFIG_FILE_ENV = 'AI_PAGE_BUILDER_AI_PROVIDERS_CONFIG_FILE'
 
 function createApp() {
   return createHttpApp({
@@ -49,7 +50,7 @@ afterEach(() => {
 describe('GET /api/status model provider compatibility', () => {
   test('treats usable model provider JSON as configured without global Anthropic credentials', async () => {
     unsetAgentCredentials()
-    process.env.AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE = writeModelConfig({
+    process.env[AI_PROVIDERS_CONFIG_FILE_ENV] = writeModelConfig({
       providers: [
         {
           id: 'zhipu',
@@ -76,7 +77,7 @@ describe('GET /api/status model provider compatibility', () => {
 
   test('reports credentials unconfigured when neither env credentials nor usable providers exist', async () => {
     unsetAgentCredentials()
-    process.env.AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE = writeModelConfig({
+    process.env[AI_PROVIDERS_CONFIG_FILE_ENV] = writeModelConfig({
       providers: [
         {
           id: 'missing_secret',

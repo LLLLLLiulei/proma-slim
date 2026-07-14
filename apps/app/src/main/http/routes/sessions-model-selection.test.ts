@@ -7,6 +7,7 @@ import { resolveSendModelSelection } from './sessions'
 
 const ORIGINAL_ENV = { ...process.env }
 const tempDirs: string[] = []
+const AI_PROVIDERS_CONFIG_FILE_ENV = 'AI_PAGE_BUILDER_AI_PROVIDERS_CONFIG_FILE'
 
 function writeModelConfig(config: unknown): string {
   const dir = mkdtempSync(join(tmpdir(), 'agent-send-models-'))
@@ -36,7 +37,7 @@ afterEach(() => {
 
 describe('resolveSendModelSelection', () => {
   test('resolves a configured model option into runtime selection', () => {
-    process.env.AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE = writeModelConfig({
+    process.env[AI_PROVIDERS_CONFIG_FILE_ENV] = writeModelConfig({
       providers: [
         {
           id: 'zhipu',
@@ -65,7 +66,7 @@ describe('resolveSendModelSelection', () => {
   })
 
   test('rejects unknown model option before SDK query', () => {
-    process.env.AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE = writeModelConfig({
+    process.env[AI_PROVIDERS_CONFIG_FILE_ENV] = writeModelConfig({
       providers: [
         {
           id: 'zhipu',
@@ -86,7 +87,7 @@ describe('resolveSendModelSelection', () => {
   })
 
   test('rejects requested model option when no provider is usable', () => {
-    process.env.AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE = writeModelConfig({
+    process.env[AI_PROVIDERS_CONFIG_FILE_ENV] = writeModelConfig({
       providers: [
         {
           id: 'broken',

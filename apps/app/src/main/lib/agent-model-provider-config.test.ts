@@ -10,7 +10,7 @@ function createRegistry(input: {
 }) {
   return resolveAgentModelProviderRegistry({
     env: {
-      AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE: '/models.json',
+      AI_PAGE_BUILDER_AI_PROVIDERS_CONFIG_FILE: '/models.json',
       ...input.env,
     },
     readFileText: (filePath) => {
@@ -26,7 +26,7 @@ function createRegistryFromText(input: {
 }) {
   return resolveAgentModelProviderRegistry({
     env: {
-      AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE: '/models.jsonc',
+      AI_PAGE_BUILDER_AI_PROVIDERS_CONFIG_FILE: '/models.jsonc',
       ...input.env,
     },
     readFileText: (filePath) => {
@@ -37,6 +37,65 @@ function createRegistryFromText(input: {
 }
 
 describe('resolveAgentModelProviderRegistry', () => {
+  test('prefers the generalized AI providers config file env over the deprecated agent models env', () => {
+    const registry = resolveAgentModelProviderRegistry({
+      env: {
+        AI_PAGE_BUILDER_AI_PROVIDERS_CONFIG_FILE: '/ai-providers.jsonc',
+        AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE: '/deprecated-models.jsonc',
+      },
+      readFileText: (filePath) => {
+        expect(filePath).toBe('/ai-providers.jsonc')
+        return JSON.stringify({
+          providers: [
+            {
+              id: 'deepseek',
+              providerType: 'deepseek',
+              label: 'DeepSeek',
+              runtime: 'anthropic-compatible',
+              baseUrl: 'https://api.deepseek.com/anthropic',
+              authToken: 'new-token',
+              models: [
+                { id: 'v4', label: 'DeepSeek V4', model: 'deepseek-v4-pro[1m]' },
+              ],
+            },
+          ],
+        })
+      },
+    })
+
+    expect(registry.publicOptions.defaultModelOptionId).toBe('deepseek.v4')
+    expect(registry.resolveModelOption('deepseek.v4')?.sdkEnv.ANTHROPIC_AUTH_TOKEN).toBe('new-token')
+  })
+
+  test('keeps the deprecated agent models config file env as a fallback only', () => {
+    const registry = resolveAgentModelProviderRegistry({
+      env: {
+        AI_PAGE_BUILDER_AGENT_MODELS_CONFIG_FILE: '/deprecated-models.jsonc',
+      },
+      readFileText: (filePath) => {
+        expect(filePath).toBe('/deprecated-models.jsonc')
+        return JSON.stringify({
+          providers: [
+            {
+              id: 'legacy',
+              providerType: 'deepseek',
+              label: 'Legacy',
+              runtime: 'anthropic-compatible',
+              baseUrl: 'https://api.deepseek.com/anthropic',
+              authToken: 'legacy-token',
+              models: [
+                { id: 'v4', label: 'Legacy V4', model: 'deepseek-v4-pro[1m]' },
+              ],
+            },
+          ],
+        })
+      },
+    })
+
+    expect(registry.publicOptions.defaultModelOptionId).toBe('legacy.v4')
+    expect(registry.resolveModelOption('legacy.v4')?.sdkEnv.ANTHROPIC_AUTH_TOKEN).toBe('legacy-token')
+  })
+
   test('loads JSONC model config files with comments and trailing commas', () => {
     const registry = createRegistryFromText({
       configText: `{
