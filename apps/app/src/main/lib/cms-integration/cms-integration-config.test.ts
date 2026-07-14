@@ -119,14 +119,14 @@ describe('cms integration config', () => {
     })
   })
 
-  test('enables dev standalone entry only for explicit development CMS opt-in', () => {
+  test('enables standalone entry in CMS mode for explicit opt-in without NODE_ENV gating', () => {
     const enabled = resolveCmsIntegrationConfig({
       NODE_ENV: 'development',
       AI_PAGE_BUILDER_INTEGRATION_MODE: 'cms',
       AI_PAGE_BUILDER_DEV_ALLOW_STANDALONE_ENTRY_IN_CMS: 'true',
       AI_PAGE_BUILDER_BASE_PATH: '/pagebuilder',
     })
-    const disabledOutsideDevelopment = resolveCmsIntegrationConfig({
+    const enabledOutsideDevelopment = resolveCmsIntegrationConfig({
       NODE_ENV: 'production',
       AI_PAGE_BUILDER_INTEGRATION_MODE: 'cms',
       AI_PAGE_BUILDER_DEV_ALLOW_STANDALONE_ENTRY_IN_CMS: 'true',
@@ -147,12 +147,13 @@ describe('cms integration config', () => {
       basePath: '/pagebuilder',
       devStandaloneEntryEnabled: true,
     })
-    expect(disabledOutsideDevelopment.devStandaloneEntryEnabled).toBe(false)
-    expect(buildCmsIntegrationStatus(disabledOutsideDevelopment)).toEqual({
+    expect(enabledOutsideDevelopment.devStandaloneEntryEnabled).toBe(true)
+    expect(buildCmsIntegrationStatus(enabledOutsideDevelopment)).toEqual({
       integrationMode: 'cms',
       enabled: true,
       supportedOpenModes: ['iframe', 'window'],
       basePath: '/pagebuilder',
+      devStandaloneEntryEnabled: true,
     })
     expect(disabledWithoutExplicitTruth.devStandaloneEntryEnabled).toBe(false)
   })

@@ -2781,9 +2781,9 @@ describe('cms integration routes', () => {
     expect(await renderingVueScript.text()).not.toContain('ai_page_builder_access')
   })
 
-  test('allows standalone home history and direct builder APIs only for explicit development CMS opt-in', async () => {
+  test('allows standalone home history and direct builder APIs for explicit CMS opt-in', async () => {
     enableCmsIntegration(configDir, {
-      NODE_ENV: 'development',
+      NODE_ENV: 'production',
       AI_PAGE_BUILDER_DEV_ALLOW_STANDALONE_ENTRY_IN_CMS: 'true',
     })
     process.env.PROMA_CMS_BASE_URL = 'https://demo.zving.com/manager/'
@@ -2903,10 +2903,10 @@ describe('cms integration routes', () => {
     expect(await missingAccessContext.json()).toMatchObject({ code: 'builder_access_required' })
   })
 
-  test('ignores standalone entry opt-in outside development CMS mode', async () => {
+  test('keeps standalone entry disabled in CMS mode without explicit opt-in', async () => {
     enableCmsIntegration(configDir, {
       NODE_ENV: 'production',
-      AI_PAGE_BUILDER_DEV_ALLOW_STANDALONE_ENTRY_IN_CMS: 'true',
+      AI_PAGE_BUILDER_DEV_ALLOW_STANDALONE_ENTRY_IN_CMS: 'false',
     })
     const app = createApp()
 

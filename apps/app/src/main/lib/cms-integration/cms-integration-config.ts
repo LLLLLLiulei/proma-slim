@@ -95,7 +95,6 @@ export function resolveCmsIntegrationConfig(env: CmsIntegrationEnv = process.env
   const basePath = normalizePageBuilderPublicBasePath(env.AI_PAGE_BUILDER_BASE_PATH)
   const enabled = integrationMode === 'cms'
   const devStandaloneEntryEnabled = enabled
-    && env.NODE_ENV === 'development'
     && isExplicitTrue(env.AI_PAGE_BUILDER_DEV_ALLOW_STANDALONE_ENTRY_IN_CMS)
 
   return {
