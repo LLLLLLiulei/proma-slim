@@ -222,7 +222,7 @@
 - **AND** 调用方 SHALL NOT 需要手动拼接 `/pagebuilder`
 
 ### Requirement: CMS 集成模式首页必须展示受限入口
-PageBuilder HomePage 在 CMS 集成模式下 SHALL 停止提供 standalone 本地项目创建入口，并 SHALL 引导用户从 CMS 系统进入 PageBuilder；模板库管理能力仍 SHALL 可见，但首页 SHALL NOT 提供“使用模板”创建项目入口。仅当 integration status 明确返回 `devStandaloneEntryEnabled: true` 时，HomePage SHALL 在开发模式下展示 standalone 首页启动入口。
+PageBuilder HomePage 在 CMS 集成模式下 SHALL 停止提供 standalone 本地项目创建入口，并 SHALL 引导用户从 CMS 系统进入 PageBuilder；模板库管理能力仍 SHALL 可见，但首页 SHALL NOT 提供“使用模板”创建项目入口。仅当 integration status 明确返回 `devStandaloneEntryEnabled: true` 时，HomePage SHALL 展示 standalone 首页启动入口。
 
 #### Scenario: CMS 模式首页显示 CMS 入口提示
 - **WHEN** 用户访问 PageBuilder 首页且 integration status 表示 CMS 集成模式已启用
@@ -238,7 +238,7 @@ PageBuilder HomePage 在 CMS 集成模式下 SHALL 停止提供 standalone 本�
 - **THEN** 系统 SHALL NOT 调用 standalone 的 workspace 创建或 session 创建流程
 - **AND** 系统 SHALL NOT 写入 bootstrap cache
 
-#### Scenario: 开发态 CMS 模式首页允许本地创建项目
+#### Scenario: CMS standalone 入口开关生效时首页允许本地创建项目
 - **WHEN** 用户访问 PageBuilder 首页且 integration status 返回 `integrationMode: "cms"`、`enabled: true` 和 `devStandaloneEntryEnabled: true`
 - **THEN** 系统 SHALL 展示本地 prompt 创建入口
 - **AND** 用户提交需求后 SHALL 继续创建 page-builder workspace、创建 session、写入 bootstrap cache 并跳转到 builder 页面
@@ -250,7 +250,7 @@ PageBuilder HomePage 在 CMS 集成模式下 SHALL 停止提供 standalone 本�
 - **AND** 用户提交需求后 SHALL 继续创建 page-builder workspace、创建 session、写入 bootstrap cache 并跳转到 builder 页面
 
 ### Requirement: CMS 集成模式 BuilderPage 必须先通过 builder context 加载
-PageBuilder BuilderPage 在 CMS 集成模式下 SHALL 先完成 builder context 校验和上下文初始化，再挂载项目工作台。仅当 integration status 明确返回 `devStandaloneEntryEnabled: true` 时，BuilderPage SHALL 在开发模式下复用 standalone 直接 URL 加载流程。
+PageBuilder BuilderPage 在 CMS 集成模式下 SHALL 先完成 builder context 校验和上下文初始化，再挂载项目工作台。仅当 integration status 明确返回 `devStandaloneEntryEnabled: true` 时，BuilderPage SHALL 复用 standalone 直接 URL 加载流程。
 
 #### Scenario: CMS 模式 builder 的首个项目上下文请求是 builder context
 - **WHEN** 用户访问 `/builder/:workspaceId/:sessionId` 且 integration status 表示 CMS 集成模式已启用
@@ -281,7 +281,7 @@ PageBuilder BuilderPage 在 CMS 集成模式下 SHALL 先完成 builder context 
 - **AND** 系统 MAY 提供重试入口
 - **AND** 系统 SHALL NOT 把返回 PageBuilder 首页作为主要恢复路径
 
-#### Scenario: 开发态 CMS 模式 builder 保持 standalone 直接 URL 行为
+#### Scenario: CMS standalone 入口开关生效时 builder 保持 standalone 直接 URL 行为
 - **WHEN** 用户访问 `/builder/:workspaceId/:sessionId` 且 integration status 返回 `integrationMode: "cms"`、`enabled: true` 和 `devStandaloneEntryEnabled: true`
 - **THEN** BuilderPage SHALL 通过现有 sessions/workspaces 列表解析当前项目
 - **AND** BuilderPage SHALL 继续支持 standalone bootstrap 首条消息和直接 builder URL

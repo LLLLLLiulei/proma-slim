@@ -88,7 +88,7 @@
 - **THEN** 系统 SHALL 删除该 workspace、相关 session 元数据、session 工作目录和 workspace 磁盘目录
 
 ### Requirement: CMS 集成模式模板使用 API 访问边界
-系统 SHALL 在 CMS 集成生产模式下开放全局模板使用 API；该 API 的可用性 SHALL 不依赖开发态 standalone bypass。CMS 集成生产模式下 PageBuilder 首页是否展示“使用模板”入口由首页模板库 UI 规格约束。
+系统 SHALL 在 CMS 集成模式下开放全局模板使用 API；该 API 的可用性 SHALL 不依赖 standalone 入口 bypass。CMS 集成模式下 PageBuilder 首页是否展示“使用模板”入口由首页模板库 UI 规格约束。
 
 #### Scenario: CMS 集成生产模式开放 use API
 - **WHEN** `AI_PAGE_BUILDER_INTEGRATION_MODE=cms` 且未启用开发 standalone bypass

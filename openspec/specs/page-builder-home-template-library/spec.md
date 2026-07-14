@@ -29,7 +29,7 @@
 - **AND** 系统 SHALL NOT 展示历史记录 Tab 或挂载历史记录内容
 - **AND** 系统 SHALL NOT 展示“使用模板”入口或项目名称创建弹框
 
-#### Scenario: 开发态 CMS bypass 按 standalone 展示
+#### Scenario: CMS standalone 入口开关生效时按 standalone 展示
 - **WHEN** 用户访问 PageBuilder 首页且 integration status 返回 `integrationMode: "cms"`、`enabled: true` 和 `devStandaloneEntryEnabled: true`
 - **THEN** 系统 SHALL 按 standalone 行为展示“模板库 / 历史记录”Tabs
 - **AND** 系统 SHALL 默认选中“模板库”Tab

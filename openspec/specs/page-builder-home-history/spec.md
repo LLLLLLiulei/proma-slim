@@ -129,7 +129,7 @@
 - **AND** 系统 SHALL NOT 因首页历史项目删除能力而自动把普通工作区删除升级为级联删除
 
 ### Requirement: CMS 集成模式首页不得加载 standalone 历史区
-PageBuilder 首页历史区 SHALL 仅在 standalone 行为下加载；CMS 集成生产模式下首页 SHALL NOT 展示或请求 standalone 项目历史，也 SHALL NOT 挂载历史记录 Tab 或历史记录内容。仅当 integration status 明确返回 `devStandaloneEntryEnabled: true` 时，首页 SHALL 在开发模式下按 standalone 行为提供资源区，并允许用户切换到历史记录 Tab 操作历史项目。
+PageBuilder 首页历史区 SHALL 仅在 standalone 行为下加载；CMS 集成模式且 standalone 入口开关未生效时，首页 SHALL NOT 展示或请求 standalone 项目历史，也 SHALL NOT 挂载历史记录 Tab 或历史记录内容。仅当 integration status 明确返回 `devStandaloneEntryEnabled: true` 时，首页 SHALL 按 standalone 行为提供资源区，并允许用户切换到历史记录 Tab 操作历史项目。
 
 #### Scenario: CMS 模式首页不挂载历史区
 - **WHEN** 用户访问 PageBuilder 首页且 integration status 表示 CMS 集成模式已启用
@@ -143,19 +143,19 @@ PageBuilder 首页历史区 SHALL 仅在 standalone 行为下加载；CMS 集成
 - **THEN** 系统 SHALL NOT 请求 `/api/page-builder/projects`
 - **AND** 系统 SHALL NOT 因历史区初始化请求 `/api/workspaces` 或 `/api/sessions`
 
-#### Scenario: 开发态 CMS 模式首页提供历史记录 Tab
+#### Scenario: CMS standalone 入口开关生效时首页提供历史记录 Tab
 - **WHEN** 用户访问 PageBuilder 首页且 integration status 返回 `integrationMode: "cms"`、`enabled: true` 和 `devStandaloneEntryEnabled: true`
 - **THEN** 系统 SHALL 按 standalone 行为展示包含“历史记录”Tab 的资源区
 - **AND** 系统 SHALL 允许用户切换到“历史记录”Tab 查看历史项目
 
-#### Scenario: 开发态 CMS 模式历史记录 Tab 加载历史项目
-- **WHEN** 首页资源区在开发态 CMS 模式下展示
+#### Scenario: CMS standalone 入口开关生效时历史记录 Tab 加载历史项目
+- **WHEN** 首页资源区在 CMS standalone 入口开关生效时展示
 - **AND** 用户切换到“历史记录”Tab
 - **THEN** 系统 SHALL 请求 `/api/page-builder/projects` 加载 page-builder 历史项目
 - **AND** 历史项目卡片、历史空态、刷新按钮和删除项目入口 SHALL 按 standalone 视觉和交互规则展示
 
-#### Scenario: 开发态 CMS 模式历史项目操作按 standalone 行为执行
-- **WHEN** 首页历史区在开发态 CMS 模式下展示项目卡片
+#### Scenario: CMS standalone 入口开关生效时历史项目操作按 standalone 行为执行
+- **WHEN** 首页历史区在 CMS standalone 入口开关生效时展示项目卡片
 - **THEN** 历史项目预览 SHALL 在新窗口打开当前预览 URL
 - **AND** 历史项目编辑 SHALL 在新窗口打开 `/builder/:workspaceId/:sessionId`
 - **AND** 历史项目删除 SHALL 调用 standalone page-builder 项目删除流程
