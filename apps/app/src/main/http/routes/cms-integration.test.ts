@@ -1599,6 +1599,78 @@ describe('cms integration routes', () => {
     expect(existsSync(join(configDir, 'integrations', 'cms', 'projects.json'))).toBe(false)
   })
 
+  test('dev standalone internal preview cms requests do not require a project binding', async () => {
+    enableCmsIntegration(configDir, {
+      AI_PAGE_BUILDER_DEV_ALLOW_STANDALONE_ENTRY_IN_CMS: 'true',
+      AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN: 'http://server:8888',
+      PROMA_CMS_BASE_URL: 'https://cms.example.com/manager',
+      PROMA_CMS_USERNAME: 'admin',
+      PROMA_CMS_PASSWORD: 'secret',
+    })
+    const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === 'https://cms.example.com/manager/api/token') {
+        return createCmsTokenResponse()
+      }
+
+      expect(init?.headers).toMatchObject({
+        Authorization: 'Bearer cms-token',
+      })
+
+      if (url === 'https://cms.example.com/manager/api/catalogs/7/contents?siteID=1&pageIndex=0&pageSize=100&loadextend=true') {
+        return jsonResponse({
+          status: 1,
+          data: {
+            pageIndex: 0,
+            pageSize: 100,
+            total: 1,
+            data: [
+              {
+                id: 922,
+                catalogID: 7,
+                title: '内部预览内容',
+                summary: 'standalone dev preview',
+                link: 'https://cms.example.com/news/922.html',
+                addTime: '2026-07-14 09:00:00',
+              },
+            ],
+          },
+        })
+      }
+
+      if (url === 'https://cms.example.com/manager/api/sites') {
+        return jsonResponse({
+          status: 1,
+          data: [
+            {
+              id: 1,
+              name: '默认站点',
+              url: 'https://cms.example.com/',
+            },
+          ],
+        })
+      }
+
+      throw new Error(`Unexpected CMS request: ${url}`)
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+    const app = createApp()
+    const workspace = createAgentWorkspace('Standalone CMS Preview', { template: 'page-builder' })
+
+    const response = await app.fetch(new Request(
+      `http://server:8888/pagebuilder/api/workspaces/${workspace.id}/page-builder/cms/contents?siteId=1&catalogId=7&ids=922`,
+    ))
+
+    expect(response.status).toBe(200)
+    const payload = await response.json() as { items: Array<{ id: string; title: string }> }
+    expect(payload.items).toEqual([
+      expect.objectContaining({
+        id: '922',
+        title: '内部预览内容',
+      }),
+    ])
+  })
+
   test('creates cms handoff openUrl and consumes it into a builder redirect with access cookie', async () => {
     enableCmsIntegration(configDir)
     const fetchMock = createLoginFetchMock()

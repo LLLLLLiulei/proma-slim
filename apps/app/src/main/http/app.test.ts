@@ -1069,6 +1069,33 @@ describe('createHttpApp', () => {
     expect(vueScript).toContain('createApp')
   })
 
+  test('base-path-prefixed API routes are also served directly by the backend', async () => {
+    const originalBasePath = process.env.AI_PAGE_BUILDER_BASE_PATH
+    process.env.AI_PAGE_BUILDER_BASE_PATH = '/pagebuilder'
+
+    try {
+      const app = createApp()
+
+      const previewResponse = await app.fetch(new Request('http://localhost/pagebuilder/api/page-builder/cms-rendering-preview.js'))
+      expect(previewResponse.status).toBe(200)
+      expect(previewResponse.headers.get('content-type')).toContain('application/javascript')
+      expect(previewResponse.headers.get('access-control-allow-origin')).toBe('*')
+
+      const statusResponse = await app.fetch(new Request('http://localhost/pagebuilder/api/status'))
+      expect(statusResponse.status).toBe(200)
+
+      const missingResponse = await app.fetch(new Request('http://localhost/pagebuilder/api/not-found'))
+      expect(missingResponse.status).toBe(404)
+      expect(await missingResponse.json()).toEqual({ error: '接口不存在' })
+    } finally {
+      if (originalBasePath === undefined) {
+        delete process.env.AI_PAGE_BUILDER_BASE_PATH
+      } else {
+        process.env.AI_PAGE_BUILDER_BASE_PATH = originalBasePath
+      }
+    }
+  })
+
   test('workspace routes return a 404 JSON error when the workspace is missing', async () => {
     const app = createApp()
 

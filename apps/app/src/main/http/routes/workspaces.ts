@@ -85,12 +85,15 @@ function getWorkspacePreviewRequestPath(url: string, workspaceId: string): strin
 }
 
 function resolveCmsWorkspaceBrowserScope(c: { var: HttpAppEnv['Variables'] }): PageBuilderCmsBrowserScope {
-  if (!resolveCmsIntegrationConfig().enabled) {
+  const config = resolveCmsIntegrationConfig()
+  if (!config.enabled) {
     return {}
   }
 
   const binding = c.var.cmsBuilderInternalReadonlyAccess
-    ? resolveCmsProjectBindingForInternalWorkspace(c.var.workspace)
+    ? resolveCmsProjectBindingForInternalWorkspace(c.var.workspace, {
+      allowMissingBinding: config.devStandaloneEntryEnabled,
+    })
     : c.var.cmsBuilderDevStandaloneAccess
       ? resolveOptionalCmsProjectBindingForWorkspace(c.var.workspace)
     : resolveCmsProjectBindingForWorkspace(c)
@@ -126,9 +129,15 @@ function resolveCmsProjectBindingForWorkspace(c: { var: HttpAppEnv['Variables'] 
   return binding
 }
 
-function resolveCmsProjectBindingForInternalWorkspace(workspace: HttpAppEnv['Variables']['workspace']): CmsIntegratedProjectBinding {
+function resolveCmsProjectBindingForInternalWorkspace(
+  workspace: HttpAppEnv['Variables']['workspace'],
+  options: { allowMissingBinding?: boolean } = {},
+): CmsIntegratedProjectBinding | null {
   const binding = resolveOptionalCmsProjectBindingForWorkspace(workspace)
   if (!binding) {
+    if (options.allowMissingBinding) {
+      return null
+    }
     throw cmsProjectNotFound()
   }
 

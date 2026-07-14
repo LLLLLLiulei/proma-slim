@@ -1,5 +1,6 @@
 import type { Context } from 'hono'
 import { createMiddleware } from 'hono/factory'
+import { stripPageBuilderPublicBasePath } from '@ai-page-builder/shared'
 import {
   resolveCmsIntegrationConfig,
 } from './cms-integration-config'
@@ -155,7 +156,12 @@ function isInternalReadonlyPreviewRequest(c: Context<HttpAppEnv>): boolean {
     return false
   }
 
-  return INTERNAL_READONLY_PREVIEW_PATH_PATTERNS.some((pattern) => pattern.test(requestUrl.pathname))
+  const logicalPathname = stripPageBuilderPublicBasePath(
+    requestUrl.pathname,
+    resolveCmsIntegrationConfig().basePath,
+  )
+
+  return INTERNAL_READONLY_PREVIEW_PATH_PATTERNS.some((pattern) => pattern.test(logicalPathname))
 }
 
 function isPublicPreviewAssetRequest(c: Context<HttpAppEnv>): boolean {
@@ -170,7 +176,12 @@ function isPublicPreviewAssetRequest(c: Context<HttpAppEnv>): boolean {
     return false
   }
 
-  return PUBLIC_PREVIEW_ASSET_PATH_PATTERN.test(requestUrl.pathname)
+  const logicalPathname = stripPageBuilderPublicBasePath(
+    requestUrl.pathname,
+    resolveCmsIntegrationConfig().basePath,
+  )
+
+  return PUBLIC_PREVIEW_ASSET_PATH_PATTERN.test(logicalPathname)
 }
 
 export function assertCmsBuilderApiAvailableInCmsMode(

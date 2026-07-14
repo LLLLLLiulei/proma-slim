@@ -108,21 +108,29 @@ function createInternalPreviewTestApp() {
     }
     throw error
   })
-  app.use('/api/workspaces/:workspaceId/*', createCmsBuilderAccessMiddleware({
-    workspaceId: (c) => c.req.param('workspaceId'),
-    requireOrigin: (c) => c.req.method !== 'GET',
-  }))
-  app.get('/api/workspaces/:workspaceId/preview/', (c) => c.json({
-    accessMounted: Boolean(c.var.cmsBuilderAccess),
-    internalReadonlyAccess: c.var.cmsBuilderInternalReadonlyAccess === true,
-  }))
-  app.get('/api/workspaces/:workspaceId/preview/*', (c) => c.json({
-    accessMounted: Boolean(c.var.cmsBuilderAccess),
-    internalReadonlyAccess: c.var.cmsBuilderInternalReadonlyAccess === true,
-    path: new URL(c.req.url).pathname,
-  }))
-  app.post('/api/workspaces/:workspaceId/preview/', (c) => c.json({ ok: true }))
-  app.post('/api/workspaces/:workspaceId/preview/assets/images/a.png', (c) => c.json({ ok: true }))
+
+  for (const apiPrefix of ['/api', '/pagebuilder/api']) {
+    app.use(`${apiPrefix}/workspaces/:workspaceId/*`, createCmsBuilderAccessMiddleware({
+      workspaceId: (c) => c.req.param('workspaceId'),
+      requireOrigin: (c) => c.req.method !== 'GET',
+    }))
+    app.get(`${apiPrefix}/workspaces/:workspaceId/preview/`, (c) => c.json({
+      accessMounted: Boolean(c.var.cmsBuilderAccess),
+      internalReadonlyAccess: c.var.cmsBuilderInternalReadonlyAccess === true,
+    }))
+    app.get(`${apiPrefix}/workspaces/:workspaceId/preview/*`, (c) => c.json({
+      accessMounted: Boolean(c.var.cmsBuilderAccess),
+      internalReadonlyAccess: c.var.cmsBuilderInternalReadonlyAccess === true,
+      path: new URL(c.req.url).pathname,
+    }))
+    app.get(`${apiPrefix}/workspaces/:workspaceId/page-builder/cms/contents`, (c) => c.json({
+      accessMounted: Boolean(c.var.cmsBuilderAccess),
+      internalReadonlyAccess: c.var.cmsBuilderInternalReadonlyAccess === true,
+      path: new URL(c.req.url).pathname,
+    }))
+    app.post(`${apiPrefix}/workspaces/:workspaceId/preview/`, (c) => c.json({ ok: true }))
+    app.post(`${apiPrefix}/workspaces/:workspaceId/preview/assets/images/a.png`, (c) => c.json({ ok: true }))
+  }
   return app
 }
 
@@ -214,6 +222,30 @@ describe('cms builder access middleware', () => {
     expect(await proxiedInternalPreview.json()).toMatchObject({ code: 'builder_access_required' })
   })
 
+  test('bypasses access cookie for base-path-prefixed internal readonly preview GET requests', async () => {
+    enableCmsMode({
+      AI_PAGE_BUILDER_INTERNAL_APP_ORIGIN: 'http://server:8888',
+    })
+    const app = createInternalPreviewTestApp()
+
+    const internalPreview = await app.fetch(new Request('http://server:8888/pagebuilder/api/workspaces/workspace-1/preview/'))
+    expect(internalPreview.status).toBe(200)
+    expect(await internalPreview.json()).toEqual({
+      accessMounted: false,
+      internalReadonlyAccess: true,
+    })
+    expect(internalPreview.headers.get('set-cookie')).toBeNull()
+
+    const internalCmsContents = await app.fetch(new Request('http://server:8888/pagebuilder/api/workspaces/workspace-1/page-builder/cms/contents?siteId=1&catalogId=7'))
+    expect(internalCmsContents.status).toBe(200)
+    expect(await internalCmsContents.json()).toEqual({
+      accessMounted: false,
+      internalReadonlyAccess: true,
+      path: '/pagebuilder/api/workspaces/workspace-1/page-builder/cms/contents',
+    })
+    expect(internalCmsContents.headers.get('set-cookie')).toBeNull()
+  })
+
   test('allows unauthenticated GET requests only for preview assets subtree', async () => {
     const app = createInternalPreviewTestApp()
 
@@ -225,6 +257,15 @@ describe('cms builder access middleware', () => {
       path: '/api/workspaces/workspace-1/preview/assets/images/a.png',
     })
     expect(asset.headers.get('set-cookie')).toBeNull()
+
+    const basePathAsset = await app.fetch(new Request('https://builder.example.com/pagebuilder/api/workspaces/workspace-1/preview/assets/images/a.png'))
+    expect(basePathAsset.status).toBe(200)
+    expect(await basePathAsset.json()).toEqual({
+      accessMounted: false,
+      internalReadonlyAccess: false,
+      path: '/pagebuilder/api/workspaces/workspace-1/preview/assets/images/a.png',
+    })
+    expect(basePathAsset.headers.get('set-cookie')).toBeNull()
 
     const previewEntry = await app.fetch(new Request('https://builder.example.com/api/workspaces/workspace-1/preview/'))
     expect(previewEntry.status).toBe(401)
