@@ -35,6 +35,8 @@ describe('CmsGateway', () => {
       expect(init?.headers).toMatchObject({
         Accept: 'application/json',
         Authorization: 'Bearer slim-token',
+        'Cache-Control': 'no-cache',
+        Pragma: 'no-cache',
       })
 
       return new Response(JSON.stringify({
@@ -1047,7 +1049,7 @@ describe('CmsGateway', () => {
     ])
   })
 
-  test('sanitizes cms auth failures without leaking raw credentials or bearer tokens', async () => {
+  test('returns cms auth failures with http status and raw upstream details', async () => {
     const { CmsGateway } = await import('./cms-gateway')
     const { resolvePageBuilderCmsConfig } = await import('./page-builder-cms-config')
     const tokenProvider = {
@@ -1074,10 +1076,54 @@ describe('CmsGateway', () => {
       expect(error).toBeInstanceOf(Error)
       const message = (error as Error).message
       expect(message).toContain('CMS 鉴权失败')
-      expect(message).not.toContain('slim-token')
-      expect(message).not.toContain('test-user')
-      expect(message).not.toContain('test-pass')
+      expect(message).toContain('HTTP 401')
+      expect(message).toContain('/api/catalogsTree')
+      expect(message).toContain('Authorization Bearer slim-token username=test-user password=test-pass')
     }
+  })
+
+  test('invalidates cached token and retries a cms json request once on auth failure', async () => {
+    const { CmsGateway } = await import('./cms-gateway')
+    const { resolvePageBuilderCmsConfig } = await import('./page-builder-cms-config')
+    let tokenRequestCount = 0
+    const tokenProvider = {
+      getAuthorizationHeader: mock(async () => {
+        tokenRequestCount += 1
+        return tokenRequestCount === 1 ? 'Bearer stale-token' : 'Bearer fresh-token'
+      }),
+      invalidateAuthorizationHeader: mock(() => undefined),
+    }
+    const fetchMock = mock(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const authorization = new Headers(init?.headers).get('authorization')
+      if (authorization === 'Bearer stale-token') {
+        return new Response(JSON.stringify({
+          status: 401,
+          message: 'token expired',
+        }), {
+          status: 401,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+
+      return new Response(JSON.stringify({
+        status: 1,
+        data: [],
+      }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    })
+
+    const gateway = new CmsGateway({
+      config: resolvePageBuilderCmsConfig(TEST_ENV)!,
+      fetchFn: fetchMock as unknown as typeof fetch,
+      tokenProvider,
+    })
+
+    await expect(gateway.listSites()).resolves.toEqual([])
+    expect(tokenProvider.invalidateAuthorizationHeader).toHaveBeenCalledTimes(1)
+    expect(tokenProvider.getAuthorizationHeader).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
   test('maps listCatalogs network failures to CmsGatewayError upstream errors', async () => {
@@ -1099,8 +1145,11 @@ describe('CmsGateway', () => {
     await expect(gateway.listCatalogs({ siteId: '14' })).rejects.toMatchObject({
       name: 'CmsGatewayError',
       code: 'upstream',
-      message: 'CMS 请求失败：socket hang up',
+      message: expect.stringContaining('/api/catalogsTree'),
     } satisfies Pick<InstanceType<typeof CmsGatewayError>, 'name' | 'code' | 'message'>)
+    await expect(gateway.listCatalogs({ siteId: '14' })).rejects.toMatchObject({
+      message: expect.stringContaining('socket hang up'),
+    })
   })
 
   test('fetches cms assets without auth headers and preserves query strings', async () => {
@@ -1216,7 +1265,38 @@ describe('CmsGateway', () => {
     await expect(gateway.fetchAsset('https://demo.zving.com/preview/news/upload/resources/image/banner.jpg')).rejects.toMatchObject({
       name: 'CmsGatewayError',
       code: 'upstream',
-      message: 'CMS 资源请求失败：connect ECONNRESET',
+      message: expect.stringContaining('/preview/news/upload/resources/image/banner.jpg'),
     } satisfies Pick<InstanceType<typeof CmsGatewayError>, 'name' | 'code' | 'message'>)
+    await expect(gateway.fetchAsset('https://demo.zving.com/preview/news/upload/resources/image/banner.jpg')).rejects.toMatchObject({
+      message: expect.stringContaining('connect ECONNRESET'),
+    })
+  })
+
+  test('maps fetchAsset auth failures with http status and cms response body', async () => {
+    const { CmsGateway, CmsGatewayError } = await import('./cms-gateway')
+    const { resolvePageBuilderCmsConfig } = await import('./page-builder-cms-config')
+    const tokenProvider = {
+      getAuthorizationHeader: mock(async () => 'Bearer slim-token'),
+    }
+    const fetchMock = mock(async () => new Response('asset forbidden', {
+      status: 403,
+      statusText: 'Forbidden',
+      headers: { 'content-type': 'text/plain' },
+    }))
+
+    const gateway = new CmsGateway({
+      config: resolvePageBuilderCmsConfig(TEST_ENV)!,
+      fetchFn: fetchMock as unknown as typeof fetch,
+      tokenProvider,
+    })
+
+    await expect(gateway.fetchAsset('https://demo.zving.com/preview/news/upload/resources/image/banner.jpg')).rejects.toMatchObject({
+      name: 'CmsGatewayError',
+      code: 'auth',
+      message: expect.stringContaining('HTTP 403'),
+    } satisfies Pick<InstanceType<typeof CmsGatewayError>, 'name' | 'code' | 'message'>)
+    await expect(gateway.fetchAsset('https://demo.zving.com/preview/news/upload/resources/image/banner.jpg')).rejects.toMatchObject({
+      message: expect.stringContaining('asset forbidden'),
+    })
   })
 })

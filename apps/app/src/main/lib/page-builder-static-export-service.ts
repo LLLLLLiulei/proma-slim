@@ -172,7 +172,7 @@ export class PageBuilderStaticExportService {
   private readonly randomUUID: () => string
 
   constructor(options: PageBuilderStaticExportServiceOptions = {}) {
-    this.fetchFn = options.fetchFn ?? fetch
+    this.fetchFn = options.fetchFn ?? defaultFetch
     this.cmsGatewayFactory = options.cmsGatewayFactory
     this.cmsQueryAdapterFactory = options.cmsQueryAdapterFactory
     this.now = options.now ?? Date.now
@@ -950,6 +950,8 @@ export class PageBuilderStaticExportService {
     }
   }
 }
+
+const defaultFetch: typeof fetch = ((input, init) => globalThis.fetch(input, init)) as typeof fetch
 
 export function buildPageBuilderStaticExportDownloadFileName(workspaceName: string, exportedAt: number): string {
   return `${sanitizeExportFileNameSegment(workspaceName)}-${formatExportTimestamp(exportedAt)}.zip`

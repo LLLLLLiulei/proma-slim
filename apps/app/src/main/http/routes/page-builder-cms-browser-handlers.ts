@@ -175,6 +175,10 @@ function mapCmsGatewayError(error: unknown): Error {
       return new HttpError(503, error.message)
     }
 
+    if (error.code === 'auth') {
+      return new HttpError(401, error.message)
+    }
+
     return new HttpError(502, error.message)
   }
 

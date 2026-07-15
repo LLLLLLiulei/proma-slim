@@ -110,9 +110,9 @@ function mapStaticExportFailure(error: unknown): Error {
       return projectBusy()
     }
     if (error.code === 'export-failed') {
-      return cmsSyncExportUpstreamFailed()
+      return cmsSyncExportUpstreamFailed(error.message)
     }
   }
 
-  return cmsSyncExportUpstreamFailed()
+  return cmsSyncExportUpstreamFailed(error instanceof Error ? error.message : String(error))
 }

@@ -1,10 +1,19 @@
 import type { PageBuilderCmsConfig } from './page-builder-cms-config'
+import {
+  buildCmsUpstreamFailureMessage,
+  extractCmsPayloadMessage,
+  logCmsTokenCacheHit,
+  logCmsUpstreamRequestFailure,
+  logCmsUpstreamRequestStart,
+  logCmsUpstreamResponse,
+  parseCmsJsonSafely,
+} from './cms-upstream-diagnostics'
 
 const DEFAULT_REFRESH_SKEW_MS = 30_000
-const AUTH_FAILURE_MESSAGE = 'CMS 鉴权失败，请检查宿主配置中的账号密码是否正确'
 
 export interface CmsAuthorizationProvider {
   getAuthorizationHeader(): Promise<string>
+  invalidateAuthorizationHeader?(): void
 }
 
 export class CmsTokenProviderError extends Error {
@@ -49,6 +58,10 @@ class CmsTokenProvider implements CmsAuthorizationProvider {
 
   async getAuthorizationHeader(): Promise<string> {
     if (this.cachedAuthorizationHeader && this.now() < this.expiresAt - this.refreshSkewMs) {
+      logCmsTokenCacheHit({
+        baseUrl: this.config.baseUrl,
+        expiresAt: this.expiresAt,
+      })
       return this.cachedAuthorizationHeader
     }
 
@@ -61,49 +74,107 @@ class CmsTokenProvider implements CmsAuthorizationProvider {
     return this.inflightRefresh
   }
 
+  invalidateAuthorizationHeader(): void {
+    this.cachedAuthorizationHeader = null
+    this.expiresAt = 0
+  }
+
   private async refreshToken(): Promise<string> {
     const url = new URL(`${this.config.baseUrl}/api/token`)
+    const requestHeaders = {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    }
+    const requestBody = JSON.stringify({
+      username: this.config.username,
+      password: this.config.password,
+    })
+    const startedAt = Date.now()
     let response: Response
+
+    logCmsUpstreamRequestStart({
+      operation: 'token_refresh',
+      method: 'POST',
+      url,
+      requestHeaders,
+      requestBody,
+      startedAt,
+    })
 
     try {
       response = await this.fetchFn(url, {
         method: 'POST',
-        headers: {
-          Accept: 'application/json',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          username: this.config.username,
-          password: this.config.password,
-        }),
+        headers: requestHeaders,
+        body: requestBody,
       })
     } catch (error) {
-      const detail = sanitizeCmsErrorDetail(error instanceof Error ? error.message : String(error), this.config)
-      throw new CmsTokenProviderError('upstream', detail ? `CMS Token 请求失败：${detail}` : 'CMS Token 请求失败')
+      logCmsUpstreamRequestFailure({
+        operation: 'token_refresh',
+        method: 'POST',
+        url,
+        requestHeaders,
+        requestBody,
+        startedAt,
+        error,
+      })
+      throw new CmsTokenProviderError('upstream', buildCmsUpstreamFailureMessage({
+        prefix: 'CMS Token 请求失败',
+        url,
+        error,
+      }))
     }
 
     const rawText = await response.text()
-    const payload = parseJsonSafely(rawText)
+    const payload = parseCmsJsonSafely(rawText)
+    logCmsUpstreamResponse({
+      operation: 'token_refresh',
+      method: 'POST',
+      url,
+      requestHeaders,
+      requestBody,
+      startedAt,
+      response,
+      responseBody: rawText,
+    })
     const status = payload && typeof payload === 'object'
       ? readNumber((payload as TokenPayload).status)
       : undefined
-    const detail = sanitizeCmsErrorDetail(extractErrorMessage(payload) || rawText, this.config)
+    const detail = extractCmsPayloadMessage(payload) || rawText
 
     if (response.status === 401 || response.status === 403 || looksLikeAuthFailure(payload, detail)) {
-      throw new CmsTokenProviderError('auth', AUTH_FAILURE_MESSAGE)
+      throw new CmsTokenProviderError('auth', buildCmsUpstreamFailureMessage({
+        prefix: 'CMS 鉴权失败',
+        url,
+        response,
+        payload,
+        rawText,
+      }))
     }
 
     if (!response.ok) {
       throw new CmsTokenProviderError(
         'upstream',
-        detail ? `CMS Token 请求失败：${detail}` : `CMS Token 请求失败（HTTP ${response.status}）`,
+        buildCmsUpstreamFailureMessage({
+          prefix: 'CMS Token 请求失败',
+          url,
+          response,
+          payload,
+          rawText,
+        }),
       )
     }
 
     if (status !== 1) {
       throw new CmsTokenProviderError(
         'upstream',
-        detail ? `CMS Token 请求失败：${detail}` : 'CMS Token 请求失败，上游返回了非成功状态',
+        buildCmsUpstreamFailureMessage({
+          prefix: 'CMS Token 请求失败',
+          url,
+          response,
+          payload,
+          rawText,
+          fallbackDetail: '上游返回了非成功状态',
+        }),
       )
     }
 
@@ -167,53 +238,6 @@ function looksLikeAuthFailure(payload: unknown, detail: string): boolean {
     || combined.includes('权限')
 }
 
-function sanitizeCmsErrorDetail(detail: string, config: PageBuilderCmsConfig): string {
-  const usernamePattern = escapeRegExp(config.username)
-  const passwordPattern = escapeRegExp(config.password)
-
-  return detail
-    .replace(/authorization\s*[:=]?\s*bearer\s+[^\s,;]+/gi, 'authorization=[REDACTED]')
-    .replace(/bearer\s+[^\s,;]+/gi, 'Bearer [REDACTED]')
-    .replace(/username\s*[:=]\s*[^\s,;]+/gi, 'username=[REDACTED]')
-    .replace(/password\s*[:=]\s*[^\s,;]+/gi, 'password=[REDACTED]')
-    .replace(new RegExp(usernamePattern, 'gi'), '[REDACTED]')
-    .replace(new RegExp(passwordPattern, 'gi'), '[REDACTED]')
-    .trim()
-}
-
-function extractErrorMessage(payload: unknown): string {
-  if (!payload || typeof payload !== 'object') {
-    return ''
-  }
-
-  const record = payload as Record<string, unknown>
-  const candidates = [
-    record.message,
-    record.msg,
-    record.error,
-  ]
-
-  for (const candidate of candidates) {
-    if (typeof candidate === 'string' && candidate.trim()) {
-      return candidate.trim()
-    }
-  }
-
-  return ''
-}
-
-function parseJsonSafely(value: string): unknown {
-  if (!value.trim()) {
-    return {}
-  }
-
-  try {
-    return JSON.parse(value) as unknown
-  } catch {
-    return {}
-  }
-}
-
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -246,8 +270,4 @@ function readNumber(value: unknown): number | undefined {
   }
 
   return undefined
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }

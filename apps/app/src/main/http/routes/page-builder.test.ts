@@ -1654,7 +1654,36 @@ describe('page-builder routes', () => {
 
     expect(response.status).toBe(502)
     expect(await response.json()).toEqual({
-      error: 'CMS 请求失败：上游接口不可用',
+      error: 'CMS 请求失败（HTTP 500，/manager/api/catalogs/101/contents）：上游接口不可用',
+    })
+  })
+
+  test('GET /api/page-builder/cms/contents returns 401 with upstream details when cms auth fails', async () => {
+    setCmsEnv()
+    const app = createApp()
+    const fetchMock = mock(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === 'https://demo.zving.com/manager/api/token') {
+        return createTokenResponse()
+      }
+
+      return new Response(JSON.stringify({
+        status: 401,
+        message: 'token expired',
+      }), {
+        status: 401,
+        headers: {
+          'content-type': 'application/json; charset=utf-8',
+        },
+      })
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const response = await app.fetch(new Request('http://localhost/api/page-builder/cms/contents?catalogId=101'))
+
+    expect(response.status).toBe(401)
+    expect(await response.json()).toEqual({
+      error: 'CMS 鉴权失败（HTTP 401，/manager/api/catalogs/101/contents）：token expired',
     })
   })
 })

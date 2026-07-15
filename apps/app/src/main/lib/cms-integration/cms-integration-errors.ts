@@ -74,8 +74,8 @@ export function cmsIntegrationUnauthorized(): CmsIntegrationError {
   return new CmsIntegrationError('integration_unauthorized', 401)
 }
 
-export function cmsLoginExpired(): CmsIntegrationError {
-  return new CmsIntegrationError('cms_login_expired', 401)
+export function cmsLoginExpired(message?: string): CmsIntegrationError {
+  return new CmsIntegrationError('cms_login_expired', 401, message)
 }
 
 export function cmsLoginUnavailable(message?: string): CmsIntegrationError {

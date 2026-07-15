@@ -19,8 +19,16 @@ import {
   isAllowedCmsAssetUrl as isAllowedCmsAssetUrlShared,
   resolveCmsAssetUrl as resolveCmsAssetUrlShared,
 } from './page-builder-asset-reference-utils'
+import {
+  buildCmsUpstreamFailureMessage,
+  extractCmsPayloadMessage,
+  logCmsTokenInvalidatedRetry,
+  logCmsUpstreamRequestFailure,
+  logCmsUpstreamRequestStart,
+  logCmsUpstreamResponse,
+  parseCmsJsonSafely,
+} from './cms-upstream-diagnostics'
 
-const AUTH_FAILURE_MESSAGE = 'CMS 鉴权失败，请检查宿主配置中的账号密码是否正确'
 const CATALOGS_PAGE_SIZE = 500
 const CONTENTS_PAGE_SIZE = 100
 
@@ -165,24 +173,67 @@ export class CmsGateway {
       throw new CmsGatewayError('config', 'CMS 资源地址不合法')
     }
 
+    const startedAt = Date.now()
+    logCmsUpstreamRequestStart({
+      operation: 'asset_fetch',
+      method: 'GET',
+      url: resolvedAssetUrl,
+      startedAt,
+    })
+
     let response: Response
     try {
       response = await this.fetchFn(resolvedAssetUrl, {
         method: 'GET',
       })
     } catch (error) {
-      throw buildUpstreamGatewayError('CMS 资源请求失败', error)
+      logCmsUpstreamRequestFailure({
+        operation: 'asset_fetch',
+        method: 'GET',
+        url: resolvedAssetUrl,
+        startedAt,
+        error,
+      })
+      throw buildUpstreamGatewayError('CMS 资源请求失败', resolvedAssetUrl, error)
     }
+
+    if (response.ok) {
+      logCmsUpstreamResponse({
+        operation: 'asset_fetch',
+        method: 'GET',
+        url: resolvedAssetUrl,
+        startedAt,
+        response,
+        responseBody: null,
+      })
+      return response
+    }
+
+    const rawText = await readErrorResponseText(response)
+    logCmsUpstreamResponse({
+      operation: 'asset_fetch',
+      method: 'GET',
+      url: resolvedAssetUrl,
+      startedAt,
+      response,
+      responseBody: rawText,
+    })
 
     if (response.status === 401 || response.status === 403) {
-      throw new CmsGatewayError('auth', AUTH_FAILURE_MESSAGE)
+      throw new CmsGatewayError('auth', buildCmsUpstreamFailureMessage({
+        prefix: 'CMS 鉴权失败',
+        url: resolvedAssetUrl,
+        response,
+        rawText,
+      }))
     }
 
-    if (!response.ok) {
-      throw new CmsGatewayError('upstream', `CMS 资源请求失败（HTTP ${response.status}）`)
-    }
-
-    return response
+    throw new CmsGatewayError('upstream', buildCmsUpstreamFailureMessage({
+      prefix: 'CMS 资源请求失败',
+      url: resolvedAssetUrl,
+      response,
+      rawText,
+    }))
   }
 
   private async fetchCatalogMetadata(siteId: string): Promise<Record<string, unknown>[]> {
@@ -321,6 +372,7 @@ export class CmsGateway {
   private async requestJson(
     pathname: string,
     params: Record<string, string>,
+    attempt = 0,
   ): Promise<unknown> {
     const url = new URL(`${this.config.baseUrl}${pathname}`)
     for (const [key, value] of Object.entries(params)) {
@@ -337,50 +389,109 @@ export class CmsGateway {
       throw error
     }
 
+    const requestHeaders = {
+      Accept: 'application/json',
+      Authorization: authorizationHeader,
+      'Cache-Control': 'no-cache',
+      Pragma: 'no-cache',
+    }
+    const startedAt = Date.now()
+    logCmsUpstreamRequestStart({
+      operation: 'api_request',
+      method: 'GET',
+      url,
+      requestHeaders,
+      startedAt,
+    })
+
     let response: Response
     try {
       response = await this.fetchFn(url, {
         method: 'GET',
-        headers: {
-          Accept: 'application/json',
-          Authorization: authorizationHeader,
-        },
+        headers: requestHeaders,
       })
     } catch (error) {
-      throw buildUpstreamGatewayError('CMS 请求失败', error)
+      logCmsUpstreamRequestFailure({
+        operation: 'api_request',
+        method: 'GET',
+        url,
+        requestHeaders,
+        startedAt,
+        error,
+      })
+      throw buildUpstreamGatewayError('CMS 请求失败', url, error)
     }
 
     const rawText = await response.text()
-    const payload = parseJsonSafely(rawText)
+    const payload = parseCmsJsonSafely(rawText)
+    logCmsUpstreamResponse({
+      operation: 'api_request',
+      method: 'GET',
+      url,
+      requestHeaders,
+      startedAt,
+      response,
+      responseBody: rawText,
+    })
     const payloadStatus = payload && typeof payload === 'object'
       ? readNumber((payload as Record<string, unknown>).status)
       : undefined
+    const detail = extractCmsPayloadMessage(payload) || rawText
+    const authFailure = response.status === 401 || response.status === 403 || looksLikeAuthFailure(payload, detail)
 
-    if (response.status === 401 || response.status === 403) {
-      throw new CmsGatewayError('auth', AUTH_FAILURE_MESSAGE)
+    if (authFailure) {
+      if (attempt === 0 && this.tokenProvider.invalidateAuthorizationHeader) {
+        this.tokenProvider.invalidateAuthorizationHeader()
+        logCmsTokenInvalidatedRetry({
+          url,
+          reason: buildCmsUpstreamFailureMessage({
+            prefix: 'CMS 鉴权失败',
+            url,
+            response,
+            payload,
+            rawText,
+          }),
+        })
+        return this.requestJson(pathname, params, attempt + 1)
+      }
+
+      throw new CmsGatewayError('auth', buildCmsUpstreamFailureMessage({
+        prefix: 'CMS 鉴权失败',
+        url,
+        response,
+        payload,
+        rawText,
+      }))
     }
 
     if (response.ok && payloadStatus === 1) {
       return payload
     }
 
-    const detail = sanitizeCmsErrorDetail(extractErrorMessage(payload) || rawText)
-
-    if (looksLikeAuthFailure(payload, detail)) {
-      throw new CmsGatewayError('auth', AUTH_FAILURE_MESSAGE)
-    }
-
     if (!response.ok) {
       throw new CmsGatewayError(
         'upstream',
-        detail ? `CMS 请求失败：${detail}` : `CMS 请求失败（HTTP ${response.status}）`,
+        buildCmsUpstreamFailureMessage({
+          prefix: 'CMS 请求失败',
+          url,
+          response,
+          payload,
+          rawText,
+        }),
       )
     }
 
     if (payloadStatus !== undefined && payloadStatus !== 1) {
       throw new CmsGatewayError(
         'upstream',
-        detail ? `CMS 请求失败：${detail}` : 'CMS 请求失败，上游返回了非成功状态',
+        buildCmsUpstreamFailureMessage({
+          prefix: 'CMS 请求失败',
+          url,
+          response,
+          payload,
+          rawText,
+          fallbackDetail: '上游返回了非成功状态',
+        }),
       )
     }
 
@@ -425,18 +536,6 @@ export class CmsGateway {
   }
 }
 
-function parseJsonSafely(value: string): unknown {
-  if (!value.trim()) {
-    return {}
-  }
-
-  try {
-    return JSON.parse(value) as unknown
-  } catch {
-    return {}
-  }
-}
-
 function looksLikeAuthFailure(payload: unknown, detail: string): boolean {
   const status = payload && typeof payload === 'object'
     ? readNumber((payload as Record<string, unknown>).status)
@@ -451,57 +550,23 @@ function looksLikeAuthFailure(payload: unknown, detail: string): boolean {
     || combined.includes('权限')
 }
 
-function sanitizeCmsErrorDetail(detail: string): string {
-  return detail
-    .replace(/authorization\s*[:=]?\s*bearer\s+[^\s,;]+/gi, 'authorization=[REDACTED]')
-    .replace(/bearer\s+[^\s,;]+/gi, 'Bearer [REDACTED]')
-    .replace(/username\s*[:=]\s*[^\s,;]+/gi, 'username=[REDACTED]')
-    .replace(/password\s*[:=]\s*[^\s,;]+/gi, 'password=[REDACTED]')
-    .trim()
-}
-
-function buildUpstreamGatewayError(prefix: string, error: unknown): CmsGatewayError {
-  const detail = sanitizeCmsErrorDetail(extractUnknownErrorMessage(error))
+function buildUpstreamGatewayError(prefix: string, url: string | URL, error: unknown): CmsGatewayError {
   return new CmsGatewayError(
     'upstream',
-    detail ? `${prefix}：${detail}` : prefix,
+    buildCmsUpstreamFailureMessage({
+      prefix,
+      url,
+      error,
+    }),
   )
 }
 
-function extractUnknownErrorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message
+async function readErrorResponseText(response: Response): Promise<string> {
+  try {
+    return await response.text()
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error)
   }
-
-  if (typeof error === 'string') {
-    return error
-  }
-
-  return ''
-}
-
-function extractErrorMessage(payload: unknown): string {
-  if (!payload || typeof payload !== 'object') {
-    return ''
-  }
-
-  const record = payload as Record<string, unknown>
-  const candidates = [
-    record.message,
-    record.msg,
-    record.error,
-    readNestedValue(record, ['data', 'message']),
-    readNestedValue(record, ['data', 'msg']),
-    readNestedValue(record, ['error', 'message']),
-  ]
-
-  for (const candidate of candidates) {
-    if (typeof candidate === 'string' && candidate.trim()) {
-      return candidate.trim()
-    }
-  }
-
-  return ''
 }
 
 function extractCatalogArray(payload: unknown): unknown[] {

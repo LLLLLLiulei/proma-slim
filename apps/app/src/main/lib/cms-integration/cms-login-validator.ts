@@ -1,4 +1,12 @@
 import { cmsLoginExpired, cmsLoginUnavailable, invalidCmsRequest } from './cms-integration-errors'
+import {
+  buildCmsUpstreamFailureMessage,
+  extractCmsPayloadMessage,
+  logCmsUpstreamRequestFailure,
+  logCmsUpstreamRequestStart,
+  logCmsUpstreamResponse,
+  parseCmsJsonSafely,
+} from '../cms-upstream-diagnostics'
 
 export interface CmsLoginUserSummary {
   userName?: string
@@ -42,49 +50,112 @@ export async function validateCmsLogin(options: ValidateCmsLoginOptions): Promis
   }
 
   const fetchFn = options.fetchFn ?? fetch
+  const url = buildLoginUrl(options.cmsBaseUrl)
+  const requestHeaders = {
+    accept: 'application/json, text/plain, */*',
+    'cache-control': 'no-cache',
+    pragma: 'no-cache',
+    referer: `${options.cmsBaseUrl.replace(/\/+$/, '')}/app.html`,
+    cookie: cmsCookie,
+  }
+  const startedAt = Date.now()
   let response: Response
+
+  logCmsUpstreamRequestStart({
+    operation: 'login_validate',
+    method: 'GET',
+    url,
+    requestHeaders,
+    startedAt,
+  })
+
   try {
-    response = await fetchFn(buildLoginUrl(options.cmsBaseUrl), {
+    response = await fetchFn(url, {
       method: 'GET',
-      headers: {
-        accept: 'application/json, text/plain, */*',
-        'cache-control': 'no-cache',
-        pragma: 'no-cache',
-        referer: `${options.cmsBaseUrl.replace(/\/+$/, '')}/app.html`,
-        cookie: cmsCookie,
-      },
+      headers: requestHeaders,
     })
-  } catch {
-    throw cmsLoginUnavailable()
+  } catch (error) {
+    logCmsUpstreamRequestFailure({
+      operation: 'login_validate',
+      method: 'GET',
+      url,
+      requestHeaders,
+      startedAt,
+      error,
+    })
+    throw cmsLoginUnavailable(buildCmsUpstreamFailureMessage({
+      prefix: 'CMS 登录态校验暂不可用',
+      url,
+      error,
+    }))
   }
 
+  const rawText = await response.text()
+  const parsed = parseCmsJsonSafely(rawText)
+  const payloadRecord = asRecord(parsed)
+
+  logCmsUpstreamResponse({
+    operation: 'login_validate',
+    method: 'GET',
+    url,
+    requestHeaders,
+    startedAt,
+    response,
+    responseBody: rawText,
+  })
+
   if (response.status === 401 || response.status === 403) {
-    throw cmsLoginExpired()
+    throw cmsLoginExpired(buildCmsUpstreamFailureMessage({
+      prefix: 'CMS 登录态已失效',
+      url,
+      response,
+      payload: parsed,
+      rawText,
+    }))
   }
 
   if (!response.ok) {
-    throw cmsLoginUnavailable()
+    throw cmsLoginUnavailable(buildCmsUpstreamFailureMessage({
+      prefix: 'CMS 登录态校验暂不可用',
+      url,
+      response,
+      payload: parsed,
+      rawText,
+    }))
   }
 
-  let payload: Record<string, unknown>
-  try {
-    const parsed = await response.json()
-    const record = asRecord(parsed)
-    if (!record) {
-      throw new Error('invalid payload')
-    }
-    payload = record
-  } catch {
-    throw cmsLoginUnavailable()
+  if (!payloadRecord) {
+    throw cmsLoginUnavailable(buildCmsUpstreamFailureMessage({
+      prefix: 'CMS 登录态校验暂不可用',
+      url,
+      response,
+      payload: parsed,
+      rawText,
+      fallbackDetail: 'CMS 登录态校验响应格式不正确',
+    }))
   }
 
+  const payload = payloadRecord
   const data = asRecord(payload.data)
   if (!data) {
-    throw cmsLoginUnavailable()
+    throw cmsLoginUnavailable(buildCmsUpstreamFailureMessage({
+      prefix: 'CMS 登录态校验暂不可用',
+      url,
+      response,
+      payload,
+      rawText,
+      fallbackDetail: extractCmsPayloadMessage(payload) || 'CMS 登录态校验响应缺少 data',
+    }))
   }
 
   if (payload.status !== 1 || data.logined !== true) {
-    throw cmsLoginExpired()
+    throw cmsLoginExpired(buildCmsUpstreamFailureMessage({
+      prefix: 'CMS 登录态已失效',
+      url,
+      response,
+      payload,
+      rawText,
+    }))
   }
 
   return {

@@ -1533,7 +1533,10 @@ describe('cms integration routes', () => {
     try {
       const failed = await exportCmsProject(app, projectId)
       expect(failed.status).toBe(502)
-      expect(await failed.json()).toMatchObject({ code: 'export_upstream_failed' })
+      expect(await failed.json()).toMatchObject({
+        code: 'export_upstream_failed',
+        error: 'upstream failed',
+      })
     } finally {
       pageBuilderStaticExportService.exportWorkspaceStaticPackage = originalExport
     }

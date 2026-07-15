@@ -56,11 +56,11 @@ describe('validateCmsLogin', () => {
   })
 
   test.each([
-    ['status not success', jsonResponse({ status: 0, data: { logined: true } })],
-    ['not logged in', jsonResponse({ status: 1, data: { logined: false } })],
-    ['upstream 401', jsonResponse({ status: 0, data: { logined: false } }, 401)],
-    ['upstream 403', jsonResponse({ status: 0, data: { logined: false } }, 403)],
-  ])('maps %s to cms_login_expired', async (_name, response) => {
+    ['status not success', jsonResponse({ status: 0, message: 'login expired', data: { logined: true } }), 'login expired'],
+    ['not logged in', jsonResponse({ status: 1, message: 'not logged in', data: { logined: false } }), 'not logged in'],
+    ['upstream 401', jsonResponse({ status: 0, message: 'session expired', data: { logined: false } }, 401), 'HTTP 401'],
+    ['upstream 403', jsonResponse({ status: 0, message: 'permission denied', data: { logined: false } }, 403), 'HTTP 403'],
+  ])('maps %s to cms_login_expired with upstream details', async (_name, response, expectedMessage) => {
     const fetchFn = mock(async () => response)
 
     await expect(validateCmsLogin({
@@ -70,14 +70,15 @@ describe('validateCmsLogin', () => {
     })).rejects.toMatchObject({
       code: 'cms_login_expired',
       status: 401,
+      message: expect.stringContaining(expectedMessage),
     })
   })
 
   test.each([
-    ['upstream 500', jsonResponse({ status: 0 }, 500)],
-    ['non json', new Response('<html>error</html>', { status: 200, headers: { 'content-type': 'text/html' } })],
-    ['missing data', jsonResponse({ status: 1 })],
-  ])('maps %s to cms_login_unavailable', async (_name, response) => {
+    ['upstream 500', jsonResponse({ status: 0, message: 'server down' }, 500), 'HTTP 500'],
+    ['non json', new Response('<html>error</html>', { status: 200, headers: { 'content-type': 'text/html' } }), '<html>error</html>'],
+    ['missing data', jsonResponse({ status: 1, message: 'missing login data' }), 'missing login data'],
+  ])('maps %s to cms_login_unavailable with upstream details', async (_name, response, expectedMessage) => {
     const fetchFn = mock(async () => response)
 
     await expect(validateCmsLogin({
@@ -87,6 +88,7 @@ describe('validateCmsLogin', () => {
     })).rejects.toMatchObject({
       code: 'cms_login_unavailable',
       status: 502,
+      message: expect.stringContaining(expectedMessage),
     })
   })
 
@@ -107,6 +109,7 @@ describe('validateCmsLogin', () => {
     })).rejects.toMatchObject({
       code: 'cms_login_unavailable',
       status: 502,
+      message: expect.stringContaining('network down'),
     })
   })
 })
