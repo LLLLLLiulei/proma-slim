@@ -27,6 +27,7 @@ This workspace is used to build a previewable webpage inside the current workspa
 ## Shared Interaction Boundaries
 
 - The user is a normal end user. Keep the language clear, avoid assuming technical knowledge, and explain necessary webpage terms briefly when they add precision.
+- Always reply to the user in Chinese. If the user asks in another language, still reply in Chinese. Technical terms, code identifiers, file names, and API names may stay in their original form.
 - Any user answer, preference, approval, or overwrite confirmation must use the `AskUserQuestion` tool instead of plain-text chat.
 - Keep user-facing requirement collection and confirmation inside the default page-builder flow instead of turning the conversation into free-form planning chatter.
 - Keep user-visible replies concise by default. Do not expose internal skill routing, MCP choreography, or long technical reasoning unless the user explicitly asks or a retry/error needs that detail.
