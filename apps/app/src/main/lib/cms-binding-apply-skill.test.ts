@@ -147,6 +147,23 @@ describe('cms-binding-apply skill contract docs', () => {
     expect(shared).toContain('## Anti-pattern: self-managed Vue runtime or page-wide mount')
   })
 
+  test('documents that preserved shells must not duplicate layout roots inside slot templates', () => {
+    const skill = readRelativeText('../../../default-skills/cms-binding-apply/SKILL.md')
+    const shared = readRelativeText('../../../default-skills/cms-binding-apply/references/shared-authoring-rules.md')
+    const content = readRelativeText('../../../default-skills/cms-binding-apply/references/cms-content-authoring.md')
+
+    expect(skill).toContain("do not repeat that shell's layout root class")
+    expect(skill).toContain('`.gallery`')
+    expect(skill).toContain('`figure.gallery__item`')
+    expect(shared).toContain('## Shell-owned vs slot-owned layout roots')
+    expect(shared).toContain('Never keep the same layout root class in both the preserved shell and the slot template')
+    expect(shared).toContain('The outer grid treats the CMS runtime element as one grid item')
+    expect(shared).toContain('<div class="gallery">')
+    expect(shared).toContain('class="gallery__item"')
+    expect(content).toContain('full layout container only for slot-owned regions')
+    expect(content).toContain('omit the repeated layout container')
+  })
+
   test('keeps the main skill focused on the decision path and leaves layered details in references', () => {
     const skill = readRelativeText('../../../default-skills/cms-binding-apply/SKILL.md')
     const shared = readRelativeText('../../../default-skills/cms-binding-apply/references/shared-authoring-rules.md')

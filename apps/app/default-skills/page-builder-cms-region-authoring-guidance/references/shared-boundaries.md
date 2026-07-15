@@ -21,6 +21,7 @@ Use these rules for ordinary edits to an existing CMS region after the host alre
 - adjust the slot template structure
 - add guards for optional fields
 - preserve the compatible outer shell when it still matches the existing binding
+- When restyling or adjusting an existing CMS region, do not duplicate the existing layout root class inside the slot. If the existing shell owns `.gallery`, `.news-grid`, `.card-grid`, `ul`, `ol`, or similar layout classes, keep the slot focused on compatible child nodes unless the outer shell class is intentionally removed or neutralized.
 
 ## Changes That Must Escalate
 

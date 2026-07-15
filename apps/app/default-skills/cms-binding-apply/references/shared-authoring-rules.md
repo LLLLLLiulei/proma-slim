@@ -10,6 +10,7 @@ Use this file for the boundaries that apply to both `cms-catalog` and `cms-conte
 - The formal apply tool automatically generates the slot wrapper and declares the unified slot scope `{ items, loading, error, empty }`; write slot inner content that uses those fields.
 - Keep major HTML containers inside the slot when the current decision owns that region.
 - If the current decision preserves an existing outer shell, provide only compatible inner nodes, such as `li` items for an existing `ul` / `ol` shell.
+- If the current decision preserves an existing grid/list/gallery shell, do not repeat that shell's layout root class inside the slot.
 - CMS source ids must come from the confirmed CMS selection. Use positive integer strings such as `"16"`, `"257"`, not semantic aliases such as `news`, `root`, or `news-root`.
 - Keep Vue authoring inside the current `cms-*` source tag only.
 - Do not call undeclared project helpers. Slot expressions should use declared slot variables, supported item fields, guards, inline member expressions, and Vue-executable safe native globals such as `Date`, `Math`, and `JSON`; when a tool reports a helper/template error or your draft violates these expression boundaries, fix the template and retry.
@@ -65,6 +66,68 @@ This is the full authoring source generated after the tool runs. Do not pass the
 - If `targetSelection.kind === cms-island`, preserve the runtime locator tuple `htmlPath + sourceSelector + parentBlockSelector + component`.
 - Only the confirmed CMS browser selection flow may create a new `cms-catalog` / `cms-content` or rebind an existing one.
 - Ordinary page generation or ordinary page iteration must not invent new `cms-*` tags on their own.
+
+## Shell-owned vs slot-owned layout roots
+
+When the current decision preserves an existing outer shell, choose exactly one owner for the layout root.
+
+- Shell-owned layout: keep the existing layout class on the preserved shell, and put only compatible repeatable child nodes in the slot.
+- Slot-owned layout: put the full layout container inside the slot only when the preserved outer shell does not keep the same layout class.
+- Never keep the same layout root class in both the preserved shell and the slot template.
+
+For grid/list/gallery regions, classes such as `.gallery`, `.news-grid`, `.card-grid`, `.module-grid`, `.video-grid`, `.nav-list`, `ul`, `ol`, and `nav` are layout roots. Do not duplicate them across shell and slot.
+
+Before calling the apply tool, mentally compose the final DOM from the preserved shell, generated CMS source tag, and slot template. Verify that the same layout root class is not repeated at adjacent shell and slot levels.
+
+### Anti-pattern: duplicated gallery layout root
+
+Avoid this when the preserved shell already owns `.gallery`:
+
+```html
+<div class="gallery">
+  <cms-content site-id="14" catalog-id="16">
+    <template v-slot:default="{ items }">
+      <div class="gallery">
+        <figure v-for="item in items" :key="item.id" class="gallery__item">
+          <img v-if="item.listLogoUrl" :src="item.listLogoUrl" :alt="item.title">
+        </figure>
+      </div>
+    </template>
+  </cms-content>
+</div>
+```
+
+This duplicates `.gallery`. The outer grid treats the CMS runtime element as one grid item, and the inner grid is constrained inside that one item.
+
+Prefer repeatable child nodes when the shell owns the layout:
+
+```html
+<div class="gallery">
+  <cms-content site-id="14" catalog-id="16">
+    <template v-slot:default="{ items }">
+      <figure v-for="item in items" :key="item.id" class="gallery__item">
+        <img v-if="item.listLogoUrl" :src="item.listLogoUrl" :alt="item.title">
+      </figure>
+    </template>
+  </cms-content>
+</div>
+```
+
+If the slot must own the full gallery layout, the preserved outer shell must not keep the same layout class:
+
+```html
+<div class="gallery-shell">
+  <cms-content site-id="14" catalog-id="16">
+    <template v-slot:default="{ items }">
+      <div class="gallery">
+        <figure v-for="item in items" :key="item.id" class="gallery__item">
+          <img v-if="item.listLogoUrl" :src="item.listLogoUrl" :alt="item.title">
+        </figure>
+      </div>
+    </template>
+  </cms-content>
+</div>
+```
 
 ## Preserve the current target shell when compatible
 

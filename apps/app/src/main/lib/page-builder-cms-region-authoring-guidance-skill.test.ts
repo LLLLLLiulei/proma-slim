@@ -62,6 +62,16 @@ describe('page-builder cms region authoring guidance skill docs', () => {
     expect(content).toContain('Guard `item.listLogoUrl` before rendering an optional content list image')
   })
 
+  test('documents that ordinary edits must not duplicate an existing cms region layout root', () => {
+    const shared = readRelativeText('../../../default-skills/page-builder-cms-region-authoring-guidance/references/shared-boundaries.md')
+
+    expect(shared).toContain('do not duplicate the existing layout root class inside the slot')
+    expect(shared).toContain('`.gallery`')
+    expect(shared).toContain('`.news-grid`')
+    expect(shared).toContain('`.card-grid`')
+    expect(shared).toContain('compatible child nodes')
+  })
+
   test('documents canonical field usage and declarative anchor guidance for ordinary edits', () => {
     const catalog = readRelativeText('../../../default-skills/page-builder-cms-region-authoring-guidance/references/cms-catalog-existing-region.md')
     const content = readRelativeText('../../../default-skills/page-builder-cms-region-authoring-guidance/references/cms-content-existing-region.md')

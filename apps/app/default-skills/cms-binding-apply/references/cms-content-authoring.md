@@ -51,6 +51,7 @@ For date metadata, render `item.addedAt` directly, use a guarded member expressi
 ## Recipe: content-list
 
 Use this when the target block intent is `content-list`.
+The recipe examples include a full layout container only for slot-owned regions. If the apply decision preserves an existing outer shell such as `.gallery`, `.news-grid`, `.card-grid`, `ul`, or `ol`, omit the repeated layout container and return only compatible child nodes.
 
 ```html
 <cms-content site-id="14" catalog-id="16">
