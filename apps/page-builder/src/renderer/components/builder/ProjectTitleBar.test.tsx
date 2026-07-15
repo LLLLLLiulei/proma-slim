@@ -4,9 +4,9 @@ import { Provider, createStore } from 'jotai'
 import { useHydrateAtoms } from 'jotai/utils'
 import { act, create } from 'react-test-renderer'
 import type { AgentWorkspace } from '@ai-page-builder/shared'
+import { builderActiveTabAtom } from '@page-builder/atoms/builder-code-atoms'
 import { agentWorkspacesAtom } from '@/atoms/agent-atoms'
 import { api } from '@/lib/api'
-import { builderActiveTabAtom } from '@page-builder/atoms/builder-code-atoms'
 import { ProjectTitleBar } from './ProjectTitleBar'
 
 const originalUpdateWorkspace = api.updateWorkspace
@@ -46,17 +46,17 @@ function flattenElementText(node: React.ReactNode): string {
 }
 
 
-function findButtonByAriaLabel(renderer: ReturnType<typeof create>, label: string) {
-  return renderer.root.find((node) =>
-    node.type === 'button'
-    && node.props['aria-label'] === label,
-  )
-}
-
 function findButtonByText(renderer: ReturnType<typeof create>, label: string) {
   return renderer.root.find((node) =>
     node.type === 'button'
     && flattenElementText(node.props.children).trim() === label,
+  )
+}
+
+function findButtonByAriaLabel(renderer: ReturnType<typeof create>, label: string) {
+  return renderer.root.find((node) =>
+    node.type === 'button'
+    && node.props['aria-label'] === label,
   )
 }
 
@@ -100,7 +100,7 @@ describe('ProjectTitleBar', () => {
     expect(JSON.stringify(renderer.toJSON())).not.toContain('另存模板')
   })
 
-  test('updates the workspace name instead of touching session metadata', async () => {
+  test('updates the workspace name when project name editing is enabled', async () => {
     const store = createStore()
     const workspaces: AgentWorkspace[] = [{
       id: 'workspace-1',
@@ -204,6 +204,34 @@ describe('ProjectTitleBar', () => {
     })
     expect(onEditLockRejected).toHaveBeenCalledWith(editLockError)
     expect(store.get(agentWorkspacesAtom)[0]?.name).toBe('未命名项目')
+  })
+
+  test('keeps the workspace name read-only when project name editing is disabled', () => {
+    const store = createStore()
+    const workspaces: AgentWorkspace[] = [{
+      id: 'workspace-1',
+      name: 'CMS 专题',
+      slug: 'workspace-1',
+      template: 'page-builder',
+      createdAt: 1,
+      updatedAt: 1,
+    }]
+
+    const renderer = create(
+      <Provider store={store}>
+        <HydrateWorkspaces workspaces={workspaces}>
+          <ProjectTitleBar
+            projectNameEditable={false}
+            workspaceId="workspace-1"
+          />
+        </HydrateWorkspaces>
+      </Provider>,
+    )
+
+    expect(JSON.stringify(renderer.toJSON())).toContain('CMS 专题')
+    expect(renderer.root.findAll((node) =>
+      node.type === 'button' && node.props['aria-label'] === '编辑项目名'
+    )).toHaveLength(0)
   })
 
   test('hides project name and edit affordance when projectName is hidden', () => {

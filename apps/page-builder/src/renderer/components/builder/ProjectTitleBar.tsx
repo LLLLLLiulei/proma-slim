@@ -20,12 +20,14 @@ export function ProjectTitleBar({
   editingDisabled = false,
   hiddenToolbarItems: hiddenToolbarItemsInput,
   onEditLockRejected,
+  projectNameEditable = true,
   workspaceId,
 }: {
   editLock?: PageBuilderEditLockCredentials
   editingDisabled?: boolean
   hiddenToolbarItems?: readonly PageBuilderToolbarItemKey[] | null
   onEditLockRejected?: (error: unknown) => void
+  projectNameEditable?: boolean
   workspaceId: string
 }): React.ReactElement | null {
   const workspaces = useAtomValue(agentWorkspacesAtom)
@@ -66,6 +68,11 @@ export function ProjectTitleBar({
     if (showProjectName) return
     setEditing(false)
   }, [showProjectName])
+
+  React.useEffect(() => {
+    if (projectNameEditable) return
+    setEditing(false)
+  }, [projectNameEditable])
 
   if (!workspace) return null
   if (!showTabGroup && !showProjectName) return null
@@ -132,7 +139,7 @@ export function ProjectTitleBar({
         </div>
       ) : null}
       {showProjectName ? (
-        editing ? (
+        editing && projectNameEditable ? (
           <div className="ml-auto flex min-w-0 max-w-[60%] items-center gap-1.5">
             <input
               ref={inputRef}
@@ -171,20 +178,22 @@ export function ProjectTitleBar({
         ) : (
           <div className="ml-auto flex min-w-0 max-w-[60%] items-center justify-end gap-1.5">
             <span className="truncate text-sm font-medium text-foreground">{workspace.name}</span>
-            <button
-              aria-label="编辑项目名"
-              className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
-              disabled={editingDisabled}
-              onClick={() => {
-                if (editingDisabled) return
-                setDraftName(workspace.name)
-                setEditing(true)
-              }}
-              onMouseDown={(event) => event.preventDefault()}
-              type="button"
-            >
-              <Pencil className="size-3.5" />
-            </button>
+            {projectNameEditable ? (
+              <button
+                aria-label="编辑项目名"
+                className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+                disabled={editingDisabled}
+                onClick={() => {
+                  if (editingDisabled) return
+                  setDraftName(workspace.name)
+                  setEditing(true)
+                }}
+                onMouseDown={(event) => event.preventDefault()}
+                type="button"
+              >
+                <Pencil className="size-3.5" />
+              </button>
+            ) : null}
           </div>
         )
       ) : null}

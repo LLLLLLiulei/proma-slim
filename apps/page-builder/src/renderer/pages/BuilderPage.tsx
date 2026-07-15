@@ -1762,6 +1762,7 @@ export function BuilderPage({
             editingDisabled={!editingEnabled}
             hiddenToolbarItems={hiddenToolbarItems}
             onEditLockRejected={handlePageBuilderEditLockRejected}
+            projectNameEditable={builderSourceMode !== 'cms-integrated'}
             workspaceId={workspaceId}
           />
           <div className="min-h-0 flex-1 overflow-hidden bg-background/40">

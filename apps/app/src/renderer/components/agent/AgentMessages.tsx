@@ -162,17 +162,8 @@ export function shouldRenderTransientToolActivities({
   })
 }
 
-function EmptyState(): React.ReactElement {
-  return (
-    <div className="flex h-full items-center justify-center">
-      <div className="flex flex-col items-center gap-3 text-muted-foreground">
-        <div className={cn('size-12 rounded-full', FIXED_ASSISTANT_ICON_SHELL_CLASSNAME)}>
-          <Bot className="relative -top-px size-6" />
-        </div>
-        <p className="text-sm">在下方输入框开始使用 Agent</p>
-      </div>
-    </div>
-  )
+function EmptyState(): React.ReactElement | null {
+  return null
 }
 
 function AssistantLogo({ model }: { model?: string }): React.ReactElement {
